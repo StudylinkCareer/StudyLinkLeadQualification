@@ -59,6 +59,7 @@ async function uploadDocument(req, res, next) {
       },
       media: { mimeType, body: stream },
       fields: 'id, webViewLink',
+      supportsAllDrives: true,
     });
 
     const driveFileId = driveResponse.data.id;
@@ -68,6 +69,7 @@ async function uploadDocument(req, res, next) {
     await drive.permissions.create({
       fileId: driveFileId,
       requestBody: { role: 'reader', type: 'anyone' },
+      supportsAllDrives: true,
     });
 
     // Save metadata to PostgreSQL
