@@ -1,7 +1,7 @@
 // client/src/services/api.js
 // CHANGES: Added authAPI.checkLogin(), studentAPI.deactivateRecords()
 
-const API_BASE = import.meta.env.VITE_API_URL || "/api";
+const API_BASE = import.meta.env.VITE_API_URL || 'https://studylinkleadqualification-production.up.railway.app';
 
 async function request(method, endpoint, data) {
   const options = {
