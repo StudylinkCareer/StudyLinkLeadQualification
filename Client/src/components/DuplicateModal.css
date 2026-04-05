@@ -1,0 +1,133 @@
+/* client/src/components/DuplicateModal.css */
+/* NEW FILE — styles for duplicate detection popups */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  padding: 1rem;
+}
+
+.modal-card {
+  background: var(--bg-card, #fff);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  max-width: 480px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: var(--text-primary, #111);
+}
+
+.modal-message {
+  font-size: 0.9375rem;
+  color: var(--text-secondary, #555);
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
+.modal-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.modal-match-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-secondary, #f9fafb);
+}
+
+.modal-match-row--selectable {
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.modal-match-row--selectable:hover {
+  border-color: var(--primary, #2563eb);
+  background: var(--bg-hover, #f0f4ff);
+}
+
+.modal-match-row--selected {
+  border-color: var(--primary, #2563eb);
+  background: var(--bg-hover, #eff6ff);
+}
+
+.modal-match-row--inactive {
+  opacity: 0.7;
+}
+
+.modal-match-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-match-name {
+  font-weight: 500;
+  font-size: 0.9375rem;
+  color: var(--text-primary, #111);
+}
+
+.modal-match-detail {
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #555);
+  margin-top: 0.125rem;
+}
+
+.modal-match-meta {
+  font-size: 0.75rem;
+  color: var(--text-tertiary, #888);
+  margin-top: 0.25rem;
+}
+
+.modal-match-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 1rem;
+  white-space: nowrap;
+}
+
+.modal-match-status--active {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.modal-match-status--inactive {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.modal-hint {
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #555);
+  font-style: italic;
+  margin-bottom: 1rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.modal-actions .btn {
+  min-width: 100px;
+}

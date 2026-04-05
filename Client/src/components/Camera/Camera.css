@@ -1,0 +1,225 @@
+/* Camera Modal Overlay */
+.camera-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.camera-modal {
+  background: #fff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 400px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.camera-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.camera-header h3 {
+  font-size: 1.0625rem;
+  color: #1f2937;
+  margin: 0;
+}
+
+.camera-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #6b7280;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.25rem;
+}
+
+.camera-close-btn:hover {
+  color: #1f2937;
+}
+
+/* Viewfinder — QR scanner modal */
+.camera-viewfinder {
+  position: relative;
+  background: #000;
+  min-height: 280px;
+  overflow: hidden;
+}
+
+.camera-viewfinder #qr-reader {
+  width: 100%;
+}
+
+.camera-viewfinder #qr-reader video {
+  width: 100% !important;
+  border-radius: 0 !important;
+}
+
+/* Hide html5-qrcode built-in UI elements */
+#qr-reader__dashboard,
+#qr-reader__status_span,
+#qr-reader__header_message {
+  display: none !important;
+}
+
+/* Headshot viewfinder — square container with centered video */
+.headshot-viewfinder {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Live video — use object-fit:cover to fill square and center */
+.headshot-viewfinder .headshot-video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.headshot-viewfinder .headshot-preview-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+/* Mirror QR scanner video feeds */
+#qr-reader video,
+#qr-reader-inline video {
+  transform: scaleX(-1) !important;
+}
+
+/* Circular crop guide — centred in square viewfinder */
+.circular-crop-guide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(circle at 50% 50%, transparent 38%, rgba(0, 0, 0, 0.45) 39%);
+}
+
+/* Camera error message */
+.camera-error {
+  color: #dc2626;
+  font-size: 0.875rem;
+  padding: 0.5rem 1.25rem;
+  background: #fef2f2;
+}
+
+/* Camera hint text */
+.camera-hint {
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.8125rem;
+  padding: 0.75rem 1rem;
+}
+
+/* Camera action buttons */
+.camera-actions {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  justify-content: center;
+}
+
+.camera-capture-btn {
+  min-width: 120px;
+}
+
+/* QR post-scan platform picker */
+.qr-platform-picker {
+  padding: 1.25rem;
+}
+
+.qr-platform-picker p {
+  font-size: 0.9375rem;
+  color: #1f2937;
+  margin-bottom: 0.75rem;
+}
+
+.qr-platform-picker .qr-decoded-text {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  word-break: break-all;
+  background: #f3f4f6;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+}
+
+.qr-platform-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.qr-platform-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.qr-platform-btn:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+/* ============================================================
+   INLINE QR SCANNER — always-on, embedded, PORTRAIT layout
+   ============================================================ */
+.inline-qr-scanner {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  position: relative;
+}
+
+#qr-reader-inline {
+  width: 100% !important;
+}
+
+#qr-reader-inline video {
+  width: 100% !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+/* Hide html5-qrcode injected dashboard UI in inline scanner */
+#qr-reader-inline__dashboard,
+#qr-reader-inline__status_span,
+#qr-reader-inline__header_message {
+  display: none !important;
+}
+
+.inline-qr-loading {
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.8125rem;
+  padding: 2rem 1rem;
+}

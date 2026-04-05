@@ -1,0 +1,416 @@
+// client/src/pages/Home.jsx
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FiCamera } from 'react-icons/fi';
+import { useAuth } from '../hooks/useAuth';
+import { authAPI } from '../services/api';
+import HeadshotCapture from '../components/Camera/HeadshotCapture';
+import DuplicateModal from '../components/DuplicateModal';
+import { parseQrContent, isFacebookUrl } from '../utils/qrCodeParser';
+import { CONTACT_MEDIUMS, LOGIN_SOCIAL_MEDIUMS, VIETNAM_PROVINCES, COUNTRY_CODES, STUDY_PLANS } from '../utils/formFields';
+import { useLanguage } from '../contexts/LanguageContext';
+import { t } from '../i18n';
+import LanguageSelector from '../components/LanguageSelector';
+import '../components/DuplicateModal.css';
+
+function Home() {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading: authLoading, login, setStudentId, checkSession } = useAuth();
+  const { language } = useLanguage();
+
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+84');
+  const [phoneNumber, setPhoneNumber] = useState('0');
+  const [yearOfBirth, setYearOfBirth] = useState('');
+  const [placeOfResidence, setPlaceOfResidence] = useState('');
+  const [studyPlan, setStudyPlan] = useState('');
+  const [schoolEvent, setSchoolEvent] = useState('');
+  const [preferredSocial, setPreferredSocial] = useState('Zalo');
+  const [connectWithYou, setConnectWithYou] = useState('');
+  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
+
+  const [showHeadshot, setShowHeadshot] = useState(false);
+  const [headshotPreview, setHeadshotPreview] = useState(null);
+  const [pendingQrScan, setPendingQrScan] = useState(null);
+  const [lockoutUntil, setLockoutUntil] = useState(null);
+  const [pendingNav, setPendingNav] = useState(null);
+  const [duplicateModal, setDuplicateModal] = useState(null);
+
+  // Country code dropdown state
+  const [ccOpen, setCcOpen] = useState(false);
+  const [ccSearch, setCcSearch] = useState('');
+  const ccDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('studylink_lockout');
+    if (stored) {
+      const until = parseInt(stored, 10);
+      if (Date.now() < until) { setLockoutUntil(until); }
+      else { localStorage.removeItem('studylink_lockout'); }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pendingNav && isAuthenticated) {
+      navigate('/dashboard', { state: pendingNav, replace: true });
+      setPendingNav(null);
+    }
+  }, [pendingNav, isAuthenticated, navigate]);
+
+  // Close CC dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (ccDropdownRef.current && !ccDropdownRef.current.contains(e.target)) {
+        setCcOpen(false);
+        setCcSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredCC = COUNTRY_CODES.filter(
+    (c) =>
+      c.country.toLowerCase().includes(ccSearch.toLowerCase()) ||
+      c.code.includes(ccSearch)
+  );
+
+  const isLockedOut = lockoutUntil && Date.now() < lockoutUntil;
+
+  if (authLoading) {
+    return (
+      <div className="home-page">
+        <div className="home-header" />
+        <div className="home-card"><p>{t('loading', language)}</p></div>
+      </div>
+    );
+  }
+
+  const getExtraFields = () => ({ yearOfBirth, placeOfResidence, studyPlan, schoolEvent, preferredSocial, connectWithYou });
+
+  const sendOtpAndNavigate = async (mode, extraState = {}) => {
+    setLoadingMessage(t('sendingOtp', language));
+    try {
+      const otpResult = await authAPI.requestOTP(email);
+      const phone = `${phoneCountryCode} ${phoneNumber}`;
+      if (otpResult?.bypassed && otpResult?.code) {
+        setLoadingMessage(t('otpReceived', language));
+        await new Promise((r) => setTimeout(r, 800));
+        setLoadingMessage(t('verifying', language));
+        await new Promise((r) => setTimeout(r, 600));
+        const verifyResult = await authAPI.verifyOTP(email, otpResult.code, fullName, phone);
+        setLoadingMessage(t('redirecting', language));
+        await new Promise((r) => setTimeout(r, 400));
+        login(verifyResult.email, null, verifyResult.isCounselor);
+        const resolvedMode = verifyResult.isCounselor ? 'counselor' : mode;
+        setPendingNav({ email, phone, fullName, mode: resolvedMode, ...getExtraFields(), ...extraState });
+        return;
+      }
+      navigate('/verify', { state: { email, phone, fullName, mode, ...getExtraFields(), ...extraState } });
+    } catch (err) {
+      setError(err.message || t('otpFailed', language));
+    }
+  };
+
+  const handleLogin = async () => {
+    setError('');
+    setDuplicateModal(null);
+    const errors = {};
+    if (!fullName.trim())      errors.fullName = true;
+    if (!email.trim())         errors.email = true;
+    if (!phoneNumber.trim())   errors.phoneNumber = true;
+    if (!yearOfBirth.trim())   errors.yearOfBirth = true;
+    if (!schoolEvent.trim())   errors.schoolEvent = true;
+    if (!placeOfResidence)     errors.placeOfResidence = true;
+    if (!studyPlan)            errors.studyPlan = true;
+    if (!connectWithYou)       errors.connectWithYou = true;
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return setError(t('loginFieldsRequired', language));
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setFieldErrors({ email: true });
+      return setError(t('invalidEmail', language));
+    }
+    setFieldErrors({});
+    setLoading(true);
+    setLoadingMessage(t('checking', language));
+    try {
+      const phone = `${phoneCountryCode} ${phoneNumber}`;
+      const result = await authAPI.checkLogin(email.trim(), phone.trim(), fullName.trim());
+      const { scenario, matches, activeRecord } = result;
+      switch (scenario) {
+        case 'counselor': await sendOtpAndNavigate('counselor'); break;
+        case 'no_match': await sendOtpAndNavigate('create'); break;
+        case 'single_active': await sendOtpAndNavigate('change', { selectedRecordId: activeRecord.uniqueId }); break;
+        case 'conflict': setDuplicateModal({ scenario: 'conflict', matches }); break;
+        default: await sendOtpAndNavigate('create');
+      }
+    } catch (err) {
+      setError(err.message || t('loginCheckFailed', language));
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
+  const handleSelectRecord = async (selectedId) => {
+    const recordsToDeactivate = (duplicateModal?.matches || [])
+      .filter((m) => m.status === 'Active' && m.uniqueId !== selectedId)
+      .map((m) => m.uniqueId);
+    setDuplicateModal(null);
+    setLoading(true);
+    try {
+      await sendOtpAndNavigate('change', { selectedRecordId: selectedId, recordsToDeactivate });
+    } finally { setLoading(false); }
+  };
+
+  const navigateWithQr = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const result = await authAPI.qrLogin({ email: email.trim() || undefined });
+      await checkSession();
+      const safeEmail = (result.email && !result.email.includes('@studylink.temp')) ? result.email : '';
+      const phone = `${phoneCountryCode} ${phoneNumber}`;
+      setPendingNav({ email: safeEmail, phone, fullName, mode: 'create', ...getExtraFields() });
+    } catch (err) {
+      setError(err.message || t('qrLoginFailed', language));
+    } finally { setLoading(false); }
+  };
+
+  const finalizeQrAndNavigate = (medium, detail) => {
+    sessionStorage.setItem('studylink_qr_contact', JSON.stringify({ medium, detail }));
+    setPendingQrScan(null);
+    navigateWithQr();
+  };
+
+  const handlePlatformPick = (medium) => {
+    if (!pendingQrScan) return;
+    finalizeQrAndNavigate(medium, pendingQrScan.detail);
+  };
+
+  const handleDismissQrPicker = () => {
+    if (pendingQrScan) {
+      sessionStorage.setItem('studylink_qr_contact', JSON.stringify({ medium: null, detail: pendingQrScan.detail }));
+    }
+    setPendingQrScan(null);
+    navigateWithQr();
+  };
+
+  const isFbUrl = pendingQrScan && isFacebookUrl(pendingQrScan.detail);
+  const pickerMediums = isFbUrl ? CONTACT_MEDIUMS.filter((m) => m !== 'Messenger') : CONTACT_MEDIUMS;
+
+  return (
+    <div className="home-page">
+
+      {/* ── Red header ── */}
+      <div className="home-header">
+        <div className="home-headshot-circle" onClick={() => setShowHeadshot(true)} title={t('takePhoto', language)}>
+          {headshotPreview
+            ? <img src={headshotPreview} alt="Headshot" className="home-headshot-img" />
+            : <div className="home-headshot-placeholder"><FiCamera size={20} /></div>
+          }
+        </div>
+        <LanguageSelector />
+      </div>
+
+      {/* ── White card ── */}
+      <div className="home-card">
+
+        <div className="home-logo-circle">
+          <img src="/studylink-logo.png" alt="StudyLink" className="home-logo-img" />
+        </div>
+
+        <div className="home-logo">
+          <p className="home-subtitle">{t('appSubtitle', language)}</p>
+        </div>
+
+        <div className="home-tagline">
+          <span className="home-tagline-text">{t('appSubtitle', language)}</span>
+        </div>
+
+        <div className="home-form">
+
+          <div className="home-row">
+            <label className="home-row-label" htmlFor="fullName">{t('fullName', language)}<span className="home-mandatory">*</span></label>
+            <input id="fullName" className={`home-row-input${fieldErrors.fullName ? ' home-input--error' : ''}`} type="text"
+              value={fullName} onChange={(e) => { setFullName(e.target.value); setFieldErrors((p) => ({ ...p, fullName: false })); }}
+              placeholder={t('fullNamePlaceholder', language)} disabled={loading || isLockedOut} />
+          </div>
+
+          <div className="home-row">
+            <label className="home-row-label" htmlFor="email">{t('emailLabel', language)}<span className="home-mandatory">*</span></label>
+            <input id="email" className={`home-row-input${fieldErrors.email ? ' home-input--error' : ''}`} type="email"
+              value={email} onChange={(e) => { setEmail(e.target.value); setFieldErrors((p) => ({ ...p, email: false })); }}
+              placeholder={t('emailPlaceholder', language)} disabled={loading || isLockedOut} />
+          </div>
+
+          <div className="home-row">
+            <label className="home-row-label">{t('phoneLabel', language)}<span className="home-mandatory">*</span></label>
+            <div className={`home-phone-row${fieldErrors.phoneNumber ? ' home-input--error' : ''}`}>
+
+              {/* Custom country code dropdown — shows code in button, country+code in list */}
+              <div className="phone-country-wrapper" ref={ccDropdownRef}>
+                <button
+                  type="button"
+                  className="home-phone-code"
+                  onClick={() => !loading && !isLockedOut && setCcOpen(!ccOpen)}
+                  disabled={loading || isLockedOut}
+                >
+                  {phoneCountryCode} <span className="phone-country-arrow">▾</span>
+                </button>
+                {ccOpen && (
+                  <div className="phone-country-dropdown">
+                    <input
+                      className="phone-country-search"
+                      type="text"
+                      value={ccSearch}
+                      onChange={(e) => setCcSearch(e.target.value)}
+                      placeholder="Search country..."
+                      autoFocus
+                    />
+                    <ul className="phone-country-list">
+                      {filteredCC.map((c) => (
+                        <li
+                          key={`${c.country}-${c.code}`}
+                          className={`phone-country-option ${c.code === phoneCountryCode ? 'phone-country-option--selected' : ''}`}
+                          onClick={() => { setPhoneCountryCode(c.code); setCcOpen(false); setCcSearch(''); }}
+                        >
+                          <span className="phone-country-name">{c.country}</span>
+                          <span className="phone-country-code">{c.code}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <input className="home-row-input" type="tel" value={phoneNumber}
+                onChange={(e) => {
+                  let digits = e.target.value.replace(/\D/g, '');
+                  if (!digits.startsWith('0')) digits = '0' + digits.replace(/^0*/, '');
+                  if (digits === '') digits = '0';
+                  digits = digits.slice(0, 10);
+                  const formatted = digits.length > 3 ? digits.slice(0, 3) + ' ' + digits.slice(3) : digits;
+                  setPhoneNumber(formatted);
+                  setFieldErrors((p) => ({ ...p, phoneNumber: false }));
+                }}
+                placeholder="e.g. 098 1234567" disabled={loading || isLockedOut} />
+            </div>
+          </div>
+
+          <div className="home-row">
+            <label className="home-row-label" htmlFor="yearOfBirth">{t('yearOfBirth', language)}<span className="home-mandatory">*</span></label>
+            <input id="yearOfBirth" className={`home-row-input${fieldErrors.yearOfBirth ? ' home-input--error' : ''}`} type="text"
+              value={yearOfBirth} onChange={(e) => { setYearOfBirth(e.target.value); setFieldErrors((p) => ({ ...p, yearOfBirth: false })); }}
+              placeholder={t('yearOfBirthPlaceholder', language)} disabled={loading || isLockedOut} />
+          </div>
+
+          <div className="home-row">
+            <label className="home-row-label" htmlFor="schoolEvent">{t('schoolEventLabel', language)}<span className="home-mandatory">*</span></label>
+            <input id="schoolEvent" className={`home-row-input${fieldErrors.schoolEvent ? ' home-input--error' : ''}`} type="text"
+              value={schoolEvent} onChange={(e) => { setSchoolEvent(e.target.value); setFieldErrors((p) => ({ ...p, schoolEvent: false })); }}
+              placeholder={t('schoolEventPlaceholder', language)} disabled={loading || isLockedOut} />
+          </div>
+
+          <div className="home-row">
+            <label className="home-row-label" htmlFor="placeOfResidence">{t('placeOfResidence', language)}<span className="home-mandatory">*</span></label>
+            <select id="placeOfResidence" className={`home-row-input${fieldErrors.placeOfResidence ? ' home-input--error' : ''}`}
+              value={placeOfResidence} onChange={(e) => { setPlaceOfResidence(e.target.value); setFieldErrors((p) => ({ ...p, placeOfResidence: false })); }}
+              disabled={loading || isLockedOut}>
+              <option value="">{t('selectDefault', language)}</option>
+              {VIETNAM_PROVINCES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+
+          <div className="home-row">
+            <label className="home-row-label" htmlFor="studyPlan">{t('studyPlansLabel', language)}<span className="home-mandatory">*</span></label>
+            <select id="studyPlan" className={`home-row-input${fieldErrors.studyPlan ? ' home-input--error' : ''}`}
+              value={studyPlan} onChange={(e) => { setStudyPlan(e.target.value); setFieldErrors((p) => ({ ...p, studyPlan: false })); }}
+              disabled={loading || isLockedOut}>
+              <option value="">{t('selectDefault', language)}</option>
+              {STUDY_PLANS.map((value, i) => {
+                const labels = t('studyPlanOptions', language);
+                const label = Array.isArray(labels) ? labels[i] : value;
+                return <option key={value} value={value}>{label}</option>;
+              })}
+            </select>
+          </div>
+
+          <div className="home-row">
+            <label className="home-row-label" htmlFor="preferredSocial">{t('preferredSocial', language)}<span className="home-mandatory">*</span></label>
+            <select id="preferredSocial" className="home-row-input"
+              value={preferredSocial} onChange={(e) => setPreferredSocial(e.target.value)} disabled={loading || isLockedOut}>
+              {LOGIN_SOCIAL_MEDIUMS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+
+          <div className="home-row">
+            <label className="home-row-label">{t('connectWithYou', language)}<span className="home-mandatory">*</span></label>
+            <div className={`home-row-radios${fieldErrors.connectWithYou ? ' home-input--error' : ''}`}>
+              <label className="home-radio-label">
+                <input type="radio" name="connectWithYou" value="Yes"
+                  checked={connectWithYou === 'Yes'} onChange={() => { setConnectWithYou('Yes'); setFieldErrors((p) => ({ ...p, connectWithYou: false })); }}
+                  disabled={loading || isLockedOut} />{t('yes', language)}
+              </label>
+              <label className="home-radio-label">
+                <input type="radio" name="connectWithYou" value="No"
+                  checked={connectWithYou === 'No'} onChange={() => { setConnectWithYou('No'); setFieldErrors((p) => ({ ...p, connectWithYou: false })); }}
+                  disabled={loading || isLockedOut} />{t('no', language)}
+              </label>
+            </div>
+          </div>
+
+          {pendingQrScan && (
+            <div className="qr-platform-picker">
+              {isFbUrl && <div className="home-fb-notice">{t('fbNotice', language)}</div>}
+              <p>{t('qrScanned', language)}</p>
+              <div className="qr-decoded-text">{pendingQrScan.detail}</div>
+              <div className="qr-platform-buttons">
+                {pickerMediums.map((m) => (
+                  <button key={m} type="button" className="qr-platform-btn" onClick={() => handlePlatformPick(m)}>{m}</button>
+                ))}
+                <button type="button" className="qr-platform-btn" onClick={handleDismissQrPicker}>{t('skip', language)}</button>
+              </div>
+            </div>
+          )}
+
+          {isLockedOut && <div className="home-error">{t('lockedOut', language)}</div>}
+          {error && <div className="home-error">{error}</div>}
+          {loading && <div className="home-loading">{loadingMessage || t('connecting', language)}</div>}
+
+          <div className="home-actions">
+            <button className="btn btn--primary" onClick={handleLogin}
+              disabled={loading || isLockedOut} style={{ width: '100%' }}>
+              {loading ? loadingMessage : t('loginBtn', language)}
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {duplicateModal && (
+        <DuplicateModal
+          scenario={duplicateModal.scenario}
+          matches={duplicateModal.matches}
+          onSelectRecord={handleSelectRecord}
+          onCancel={() => setDuplicateModal(null)}
+        />
+      )}
+
+      <HeadshotCapture
+        isOpen={showHeadshot}
+        onCapture={(dataUrl) => { setShowHeadshot(false); setHeadshotPreview(dataUrl); sessionStorage.setItem('studylink_headshot', dataUrl); }}
+        onClose={() => setShowHeadshot(false)}
+      />
+    </div>
+  );
+}
+
+export default Home;
