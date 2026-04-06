@@ -1,5 +1,5 @@
 // server/src/services/driveService.js
-// Reads credentials from GOOGLE_SERVICE_ACCOUNT_JSON environment variable
+// Handles document upload and listing via Google Drive API (Shared Drive)
 
 const { google } = require('googleapis');
 const { Readable } = require('stream');
@@ -41,23 +41,31 @@ function getMimeType(fileName) {
 }
 
 async function getOrCreateStudentFolder(drive, studentId) {
-  const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const rootFolderId  = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const sharedDriveId = process.env.GOOGLE_SHARED_DRIVE_ID;
   if (!rootFolderId) throw new Error('GOOGLE_DRIVE_FOLDER_ID is not set');
 
+  // Search for existing student subfolder
   const search = await drive.files.list({
     q: `name='${studentId}' and '${rootFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
+    supportsAllDrives:          true,
+    includeItemsFromAllDrives:  true,
+    corpora:                    sharedDriveId ? 'drive' : 'user',
+    driveId:                    sharedDriveId || undefined,
   });
 
   if (search.data.files.length > 0) return search.data.files[0].id;
 
+  // Create student subfolder
   const folder = await drive.files.create({
     requestBody: {
       name:     studentId,
       mimeType: 'application/vnd.google-apps.folder',
       parents:  [rootFolderId],
     },
-    fields: 'id',
+    fields:            'id',
+    supportsAllDrives: true,
   });
 
   return folder.data.id;
@@ -83,12 +91,14 @@ async function uploadDocument(studentId, { fileName, type, description, fileData
   const uploaded = await drive.files.create({
     requestBody: { name: fileName, parents: [folderId] },
     media: { mimeType, body: Readable.from(fileBuffer) },
-    fields: 'id, name, webViewLink',
+    fields:            'id, name, webViewLink',
+    supportsAllDrives: true,
   });
 
   await drive.permissions.create({
-    fileId:      uploaded.data.id,
-    requestBody: { role: 'reader', type: 'anyone' },
+    fileId:            uploaded.data.id,
+    requestBody:       { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
   });
 
   const fileId    = uploaded.data.id;
