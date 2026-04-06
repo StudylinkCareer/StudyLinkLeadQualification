@@ -1,30 +1,40 @@
+// server/src/services/emailService.js
+// Sends OTP emails via Gmail OAuth2 using GOOGLE_SERVICE_ACCOUNT_JSON
+
 const nodemailer = require('nodemailer');
-const config = require('../config');
+
+function getServiceAccount() {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) return null;
+  try { return JSON.parse(raw); }
+  catch (e) { return null; }
+}
 
 async function sendOTPEmail(to, otp) {
-  // Dev fallback — if no private key configured, just log to console
-  if (!config.gmail.privateKey) {
+  const sa = getServiceAccount();
+
+  if (!sa || !sa.private_key) {
     console.log(`[DEV] OTP for ${to}: ${otp}`);
     return { success: true, mode: 'dev-console' };
   }
 
   const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
+    host:   'smtp.gmail.com',
+    port:   465,
     secure: true,
     auth: {
-      type: 'OAuth2',
-      user: config.gmail.fromEmail,        // info@studylink.org
-      serviceClient: config.gmail.clientId, // the numeric client_id
-      privateKey: config.gmail.privateKey,  // the private key from JSON
+      type:          'OAuth2',
+      user:          process.env.GMAIL_FROM_EMAIL,
+      serviceClient: sa.client_id,
+      privateKey:    sa.private_key,
     },
   });
 
   await transporter.sendMail({
-    from: `StudyLink <${config.gmail.fromEmail}>`,
+    from:    `StudyLink <${process.env.GMAIL_FROM_EMAIL}>`,
     to,
     subject: 'Your StudyLink verification code',
-    text: `Your verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you did not request this code, please ignore this email.`,
+    text:    `Your verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you did not request this code, please ignore this email.`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
         <h2 style="color: #333;">StudyLink Verification</h2>

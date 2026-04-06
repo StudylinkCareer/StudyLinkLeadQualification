@@ -1,9 +1,8 @@
 // server/src/services/driveService.js
-// Handles document upload and listing via Google Drive API
-// Uses the same service account as emailService (no extra credentials needed)
+// Reads credentials from GOOGLE_SERVICE_ACCOUNT_JSON environment variable
 
 const { google } = require('googleapis');
-const config = require('../config');
+const { Readable } = require('stream');
 
 const MIME_MAP = {
   doc:  'application/msword',
@@ -20,10 +19,18 @@ const MIME_MAP = {
   md:   'text/markdown',
 };
 
+function getServiceAccount() {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is not set');
+  try { return JSON.parse(raw); }
+  catch (e) { throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON'); }
+}
+
 function getAuthClient() {
+  const sa = getServiceAccount();
   return new google.auth.JWT({
-    email: config.gmail.serviceEmail,
-    key:   config.gmail.privateKey,
+    email:  sa.client_email,
+    key:    sa.private_key,
     scopes: ['https://www.googleapis.com/auth/drive'],
   });
 }
@@ -33,26 +40,22 @@ function getMimeType(fileName) {
   return MIME_MAP[ext] || 'application/octet-stream';
 }
 
-// Get or create a subfolder for the student inside the root StudyLink Documents folder
 async function getOrCreateStudentFolder(drive, studentId) {
-  const rootFolderId = config.drive.rootFolderId;
+  const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  if (!rootFolderId) throw new Error('GOOGLE_DRIVE_FOLDER_ID is not set');
 
-  // Search for existing folder
   const search = await drive.files.list({
     q: `name='${studentId}' and '${rootFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
   });
 
-  if (search.data.files.length > 0) {
-    return search.data.files[0].id;
-  }
+  if (search.data.files.length > 0) return search.data.files[0].id;
 
-  // Create new folder
   const folder = await drive.files.create({
     requestBody: {
-      name: studentId,
+      name:     studentId,
       mimeType: 'application/vnd.google-apps.folder',
-      parents: [rootFolderId],
+      parents:  [rootFolderId],
     },
     fields: 'id',
   });
@@ -64,41 +67,32 @@ async function uploadDocument(studentId, { fileName, type, description, fileData
   const auth  = getAuthClient();
   const drive = google.drive({ version: 'v3', auth });
 
-  // Parse base64 data URL
-  let mimeType = getMimeType(fileName);
+  let mimeType      = getMimeType(fileName);
   let base64Content = fileData;
 
   if (fileData.startsWith('data:')) {
     const semiIdx  = fileData.indexOf(';');
     const commaIdx = fileData.indexOf(',');
-    if (semiIdx > 0)  mimeType     = fileData.substring(5, semiIdx);
+    if (semiIdx > 0)  mimeType      = fileData.substring(5, semiIdx);
     if (commaIdx > 0) base64Content = fileData.substring(commaIdx + 1);
   }
 
   const fileBuffer = Buffer.from(base64Content, 'base64');
   const folderId   = await getOrCreateStudentFolder(drive, studentId);
 
-  // Upload file to Drive
   const uploaded = await drive.files.create({
-    requestBody: {
-      name:    fileName,
-      parents: [folderId],
-    },
-    media: {
-      mimeType,
-      body: require('stream').Readable.from(fileBuffer),
-    },
+    requestBody: { name: fileName, parents: [folderId] },
+    media: { mimeType, body: Readable.from(fileBuffer) },
     fields: 'id, name, webViewLink',
   });
 
-  // Make file viewable by anyone with the link
   await drive.permissions.create({
     fileId:      uploaded.data.id,
     requestBody: { role: 'reader', type: 'anyone' },
   });
 
-  const fileId  = uploaded.data.id;
-  const viewUrl = `https://drive.google.com/file/d/${fileId}/view`;
+  const fileId    = uploaded.data.id;
+  const viewUrl   = `https://drive.google.com/file/d/${fileId}/view`;
   const folderUrl = `https://drive.google.com/drive/folders/${folderId}`;
 
   return { fileId, viewUrl, folderUrl, fileName, type, description };
@@ -110,9 +104,7 @@ async function getFolderUrl(studentId) {
     const drive = google.drive({ version: 'v3', auth });
     const folderId = await getOrCreateStudentFolder(drive, studentId);
     return `https://drive.google.com/drive/folders/${folderId}`;
-  } catch {
-    return '';
-  }
+  } catch { return ''; }
 }
 
 module.exports = { uploadDocument, getFolderUrl };
