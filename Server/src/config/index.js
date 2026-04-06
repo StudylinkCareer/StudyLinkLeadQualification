@@ -17,8 +17,12 @@ module.exports = {
     maxAge: parseInt(process.env.SESSION_MAX_AGE || '86400000', 10),
   },
   gmail: {
-    clientId: process.env.GMAIL_CLIENT_ID || '',
-    privateKey: (process.env.GMAIL_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-    fromEmail: process.env.GMAIL_FROM_EMAIL || '',
+    clientId:     process.env.GMAIL_CLIENT_ID     || '',
+    serviceEmail: process.env.GMAIL_SERVICE_EMAIL || '',
+    privateKey:   (process.env.GMAIL_PRIVATE_KEY  || '').replace(/\\n/g, '\n'),
+    fromEmail:    process.env.GMAIL_FROM_EMAIL     || '',
+  },
+  drive: {
+    rootFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
   },
 };
