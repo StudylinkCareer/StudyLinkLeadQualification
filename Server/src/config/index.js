@@ -25,4 +25,9 @@ module.exports = {
   drive: {
     rootFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
   },
+
+    gas: {
+    sendOtpUrl: process.env.GAS_SEND_OTP_URL || '',
+    sheetsUrl:  process.env.GAS_SHEETS_URL    || '',
+  },
 };
