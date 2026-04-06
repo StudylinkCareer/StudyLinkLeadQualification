@@ -136,6 +136,8 @@ dist
 .pnp.*
 
 .env
-*.json
 node_modules/
 
+LeadManagement/node_modules/
+LeadManagement/.env.production
+leadqualification-492506-b2fe43e9a264.json
