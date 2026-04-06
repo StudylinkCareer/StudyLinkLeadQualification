@@ -16,4 +16,9 @@ module.exports = {
     secret: sessionSecret,
     maxAge: parseInt(process.env.SESSION_MAX_AGE || '86400000', 10),
   },
+  gmail: {
+    clientId: process.env.GMAIL_CLIENT_ID || '',
+    privateKey: (process.env.GMAIL_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+    fromEmail: process.env.GMAIL_FROM_EMAIL || '',
+  },
 };
