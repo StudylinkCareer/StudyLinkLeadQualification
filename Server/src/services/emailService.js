@@ -1,6 +1,10 @@
 // server/src/services/emailService.js
 const nodemailer = require('nodemailer');
+const dns = require('dns');
 const config = require('../config');
+
+// Force IPv4 — Railway does not support IPv6 outbound
+dns.setDefaultResultOrder('ipv4first');
 
 async function sendOTPEmail(to, otp) {
   if (!config.gmail.privateKey) {
@@ -12,7 +16,6 @@ async function sendOTPEmail(to, otp) {
     host:   'smtp.gmail.com',
     port:   465,
     secure: true,
-    family: 4, // Force IPv4 — Railway does not support IPv6
     auth: {
       type:          'OAuth2',
       user:          config.gmail.fromEmail,
