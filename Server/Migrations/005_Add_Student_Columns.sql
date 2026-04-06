@@ -1,0 +1,4 @@
+ALTER TABLE students ADD COLUMN IF NOT EXISTS counselor        TEXT DEFAULT '';
+ALTER TABLE students ADD COLUMN IF NOT EXISTS senior_counselor TEXT DEFAULT '';
+ALTER TABLE students ADD COLUMN IF NOT EXISTS presales         TEXT DEFAULT '';
+ALTER TABLE students ADD COLUMN IF NOT EXISTS marketing_staff  TEXT DEFAULT '';
