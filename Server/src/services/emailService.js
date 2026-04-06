@@ -1,6 +1,4 @@
 // server/src/services/emailService.js
-// Sends OTP emails via Gmail OAuth2 using individual GMAIL_* env variables
-
 const nodemailer = require('nodemailer');
 const config = require('../config');
 
@@ -14,6 +12,7 @@ async function sendOTPEmail(to, otp) {
     host:   'smtp.gmail.com',
     port:   465,
     secure: true,
+    family: 4, // Force IPv4 — Railway does not support IPv6
     auth: {
       type:          'OAuth2',
       user:          config.gmail.fromEmail,
