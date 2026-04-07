@@ -36,7 +36,7 @@ export const staffAPI = {
 
 // ── Students ──
 export const studentAPI = {
-  search: (q) => request('GET', `/api/students/search?q=${encodeURIComponent(q || '')}`),
+  search: (q) => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
   get:    (id) => request('GET', `/api/students/${id}`),
   update: (id, data) => request('PUT', `/api/students/${id}`, data),
 };
@@ -46,10 +46,4 @@ export const notesAPI = {
   list:   (studentId)                    => request('GET',    `/api/notes/${studentId}`),
   add:    (studentId, noteType, content) => request('POST',   `/api/notes/${studentId}`, { noteType, content }),
   delete: (id)                           => request('DELETE', `/api/notes/${id}`),
-};
-
-export const studentAPI = {
-  search: (q) => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
-  get:    (id) => request('GET', `/api/students/${id}`),
-  update: (id, data) => request('PUT', `/api/students/${id}`, data),
 };
