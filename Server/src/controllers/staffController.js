@@ -205,7 +205,7 @@ async function searchStudents(req, res, next) {
     let params;
 
     if (!q || q.trim() === '') {
-      query = `SELECT * FROM students ORDER BY "createdAt" DESC NULLS LAST`;
+      query = `SELECT * FROM students ORDER BY "created_at" DESC NULLS LAST`;
       params = [];
     } else {
       const search = '%' + q.replace(/\*/g, '%').toLowerCase() + '%';
@@ -213,7 +213,7 @@ async function searchStudents(req, res, next) {
         LOWER("fullName") LIKE $1 OR
         LOWER(email) LIKE $1 OR
         phone LIKE $1
-        ORDER BY "createdAt" DESC NULLS LAST`;
+        ORDER BY created_at DESC NULLS LAST`;
       params = [search];
     }
 
