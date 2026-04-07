@@ -33,17 +33,19 @@ router.post('/login',   staffCtrl.login);
 router.post('/logout',  requireStaffAuth, staffCtrl.logout);
 router.get('/session',  staffCtrl.checkSession);
 
-// ── Staff management routes (Admin only) ──
+// ── Student routes ──
+router.get('/students/search',       requireStaffAuth,                         staffCtrl.searchStudents);
+router.get('/students/:id',          requireStaffAuth,                         staffCtrl.getStudent);
+
+// ── Staff management and Assignment routes (Admin only) ──
 router.get('/',                      requireStaffAuth, requireAdmin,           staffCtrl.listStaff);
 router.get('/active',                requireStaffAuth,                          staffCtrl.listActiveStaff);
 router.post('/',                     requireStaffAuth, requireAdmin,           staffCtrl.createStaff);
+router.put('/assign/:studentId',     requireStaffAuth, requireAdminOrManager,  staffCtrl.assignStaff);
+router.put('/mass-assign',           requireStaffAuth, requireAdminOrManager,  staffCtrl.massAssign);
 router.put('/:id',                   requireStaffAuth, requireAdmin,           staffCtrl.updateStaff);
 router.put('/:id/password',          requireStaffAuth, requireAdmin,           staffCtrl.resetPassword);
 router.put('/:id/deactivate',        requireStaffAuth, requireAdmin,           staffCtrl.deactivateStaff);
-router.get('/students/search',       requireStaffAuth,                         staffCtrl.searchStudents);
 
-// ── Assignment routes ──
-router.put('/assign/:studentId',     requireStaffAuth, requireAdminOrManager,  staffCtrl.assignStaff);
-router.put('/mass-assign',           requireStaffAuth, requireAdminOrManager,  staffCtrl.massAssign);
 
 module.exports = router;

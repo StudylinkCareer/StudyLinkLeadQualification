@@ -234,8 +234,34 @@ async function searchStudents(req, res, next) {
       params = [];
     } else {
       const search = '%' + q.replace(/\*/g, '%').toLowerCase() + '%';
-      query = `SELECT * FROM students WHERE
-        LOWER("fullName") LIKE $1 OR
+
+      query = `SELECT 
+        unique_id AS "uniqueId",
+        full_name AS "fullName",
+        email,
+        phone,
+        lead_source AS "leadSource",
+        interaction,
+        study_plans AS "studyPlans",
+        destination_country AS "destinationCountry",
+        timeline,
+        english_level AS "englishLevel",
+        gpa,
+        preferred_social AS "preferredSocial",
+        school_event AS "schoolEvent",
+        stone_tier AS "stoneTier",
+        risk_score AS "riskScore",
+        counselor,
+        senior_counselor,
+        presales,
+        marketing_staff,
+        lead_status AS "leadStatus",
+        close_date,
+        confidence,
+        created_at AS "createdAt",
+        status
+        FROM students WHERE
+        LOWER(full_name) LIKE $1 OR
         LOWER(email) LIKE $1 OR
         phone LIKE $1
         ORDER BY created_at DESC NULLS LAST`;
@@ -255,8 +281,72 @@ async function searchStudents(req, res, next) {
   }
 }
 
+async function getStudent(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+    const result = await pool.query(
+      `SELECT * FROM students WHERE unique_id = $1`,
+      [id]
+    );
+    await pool.end();
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+    res.json({ success: true, data: mapToCamelCase(result.rows[0]) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+function mapToCamelCase(row) {
+  return {
+    uniqueId:            row.unique_id,
+    fullName:            row.full_name,
+    email:               row.email,
+    phone:               row.phone,
+    leadSource:          row.lead_source,
+    interaction:         row.interaction,
+    studyPlans:          row.study_plans,
+    destinationCountry:  row.destination_country,
+    timeline:            row.timeline,
+    englishLevel:        row.english_level,
+    gpa:                 row.gpa,
+    preferredSocial:     row.preferred_social,
+    schoolEvent:         row.school_event,
+    stoneTier:           row.stone_tier,
+    riskScore:           row.risk_score,
+    counselor:           row.counselor,
+    seniorCounselor:     row.senior_counselor,
+    presales:            row.presales,
+    marketingStaff:      row.marketing_staff,
+    leadStatus:          row.lead_status,
+    closeDate:           row.close_date,
+    confidence:          row.confidence,
+    createdAt:           row.created_at,
+    status:              row.status,
+    budget:              row.budget,
+    scholarshipDemand:   row.scholarship_demand,
+    immigrationHistory:  row.immigration_history,
+    sponsorIncome:       row.sponsor_income,
+    incomeEvidence:      row.income_evidence,
+    studyPlanGap:        row.study_plan_gap,
+    ultimateObjective:   row.ultimate_objective,
+    counselingNotes:     row.counseling_notes,
+    caseOfficerNotes:    row.case_officer_notes,
+    managementNotes:     row.management_notes,
+    headshotUrl:         row.headshot_url,
+    yearOfBirth:         row.year_of_birth,
+    residency:           row.residency,
+  };
+}
+
 module.exports = {
   login, logout, checkSession,
   listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
-  assignStaff, massAssign, searchStudents,
+  assignStaff, massAssign, searchStudents, getStudent,
 };
