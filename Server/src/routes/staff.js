@@ -48,4 +48,8 @@ router.put('/:id/password',          requireStaffAuth, requireAdmin,           s
 router.put('/:id/deactivate',        requireStaffAuth, requireAdmin,           staffCtrl.deactivateStaff);
 
 
-module.exports = router;
+module.exports = {
+  login, logout, checkSession,
+  listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
+  assignStaff, massAssign, searchStudents, getStudent,
+};
