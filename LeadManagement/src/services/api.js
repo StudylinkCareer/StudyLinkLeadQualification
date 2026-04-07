@@ -57,3 +57,9 @@ export const notesAPI = {
   add:    (studentId, noteType, content) => request('POST',   `/api/notes/${studentId}`, { noteType, content }),
   delete: (id)                           => request('DELETE', `/api/notes/${id}`),
 };
+
+// ── Column Config ──
+export const columnConfigAPI = {
+  get:  (screen)         => request('GET', `/api/staff/column-config/${screen}`),
+  save: (screen, config) => request('PUT', `/api/staff/column-config/${screen}`, { config }),
+};

@@ -38,6 +38,10 @@
   router.get('/students/:id',          requireStaffAuth,                         staffCtrl.getStudent);
   router.put('/students/:id',          requireStaffAuth,                         staffCtrl.updateStudent);
 
+  // ── Column config ──
+  router.get('/column-config/:screen',  requireStaffAuth,                          staffCtrl.getColumnConfig);
+  router.put('/column-config/:screen',  requireStaffAuth, requireAdmin,            staffCtrl.saveColumnConfig);
+
   // ── Staff management and Assignment routes (Admin only) ──
   router.get('/',                      requireStaffAuth, requireAdmin,           staffCtrl.listStaff);
   router.get('/active',                requireStaffAuth,                          staffCtrl.listActiveStaff);

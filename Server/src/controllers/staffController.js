@@ -312,8 +312,62 @@ async function updateStudent(req, res, next) {
   }
 }
 
+// ── Column Config ─────────────────────────────────────────────
+async function getColumnConfig(req, res, next) {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+
+    const { screen } = req.params;
+    const result = await pool.query(
+      `SELECT config FROM column_config WHERE screen = $1`,
+      [screen]
+    );
+    await pool.end();
+
+    if (result.rows.length === 0) {
+      return res.json({ success: true, data: null }); // No config yet — frontend uses defaults
+    }
+
+    res.json({ success: true, data: result.rows[0].config });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function saveColumnConfig(req, res, next) {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+
+    const { screen } = req.params;
+    const config = req.body.config;
+    const updatedBy = req.session.staffName;
+
+    await pool.query(
+      `INSERT INTO column_config (screen, config, updated_by, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (screen) DO UPDATE
+       SET config = $2, updated_by = $3, updated_at = NOW()`,
+      [screen, JSON.stringify(config), updatedBy]
+    );
+    await pool.end();
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   login, logout, checkSession,
   listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
   assignStaff, massAssign, searchStudents, getStudent, updateStudent,
+  getColumnConfig, saveColumnConfig,
 };
