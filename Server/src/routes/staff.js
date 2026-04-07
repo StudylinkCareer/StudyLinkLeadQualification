@@ -40,6 +40,7 @@ router.post('/',                     requireStaffAuth, requireAdmin,           s
 router.put('/:id',                   requireStaffAuth, requireAdmin,           staffCtrl.updateStaff);
 router.put('/:id/password',          requireStaffAuth, requireAdmin,           staffCtrl.resetPassword);
 router.put('/:id/deactivate',        requireStaffAuth, requireAdmin,           staffCtrl.deactivateStaff);
+router.get('/students/search',       requireStaffAuth,                         staffCtrl.searchStudents);
 
 // ── Assignment routes ──
 router.put('/assign/:studentId',     requireStaffAuth, requireAdminOrManager,  staffCtrl.assignStaff);

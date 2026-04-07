@@ -198,8 +198,40 @@ async function massAssign(req, res, next) {
   }
 }
 
+async function searchStudents(req, res, next) {
+  try {
+    const { q } = req.query;
+    let query;
+    let params;
+
+    if (!q || q.trim() === '') {
+      query = `SELECT * FROM students ORDER BY "createdAt" DESC NULLS LAST`;
+      params = [];
+    } else {
+      const search = '%' + q.replace(/\*/g, '%').toLowerCase() + '%';
+      query = `SELECT * FROM students WHERE
+        LOWER("fullName") LIKE $1 OR
+        LOWER(email) LIKE $1 OR
+        phone LIKE $1
+        ORDER BY "createdAt" DESC NULLS LAST`;
+      params = [search];
+    }
+
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+    const result = await pool.query(query, params);
+    await pool.end();
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   login, logout, checkSession,
   listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
-  assignStaff, massAssign,
+  assignStaff, massAssign, searchStudents,
 };
