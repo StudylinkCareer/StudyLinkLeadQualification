@@ -2,20 +2,19 @@
 
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const { objectToCamelCase } = require('../utils/caseConvert');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-
-
 async function findAll() {
   const result = await pool.query(
     `SELECT id, full_name, email, position, role, is_active, created_at
      FROM staff ORDER BY full_name ASC`
   );
-  return result.rows;
+  return result.rows.map(objectToCamelCase);
 }
 
 async function findById(id) {
@@ -24,7 +23,7 @@ async function findById(id) {
      FROM staff WHERE id = $1`,
     [id]
   );
-  return result.rows[0] || null;
+  return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
 }
 
 async function findByEmail(email) {
@@ -32,6 +31,9 @@ async function findByEmail(email) {
     `SELECT * FROM staff WHERE email = $1`,
     [email.toLowerCase()]
   );
+  // NOTE: intentionally returns raw row — staffController.login needs
+  // snake_case fields (is_active, password_hash, full_name) for its own
+  // logic before the session is set. Do not convert here.
   return result.rows[0] || null;
 }
 
@@ -41,7 +43,7 @@ async function findActiveByRole(role) {
      FROM staff WHERE role = $1 AND is_active = true ORDER BY full_name ASC`,
     [role]
   );
-  return result.rows;
+  return result.rows.map(objectToCamelCase);
 }
 
 async function findAllActive() {
@@ -49,7 +51,7 @@ async function findAllActive() {
     `SELECT id, full_name, email, position, role
      FROM staff WHERE is_active = true ORDER BY full_name ASC`
   );
-  return result.rows;
+  return result.rows.map(objectToCamelCase);
 }
 
 async function create({ fullName, email, position, role, password }) {
@@ -60,7 +62,7 @@ async function create({ fullName, email, position, role, password }) {
      RETURNING id, full_name, email, position, role, is_active, created_at`,
     [fullName, email.toLowerCase(), position, role, passwordHash]
   );
-  return result.rows[0];
+  return objectToCamelCase(result.rows[0]);
 }
 
 async function update(id, { fullName, email, position, role, isActive }) {
@@ -75,7 +77,7 @@ async function update(id, { fullName, email, position, role, isActive }) {
      RETURNING id, full_name, email, position, role, is_active, created_at`,
     [fullName, email ? email.toLowerCase() : null, position, role, isActive, id]
   );
-  return result.rows[0] || null;
+  return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
 }
 
 async function updatePassword(id, newPassword) {
@@ -97,7 +99,7 @@ async function deactivate(id) {
      RETURNING id, full_name, email, position, role, is_active`,
     [id]
   );
-  return result.rows[0] || null;
+  return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
 }
 
 module.exports = {

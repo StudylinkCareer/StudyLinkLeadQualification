@@ -1,5 +1,9 @@
 require('dotenv').config();
 const pool = require('../services/db');
+const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
+
+// ── System fields that should never be set via update() ─────────────────────
+const READONLY_FIELDS = new Set(['uniqueId', 'createdAt', 'updatedAt']);
 
 // ── ID generation: yyyymmddnnn ───────────────────────────────────────────────
 async function generateUniqueId() {
@@ -23,74 +27,6 @@ async function generateUniqueId() {
     if (!isNaN(lastSeq)) seq = lastSeq + 1;
   }
   return `${prefix}${String(seq).padStart(3, '0')}`;
-}
-
-// ── Field map: camelCase → snake_case ────────────────────────────────────────
-const FIELD_MAP = {
-  uniqueId:               'unique_id',
-  fullName:               'full_name',
-  contactMedium1:         'contact_medium1',
-  phoneCountryCode1:      'phone_country_code1',
-  contactDetail1:         'contact_detail1',
-  contactMedium2:         'contact_medium2',
-  phoneCountryCode2:      'phone_country_code2',
-  contactDetail2:         'contact_detail2',
-  email:                  'email',
-  hiddenPhoneCountryCode: 'hidden_phone_country_code',
-  phone:                  'phone',
-  studyPlans:             'study_plans',
-  leadSource:             'lead_source',
-  interaction:            'interaction',
-  destinationCountry:     'destination_country',
-  timeline:               'timeline',
-  processApplication:     'process_application',
-  residency:              'residency',
-  yearOfBirth:            'year_of_birth',
-  preferredSocial:        'preferred_social',
-  socialConsent:          'social_consent',
-  schoolEvent:            'school_event',
-  budget:                 'budget',
-  scholarshipDemand:      'scholarship_demand',
-  englishLevel:           'english_level',
-  gpa:                    'gpa',
-  immigrationHistory:     'immigration_history',
-  sponsorIncome:          'sponsor_income',
-  incomeEvidence:         'income_evidence',
-  studyPlanGap:           'study_plan_gap',
-  ultimateObjective:      'ultimate_objective',
-  riskScore:              'risk_score',
-  stoneTier:              'stone_tier',
-  headshotUrl:            'headshot_url',
-  qrCodeImageUrl:         'qr_code_image_url',
-  motherEmail:            'mother_email',
-  motherFullName:         'mother_full_name',
-  motherPhoneCountryCode: 'mother_phone_country_code',
-  motherPhone:            'mother_phone',
-  motherContactMedium:    'mother_contact_medium',
-  motherContactCC:        'mother_contact_cc',
-  motherContactDetail:    'mother_contact_detail',
-  fatherEmail:            'father_email',
-  fatherFullName:         'father_full_name',
-  fatherPhoneCountryCode: 'father_phone_country_code',
-  fatherPhone:            'father_phone',
-  fatherContactMedium:    'father_contact_medium',
-  fatherContactCC:        'father_contact_cc',
-  fatherContactDetail:    'father_contact_detail',
-  counselingNotes:        'counseling_notes',
-  caseOfficerNotes:       'case_officer_notes',
-  managementNotes:        'management_notes',
-  createdAt:              'created_at',
-  updatedAt:              'updated_at',
-  status:                 'status',
-};
-
-// ── Convert DB row → camelCase ───────────────────────────────────────────────
-function toCamelCase(row) {
-  const result = {};
-  for (const [camel, snake] of Object.entries(FIELD_MAP)) {
-    result[camel] = row[snake] ?? '';
-  }
-  return result;
 }
 
 // ── create ───────────────────────────────────────────────────────────────────
@@ -142,7 +78,7 @@ async function create(data) {
   const result = await pool.query(
     'SELECT * FROM students WHERE unique_id = $1', [uniqueId]
   );
-  return toCamelCase(result.rows[0]);
+  return objectToCamelCase(result.rows[0]);
 }
 
 // ── findById ─────────────────────────────────────────────────────────────────
@@ -151,7 +87,7 @@ async function findById(uniqueId) {
     'SELECT * FROM students WHERE unique_id = $1', [uniqueId]
   );
   if (result.rows.length === 0) return null;
-  return { data: toCamelCase(result.rows[0]) };
+  return { data: objectToCamelCase(result.rows[0]) };
 }
 
 // ── findByEmail ──────────────────────────────────────────────────────────────
@@ -160,7 +96,7 @@ async function findByEmail(email) {
     'SELECT * FROM students WHERE email = $1', [email]
   );
   if (result.rows.length === 0) return null;
-  return { data: toCamelCase(result.rows[0]) };
+  return { data: objectToCamelCase(result.rows[0]) };
 }
 
 // ── update ───────────────────────────────────────────────────────────────────
@@ -173,18 +109,15 @@ async function update(uniqueId, data) {
   let i = 1;
 
   for (const key of Object.keys(data)) {
-    // Skip system fields
-    if (key === 'uniqueId' || key === 'createdAt' || key === 'updatedAt') continue;
-    // Skip fields not in our field map
-    const col = FIELD_MAP[key];
-    if (!col || col === 'unique_id' || col === 'created_at' || col === 'updated_at') continue;
+    // Skip read-only system fields
+    if (READONLY_FIELDS.has(key)) continue;
 
     let value = data[key];
     if (key === 'destinationCountry' && Array.isArray(value)) {
       value = value.join(', ');
     }
 
-    fields.push(`${col} = $${i}`);
+    fields.push(`${toSnakeCase(key)} = $${i}`);
     values.push(value ?? '');
     i++;
   }
@@ -204,7 +137,7 @@ async function update(uniqueId, data) {
   const result = await pool.query(
     'SELECT * FROM students WHERE unique_id = $1', [uniqueId]
   );
-  return toCamelCase(result.rows[0]);
+  return objectToCamelCase(result.rows[0]);
 }
 
 // ── checkDuplicates ──────────────────────────────────────────────────────────
@@ -215,7 +148,7 @@ async function checkDuplicates(email, phone) {
         OR (phone = $2 AND phone != '')`,
     [email || '', phone || '']
   );
-  return result.rows.map(toCamelCase);
+  return result.rows.map(objectToCamelCase);
 }
 
 // ── deactivateRecords ────────────────────────────────────────────────────────
@@ -280,7 +213,7 @@ async function searchStudents(query) {
      ORDER BY created_at DESC`,
     [q]
   );
-  return result.rows.map(toCamelCase);
+  return result.rows.map(objectToCamelCase);
 }
 
 module.exports = {

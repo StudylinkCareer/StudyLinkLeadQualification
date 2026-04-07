@@ -1,6 +1,7 @@
 // server/src/models/StudentNote.js
 
 const { Pool } = require('pg');
+const { objectToCamelCase } = require('../utils/caseConvert');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -14,7 +15,7 @@ async function create({ studentId, noteType, content, authorId, authorName }) {
      RETURNING *`,
     [studentId, noteType, content, authorId, authorName]
   );
-  return result.rows[0];
+  return objectToCamelCase(result.rows[0]);
 }
 
 async function listByStudent(studentId) {
@@ -24,7 +25,7 @@ async function listByStudent(studentId) {
      ORDER BY created_at DESC`,
     [studentId]
   );
-  return result.rows;
+  return result.rows.map(objectToCamelCase);
 }
 
 async function listByStudentAndType(studentId, noteType) {
@@ -34,7 +35,7 @@ async function listByStudentAndType(studentId, noteType) {
      ORDER BY created_at DESC`,
     [studentId, noteType]
   );
-  return result.rows;
+  return result.rows.map(objectToCamelCase);
 }
 
 async function deleteNote(id, authorId) {
