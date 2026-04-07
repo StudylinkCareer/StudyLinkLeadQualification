@@ -83,9 +83,9 @@ export default function Leads() {
     if (!isManager && staff?.role === 'Counselor') {
       result = result.filter(l =>
         l.counselor === staff.fullName ||
-        l.senior_counselor === staff.fullName ||
+        l.seniorCounselor === staff.fullName ||
         l.presales === staff.fullName ||
-        l.marketing_staff === staff.fullName
+        l.marketingStaff === staff.fullName
       );
     }
 
@@ -124,9 +124,11 @@ export default function Leads() {
   }
 
   const FIELD_LABELS = {
-    counselor: 'Counselor', senior_counselor: 'Senior Counselor',
-    presales: 'PreSales', marketing_staff: 'Marketing Staff',
-  };
+  counselor:       'Counselor',
+  seniorCounselor: 'Senior Counselor',
+  presales:        'Pre-Sales',
+  marketingStaff:  'Marketing Staff',
+};
 
   if (loading) return <div className="loading-center">Loading leads...</div>;
 
@@ -251,7 +253,7 @@ export default function Leads() {
           </select>
           <select value={massValue} onChange={e => setMassValue(e.target.value)}>
             <option value="">Select staff...</option>
-            {staffList.map(s => <option key={s.id} value={s.full_name}>{s.full_name}</option>)}
+            {staffList.map(s => <option key={s.id} value={s.fullName}>{s.fullName}</option>)}
           </select>
           <button className="btn btn--primary btn--sm" onClick={handleMassAssign} disabled={!massValue}>
             Assign

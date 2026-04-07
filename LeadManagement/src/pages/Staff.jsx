@@ -20,10 +20,10 @@ function roleBadge(role) {
 function StaffModal({ staff, onClose, onSaved }) {
   const isEdit = !!staff;
   const [form, setForm] = useState({
-    fullName: staff?.full_name || '',
-    email:    staff?.email     || '',
-    position: staff?.position  || '',
-    role:     staff?.role      || '',
+    fullName: staff?.fullName || '',
+    email:    staff?.email    || '',
+    position: staff?.position || '',
+    role:     staff?.role     || '',
     password: '',
   });
   const [error, setError]   = useState('');
@@ -126,13 +126,14 @@ function PasswordModal({ staff, onClose, onSaved }) {
     <div className="modal-overlay">
       <div className="modal">
         <div className="modal-header">
-          <h2 className="modal-title">Reset Password — {staff.full_name}</h2>
+          <h2 className="modal-title">Reset Password — {staff.fullName}</h2>
           <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX /></button>
         </div>
         <div className="modal-body">
           <div className="form-group">
             <label className="form-label">New Password</label>
-            <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} autoFocus />
+            <input className="form-input" type="password" value={password}
+              onChange={e => setPassword(e.target.value)} autoFocus />
           </div>
           {error && <div className="alert alert--error">{error}</div>}
         </div>
@@ -184,7 +185,8 @@ export default function Staff() {
     <div>
       <div className="page-header">
         <span className="page-title">Staff Management</span>
-        <button className="btn btn--primary btn--sm" onClick={() => { setEditStaff(null); setShowModal(true); }}>
+        <button className="btn btn--primary btn--sm"
+          onClick={() => { setEditStaff(null); setShowModal(true); }}>
           <FiPlus size={14} /> Add Staff
         </button>
       </div>
@@ -209,13 +211,13 @@ export default function Staff() {
                 <tbody>
                   {staffList.map(s => (
                     <tr key={s.id}>
-                      <td style={{ fontWeight: 500 }}>{s.full_name}</td>
+                      <td style={{ fontWeight: 500 }}>{s.fullName}</td>
                       <td style={{ color: 'var(--text-secondary)' }}>{s.email}</td>
                       <td>{s.position}</td>
                       <td>{roleBadge(s.role)}</td>
                       <td>
-                        <span className={`badge ${s.is_active ? 'badge--qualified' : 'badge--lost'}`}>
-                          {s.is_active ? 'Active' : 'Inactive'}
+                        <span className={`badge ${s.isActive ? 'badge--qualified' : 'badge--lost'}`}>
+                          {s.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td>
@@ -228,9 +230,9 @@ export default function Staff() {
                             onClick={() => setPwdStaff(s)}>
                             <FiKey size={14} />
                           </button>
-                          {s.is_active && (
+                          {s.isActive && (
                             <button className="btn btn--ghost btn--icon" title="Deactivate"
-                              onClick={() => handleDeactivate(s.id, s.full_name)}
+                              onClick={() => handleDeactivate(s.id, s.fullName)}
                               style={{ color: 'var(--danger)' }}>
                               <FiUserX size={14} />
                             </button>
