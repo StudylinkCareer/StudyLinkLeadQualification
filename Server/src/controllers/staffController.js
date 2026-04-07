@@ -269,8 +269,51 @@ async function getStudent(req, res, next) {
   }
 }
 
+async function updateStudent(req, res, next) {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+
+    const { id } = req.params;
+    const READONLY = new Set(['uniqueId', 'createdAt', 'updatedAt']);
+
+    const fields = [];
+    const values = [];
+    let i = 1;
+
+    for (const key of Object.keys(req.body)) {
+      if (READONLY.has(key)) continue;
+      fields.push(`${toSnakeCase(key)} = $${i}`);
+      values.push(req.body[key]);
+      i++;
+    }
+
+    if (fields.length === 0) {
+      return res.json({ success: true });
+    }
+
+    fields.push(`updated_at = $${i}`);
+    values.push(new Date());
+    i++;
+    values.push(id);
+
+    await pool.query(
+      `UPDATE students SET ${fields.join(', ')} WHERE unique_id = $${i}`,
+      values
+    );
+    await pool.end();
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   login, logout, checkSession,
   listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
-  assignStaff, massAssign, searchStudents, getStudent,
+  assignStaff, massAssign, searchStudents, getStudent, updateStudent,
 };

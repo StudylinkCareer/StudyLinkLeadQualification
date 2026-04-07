@@ -36,6 +36,7 @@
   // ── Student routes ──
   router.get('/students/search',       requireStaffAuth,                         staffCtrl.searchStudents);
   router.get('/students/:id',          requireStaffAuth,                         staffCtrl.getStudent);
+  router.put('/students/:id',          requireStaffAuth,                         staffCtrl.updateStudent);
 
   // ── Staff management and Assignment routes (Admin only) ──
   router.get('/',                      requireStaffAuth, requireAdmin,           staffCtrl.listStaff);
