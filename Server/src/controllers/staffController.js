@@ -205,7 +205,32 @@ async function searchStudents(req, res, next) {
     let params;
 
     if (!q || q.trim() === '') {
-      query = `SELECT * FROM students ORDER BY "created_at" DESC NULLS LAST`;
+      query = `SELECT 
+        unique_id AS "uniqueId",
+        full_name AS "fullName",
+        email,
+        phone,
+        lead_source AS "leadSource",
+        interaction,
+        study_plans AS "studyPlans",
+        destination_country AS "destinationCountry",
+        timeline,
+        english_level AS "englishLevel",
+        gpa,
+        preferred_social AS "preferredSocial",
+        school_event AS "schoolEvent",
+        stone_tier AS "stoneTier",
+        risk_score AS "riskScore",
+        counselor,
+        senior_counselor,
+        presales,
+        marketing_staff,
+        lead_status AS "leadStatus",
+        close_date,
+        confidence,
+        created_at AS "createdAt",
+        status
+        FROM students ORDER BY created_at DESC NULLS LAST`;
       params = [];
     } else {
       const search = '%' + q.replace(/\*/g, '%').toLowerCase() + '%';
