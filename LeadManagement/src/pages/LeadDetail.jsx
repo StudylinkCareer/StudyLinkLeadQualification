@@ -10,9 +10,9 @@ const CONFIDENCE_OPTS = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Commit
 const NOTE_TYPES      = { counselor: 'Counselor Note', presales: 'PreSales Note', management: 'Management Note' };
 
 function canWriteNote(role, type) {
-  if (type === 'counselor')  return ['Counselor','Manager'].includes(role);
-  if (type === 'presales')   return ['Counselor','Manager'].includes(role);
-  if (type === 'management') return ['Director','Manager'].includes(role);
+  if (type === 'counselor')  return ['Counselor','Manager','Admin'].includes(role);
+  if (type === 'presales')   return ['Counselor','Manager','Admin'].includes(role);
+  if (type === 'management') return ['Director','Manager','Admin'].includes(role);
   return false;
 }
 
@@ -22,8 +22,8 @@ function formatDate(dt) {
 }
 
 export default function LeadDetail() {
-  const { id }              = useParams();
-  const navigate            = useNavigate();
+  const { id }               = useParams();
+  const navigate             = useNavigate();
   const { staff, isManager } = useAuth();
 
   const [lead, setLead]         = useState(null);
@@ -32,18 +32,18 @@ export default function LeadDetail() {
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
 
-  // Assignment fields
-  const [assign, setAssign]     = useState({});
+  // Assignment fields — all camelCase to match backend
+  const [assign, setAssign] = useState({});
 
   // Lead status fields
-  const [leadStatus, setLeadStatus]   = useState('');
-  const [closeDate, setCloseDate]     = useState('');
-  const [confidence, setConfidence]   = useState('');
+  const [leadStatus, setLeadStatus] = useState('');
+  const [closeDate, setCloseDate]   = useState('');
+  const [confidence, setConfidence] = useState('');
 
   // Notes
-  const [noteType, setNoteType]   = useState('counselor');
-  const [noteText, setNoteText]   = useState('');
-  const [addingNote, setAdding]   = useState(false);
+  const [noteType, setNoteType] = useState('counselor');
+  const [noteText, setNoteText] = useState('');
+  const [addingNote, setAdding] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -56,13 +56,13 @@ export default function LeadDetail() {
       setNotes(nt.data || []);
       setStaff(st.data || []);
       setAssign({
-        counselor:       l.counselor        || '',
-        senior_counselor: l.senior_counselor || '',
-        presales:        l.presales          || '',
-        marketing_staff: l.marketing_staff  || '',
+        counselor:       l.counselor       || '',
+        seniorCounselor: l.seniorCounselor  || '',
+        presales:        l.presales         || '',
+        marketingStaff:  l.marketingStaff   || '',
       });
-      setLeadStatus(l.lead_status || l.leadStatus || 'New');
-      setCloseDate(l.close_date ? l.close_date.split('T')[0] : '');
+      setLeadStatus(l.leadStatus || 'New');
+      setCloseDate(l.closeDate ? l.closeDate.split('T')[0] : '');
       setConfidence(l.confidence || '');
     }).catch(e => console.error(e))
       .finally(() => setLoading(false));
@@ -72,14 +72,14 @@ export default function LeadDetail() {
     setSaving(true);
     try {
       await staffAPI.assign(id, {
-        counselor:      assign.counselor,
-        seniorCounselor: assign.senior_counselor,
-        presales:       assign.presales,
-        marketingStaff: assign.marketing_staff,
+        counselor:       assign.counselor,
+        seniorCounselor: assign.seniorCounselor,
+        presales:        assign.presales,
+        marketingStaff:  assign.marketingStaff,
       });
       await studentAPI.update(id, {
-        lead_status: leadStatus,
-        close_date:  closeDate || null,
+        leadStatus,
+        closeDate: closeDate || null,
         confidence,
       });
       alert('Saved successfully');
@@ -116,8 +116,6 @@ export default function LeadDetail() {
 
   if (loading) return <div className="loading-center">Loading...</div>;
   if (!lead)   return <div className="page-body"><div className="alert alert--error">Lead not found</div></div>;
-
-  const staffByRole = (role) => staffList.filter(s => s.role === role || s.position.toLowerCase().includes(role.toLowerCase()));
 
   return (
     <div>
@@ -178,20 +176,20 @@ export default function LeadDetail() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.875rem' }}>
               {[
-                ['Email', lead.email],
-                ['Phone', lead.phone],
-                ['Study Plans', lead.studyPlans],
-                ['Destination', lead.destinationCountry],
-                ['Timeline', lead.timeline],
-                ['English Level', lead.englishLevel],
-                ['GPA', lead.gpa],
-                ['Budget', lead.budget],
-                ['Lead Source', lead.leadSource],
-                ['Interaction', lead.interaction],
+                ['Email',        lead.email],
+                ['Phone',        lead.phone],
+                ['Study Plans',  lead.studyPlans],
+                ['Destination',  lead.destinationCountry],
+                ['Timeline',     lead.timeline],
+                ['English Level',lead.englishLevel],
+                ['GPA',          lead.gpa],
+                ['Budget',       lead.budget],
+                ['Lead Source',  lead.leadSource],
+                ['Interaction',  lead.interaction],
                 ['School/Event', lead.schoolEvent],
-                ['Stone Tier', lead.stoneTier],
-                ['Risk Score', lead.riskScore],
-                ['Created', lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : '—'],
+                ['Stone Tier',   lead.stoneTier],
+                ['Risk Score',   lead.riskScore],
+                ['Created',      lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : '—'],
               ].map(([label, value]) => (
                 <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 500 }}>{label}</span>
@@ -230,7 +228,8 @@ export default function LeadDetail() {
                     onChange={e => setNoteText(e.target.value)}
                     style={{ resize: 'vertical', flex: 1 }}
                   />
-                  <button className="btn btn--primary btn--icon" onClick={addNote} disabled={addingNote || !noteText.trim()}>
+                  <button className="btn btn--primary btn--icon"
+                    onClick={addNote} disabled={addingNote || !noteText.trim()}>
                     <FiSend size={15} />
                   </button>
                 </div>
@@ -249,17 +248,18 @@ export default function LeadDetail() {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <span className={`badge badge--${note.note_type === 'management' ? 'director' : note.note_type === 'presales' ? 'manager' : 'counselor'}`}>
-                        {NOTE_TYPES[note.note_type]}
+                      <span className={`badge badge--${note.noteType === 'management' ? 'director' : note.noteType === 'presales' ? 'manager' : 'counselor'}`}>
+                        {NOTE_TYPES[note.noteType]}
                       </span>
-                      <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{note.author_name}</span>
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{note.authorName}</span>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'DM Mono' }}>
-                        {formatDate(note.created_at)}
+                        {formatDate(note.createdAt)}
                       </span>
-                      {note.author_id === staff?.id && (
-                        <button className="btn btn--ghost btn--icon btn--sm" onClick={() => deleteNote(note.id)}
+                      {note.authorId === staff?.id && (
+                        <button className="btn btn--ghost btn--icon btn--sm"
+                          onClick={() => deleteNote(note.id)}
                           style={{ color: 'var(--danger)' }}>
                           <FiTrash2 size={13} />
                         </button>
@@ -281,10 +281,10 @@ export default function LeadDetail() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {[
-                { key: 'counselor',        label: 'Counselor' },
-                { key: 'senior_counselor', label: 'Senior Counselor' },
-                { key: 'presales',         label: 'PreSales' },
-                { key: 'marketing_staff',  label: 'Marketing Staff' },
+                { key: 'counselor',       label: 'Counselor' },
+                { key: 'seniorCounselor', label: 'Senior Counselor' },
+                { key: 'presales',        label: 'Pre-Sales' },
+                { key: 'marketingStaff',  label: 'Marketing Staff' },
               ].map(({ key, label }) => (
                 <div className="form-group" key={key}>
                   <label className="form-label">{label}</label>
@@ -292,7 +292,7 @@ export default function LeadDetail() {
                     onChange={e => setAssign(a => ({ ...a, [key]: e.target.value }))}>
                     <option value="">Unassigned</option>
                     {staffList.map(s => (
-                      <option key={s.id} value={s.full_name}>{s.full_name} ({s.position})</option>
+                      <option key={s.id} value={s.fullName}>{s.fullName} ({s.position})</option>
                     ))}
                   </select>
                 </div>

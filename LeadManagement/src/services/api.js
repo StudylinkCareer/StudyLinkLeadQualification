@@ -1,5 +1,7 @@
 // src/services/api.js
 
+import { objectToCamelCase } from '../utils/caseConvert';
+
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
 async function request(method, path, body) {
@@ -12,6 +14,14 @@ async function request(method, path, body) {
 
   const data = await res.json();
   if (!data.success) throw new Error(data.error || 'Request failed');
+
+  // Universal camelCase conversion — applies to all API responses
+  if (Array.isArray(data.data)) {
+    data.data = data.data.map(objectToCamelCase);
+  } else if (data.data && typeof data.data === 'object') {
+    data.data = objectToCamelCase(data.data);
+  }
+
   return data;
 }
 
@@ -36,11 +46,10 @@ export const staffAPI = {
 
 // ── Students ──
 export const studentAPI = {
-  search: (q)         => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
-  get:    (id)        => request('GET', `/api/staff/students/${id}`),
-  update: (id, data)  => request('PUT', `/api/staff/students/${id}`, data),
+  search: (q)        => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
+  get:    (id)       => request('GET', `/api/staff/students/${id}`),
+  update: (id, data) => request('PUT', `/api/staff/students/${id}`, data),
 };
-
 
 // ── Notes ──
 export const notesAPI = {
