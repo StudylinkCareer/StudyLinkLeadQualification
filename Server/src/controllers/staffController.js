@@ -3,7 +3,6 @@
 const Student = require('../models/Student');
 const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
 const { calculateRiskScore } = require('../utils/riskCalculator');
-const { objectToCamelCase } = require('../utils/caseConvert');
 const { Pool } = require('pg');
 
 const pool = new Pool({
