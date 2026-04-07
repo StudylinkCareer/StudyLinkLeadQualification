@@ -36,10 +36,11 @@ export const staffAPI = {
 
 // ── Students ──
 export const studentAPI = {
-  search: (q) => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
-  get:    (id) => request('GET', `/api/students/${id}`),
-  update: (id, data) => request('PUT', `/api/students/${id}`, data),
+  search: (q)         => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
+  get:    (id)        => request('GET', `/api/staff/students/${id}`),
+  update: (id, data)  => request('PUT', `/api/staff/students/${id}`, data),
 };
+
 
 // ── Notes ──
 export const notesAPI = {
