@@ -2,6 +2,7 @@
 
 const Student = require('../models/Student');
 const { calculateRiskScore } = require('../utils/riskCalculator');
+const { objectToCamelCase } = require('../utils/caseConvert');
 const { Pool } = require('pg');
 
 const pool = new Pool({
@@ -185,29 +186,29 @@ async function uploadPhotos(req, res, next) {
   }
 }
 
-// ── Search students directly from PostgreSQL ──
+// ── Search students directly from PostgreSQL ─────────────────────────────────
 async function searchStudents(req, res, next) {
   try {
     const { q } = req.query;
-
     let query;
     let params;
 
     if (!q || q.trim() === '') {
-      query = `SELECT * FROM students ORDER BY "createdAt" DESC NULLS LAST`;
+      query  = `SELECT * FROM students ORDER BY created_at DESC NULLS LAST`;
       params = [];
     } else {
       const search = '%' + q.replace(/\*/g, '%').toLowerCase() + '%';
-      query = `SELECT * FROM students WHERE
-        LOWER("fullName") LIKE $1 OR
-        LOWER(email)      LIKE $1 OR
-        phone             LIKE $1
-        ORDER BY "createdAt" DESC NULLS LAST`;
+      query = `
+        SELECT * FROM students
+        WHERE LOWER(full_name) LIKE $1
+           OR LOWER(email)     LIKE $1
+           OR phone             LIKE $1
+        ORDER BY created_at DESC NULLS LAST`;
       params = [search];
     }
 
     const result = await pool.query(query, params);
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result.rows.map(objectToCamelCase) });
   } catch (err) {
     next(err);
   }
