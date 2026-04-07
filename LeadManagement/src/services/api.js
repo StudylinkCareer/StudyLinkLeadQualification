@@ -48,9 +48,3 @@ export const notesAPI = {
   add:    (studentId, noteType, content) => request('POST',   `/api/notes/${studentId}`, { noteType, content }),
   delete: (id)                           => request('DELETE', `/api/notes/${id}`),
 };
-
-export const studentAPI = {
-  search: (q) => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
-  get:    (id) => request('GET', `/api/staff/students/${id}`),
-  update: (id, data) => request('PUT', `/api/students/${id}`, data),
-};
