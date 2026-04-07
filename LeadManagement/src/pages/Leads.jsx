@@ -1,19 +1,26 @@
 // src/pages/Leads.jsx
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX } from 'react-icons/fi';
+import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiChevronDown as FiCaret } from 'react-icons/fi';
 
-// Only status is hardcoded — it's a fixed system list
 const LEAD_STATUSES = ['New','Contacted','Qualified','Proposal','Negotiation','Won','Lost','On Hold'];
 
+// Filters that are multi-select arrays vs single date values
+const MULTI_SELECT_KEYS = [
+  'leadStatus','stoneTier','leadSource','studyPlans','englishLevel','timeline',
+  'interaction','destinationCountry','gpa','budget','confidence',
+  'counselor','seniorCounselor','presales','marketingStaff',
+];
+
 const EMPTY_FILTERS = {
-  search:'', leadStatus:'', stoneTier:'', leadSource:'', studyPlans:'',
-  englishLevel:'', timeline:'', interaction:'', destinationCountry:'',
-  gpa:'', budget:'', confidence:'', counselor:'', seniorCounselor:'',
-  presales:'', marketingStaff:'', dateFrom:'', dateTo:'',
-  closeDateFrom:'', closeDateTo:'',
+  search:'',
+  leadStatus:[], stoneTier:[], leadSource:[], studyPlans:[],
+  englishLevel:[], timeline:[], interaction:[], destinationCountry:[],
+  gpa:[], budget:[], confidence:[], counselor:[], seniorCounselor:[],
+  presales:[], marketingStaff:[],
+  dateFrom:'', dateTo:'', closeDateFrom:'', closeDateTo:'',
 };
 
 function statusBadge(status) {
@@ -41,14 +48,78 @@ function matchesSearch(value, pattern) {
   return v.includes(p);
 }
 
-function FilterSelect({ label, value, onChange, options }) {
+// Multi-select dropdown with checkboxes
+function MultiFilter({ label, selected, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  function toggle(value) {
+    if (selected.includes(value)) onChange(selected.filter(v => v !== value));
+    else onChange([...selected, value]);
+  }
+
+  function clearAll() { onChange([]); }
+
+  const count = selected.length;
+
   return (
-    <div className="form-group" style={{ margin:0 }}>
-      <label className="form-label">{label}</label>
-      <select className="form-select" value={value} onChange={e => onChange(e.target.value)}>
-        <option value="">All</option>
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
+    <div ref={ref} style={{ position:'relative', minWidth:'150px' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
+          padding:'0.375rem 0.625rem', border:'1px solid var(--border)',
+          borderRadius:'6px', background: count > 0 ? 'var(--primary)' : 'var(--bg-primary)',
+          color: count > 0 ? '#fff' : 'var(--text-primary)',
+          cursor:'pointer', fontSize:'0.8125rem', gap:'0.4rem',
+        }}>
+        <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+          {count > 0 ? `${label} (${count})` : label}
+        </span>
+        <FiChevronDown size={12} style={{flexShrink:0, transform: open ? 'rotate(180deg)' : 'none', transition:'transform 0.15s'}}/>
+      </button>
+
+      {open && (
+        <div style={{
+          position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:100,
+          background:'var(--bg-primary)', border:'1px solid var(--border)',
+          borderRadius:'8px', boxShadow:'0 4px 16px rgba(0,0,0,0.12)',
+          minWidth:'200px', maxWidth:'260px', maxHeight:'260px',
+          overflowY:'auto', padding:'0.5rem 0',
+        }}>
+          {count > 0 && (
+            <div style={{padding:'0.25rem 0.75rem 0.5rem'}}>
+              <button onClick={clearAll}
+                style={{fontSize:'0.75rem',color:'var(--danger)',background:'none',border:'none',cursor:'pointer',padding:0}}>
+                Clear all
+              </button>
+            </div>
+          )}
+          {options.length === 0 && (
+            <div style={{padding:'0.5rem 0.75rem',color:'var(--text-secondary)',fontSize:'0.8125rem'}}>No values</div>
+          )}
+          {options.map(opt => (
+            <label key={opt} style={{
+              display:'flex', alignItems:'center', gap:'0.5rem',
+              padding:'0.375rem 0.75rem', cursor:'pointer',
+              background: selected.includes(opt) ? 'var(--bg-secondary)' : 'transparent',
+              fontSize:'0.8125rem',
+            }}>
+              <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)}
+                style={{cursor:'pointer'}}/>
+              <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{opt}</span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -95,7 +166,15 @@ export default function Leads() {
 
   function setFilter(key, value) { setFilters(f=>({...f,[key]:value})); setPage(1); }
   function clearFilters() { setFilters(EMPTY_FILTERS); setPage(1); }
-  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.search) count++;
+    MULTI_SELECT_KEYS.forEach(k => { if (filters[k]?.length > 0) count++; });
+    if (filters.dateFrom || filters.dateTo) count++;
+    if (filters.closeDateFrom || filters.closeDateTo) count++;
+    return count;
+  }, [filters]);
 
   function toggleSort(field) {
     if (sortField===field) setSortDir(d=>d==='asc'?'desc':'asc');
@@ -107,10 +186,11 @@ export default function Leads() {
     return sortDir==='asc' ? <FiChevronUp size={11}/> : <FiChevronDown size={11}/>;
   }
 
-  // All filter options derived dynamically from actual data
+  // All options derived from actual data
   const uniqueValues = useMemo(() => {
     const get = key => [...new Set(leads.map(l=>l[key]).filter(Boolean))].sort();
     return {
+      leadStatus:         LEAD_STATUSES,
       stoneTier:          get('stoneTier'),
       leadSource:         get('leadSource'),
       studyPlans:         get('studyPlans'),
@@ -128,37 +208,48 @@ export default function Leads() {
     };
   }, [leads]);
 
+  // Multi-select match helper — OR within field
+  function multiMatch(value, selected) {
+    if (!selected || selected.length === 0) return true;
+    return selected.includes(value);
+  }
+
   const filtered = useMemo(() => {
     let r = leads;
+
     if (filters.search) r = r.filter(l =>
       matchesSearch(l.fullName,filters.search)  || matchesSearch(l.email,filters.search) ||
       matchesSearch(l.phone,filters.search)     || matchesSearch(l.uniqueId,filters.search)
     );
-    if (filters.leadStatus)         r = r.filter(l => (l.leadStatus||'New')===filters.leadStatus);
-    if (filters.stoneTier)          r = r.filter(l => l.stoneTier===filters.stoneTier);
-    if (filters.leadSource)         r = r.filter(l => matchesSearch(l.leadSource,filters.leadSource));
-    if (filters.studyPlans)         r = r.filter(l => matchesSearch(l.studyPlans,filters.studyPlans));
-    if (filters.englishLevel)       r = r.filter(l => l.englishLevel===filters.englishLevel);
-    if (filters.timeline)           r = r.filter(l => matchesSearch(l.timeline,filters.timeline));
-    if (filters.interaction)        r = r.filter(l => matchesSearch(l.interaction,filters.interaction));
-    if (filters.destinationCountry) r = r.filter(l => matchesSearch(l.destinationCountry,filters.destinationCountry));
-    if (filters.gpa)                r = r.filter(l => l.gpa===filters.gpa);
-    if (filters.budget)             r = r.filter(l => l.budget===filters.budget);
-    if (filters.confidence)         r = r.filter(l => l.confidence===filters.confidence);
-    if (filters.counselor)          r = r.filter(l => matchesSearch(l.counselor,filters.counselor));
-    if (filters.seniorCounselor)    r = r.filter(l => matchesSearch(l.seniorCounselor,filters.seniorCounselor));
-    if (filters.presales)           r = r.filter(l => matchesSearch(l.presales,filters.presales));
-    if (filters.marketingStaff)     r = r.filter(l => matchesSearch(l.marketingStaff,filters.marketingStaff));
-    if (filters.dateFrom)           r = r.filter(l => l.createdAt && new Date(l.createdAt)>=new Date(filters.dateFrom));
-    if (filters.dateTo)             r = r.filter(l => l.createdAt && new Date(l.createdAt)<=new Date(filters.dateTo+'T23:59:59'));
-    if (filters.closeDateFrom)      r = r.filter(l => l.closeDate && new Date(l.closeDate)>=new Date(filters.closeDateFrom));
-    if (filters.closeDateTo)        r = r.filter(l => l.closeDate && new Date(l.closeDate)<=new Date(filters.closeDateTo+'T23:59:59'));
+
+    if (filters.leadStatus?.length)         r = r.filter(l => multiMatch(l.leadStatus||'New', filters.leadStatus));
+    if (filters.stoneTier?.length)          r = r.filter(l => multiMatch(l.stoneTier, filters.stoneTier));
+    if (filters.leadSource?.length)         r = r.filter(l => multiMatch(l.leadSource, filters.leadSource));
+    if (filters.studyPlans?.length)         r = r.filter(l => multiMatch(l.studyPlans, filters.studyPlans));
+    if (filters.englishLevel?.length)       r = r.filter(l => multiMatch(l.englishLevel, filters.englishLevel));
+    if (filters.timeline?.length)           r = r.filter(l => multiMatch(l.timeline, filters.timeline));
+    if (filters.interaction?.length)        r = r.filter(l => multiMatch(l.interaction, filters.interaction));
+    if (filters.destinationCountry?.length) r = r.filter(l => multiMatch(l.destinationCountry, filters.destinationCountry));
+    if (filters.gpa?.length)                r = r.filter(l => multiMatch(l.gpa, filters.gpa));
+    if (filters.budget?.length)             r = r.filter(l => multiMatch(l.budget, filters.budget));
+    if (filters.confidence?.length)         r = r.filter(l => multiMatch(l.confidence, filters.confidence));
+    if (filters.counselor?.length)          r = r.filter(l => multiMatch(l.counselor, filters.counselor));
+    if (filters.seniorCounselor?.length)    r = r.filter(l => multiMatch(l.seniorCounselor, filters.seniorCounselor));
+    if (filters.presales?.length)           r = r.filter(l => multiMatch(l.presales, filters.presales));
+    if (filters.marketingStaff?.length)     r = r.filter(l => multiMatch(l.marketingStaff, filters.marketingStaff));
+
+    if (filters.dateFrom)      r = r.filter(l => l.createdAt && new Date(l.createdAt)>=new Date(filters.dateFrom));
+    if (filters.dateTo)        r = r.filter(l => l.createdAt && new Date(l.createdAt)<=new Date(filters.dateTo+'T23:59:59'));
+    if (filters.closeDateFrom) r = r.filter(l => l.closeDate && new Date(l.closeDate)>=new Date(filters.closeDateFrom));
+    if (filters.closeDateTo)   r = r.filter(l => l.closeDate && new Date(l.closeDate)<=new Date(filters.closeDateTo+'T23:59:59'));
+
     if (!isManager && staff?.role==='Counselor') {
       r = r.filter(l =>
         l.counselor===staff.fullName || l.seniorCounselor===staff.fullName ||
         l.presales===staff.fullName  || l.marketingStaff===staff.fullName
       );
     }
+
     return [...r].sort((a,b) => {
       const av=a[sortField]||'', bv=b[sortField]||'';
       return sortDir==='asc' ? (av>bv?1:-1) : (av<bv?1:-1);
@@ -203,6 +294,7 @@ export default function Leads() {
       </div>
 
       <div className="page-body">
+        {/* Toolbar */}
         <div className="table-toolbar">
           <div className="search-input-wrap">
             <FiSearch size={15}/>
@@ -218,6 +310,7 @@ export default function Leads() {
               </button>
             )}
           </div>
+
           <button className={`btn btn--sm ${showFilters?'btn--primary':'btn--secondary'}`}
             onClick={()=>setShowFilters(f=>!f)}
             style={{display:'flex',alignItems:'center',gap:'0.4rem'}}>
@@ -229,36 +322,44 @@ export default function Leads() {
               </span>
             )}
           </button>
+
           {activeFilterCount>0 && (
             <button className="btn btn--ghost btn--sm" onClick={clearFilters}>Clear all</button>
           )}
         </div>
 
+        {/* Filter panel */}
         {showFilters && (
           <div style={{
             background:'var(--bg-secondary)',border:'1px solid var(--border)',
             borderRadius:'10px',padding:'1rem',marginBottom:'1rem',
-            display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))',gap:'0.75rem'
           }}>
-            <FilterSelect label="Status"          value={filters.leadStatus}         onChange={v=>setFilter('leadStatus',v)}         options={LEAD_STATUSES}/>
-            <FilterSelect label="Stone Tier"       value={filters.stoneTier}          onChange={v=>setFilter('stoneTier',v)}          options={uniqueValues.stoneTier}/>
-            <FilterSelect label="Lead Source"      value={filters.leadSource}         onChange={v=>setFilter('leadSource',v)}         options={uniqueValues.leadSource}/>
-            <FilterSelect label="Interaction"      value={filters.interaction}        onChange={v=>setFilter('interaction',v)}        options={uniqueValues.interaction}/>
-            <FilterSelect label="Study Plans"      value={filters.studyPlans}         onChange={v=>setFilter('studyPlans',v)}         options={uniqueValues.studyPlans}/>
-            <FilterSelect label="Destination"      value={filters.destinationCountry} onChange={v=>setFilter('destinationCountry',v)} options={uniqueValues.destinationCountry}/>
-            <FilterSelect label="Timeline"         value={filters.timeline}           onChange={v=>setFilter('timeline',v)}           options={uniqueValues.timeline}/>
-            <FilterSelect label="English Level"    value={filters.englishLevel}       onChange={v=>setFilter('englishLevel',v)}       options={uniqueValues.englishLevel}/>
-            <FilterSelect label="GPA"              value={filters.gpa}                onChange={v=>setFilter('gpa',v)}                options={uniqueValues.gpa}/>
-            <FilterSelect label="Budget"           value={filters.budget}             onChange={v=>setFilter('budget',v)}             options={uniqueValues.budget}/>
-            <FilterSelect label="Confidence"       value={filters.confidence}         onChange={v=>setFilter('confidence',v)}         options={uniqueValues.confidence}/>
-            <FilterSelect label="Counselor"        value={filters.counselor}          onChange={v=>setFilter('counselor',v)}          options={uniqueValues.counselor}/>
-            <FilterSelect label="Senior Counselor" value={filters.seniorCounselor}    onChange={v=>setFilter('seniorCounselor',v)}    options={uniqueValues.seniorCounselor}/>
-            <FilterSelect label="Pre-Sales"        value={filters.presales}           onChange={v=>setFilter('presales',v)}           options={uniqueValues.presales}/>
-            <FilterSelect label="Marketing Staff"  value={filters.marketingStaff}     onChange={v=>setFilter('marketingStaff',v)}     options={uniqueValues.marketingStaff}/>
-            <FilterDate   label="Created From"     value={filters.dateFrom}           onChange={v=>setFilter('dateFrom',v)}/>
-            <FilterDate   label="Created To"       value={filters.dateTo}             onChange={v=>setFilter('dateTo',v)}/>
-            <FilterDate   label="Close Date From"  value={filters.closeDateFrom}      onChange={v=>setFilter('closeDateFrom',v)}/>
-            <FilterDate   label="Close Date To"    value={filters.closeDateTo}        onChange={v=>setFilter('closeDateTo',v)}/>
+            {/* Multi-select filters */}
+            <div style={{display:'flex',flexWrap:'wrap',gap:'0.5rem',marginBottom:'0.75rem'}}>
+              <MultiFilter label="Status"          selected={filters.leadStatus}         onChange={v=>setFilter('leadStatus',v)}         options={uniqueValues.leadStatus}/>
+              <MultiFilter label="Stone Tier"       selected={filters.stoneTier}          onChange={v=>setFilter('stoneTier',v)}          options={uniqueValues.stoneTier}/>
+              <MultiFilter label="Lead Source"      selected={filters.leadSource}         onChange={v=>setFilter('leadSource',v)}         options={uniqueValues.leadSource}/>
+              <MultiFilter label="Interaction"      selected={filters.interaction}        onChange={v=>setFilter('interaction',v)}        options={uniqueValues.interaction}/>
+              <MultiFilter label="Study Plans"      selected={filters.studyPlans}         onChange={v=>setFilter('studyPlans',v)}         options={uniqueValues.studyPlans}/>
+              <MultiFilter label="Destination"      selected={filters.destinationCountry} onChange={v=>setFilter('destinationCountry',v)} options={uniqueValues.destinationCountry}/>
+              <MultiFilter label="Timeline"         selected={filters.timeline}           onChange={v=>setFilter('timeline',v)}           options={uniqueValues.timeline}/>
+              <MultiFilter label="English Level"    selected={filters.englishLevel}       onChange={v=>setFilter('englishLevel',v)}       options={uniqueValues.englishLevel}/>
+              <MultiFilter label="GPA"              selected={filters.gpa}                onChange={v=>setFilter('gpa',v)}                options={uniqueValues.gpa}/>
+              <MultiFilter label="Budget"           selected={filters.budget}             onChange={v=>setFilter('budget',v)}             options={uniqueValues.budget}/>
+              <MultiFilter label="Confidence"       selected={filters.confidence}         onChange={v=>setFilter('confidence',v)}         options={uniqueValues.confidence}/>
+              <MultiFilter label="Counselor"        selected={filters.counselor}          onChange={v=>setFilter('counselor',v)}          options={uniqueValues.counselor}/>
+              <MultiFilter label="Senior Counselor" selected={filters.seniorCounselor}    onChange={v=>setFilter('seniorCounselor',v)}    options={uniqueValues.seniorCounselor}/>
+              <MultiFilter label="Pre-Sales"        selected={filters.presales}           onChange={v=>setFilter('presales',v)}           options={uniqueValues.presales}/>
+              <MultiFilter label="Marketing Staff"  selected={filters.marketingStaff}     onChange={v=>setFilter('marketingStaff',v)}     options={uniqueValues.marketingStaff}/>
+            </div>
+
+            {/* Date range filters */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:'0.75rem'}}>
+              <FilterDate label="Created From"    value={filters.dateFrom}      onChange={v=>setFilter('dateFrom',v)}/>
+              <FilterDate label="Created To"      value={filters.dateTo}        onChange={v=>setFilter('dateTo',v)}/>
+              <FilterDate label="Close Date From" value={filters.closeDateFrom} onChange={v=>setFilter('closeDateFrom',v)}/>
+              <FilterDate label="Close Date To"   value={filters.closeDateTo}   onChange={v=>setFilter('closeDateTo',v)}/>
+            </div>
           </div>
         )}
 
