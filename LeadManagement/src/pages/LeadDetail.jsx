@@ -7,6 +7,29 @@ import Watermark from '../components/Watermark';
 import OceanRadarChart from '../components/OceanRadarChart';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw } from 'react-icons/fi';
 
+// ── Stone images ──────────────────────────────────────────────────────────────
+import quartzImg   from '../assets/stones/quartz.png';
+import agateImg    from '../assets/stones/agate.png';
+import sapphireImg from '../assets/stones/sapphire.png';
+import rubyImg     from '../assets/stones/ruby.png';
+import diamondImg  from '../assets/stones/diamond.png';
+
+const STONE_IMAGES = {
+  Quartz:   quartzImg,
+  Agate:    agateImg,
+  Sapphire: sapphireImg,
+  Ruby:     rubyImg,
+  Diamond:  diamondImg,
+};
+
+const STONE_MESSAGES = {
+  Quartz:   'StudyLink will support you with International Programs locally with Scholarships — a smart decision to enjoy world-class education while staying close to your family.',
+  Agate:    'A journey to Asian and European cultures will help you broaden your mindset and develop excellent adaptability. StudyLink will be your Companion on this abroad journey, starting RIGHT NOW!',
+  Sapphire: 'You possess a practical vision, and Europe or Australasia is the perfect environment for you to maximize your potential. StudyLink will be your Companion on this abroad journey, starting RIGHT NOW!',
+  Ruby:     'You are ready to conquer great and beautiful challenges at leading educational powerhouses across 5 continents. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
+  Diamond:  'You can aim at the global "cathedrals" of knowledge, places reserved for the most excellent individuals. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
+};
+
 // ── Permissions config ────────────────────────────────────────────────────────
 const PERMS = {
   canEdit:           ['Counselor', 'Manager', 'Admin', 'Director'],
@@ -365,6 +388,26 @@ export default function LeadDetail() {
                 </button>
               )}
             </div>
+
+            {/* Stone tier banner */}
+            {lead.stoneTier && STONE_IMAGES[lead.stoneTier] && (
+              <div style={{
+                display:'flex', alignItems:'center', gap:'1rem',
+                background:'var(--bg-secondary)', borderRadius:'10px',
+                padding:'1rem', marginBottom:'1rem',
+                border:'1px solid var(--border)',
+              }}>
+                <img
+                  src={STONE_IMAGES[lead.stoneTier]}
+                  alt={lead.stoneTier}
+                  style={{ width:'56px', height:'56px', objectFit:'contain', flexShrink:0 }}
+                />
+                <p style={{ margin:0, fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-primary)' }}>
+                  <strong>Congratulations! {lead.stoneTier}</strong> — {STONE_MESSAGES[lead.stoneTier]}
+                </p>
+              </div>
+            )}
+
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                 <EditField label="Budget"              name="budget"            value={d.budget}            onChange={updateEdit} options={BUDGET_OPTIONS}/>
