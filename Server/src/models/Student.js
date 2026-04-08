@@ -125,7 +125,8 @@ async function update(uniqueId, data) {
     }
 
     fields.push(`${toSnakeCase(key)} = $${i}`);
-    values.push(value ?? '');
+    // Send NULL instead of empty string — PostgreSQL date/timestamp columns reject ""
+    values.push(value === '' || value === null || value === undefined ? null : value);
     i++;
   }
 
