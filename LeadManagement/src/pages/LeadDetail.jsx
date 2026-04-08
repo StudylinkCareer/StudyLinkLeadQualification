@@ -4,12 +4,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
-import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp } from 'react-icons/fi';
+import OceanRadarChart from '../components/OceanRadarChart';
+import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw } from 'react-icons/fi';
 
 // ── Permissions config ────────────────────────────────────────────────────────
 const PERMS = {
   canEdit:           ['Counselor', 'Manager', 'Admin', 'Director'],
   canEditAssignment: ['Manager', 'Admin'],
+  canRecalculate:    ['Manager', 'Admin', 'Counselor'],
   canWriteNote: {
     counselor:  ['Counselor', 'Manager', 'Admin'],
     presales:   ['Counselor', 'Manager', 'Admin'],
@@ -34,6 +36,26 @@ const TIMELINE_OPTS   = ['Next 6 months','6-12 months','12-24 months','24-36 mon
 const INTERACTION_OPTS= ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
 const LEAD_SOURCE_OPTS= ['Databases','FB-Zalo-GG-TikTok ads','School outreach','Subagent referrals','Ex-client'];
 
+const LIKERT_LABELS = ['','Strongly Disagree','Disagree','Neutral','Agree','Strongly Agree'];
+
+const OCEAN_QUESTIONS = [
+  { id:1,  text:'I am the life of the party and enjoy being the center of attention.' },
+  { id:2,  text:"I sympathize with others' feelings and feel for those less fortunate." },
+  { id:3,  text:'I am always prepared and keep my belongings organized.' },
+  { id:4,  text:'I have frequent mood swings and get stressed easily.' },
+  { id:5,  text:'I have a vivid imagination and enjoy thinking about abstract ideas.' },
+  { id:6,  text:'I don\'t talk a lot and tend to keep to myself.' },
+  { id:7,  text:"I am not really interested in others' problems or feelings." },
+  { id:8,  text:'I often forget to put things back in their proper place.' },
+  { id:9,  text:'I am relaxed most of the time and don\'t worry much.' },
+  { id:10, text:'I am not interested in theoretical or philosophical discussions.' },
+  { id:11, text:'I feel comfortable around people and start conversations easily.' },
+  { id:12, text:'I have a soft heart and try to make people feel at ease.' },
+  { id:13, text:'I pay attention to details and like to get chores done right away.' },
+  { id:14, text:'I get upset easily and often feel blue or anxious.' },
+  { id:15, text:'I enjoy hearing new ideas and looking at art or nature.' },
+];
+
 const FIELD_LABELS = {
   leadStatus:'Status', closeDate:'Close Date', confidence:'Confidence',
   studyPlans:'Study Plans', leadSource:'Lead Source', interaction:'Interaction',
@@ -47,10 +69,12 @@ const FIELD_LABELS = {
 };
 
 function canDo(perm, role) { return Array.isArray(perm) ? perm.includes(role) : false; }
+
 function formatDate(dt) {
   if (!dt) return '';
   return new Date(dt).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
 }
+
 function Field({ label, value }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
@@ -59,6 +83,7 @@ function Field({ label, value }) {
     </div>
   );
 }
+
 function EditField({ label, name, value, onChange, type='text', options }) {
   return (
     <div className="form-group" style={{ margin:0 }}>
@@ -89,11 +114,15 @@ export default function LeadDetail() {
   const [saving, setSaving]     = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState({});
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory]   = useState(false);
+  const [showOceanQuestions, setShowOceanQuestions] = useState(false);
   const [assign, setAssign]     = useState({});
   const [noteType, setNoteType] = useState('counselor');
   const [noteText, setNoteText] = useState('');
   const [addingNote, setAdding] = useState(false);
+  const [recalculating, setRecalculating]   = useState(false);
+  const [recalcOcean, setRecalcOcean]       = useState(false);
+  const [oceanResult, setOceanResult]       = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -113,6 +142,19 @@ export default function LeadDetail() {
         presales:        l.presales        || '',
         marketingStaff:  l.marketingStaff  || '',
       });
+      // Load existing OCEAN scores if available
+      if (l.oceanExtraversion) {
+        setOceanResult({
+          scores: {
+            extraversion:      l.oceanExtraversion,
+            agreeableness:     l.oceanAgreeableness,
+            conscientiousness: l.oceanConscientiousness,
+            neuroticism:       l.oceanNeuroticism,
+            openness:          l.oceanOpenness,
+          },
+          narrative: l.oceanNarrative || '',
+        });
+      }
     }).catch(e=>console.error(e))
       .finally(()=>setLoading(false));
   }, [id]);
@@ -144,6 +186,10 @@ export default function LeadDetail() {
           incomeEvidence:     editData.incomeEvidence,
           studyPlanGap:       editData.studyPlanGap,
           ultimateObjective:  editData.ultimateObjective,
+          // OCEAN responses
+          ...Object.fromEntries(
+            Array.from({length:15}, (_,i) => [`oceanQ${i+1}`, editData[`oceanQ${i+1}`] || null])
+          ),
         });
         setLead(l=>({...l,...editData}));
         setEditMode(false);
@@ -156,15 +202,41 @@ export default function LeadDetail() {
           presales:        assign.presales,
           marketingStaff:  assign.marketingStaff,
         });
-        // Update lead state so Summary reflects new assignments immediately
-        setLead(l=>({...l, ...assign}));
+        setLead(l=>({...l,...assign}));
       }
-      // Refresh audit log
       const al = await auditAPI.getForStudent(id);
       setAuditLog(al.data || []);
       alert('Saved successfully');
     } catch(e) { alert(e.message); }
     finally { setSaving(false); }
+  }
+
+  async function handleRecalculateRisk() {
+    setRecalculating(true);
+    try {
+      const res = await studentAPI.calculateRisk(id);
+      setLead(l => ({ ...l, riskScore: String(res.data.totalScore), stoneTier: res.data.stoneTier }));
+      alert(`Risk recalculated: ${res.data.stoneTier} (${res.data.totalScore})`);
+    } catch(e) { alert(e.message); }
+    finally { setRecalculating(false); }
+  }
+
+  async function handleRecalculateOcean() {
+    setRecalcOcean(true);
+    try {
+      const res = await studentAPI.calculateOcean(id);
+      setOceanResult(res.data);
+      setLead(l => ({
+        ...l,
+        oceanExtraversion:      res.data.scores.extraversion,
+        oceanAgreeableness:     res.data.scores.agreeableness,
+        oceanConscientiousness: res.data.scores.conscientiousness,
+        oceanNeuroticism:       res.data.scores.neuroticism,
+        oceanOpenness:          res.data.scores.openness,
+      }));
+      alert('Career Fit profile updated successfully');
+    } catch(e) { alert(e.message); }
+    finally { setRecalcOcean(false); }
   }
 
   async function addNote() {
@@ -189,9 +261,12 @@ export default function LeadDetail() {
   if (loading) return <div className="loading-center">Loading...</div>;
   if (!lead)   return <div className="page-body"><div className="alert alert--error">Lead not found</div></div>;
 
-  const canEdit   = canDo(PERMS.canEdit, role);
-  const canAssign = canDo(PERMS.canEditAssignment, role);
-  const d         = editMode ? editData : lead;
+  const canEdit      = canDo(PERMS.canEdit, role);
+  const canAssign    = canDo(PERMS.canEditAssignment, role);
+  const canRecalc    = canDo(PERMS.canRecalculate, role);
+  const d            = editMode ? editData : lead;
+
+  const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
 
   return (
     <div>
@@ -274,8 +349,6 @@ export default function LeadDetail() {
                 <Field label="School/Event"  value={lead.schoolEvent}/>
                 <Field label="Year of Birth" value={lead.yearOfBirth}/>
                 <Field label="Residency"     value={lead.residency}/>
-                <Field label="Stone Tier"    value={lead.stoneTier}/>
-                <Field label="Risk Score"    value={lead.riskScore}/>
                 <Field label="Created"       value={lead.createdAt?new Date(lead.createdAt).toLocaleDateString():null}/>
                 <Field label="Updated"       value={lead.updatedAt?new Date(lead.updatedAt).toLocaleDateString():null}/>
               </div>
@@ -284,7 +357,14 @@ export default function LeadDetail() {
 
           {/* Self Assessment */}
           <div className="section-card">
-            <div className="section-header"><span className="section-title">Self Assessment</span></div>
+            <div className="section-header" style={{ justifyContent:'space-between' }}>
+              <span className="section-title">Self Assessment</span>
+              {canRecalc && !editMode && (
+                <button className="btn btn--secondary btn--sm" onClick={handleRecalculateRisk} disabled={recalculating}>
+                  <FiRefreshCw size={12}/> {recalculating ? 'Recalculating...' : 'Recalculate Risk'}
+                </button>
+              )}
+            </div>
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                 <EditField label="Budget"              name="budget"            value={d.budget}            onChange={updateEdit} options={BUDGET_OPTIONS}/>
@@ -308,8 +388,95 @@ export default function LeadDetail() {
                 <Field label="Income Evidence"     value={lead.incomeEvidence}/>
                 <Field label="Study Plan & Gap"    value={lead.studyPlanGap}/>
                 <Field label="Ultimate Objective"  value={lead.ultimateObjective}/>
+                <Field label="Stone Tier"          value={lead.stoneTier}/>
+                <Field label="Risk Score"          value={lead.riskScore}/>
               </div>
             )}
+          </div>
+
+          {/* Career Fit / OCEAN */}
+          <div className="section-card">
+            <div className="section-header" style={{ justifyContent:'space-between' }}>
+              <span className="section-title">Career Fit — OCEAN Profile</span>
+              {canRecalc && !editMode && oceanAnsweredCount === 15 && (
+                <button className="btn btn--secondary btn--sm" onClick={handleRecalculateOcean} disabled={recalcOcean}>
+                  <FiRefreshCw size={12}/> {recalcOcean ? 'Recalculating...' : 'Recalculate'}
+                </button>
+              )}
+            </div>
+
+            {/* Radar chart + narrative */}
+            {oceanResult ? (
+              <div style={{ marginBottom:'1rem' }}>
+                <OceanRadarChart scores={oceanResult.scores} size={260}/>
+                {oceanResult.narrative && (
+                  <p style={{ marginTop:'1rem', fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
+                    {oceanResult.narrative}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div style={{ color:'var(--text-secondary)', fontSize:'0.875rem', marginBottom:'1rem', padding:'0.75rem', background:'var(--bg-secondary)', borderRadius:'8px' }}>
+                {oceanAnsweredCount === 0
+                  ? 'No OCEAN assessment completed yet.'
+                  : `${oceanAnsweredCount}/15 questions answered — recalculate to generate profile.`}
+              </div>
+            )}
+
+            {/* Question responses — collapsible */}
+            <div>
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={()=>setShowOceanQuestions(o=>!o)}
+                style={{ marginBottom:'0.75rem' }}>
+                {showOceanQuestions ? <FiChevronUp size={12}/> : <FiChevronDown size={12}/>}
+                {showOceanQuestions ? ' Hide' : ' Show'} Question Responses
+              </button>
+
+              {showOceanQuestions && (
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                  {OCEAN_QUESTIONS.map(({ id: qid, text }) => {
+                    const val = editMode ? (editData[`oceanQ${qid}`] || null) : (lead[`oceanQ${qid}`] || null);
+                    return (
+                      <div key={qid} style={{
+                        display:'grid', gridTemplateColumns:'24px 1fr auto',
+                        gap:'0.5rem', alignItems:'center',
+                        padding:'0.5rem', borderRadius:'6px',
+                        background:'var(--bg-secondary)', fontSize:'0.8125rem',
+                      }}>
+                        <span style={{
+                          background: val ? 'var(--primary)' : 'var(--border)',
+                          color: val ? '#fff' : 'var(--text-secondary)',
+                          borderRadius:'50%', width:'20px', height:'20px',
+                          display:'flex', alignItems:'center', justifyContent:'center',
+                          fontSize:'0.7rem', fontWeight:700, flexShrink:0,
+                        }}>{qid}</span>
+                        <span style={{ color:'var(--text-primary)' }}>{text}</span>
+                        {editMode ? (
+                          <select
+                            className="form-select"
+                            style={{ width:'160px', fontSize:'0.75rem', padding:'0.25rem' }}
+                            value={val||''}
+                            onChange={e=>updateEdit(`oceanQ${qid}`, e.target.value ? Number(e.target.value) : null)}>
+                            <option value="">—</option>
+                            {[1,2,3,4,5].map(v=>(
+                              <option key={v} value={v}>{v} — {LIKERT_LABELS[v]}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span style={{
+                            fontWeight:600, color: val ? 'var(--primary)' : 'var(--text-secondary)',
+                            fontSize:'0.8125rem', minWidth:'80px', textAlign:'right',
+                          }}>
+                            {val ? `${val} — ${LIKERT_LABELS[val]}` : '—'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Family Contacts */}
@@ -441,10 +608,10 @@ export default function LeadDetail() {
           </div>
         </div>
 
-        {/* ── Right column — Summary first, then Assignment ── */}
+        {/* ── Right column ── */}
         <div style={{ display:'flex', flexDirection:'column', gap:'1rem', position:'sticky', top:'72px' }}>
 
-          {/* Summary — scrollable */}
+          {/* Summary */}
           <div className="section-card" style={{ maxHeight:'280px', overflowY:'auto' }}>
             <div className="section-header"><span className="section-title">Summary</span></div>
             <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
@@ -453,13 +620,24 @@ export default function LeadDetail() {
               <Field label="Pre-Sales"        value={lead.presales}/>
               <Field label="Marketing Staff"  value={lead.marketingStaff}/>
               <div style={{ borderTop:'1px solid var(--border)', paddingTop:'0.5rem', marginTop:'0.25rem' }}>
-                <Field label="Stone Tier" value={lead.stoneTier}/>
-                <Field label="Risk Score" value={lead.riskScore}/>
+                <Field label="Stone Tier"  value={lead.stoneTier}/>
+                <Field label="Risk Score"  value={lead.riskScore}/>
               </div>
+              {oceanResult && (
+                <div style={{ borderTop:'1px solid var(--border)', paddingTop:'0.5rem', marginTop:'0.25rem' }}>
+                  <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500, marginBottom:'0.25rem' }}>OCEAN Scores</div>
+                  {Object.entries(oceanResult.scores).map(([trait, score]) => (
+                    <div key={trait} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.8125rem', padding:'0.125rem 0' }}>
+                      <span style={{ textTransform:'capitalize', color:'var(--text-secondary)' }}>{trait}</span>
+                      <span style={{ fontWeight:600 }}>{score}/15</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Staff Assignment — scrollable */}
+          {/* Staff Assignment */}
           {canAssign && (
             <div className="section-card" style={{ maxHeight:'380px', overflowY:'auto' }}>
               <div className="section-header"><span className="section-title">Staff Assignment</span></div>

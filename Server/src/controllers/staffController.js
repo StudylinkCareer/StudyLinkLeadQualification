@@ -2,7 +2,8 @@
 
 const Staff = require('../models/Staff');
 const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
-const { logChanges } = require('./auditController');  // ← ADD THIS LINE
+const { logChanges } = require('./auditController');
+const { assessOcean } = require('../utils/oceanCalculator');
 
 // ── Auth ──────────────────────────────────────────────────────
 async function login(req, res, next) {
@@ -104,8 +105,8 @@ async function createStaff(req, res, next) {
 async function updateStaff(req, res, next) {
   try {
     const { id } = req.params;
-    const { fullName, email, position, role, isActive } = req.body;
-    const staff = await Staff.update(id, { fullName, email, position, role, isActive });
+    const { fullName, email, position, role, isActive, viewThreshold } = req.body;
+    const staff = await Staff.update(id, { fullName, email, position, role, isActive, viewThreshold });
     if (!staff) return res.status(404).json({ success: false, error: 'Staff member not found' });
     res.json({ success: true, data: staff });
   } catch (err) {
@@ -183,7 +184,6 @@ async function massAssign(req, res, next) {
 
     const { studentIds, field, value } = req.body;
 
-    // Validate against camelCase field names (as sent by the frontend)
     const allowedFields = ['counselor', 'seniorCounselor', 'presales', 'marketingStaff'];
     if (!allowedFields.includes(field)) {
       return res.status(400).json({ success: false, error: 'Invalid assignment field' });
@@ -192,7 +192,6 @@ async function massAssign(req, res, next) {
       return res.status(400).json({ success: false, error: 'studentIds array is required' });
     }
 
-    // Convert camelCase field name to snake_case for the database
     const dbField = toSnakeCase(field);
 
     await pool.query(
@@ -248,6 +247,7 @@ async function searchStudents(req, res, next) {
 async function getStudent(req, res, next) {
   try {
     const { Pool } = require('pg');
+    const { logView } = require('./auditController');
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -264,20 +264,22 @@ async function getStudent(req, res, next) {
       return res.status(404).json({ success: false, error: 'Lead not found' });
     }
 
+    await logView({
+      studentId: id,
+      viewedBy:  req.session.staffName || req.session.staffEmail || 'unknown',
+      req,
+    });
+
     res.json({ success: true, data: objectToCamelCase(result.rows[0]) });
   } catch (err) {
     next(err);
   }
 }
 
-// ── Replace the existing updateStudent function in staffController.js ─────────
-// Also add this require at the top of staffController.js:
-// const { logChanges } = require('./auditController');
-
+// ── Student Update ────────────────────────────────────────────
 async function updateStudent(req, res, next) {
   try {
     const { Pool } = require('pg');
-    const { logChanges } = require('./auditController');
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -286,7 +288,6 @@ async function updateStudent(req, res, next) {
     const { id } = req.params;
     const READONLY = new Set(['uniqueId', 'createdAt', 'updatedAt']);
 
-    // Fetch current values for audit comparison
     const existing = await pool.query(
       `SELECT * FROM students WHERE unique_id = $1`, [id]
     );
@@ -322,7 +323,6 @@ async function updateStudent(req, res, next) {
       values
     );
 
-    // Write audit log entries
     await logChanges({
       studentId: id,
       changedBy: req.session.staffName || req.session.staffEmail || 'unknown',
@@ -333,6 +333,86 @@ async function updateStudent(req, res, next) {
 
     await pool.end();
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Calculate Risk Score ──────────────────────────────────────
+async function calculateRisk(req, res, next) {
+  try {
+    const Student = require('../models/Student');
+    const { calculateRiskScore } = require('../utils/riskCalculator');
+
+    const { id } = req.params;
+    const result = await Student.findById(id);
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+
+    const riskResult = calculateRiskScore(result.data);
+
+    await Student.update(id, {
+      riskScore: String(riskResult.totalScore),
+      stoneTier: riskResult.stoneTier,
+    });
+
+    res.json({ success: true, data: riskResult });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Calculate OCEAN Profile ───────────────────────────────────
+async function calculateOceanStudent(req, res, next) {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+
+    const { id } = req.params;
+
+    const existing = await pool.query(
+      `SELECT * FROM students WHERE unique_id = $1`, [id]
+    );
+
+    if (existing.rows.length === 0) {
+      await pool.end();
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+
+    const data = objectToCamelCase(existing.rows[0]);
+
+    const responses = {};
+    for (let i = 1; i <= 15; i++) {
+      responses[i] = Number(data[`oceanQ${i}`]) || 0;
+    }
+
+    const assessment = assessOcean(responses);
+
+    await pool.query(
+      `UPDATE students SET
+        ocean_extraversion      = $1,
+        ocean_agreeableness     = $2,
+        ocean_conscientiousness = $3,
+        ocean_neuroticism       = $4,
+        ocean_openness          = $5,
+        updated_at              = NOW()
+       WHERE unique_id = $6`,
+      [
+        assessment.scores.extraversion,
+        assessment.scores.agreeableness,
+        assessment.scores.conscientiousness,
+        assessment.scores.neuroticism,
+        assessment.scores.openness,
+        id,
+      ]
+    );
+
+    await pool.end();
+    res.json({ success: true, data: assessment });
   } catch (err) {
     next(err);
   }
@@ -355,7 +435,7 @@ async function getColumnConfig(req, res, next) {
     await pool.end();
 
     if (result.rows.length === 0) {
-      return res.json({ success: true, data: null }); // No config yet — frontend uses defaults
+      return res.json({ success: true, data: null });
     }
 
     res.json({ success: true, data: result.rows[0].config });
@@ -396,4 +476,5 @@ module.exports = {
   listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
   assignStaff, massAssign, searchStudents, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
+  calculateRisk, calculateOceanStudent,
 };

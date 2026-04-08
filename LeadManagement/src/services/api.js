@@ -49,6 +49,8 @@ export const studentAPI = {
   search: (q)        => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
   get:    (id)       => request('GET', `/api/staff/students/${id}`),
   update: (id, data) => request('PUT', `/api/staff/students/${id}`, data),
+  calculateRisk:  (id) => request('POST', `/api/staff/students/${id}/calculate-risk`),
+  calculateOcean: (id) => request('POST', `/api/staff/students/${id}/calculate-ocean`),
 };
 
 // ── Notes ──
