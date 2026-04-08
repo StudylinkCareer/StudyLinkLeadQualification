@@ -1,10 +1,10 @@
 // src/pages/Leads.jsx
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { studentAPI, staffAPI, columnConfigAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiSettings, FiEye, FiEyeOff } from 'react-icons/fi';
 import Watermark from '../components/Watermark';
+import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiSettings, FiEye, FiEyeOff } from 'react-icons/fi';
 
 // ── Default column definitions ────────────────────────────────
 const DEFAULT_COLUMNS = [
@@ -20,7 +20,7 @@ const DEFAULT_COLUMNS = [
   { key:'englishLevel',      label:'English',        visible:true,  width:100 },
   { key:'gpa',               label:'GPA',            visible:true,  width:70  },
   { key:'budget',            label:'Budget',         visible:true,  width:130 },
-  { key:'stoneTier',         label:'Tier',           visible:true,  width:90  },
+  { key:'stoneTier',         label:'Stone',          visible:true,  width:90  },
   { key:'riskScore',         label:'Score',          visible:true,  width:70  },
   { key:'counselor',         label:'Counselor',      visible:true,  width:130 },
   { key:'seniorCounselor',   label:'Sr. Counselor',  visible:false, width:130 },
@@ -129,10 +129,7 @@ function ColumnSettings({ columns, onUpdate, onClose, isAdmin }) {
     setLocal(cols => cols.map(c => c.key===key ? {...c, visible:!c.visible} : c));
   }
 
-  function onDragStart(e, idx) {
-    dragIdx.current = idx;
-    e.dataTransfer.effectAllowed = 'move';
-  }
+  function onDragStart(e, idx) { dragIdx.current = idx; e.dataTransfer.effectAllowed = 'move'; }
 
   function onDragOver(e, idx) {
     e.preventDefault();
@@ -145,7 +142,6 @@ function ColumnSettings({ columns, onUpdate, onClose, isAdmin }) {
   }
 
   function onDragEnd() { dragIdx.current = null; }
-
   function handleSave() { onUpdate(local); onClose(); }
 
   return (
@@ -158,11 +154,9 @@ function ColumnSettings({ columns, onUpdate, onClose, isAdmin }) {
         <span style={{fontWeight:600,fontSize:'0.9375rem'}}>Column Settings</span>
         <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX size={16}/></button>
       </div>
-
       <div style={{padding:'0.75rem',borderBottom:'1px solid var(--border)',fontSize:'0.8rem',color:'var(--text-secondary)'}}>
         {isAdmin ? 'Drag to reorder • Toggle to show/hide • Changes apply to all users' : 'View only — Admin can change column settings'}
       </div>
-
       <div style={{flex:1,overflowY:'auto',padding:'0.5rem 0'}}>
         {local.map((col, idx) => (
           <div key={col.key}
@@ -177,9 +171,7 @@ function ColumnSettings({ columns, onUpdate, onClose, isAdmin }) {
               opacity: col.visible ? 1 : 0.45,
               background:'var(--bg-primary)',
             }}>
-            {isAdmin && (
-              <span style={{color:'var(--text-secondary)',fontSize:'0.75rem',cursor:'grab'}}>⠿</span>
-            )}
+            {isAdmin && <span style={{color:'var(--text-secondary)',fontSize:'0.75rem',cursor:'grab'}}>⠿</span>}
             <span style={{flex:1,fontSize:'0.875rem'}}>{col.label}</span>
             {isAdmin ? (
               <button onClick={()=>toggleVisible(col.key)}
@@ -194,7 +186,6 @@ function ColumnSettings({ columns, onUpdate, onClose, isAdmin }) {
           </div>
         ))}
       </div>
-
       {isAdmin && (
         <div style={{padding:'1rem',borderTop:'1px solid var(--border)',display:'flex',gap:'0.5rem'}}>
           <button className="btn btn--primary btn--sm" style={{flex:1}} onClick={handleSave}>Save for all users</button>
@@ -225,7 +216,8 @@ export default function Leads() {
   const PER_PAGE  = 25;
 
   const { isManager, isAdmin, staff } = useAuth();
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
+  const location  = useLocation();
 
   useEffect(() => {
     loadLeads();
@@ -240,6 +232,26 @@ export default function Leads() {
     }).catch(()=>{});
   }, []);
 
+  // ── Apply drill-down filter from Dashboard ──────────────────
+  useEffect(() => {
+    const drill = location.state?.drillFilter;
+    if (!drill) return;
+    const { key, value } = drill;
+    if (key === 'leadStatus' && value === 'active') {
+      // Active = not Won or Lost — show all statuses except Won/Lost
+      setFilters(f => ({
+        ...f,
+        leadStatus: ['New','Contacted','Qualified','Proposal','Negotiation','On Hold'],
+      }));
+    } else if (MULTI_KEYS.includes(key)) {
+      setFilters(f => ({ ...f, [key]: [value] }));
+    }
+    setShowFilters(true);
+    setPage(1);
+    // Clear state so back-navigation doesn't re-apply
+    window.history.replaceState({}, '');
+  }, [location.state]);
+
   async function loadLeads() {
     setLoading(true);
     try { const data = await studentAPI.search(''); setLeads(data.data||[]); }
@@ -249,6 +261,7 @@ export default function Leads() {
 
   function setFilter(key, value) { setFilters(f=>({...f,[key]:value})); setPage(1); }
   function clearFilters() { setFilters(EMPTY_FILTERS); setPage(1); }
+
   const activeFilterCount = useMemo(() => {
     let n = filters.search ? 1 : 0;
     MULTI_KEYS.forEach(k => { if (filters[k]?.length>0) n++; });
@@ -281,10 +294,24 @@ export default function Leads() {
 
   const filtered = useMemo(() => {
     let r = leads;
+
+    // ── Role-based scoping — ALL non-manager staff ──────────
+    if (!isManager) {
+      r = r.filter(l =>
+        l.counselor       === staff?.fullName ||
+        l.seniorCounselor === staff?.fullName ||
+        l.presales        === staff?.fullName ||
+        l.marketingStaff  === staff?.fullName
+      );
+    }
+
+    // ── Text search ─────────────────────────────────────────
     if (filters.search) r = r.filter(l =>
       matchesSearch(l.fullName,filters.search) || matchesSearch(l.email,filters.search) ||
       matchesSearch(l.phone,filters.search)    || matchesSearch(l.uniqueId,filters.search)
     );
+
+    // ── Multi-select filters ────────────────────────────────
     const mf = (arr, val) => !arr?.length || arr.includes(val);
     if (filters.leadStatus?.length)         r = r.filter(l => mf(filters.leadStatus, l.leadStatus||'New'));
     if (filters.stoneTier?.length)          r = r.filter(l => mf(filters.stoneTier, l.stoneTier));
@@ -301,16 +328,13 @@ export default function Leads() {
     if (filters.seniorCounselor?.length)    r = r.filter(l => mf(filters.seniorCounselor, l.seniorCounselor));
     if (filters.presales?.length)           r = r.filter(l => mf(filters.presales, l.presales));
     if (filters.marketingStaff?.length)     r = r.filter(l => mf(filters.marketingStaff, l.marketingStaff));
+
+    // ── Date filters ────────────────────────────────────────
     if (filters.dateFrom)      r = r.filter(l => l.createdAt && new Date(l.createdAt)>=new Date(filters.dateFrom));
     if (filters.dateTo)        r = r.filter(l => l.createdAt && new Date(l.createdAt)<=new Date(filters.dateTo+'T23:59:59'));
     if (filters.closeDateFrom) r = r.filter(l => l.closeDate && new Date(l.closeDate)>=new Date(filters.closeDateFrom));
     if (filters.closeDateTo)   r = r.filter(l => l.closeDate && new Date(l.closeDate)<=new Date(filters.closeDateTo+'T23:59:59'));
-    if (!isManager && staff?.role==='Counselor') {
-      r = r.filter(l =>
-        l.counselor===staff.fullName || l.seniorCounselor===staff.fullName ||
-        l.presales===staff.fullName  || l.marketingStaff===staff.fullName
-      );
-    }
+
     return [...r].sort((a,b) => {
       const av=a[sortField]||'', bv=b[sortField]||'';
       return sortDir==='asc' ? (av>bv?1:-1) : (av<bv?1:-1);
@@ -345,14 +369,12 @@ export default function Leads() {
       const { key, startX, startW } = resizing.current;
       const newW = Math.max(60, startW + (ev.clientX - startX));
       colWidths.current = { ...colWidths.current, [key]: newW };
-      // Update DOM directly for performance
       const th = document.querySelector(`th[data-col="${key}"]`);
       if (th) th.style.width = newW + 'px';
     }
 
     function onUp() {
       if (!resizing.current) return;
-      // Persist width into columns state and save
       const { key } = resizing.current;
       const newW = colWidths.current[key];
       resizing.current = null;
@@ -369,14 +391,12 @@ export default function Leads() {
     document.addEventListener('mouseup', onUp);
   }
 
-  // ── Save column config ─────────────────────────────────────
   async function handleColumnUpdate(newCols) {
     setColumns(newCols);
     try { await columnConfigAPI.save('leads', newCols); }
     catch(e) { alert('Failed to save column settings'); }
   }
 
-  // ── Cell renderer ──────────────────────────────────────────
   function renderCell(col, lead) {
     switch(col.key) {
       case 'fullName':    return <td key={col.key} style={{fontWeight:500}}>{lead.fullName||'—'}</td>;
@@ -399,9 +419,16 @@ export default function Leads() {
       <Watermark />
       <div className="page-header">
         <span className="page-title">Leads ({filtered.length})</span>
-        <button className="btn btn--ghost btn--icon" onClick={()=>setShowSettings(s=>!s)} title="Column settings">
-          <FiSettings size={16}/>
-        </button>
+        <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+          {!isManager && (
+            <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>
+              Your assigned leads
+            </span>
+          )}
+          <button className="btn btn--ghost btn--icon" onClick={()=>setShowSettings(s=>!s)} title="Column settings">
+            <FiSettings size={16}/>
+          </button>
+        </div>
       </div>
 
       <div className="page-body">
@@ -437,30 +464,29 @@ export default function Leads() {
           )}
         </div>
 
-        {/* Filter panel — compact pills in 2 rows */}
+        {/* Filter panel */}
         {showFilters && (
           <div style={{
             background:'var(--bg-secondary)',border:'1px solid var(--border)',
             borderRadius:'10px',padding:'0.75rem',marginBottom:'1rem',
           }}>
             <div style={{display:'flex',flexWrap:'wrap',gap:'0.4rem',marginBottom:'0.5rem'}}>
-              <MultiFilter label="Status"          selected={filters.leadStatus}         onChange={v=>setFilter('leadStatus',v)}         options={uniqueValues.leadStatus}/>
-              <MultiFilter label="Tier"            selected={filters.stoneTier}          onChange={v=>setFilter('stoneTier',v)}          options={uniqueValues.stoneTier}/>
-              <MultiFilter label="Source"          selected={filters.leadSource}         onChange={v=>setFilter('leadSource',v)}         options={uniqueValues.leadSource}/>
-              <MultiFilter label="Interaction"     selected={filters.interaction}        onChange={v=>setFilter('interaction',v)}        options={uniqueValues.interaction}/>
-              <MultiFilter label="Study Plans"     selected={filters.studyPlans}         onChange={v=>setFilter('studyPlans',v)}         options={uniqueValues.studyPlans}/>
-              <MultiFilter label="Destination"     selected={filters.destinationCountry} onChange={v=>setFilter('destinationCountry',v)} options={uniqueValues.destinationCountry}/>
-              <MultiFilter label="Timeline"        selected={filters.timeline}           onChange={v=>setFilter('timeline',v)}           options={uniqueValues.timeline}/>
-              <MultiFilter label="English"         selected={filters.englishLevel}       onChange={v=>setFilter('englishLevel',v)}       options={uniqueValues.englishLevel}/>
-              <MultiFilter label="GPA"             selected={filters.gpa}                onChange={v=>setFilter('gpa',v)}                options={uniqueValues.gpa}/>
-              <MultiFilter label="Budget"          selected={filters.budget}             onChange={v=>setFilter('budget',v)}             options={uniqueValues.budget}/>
-              <MultiFilter label="Confidence"      selected={filters.confidence}         onChange={v=>setFilter('confidence',v)}         options={uniqueValues.confidence}/>
-              <MultiFilter label="Counselor"       selected={filters.counselor}          onChange={v=>setFilter('counselor',v)}          options={uniqueValues.counselor}/>
-              <MultiFilter label="Sr. Counselor"   selected={filters.seniorCounselor}    onChange={v=>setFilter('seniorCounselor',v)}    options={uniqueValues.seniorCounselor}/>
-              <MultiFilter label="Pre-Sales"       selected={filters.presales}           onChange={v=>setFilter('presales',v)}           options={uniqueValues.presales}/>
-              <MultiFilter label="Marketing"       selected={filters.marketingStaff}     onChange={v=>setFilter('marketingStaff',v)}     options={uniqueValues.marketingStaff}/>
+              <MultiFilter label="Status"        selected={filters.leadStatus}         onChange={v=>setFilter('leadStatus',v)}         options={uniqueValues.leadStatus}/>
+              <MultiFilter label="Stone"         selected={filters.stoneTier}          onChange={v=>setFilter('stoneTier',v)}          options={uniqueValues.stoneTier}/>
+              <MultiFilter label="Source"        selected={filters.leadSource}         onChange={v=>setFilter('leadSource',v)}         options={uniqueValues.leadSource}/>
+              <MultiFilter label="Interaction"   selected={filters.interaction}        onChange={v=>setFilter('interaction',v)}        options={uniqueValues.interaction}/>
+              <MultiFilter label="Study Plans"   selected={filters.studyPlans}         onChange={v=>setFilter('studyPlans',v)}         options={uniqueValues.studyPlans}/>
+              <MultiFilter label="Destination"   selected={filters.destinationCountry} onChange={v=>setFilter('destinationCountry',v)} options={uniqueValues.destinationCountry}/>
+              <MultiFilter label="Timeline"      selected={filters.timeline}           onChange={v=>setFilter('timeline',v)}           options={uniqueValues.timeline}/>
+              <MultiFilter label="English"       selected={filters.englishLevel}       onChange={v=>setFilter('englishLevel',v)}       options={uniqueValues.englishLevel}/>
+              <MultiFilter label="GPA"           selected={filters.gpa}                onChange={v=>setFilter('gpa',v)}                options={uniqueValues.gpa}/>
+              <MultiFilter label="Budget"        selected={filters.budget}             onChange={v=>setFilter('budget',v)}             options={uniqueValues.budget}/>
+              <MultiFilter label="Confidence"    selected={filters.confidence}         onChange={v=>setFilter('confidence',v)}         options={uniqueValues.confidence}/>
+              <MultiFilter label="Counselor"     selected={filters.counselor}          onChange={v=>setFilter('counselor',v)}          options={uniqueValues.counselor}/>
+              <MultiFilter label="Sr. Counselor" selected={filters.seniorCounselor}    onChange={v=>setFilter('seniorCounselor',v)}    options={uniqueValues.seniorCounselor}/>
+              <MultiFilter label="Pre-Sales"     selected={filters.presales}           onChange={v=>setFilter('presales',v)}           options={uniqueValues.presales}/>
+              <MultiFilter label="Marketing"     selected={filters.marketingStaff}     onChange={v=>setFilter('marketingStaff',v)}     options={uniqueValues.marketingStaff}/>
             </div>
-            {/* Date filters on second row */}
             <div style={{display:'flex',flexWrap:'wrap',gap:'0.5rem',alignItems:'center'}}>
               <span style={{fontSize:'0.75rem',color:'var(--text-secondary)'}}>Created:</span>
               <input className="form-input" type="date" value={filters.dateFrom}
@@ -512,7 +538,6 @@ export default function Leads() {
                         {col.label}
                         {col.key!=='age' && <SortIcon field={col.key}/>}
                       </span>
-                      {/* Resize handle */}
                       <span
                         onMouseDown={e=>startResize(e,col.key)}
                         style={{

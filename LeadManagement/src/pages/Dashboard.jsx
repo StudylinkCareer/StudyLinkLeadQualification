@@ -1,124 +1,229 @@
 // src/pages/Dashboard.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { studentAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import Watermark from '../components/Watermark';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+} from 'recharts';
 
-function StatCard({ label, value, sub }) {
+const STONE_COLORS = {
+  Quartz:   '#9CA3AF',
+  Agate:    '#78716C',
+  Sapphire: '#2563EB',
+  Ruby:     '#DC2626',
+  Diamond:  '#8B5CF6',
+};
+
+const STATUS_COLORS = {
+  'New':         '#6B7280',
+  'Contacted':   '#3B82F6',
+  'Qualified':   '#8B5CF6',
+  'Proposal':    '#F59E0B',
+  'Negotiation': '#F97316',
+  'Won':         '#10B981',
+  'Lost':        '#EF4444',
+  'On Hold':     '#94A3B8',
+};
+
+const SOURCE_COLOR = '#2563EB';
+
+// ── Stat card ─────────────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, color, onClick }) {
   return (
-    <div className="stat-card">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-      {sub && <div className="stat-sub">{sub}</div>}
+    <div onClick={onClick} style={{
+      background:'var(--bg-primary)', border:'1px solid var(--border)',
+      borderRadius:'10px', padding:'1rem 1.25rem',
+      cursor: onClick ? 'pointer' : 'default',
+      borderLeft: color ? `4px solid ${color}` : '1px solid var(--border)',
+      transition:'box-shadow 0.15s',
+    }}
+    onMouseEnter={e=>{ if(onClick) e.currentTarget.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'; }}
+    onMouseLeave={e=>{ e.currentTarget.style.boxShadow='none'; }}>
+      <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500, marginBottom:'0.25rem' }}>{label}</div>
+      <div style={{ fontSize:'1.75rem', fontWeight:600, color: color || 'var(--text-primary)' }}>{value}</div>
+      {sub && <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.25rem' }}>{sub}</div>}
     </div>
   );
 }
 
-function BarChart({ title, data, max }) {
+// ── Custom bar label ──────────────────────────────────────────────────────────
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
   return (
-    <div className="chart-card">
-      <div className="chart-title">{title}</div>
-      <div className="bar-chart">
-        {data.map(({ label, count }) => (
-          <div className="bar-row" key={label}>
-            <div className="bar-label" title={label}>{label || '—'}</div>
-            <div className="bar-track">
-              <div
-                className="bar-fill"
-                style={{ width: max > 0 ? `${(count / max) * 100}%` : '0%' }}
-              />
-            </div>
-            <div className="bar-count">{count}</div>
-          </div>
-        ))}
-        {data.length === 0 && (
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>No data yet</div>
-        )}
-      </div>
+    <div style={{
+      background:'var(--bg-primary)', border:'1px solid var(--border)',
+      borderRadius:'8px', padding:'0.5rem 0.75rem', fontSize:'0.8125rem',
+    }}>
+      <div style={{ fontWeight:600 }}>{label}</div>
+      <div style={{ color:'var(--primary)' }}>{payload[0].value} leads</div>
     </div>
   );
-}
-
-function getLeadAge(createdAt) {
-  if (!createdAt) return null;
-  const days = Math.floor((Date.now() - new Date(createdAt)) / (1000 * 60 * 60 * 24));
-  return days;
 }
 
 export default function Dashboard() {
   const [leads, setLeads]     = useState([]);
   const [loading, setLoading] = useState(true);
-  const { staff }             = useAuth();
+  const { staff, isManager }  = useAuth();
+  const navigate              = useNavigate();
 
   useEffect(() => {
-    studentAPI.search('')
-      .then(data => setLeads(data.data || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    studentAPI.search('').then(d => {
+      setLeads(d.data || []);
+    }).catch(console.error).finally(() => setLoading(false));
   }, []);
+
+  // ── Scope leads by role ──────────────────────────────────────────────────
+  const scopedLeads = useMemo(() => {
+    if (isManager) return leads;
+    // Non-managers only see leads where they are assigned in any role
+    return leads.filter(l =>
+      l.counselor       === staff?.fullName ||
+      l.seniorCounselor === staff?.fullName ||
+      l.presales        === staff?.fullName ||
+      l.marketingStaff  === staff?.fullName
+    );
+  }, [leads, isManager, staff]);
+
+  // ── Stats ────────────────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    const total    = scopedLeads.length;
+    const won      = scopedLeads.filter(l => l.leadStatus === 'Won').length;
+    const active   = scopedLeads.filter(l => !['Won','Lost'].includes(l.leadStatus)).length;
+    const thisMonth = scopedLeads.filter(l => {
+      if (!l.createdAt) return false;
+      const d = new Date(l.createdAt);
+      const now = new Date();
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).length;
+    return { total, won, active, thisMonth };
+  }, [scopedLeads]);
+
+  // ── Chart data ────────────────────────────────────────────────────────────
+  const stoneData = useMemo(() => {
+    const counts = {};
+    scopedLeads.forEach(l => {
+      const s = l.stoneTier || 'Unscored';
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    const order = ['Quartz','Agate','Sapphire','Ruby','Diamond','Unscored'];
+    return order.filter(k => counts[k]).map(k => ({ name: k, count: counts[k] }));
+  }, [scopedLeads]);
+
+  const statusData = useMemo(() => {
+    const counts = {};
+    scopedLeads.forEach(l => {
+      const s = l.leadStatus || 'New';
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    return Object.entries(counts).map(([name, count]) => ({ name, count }))
+      .sort((a,b) => b.count - a.count);
+  }, [scopedLeads]);
+
+  const sourceData = useMemo(() => {
+    const counts = {};
+    scopedLeads.forEach(l => {
+      if (l.leadSource) counts[l.leadSource] = (counts[l.leadSource] || 0) + 1;
+    });
+    return Object.entries(counts).map(([name, count]) => ({ name, count }))
+      .sort((a,b) => b.count - a.count);
+  }, [scopedLeads]);
+
+  // ── Drill-down navigation ─────────────────────────────────────────────────
+  function drillDown(filterKey, filterValue) {
+    navigate('/leads', { state: { drillFilter: { key: filterKey, value: filterValue } } });
+  }
 
   if (loading) return <div className="loading-center">Loading dashboard...</div>;
 
-  // ── Compute stats ──
-  const total = leads.length;
-
-  const byStatus = {};
-  const byCounselor = {};
-  const byTier = {};
-  let totalAge = 0;
-  let ageCount = 0;
-
-  leads.forEach(l => {
-    const status = l.lead_status || l.leadStatus || 'New';
-    byStatus[status] = (byStatus[status] || 0) + 1;
-
-    const counselor = l.counselor || 'Unassigned';
-    byCounselor[counselor] = (byCounselor[counselor] || 0) + 1;
-
-    const tier = l.stone_tier || l.stoneTier || 'Unscored';
-    byTier[tier] = (byTier[tier] || 0) + 1;
-
-    const age = getLeadAge(l.created_at || l.createdAt);
-    if (age !== null) { totalAge += age; ageCount++; }
-  });
-
-  const avgAge = ageCount > 0 ? Math.round(totalAge / ageCount) : 0;
-
-  const statusData    = Object.entries(byStatus).map(([label, count]) => ({ label, count })).sort((a,b) => b.count - a.count);
-  const counselorData = Object.entries(byCounselor).map(([label, count]) => ({ label, count })).sort((a,b) => b.count - a.count).slice(0, 8);
-  const tierData      = Object.entries(byTier).map(([label, count]) => ({ label, count })).sort((a,b) => b.count - a.count);
-
-  const maxStatus    = Math.max(...statusData.map(d => d.count), 1);
-  const maxCounselor = Math.max(...counselorData.map(d => d.count), 1);
-  const maxTier      = Math.max(...tierData.map(d => d.count), 1);
-
-  const wonCount  = byStatus['Won']  || 0;
-  const lostCount = byStatus['Lost'] || 0;
-  const convRate  = total > 0 ? Math.round((wonCount / total) * 100) : 0;
-
   return (
     <div>
+      <Watermark />
       <div className="page-header">
         <span className="page-title">Dashboard</span>
-        <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-          Welcome, {staff?.fullName}
+        <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>
+          {isManager ? 'All leads' : `Your assigned leads — ${staff?.fullName}`}
         </span>
       </div>
 
       <div className="page-body">
-        <div className="stats-grid">
-          <StatCard label="Total Leads"      value={total}      sub="all time" />
-          <StatCard label="Won"              value={wonCount}   sub={`${convRate}% conversion`} />
-          <StatCard label="Lost"             value={lostCount}  />
-          <StatCard label="Avg Lead Age"     value={`${avgAge}d`} sub="days since created" />
+
+        {/* ── Stat cards ── */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
+          <StatCard label="Total Leads"    value={stats.total}    onClick={()=>navigate('/leads')}/>
+          <StatCard label="Active"         value={stats.active}   color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
+          <StatCard label="Won"            value={stats.won}      color="#10B981" onClick={()=>drillDown('leadStatus','Won')}/>
+          <StatCard label="This Month"     value={stats.thisMonth} color="#F59E0B" sub="new leads"/>
         </div>
 
-        <div className="charts-grid">
-          <BarChart title="Leads by Status"    data={statusData}    max={maxStatus} />
-          <BarChart title="Leads by Counselor" data={counselorData} max={maxCounselor} />
-        </div>
+        {/* ── Charts row ── */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
 
-        <div className="charts-grid">
-          <BarChart title="Leads by Stone Tier" data={tierData} max={maxTier} />
+          {/* Stone chart */}
+          <div className="section-card">
+            <div className="section-header">
+              <span className="section-title">Leads by Stone</span>
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={stoneData} margin={{ top:4, right:8, bottom:4, left:0 }}>
+                <XAxis dataKey="name" tick={{ fontSize:11 }} />
+                <YAxis tick={{ fontSize:11 }} allowDecimals={false}/>
+                <Tooltip content={<CustomTooltip/>}/>
+                <Bar dataKey="count" radius={[4,4,0,0]} cursor="pointer"
+                  onClick={d => drillDown('stoneTier', d.name)}>
+                  {stoneData.map(entry => (
+                    <Cell key={entry.name} fill={STONE_COLORS[entry.name] || '#9CA3AF'}/>
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.25rem' }}>
+              Click a bar to view those leads
+            </div>
+          </div>
+
+          {/* Status chart */}
+          <div className="section-card">
+            <div className="section-header">
+              <span className="section-title">Leads by Status</span>
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={statusData} margin={{ top:4, right:8, bottom:4, left:0 }}>
+                <XAxis dataKey="name" tick={{ fontSize:10 }} interval={0} angle={-20} textAnchor="end" height={40}/>
+                <YAxis tick={{ fontSize:11 }} allowDecimals={false}/>
+                <Tooltip content={<CustomTooltip/>}/>
+                <Bar dataKey="count" radius={[4,4,0,0]} cursor="pointer"
+                  onClick={d => drillDown('leadStatus', d.name)}>
+                  {statusData.map(entry => (
+                    <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || '#6B7280'}/>
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.25rem' }}>
+              Click a bar to view those leads
+            </div>
+          </div>
+
+          {/* Source chart */}
+          <div className="section-card">
+            <div className="section-header">
+              <span className="section-title">Leads by Source</span>
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={sourceData} margin={{ top:4, right:8, bottom:4, left:0 }}>
+                <XAxis dataKey="name" tick={{ fontSize:10 }} interval={0} angle={-20} textAnchor="end" height={40}/>
+                <YAxis tick={{ fontSize:11 }} allowDecimals={false}/>
+                <Tooltip content={<CustomTooltip/>}/>
+                <Bar dataKey="count" fill={SOURCE_COLOR} radius={[4,4,0,0]} cursor="pointer"
+                  onClick={d => drillDown('leadSource', d.name)}/>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.25rem' }}>
+              Click a bar to view those leads
+            </div>
+          </div>
         </div>
       </div>
     </div>
