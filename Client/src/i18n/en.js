@@ -269,7 +269,7 @@ const en = {
   contactDetailRequired: 'Enter contact detail',
 
   // ── Form field options (Student Info) — translated arrays ──
-  studyPlanOptions: ['Do not study', 'Study in Vietnam', 'Study Abroad'],
+  studyPlanOptions: ['Study Abroad', 'English Summer Camp', 'Study in Vietnam', 'Do not study'],
   leadSourceOptions: [
     'Databases',
     'FB-Zalo-GG-TikTok ads',

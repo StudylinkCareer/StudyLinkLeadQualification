@@ -267,7 +267,7 @@ const vi = {
   contactDetailRequired: 'Nhập thông tin liên hệ',
 
   // ── Form field options (Student Info) — translated arrays ──
-  studyPlanOptions: ['Không đi học', 'Học trong nước', 'Du học'],
+  studyPlanOptions: ['Du học', 'Trại hè tiếng Anh', 'Học tại Việt Nam', 'Không học'],
   leadSourceOptions: [
     'Cơ sở dữ liệu',
     'Quảng cáo FB-Zalo-GG-TikTok',

@@ -1,8 +1,12 @@
 // server/src/utils/caseConvert.js
 
 // camelCase  → snake_case  (e.g. seniorCounselor → senior_counselor)
+
 function toSnakeCase(str) {
-  return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  return str
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .toLowerCase();
 }
 
 // snake_case → camelCase  (e.g. senior_counselor → seniorCounselor)

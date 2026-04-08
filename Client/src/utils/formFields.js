@@ -38,7 +38,7 @@ export const COUNTRY_CODES = [
   { code: '+1', country: 'USA' },
 ];
 
-export const STUDY_PLANS = ['Do not study', 'Study in Vietnam', 'Study Abroad'];
+export const STUDY_PLANS = ['Study Abroad', 'English Summer Camp', 'Study in Vietnam', 'Do not study', ];
 
 export const LEAD_SOURCES = [
   'Databases',
