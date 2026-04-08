@@ -11,7 +11,7 @@ const pool = new Pool({
 
 async function findAll() {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, created_at
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at
      FROM staff ORDER BY full_name ASC`
   );
   return result.rows.map(objectToCamelCase);
@@ -19,7 +19,7 @@ async function findAll() {
 
 async function findById(id) {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, created_at
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at
      FROM staff WHERE id = $1`,
     [id]
   );
@@ -48,7 +48,7 @@ async function findActiveByRole(role) {
 
 async function findAllActive() {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at
      FROM staff WHERE is_active = true ORDER BY full_name ASC`
   );
   return result.rows.map(objectToCamelCase);
@@ -59,7 +59,7 @@ async function create({ fullName, email, position, role, password }) {
   const result = await pool.query(
     `INSERT INTO staff (full_name, email, position, role, password_hash, is_active)
      VALUES ($1, $2, $3, $4, $5, true)
-     RETURNING id, full_name, email, position, role, is_active, view_threshold, created_at`,
+     RETURNING id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at`,
     [fullName, email.toLowerCase(), position, role, passwordHash]
   );
   return objectToCamelCase(result.rows[0]);
@@ -75,7 +75,7 @@ async function update(id, { fullName, email, position, role, isActive, viewThres
          is_active = COALESCE($5, is_active),
          view_threshold = COALESCE($6, view_threshold)
      WHERE id = $7
-     RETURNING id, full_name, email, position, role, is_active, view_threshold, created_at`,
+     RETURNING id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at`,
     [fullName, email ? email.toLowerCase() : null, position, role, isActive, viewThreshold ?? null, id]
   );
   return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
@@ -103,7 +103,20 @@ async function deactivate(id) {
   return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
 }
 
+async function setTarget(id, target, setterName) {
+  const result = await pool.query(
+    `UPDATE staff
+     SET target = $1, target_set_by = $2, target_set_at = NOW()
+     WHERE id = $3
+     RETURNING id, full_name, email, position, role, is_active,
+               view_threshold, target, target_set_by, target_set_at, created_at`,
+    [target, setterName, id]
+  );
+  return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
+}
+// Add setTarget to module.exports
+
 module.exports = {
   findAll, findById, findByEmail, findActiveByRole, findAllActive,
-  create, update, updatePassword, verifyPassword, deactivate,
+  create, update, updatePassword, verifyPassword, deactivate, setTarget,
 };
