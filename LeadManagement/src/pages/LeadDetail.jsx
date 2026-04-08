@@ -8,11 +8,11 @@ import OceanRadarChart from '../components/OceanRadarChart';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw } from 'react-icons/fi';
 
 // ── Stone images ──────────────────────────────────────────────────────────────
-import quartzImg   from '../assets/stones/quartz.png';
-import agateImg    from '../assets/stones/agate.png';
-import sapphireImg from '../assets/stones/sapphire.png';
-import rubyImg     from '../assets/stones/ruby.png';
-import diamondImg  from '../assets/stones/diamond.png';
+import quartzImg   from '../Assets/Stones/quartz.png';
+import agateImg    from '../Assets/Stones/agate.png';
+import sapphireImg from '../Assets/Stones/sapphire.png';
+import rubyImg     from '../Assets/Stones/ruby.png';
+import diamondImg  from '../Assets/Stones/diamond.png';
 
 const STONE_IMAGES = {
   Quartz:   quartzImg,
