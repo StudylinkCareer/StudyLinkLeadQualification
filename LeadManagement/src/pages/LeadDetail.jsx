@@ -377,7 +377,12 @@ export default function LeadDetail() {
           <div className="section-card">
             {/* Header row: title left, photos right */}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
-              <span className="section-title">Student Information</span>
+              <div>
+                <span className="section-title">Student Information</span>
+                <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
+                  {lead.fullName || '—'}
+                </div>
+              </div>
               <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
                 <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>
                 <PhotoThumb url={lead.qrCodeImageUrl} label="QR Code"  isRound={false}/>
