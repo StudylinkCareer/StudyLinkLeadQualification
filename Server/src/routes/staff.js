@@ -38,7 +38,9 @@
   router.get('/students/search',       requireStaffAuth,                         staffCtrl.searchStudents);
   router.get('/students/:id',          requireStaffAuth,                         staffCtrl.getStudent);
   router.put('/students/:id',          requireStaffAuth,                         staffCtrl.updateStudent);
-
+  router.post('/students/:id/calculate-risk',  requireStaffAuth,                 staffCtrl.calculateRisk);
+  router.post('/students/:id/calculate-ocean', requireStaffAuth,                 staffCtrl.calculateOceanStudent);
+  
   // ── Audit log routes ──
   router.get('/audit/:studentId',     requireStaffAuth,              auditCtrl.getAuditLog);
   router.get('/audit-range',          requireStaffAuth, requireAdmin, auditCtrl.getAuditLogRange);
