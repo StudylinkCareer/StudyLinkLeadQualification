@@ -5,7 +5,7 @@ import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
 import OceanRadarChart from '../components/OceanRadarChart';
-import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw } from 'react-icons/fi';
+import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 
 // ── Stone images ──────────────────────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
@@ -67,10 +67,10 @@ const OCEAN_QUESTIONS = [
   { id:3,  text:'I am always prepared and keep my belongings organized.' },
   { id:4,  text:'I have frequent mood swings and get stressed easily.' },
   { id:5,  text:'I have a vivid imagination and enjoy thinking about abstract ideas.' },
-  { id:6,  text:'I don\'t talk a lot and tend to keep to myself.' },
+  { id:6,  text:"I don't talk a lot and tend to keep to myself." },
   { id:7,  text:"I am not really interested in others' problems or feelings." },
   { id:8,  text:'I often forget to put things back in their proper place.' },
-  { id:9,  text:'I am relaxed most of the time and don\'t worry much.' },
+  { id:9,  text:"I am relaxed most of the time and don't worry much." },
   { id:10, text:'I am not interested in theoretical or philosophical discussions.' },
   { id:11, text:'I feel comfortable around people and start conversations easily.' },
   { id:12, text:'I have a soft heart and try to make people feel at ease.' },
@@ -123,6 +123,33 @@ function EditField({ label, name, value, onChange, type='text', options }) {
   );
 }
 
+// ── Photo placeholder ─────────────────────────────────────────────────────────
+function PhotoThumb({ url, label, isRound }) {
+  return (
+    <div style={{ textAlign:'center' }}>
+      {url ? (
+        <img src={url} alt={label} style={{
+          width:'56px', height:'56px', objectFit:'cover',
+          borderRadius: isRound ? '50%' : '6px',
+          border:'2px solid var(--border)',
+        }}/>
+      ) : (
+        <div style={{
+          width:'56px', height:'56px',
+          borderRadius: isRound ? '50%' : '6px',
+          background:'var(--bg-secondary)',
+          border:'2px dashed var(--border)',
+          display:'flex', alignItems:'center', justifyContent:'center',
+          color:'var(--text-secondary)',
+        }}>
+          {isRound ? <FiUser size={20}/> : <FiGrid size={20}/>}
+        </div>
+      )}
+      <div style={{ fontSize:'0.65rem', color:'var(--text-secondary)', marginTop:'0.25rem' }}>{label}</div>
+    </div>
+  );
+}
+
 export default function LeadDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
@@ -137,15 +164,15 @@ export default function LeadDetail() {
   const [saving, setSaving]     = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState({});
-  const [showHistory, setShowHistory]   = useState(false);
+  const [showHistory, setShowHistory]         = useState(false);
   const [showOceanQuestions, setShowOceanQuestions] = useState(false);
   const [assign, setAssign]     = useState({});
   const [noteType, setNoteType] = useState('counselor');
   const [noteText, setNoteText] = useState('');
   const [addingNote, setAdding] = useState(false);
-  const [recalculating, setRecalculating]   = useState(false);
-  const [recalcOcean, setRecalcOcean]       = useState(false);
-  const [oceanResult, setOceanResult]       = useState(null);
+  const [recalculating, setRecalculating] = useState(false);
+  const [recalcOcean, setRecalcOcean]     = useState(false);
+  const [oceanResult, setOceanResult]     = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -165,7 +192,6 @@ export default function LeadDetail() {
         presales:        l.presales        || '',
         marketingStaff:  l.marketingStaff  || '',
       });
-      // Load existing OCEAN scores if available
       if (l.oceanExtraversion) {
         setOceanResult({
           scores: {
@@ -195,11 +221,11 @@ export default function LeadDetail() {
           closeDate:          editData.closeDate || null,
           confidence:         editData.confidence,
           studyPlans:         editData.studyPlans,
-          leadSource:         editData.leadSource,
-          interaction:        editData.interaction,
           destinationCountry: editData.destinationCountry,
           timeline:           editData.timeline,
           schoolEvent:        editData.schoolEvent,
+          leadSource:         editData.leadSource,
+          interaction:        editData.interaction,
           budget:             editData.budget,
           scholarshipDemand:  editData.scholarshipDemand,
           englishLevel:       editData.englishLevel,
@@ -209,7 +235,6 @@ export default function LeadDetail() {
           incomeEvidence:     editData.incomeEvidence,
           studyPlanGap:       editData.studyPlanGap,
           ultimateObjective:  editData.ultimateObjective,
-          // OCEAN responses
           ...Object.fromEntries(
             Array.from({length:15}, (_,i) => [`oceanQ${i+1}`, editData[`oceanQ${i+1}`] || null])
           ),
@@ -284,10 +309,10 @@ export default function LeadDetail() {
   if (loading) return <div className="loading-center">Loading...</div>;
   if (!lead)   return <div className="page-body"><div className="alert alert--error">Lead not found</div></div>;
 
-  const canEdit      = canDo(PERMS.canEdit, role);
-  const canAssign    = canDo(PERMS.canEditAssignment, role);
-  const canRecalc    = canDo(PERMS.canRecalculate, role);
-  const d            = editMode ? editData : lead;
+  const canEdit   = canDo(PERMS.canEdit, role);
+  const canAssign = canDo(PERMS.canEditAssignment, role);
+  const canRecalc = canDo(PERMS.canRecalculate, role);
+  const d         = editMode ? editData : lead;
 
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
 
@@ -354,19 +379,26 @@ export default function LeadDetail() {
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                 <EditField label="Study Plans"  name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
-                <EditField label="Lead Source"  name="leadSource"         value={d.leadSource}         onChange={updateEdit} options={LEAD_SOURCE_OPTS}/>
-                <EditField label="Interaction"  name="interaction"        value={d.interaction}        onChange={updateEdit} options={INTERACTION_OPTS}/>
                 <EditField label="Destination"  name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
                 <EditField label="Timeline"     name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
                 <EditField label="School/Event" name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <Field label="Email"         value={lead.email}/>
-                <Field label="Phone"         value={lead.phone}/>
+                {/* Top section: contact info + photos top-right */}
+                <div style={{ gridColumn:'1 / -1', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'1rem' }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', flex:1 }}>
+                    <Field label="Email"      value={lead.email}/>
+                    <Field label="Phone"      value={lead.phone}/>
+                    <Field label="Stone Tier" value={lead.stoneTier}/>
+                    <Field label="Risk Score" value={lead.riskScore}/>
+                  </div>
+                  <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
+                    <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>
+                    <PhotoThumb url={lead.qrCodeImageUrl} label="QR Code"  isRound={false}/>
+                  </div>
+                </div>
                 <Field label="Study Plans"   value={lead.studyPlans}/>
-                <Field label="Lead Source"   value={lead.leadSource}/>
-                <Field label="Interaction"   value={lead.interaction}/>
                 <Field label="Destination"   value={lead.destinationCountry}/>
                 <Field label="Timeline"      value={lead.timeline}/>
                 <Field label="School/Event"  value={lead.schoolEvent}/>
@@ -397,11 +429,8 @@ export default function LeadDetail() {
                 padding:'1rem', marginBottom:'1rem',
                 border:'1px solid var(--border)',
               }}>
-                <img
-                  src={STONE_IMAGES[lead.stoneTier]}
-                  alt={lead.stoneTier}
-                  style={{ width:'56px', height:'56px', objectFit:'contain', flexShrink:0 }}
-                />
+                <img src={STONE_IMAGES[lead.stoneTier]} alt={lead.stoneTier}
+                  style={{ width:'56px', height:'56px', objectFit:'contain', flexShrink:0 }}/>
                 <p style={{ margin:0, fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-primary)' }}>
                   <strong>Congratulations! {lead.stoneTier}</strong> — {STONE_MESSAGES[lead.stoneTier]}
                 </p>
@@ -410,6 +439,8 @@ export default function LeadDetail() {
 
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+                <EditField label="Lead Source"         name="leadSource"        value={d.leadSource}        onChange={updateEdit} options={LEAD_SOURCE_OPTS}/>
+                <EditField label="Interaction"         name="interaction"       value={d.interaction}       onChange={updateEdit} options={INTERACTION_OPTS}/>
                 <EditField label="Budget"              name="budget"            value={d.budget}            onChange={updateEdit} options={BUDGET_OPTIONS}/>
                 <EditField label="Scholarship Demand"  name="scholarshipDemand" value={d.scholarshipDemand} onChange={updateEdit} options={SCHOLARSHIP_OPTS}/>
                 <EditField label="English Level"       name="englishLevel"      value={d.englishLevel}      onChange={updateEdit} options={ENGLISH_LEVELS}/>
@@ -422,6 +453,8 @@ export default function LeadDetail() {
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+                <Field label="Lead Source"         value={lead.leadSource}/>
+                <Field label="Interaction"         value={lead.interaction}/>
                 <Field label="Budget"              value={lead.budget}/>
                 <Field label="Scholarship Demand"  value={lead.scholarshipDemand}/>
                 <Field label="English Level"       value={lead.englishLevel}/>
@@ -431,8 +464,6 @@ export default function LeadDetail() {
                 <Field label="Income Evidence"     value={lead.incomeEvidence}/>
                 <Field label="Study Plan & Gap"    value={lead.studyPlanGap}/>
                 <Field label="Ultimate Objective"  value={lead.ultimateObjective}/>
-                <Field label="Stone Tier"          value={lead.stoneTier}/>
-                <Field label="Risk Score"          value={lead.riskScore}/>
               </div>
             )}
           </div>
@@ -448,7 +479,6 @@ export default function LeadDetail() {
               )}
             </div>
 
-            {/* Radar chart + narrative */}
             {oceanResult ? (
               <div style={{ marginBottom:'1rem' }}>
                 <OceanRadarChart scores={oceanResult.scores} size={260}/>
@@ -466,11 +496,8 @@ export default function LeadDetail() {
               </div>
             )}
 
-            {/* Question responses — collapsible */}
             <div>
-              <button
-                className="btn btn--ghost btn--sm"
-                onClick={()=>setShowOceanQuestions(o=>!o)}
+              <button className="btn btn--ghost btn--sm" onClick={()=>setShowOceanQuestions(o=>!o)}
                 style={{ marginBottom:'0.75rem' }}>
                 {showOceanQuestions ? <FiChevronUp size={12}/> : <FiChevronDown size={12}/>}
                 {showOceanQuestions ? ' Hide' : ' Show'} Question Responses
@@ -496,8 +523,7 @@ export default function LeadDetail() {
                         }}>{qid}</span>
                         <span style={{ color:'var(--text-primary)' }}>{text}</span>
                         {editMode ? (
-                          <select
-                            className="form-select"
+                          <select className="form-select"
                             style={{ width:'160px', fontSize:'0.75rem', padding:'0.25rem' }}
                             value={val||''}
                             onChange={e=>updateEdit(`oceanQ${qid}`, e.target.value ? Number(e.target.value) : null)}>
@@ -655,7 +681,7 @@ export default function LeadDetail() {
         <div style={{ display:'flex', flexDirection:'column', gap:'1rem', position:'sticky', top:'72px' }}>
 
           {/* Summary */}
-          <div className="section-card" style={{ maxHeight:'280px', overflowY:'auto' }}>
+          <div className="section-card" style={{ maxHeight:'320px', overflowY:'auto' }}>
             <div className="section-header"><span className="section-title">Summary</span></div>
             <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
               <Field label="Counselor"        value={lead.counselor}/>
@@ -663,8 +689,8 @@ export default function LeadDetail() {
               <Field label="Pre-Sales"        value={lead.presales}/>
               <Field label="Marketing Staff"  value={lead.marketingStaff}/>
               <div style={{ borderTop:'1px solid var(--border)', paddingTop:'0.5rem', marginTop:'0.25rem' }}>
-                <Field label="Stone Tier"  value={lead.stoneTier}/>
-                <Field label="Risk Score"  value={lead.riskScore}/>
+                <Field label="Stone Tier" value={lead.stoneTier}/>
+                <Field label="Risk Score" value={lead.riskScore}/>
               </div>
               {oceanResult && (
                 <div style={{ borderTop:'1px solid var(--border)', paddingTop:'0.5rem', marginTop:'0.25rem' }}>
