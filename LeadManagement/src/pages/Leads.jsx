@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, columnConfigAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiSettings, FiEye, FiEyeOff } from 'react-icons/fi';
+import Watermark from '../components/Watermark';
 
 // ── Default column definitions ────────────────────────────────
 const DEFAULT_COLUMNS = [
@@ -395,6 +396,7 @@ export default function Leads() {
 
   return (
     <div>
+      <Watermark />
       <div className="page-header">
         <span className="page-title">Leads ({filtered.length})</span>
         <button className="btn btn--ghost btn--icon" onClick={()=>setShowSettings(s=>!s)} title="Column settings">

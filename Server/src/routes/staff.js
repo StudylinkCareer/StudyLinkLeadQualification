@@ -42,6 +42,8 @@
   // ── Audit log routes ──
   router.get('/audit/:studentId',     requireStaffAuth,              auditCtrl.getAuditLog);
   router.get('/audit-range',          requireStaffAuth, requireAdmin, auditCtrl.getAuditLogRange);
+  router.get('/alert-recipients',     requireStaffAuth, requireAdmin, auditCtrl.getRecipients);
+  router.put('/alert-recipients',     requireStaffAuth, requireAdmin, auditCtrl.updateRecipients);
 
   // ── Column config ──
   router.get('/column-config/:screen',  requireStaffAuth,                          staffCtrl.getColumnConfig);
