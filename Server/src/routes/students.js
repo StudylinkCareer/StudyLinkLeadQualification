@@ -8,6 +8,7 @@ const studentController = require('../controllers/studentController');
 
 router.post('/register', requireAuth, studentController.register);
 router.post('/deactivate', requireAuth, studentController.deactivateRecords);  // ← NEW
+router.post('/:id/calculate-ocean', requireAuth, studentController.calculateOcean);
 router.get('/search', requireAuth, requireCounselor, studentController.searchStudents);
 router.get('/check-duplicate', requireAuth, studentController.checkDuplicate);
 router.get('/by-email', requireAuth, studentController.getByEmail);

@@ -46,7 +46,7 @@ const TAB_KEYS = [
   { key: 'personal' },
   { key: 'study' },
   { key: 'assessment' },
-//  { key: 'career' },
+  { key: 'career' },
 //  { key: 'family' },
   { key: 'counselor', counselorOnly: true },
   { key: 'documents', counselorOnly: true },
@@ -507,7 +507,7 @@ export default function Dashboard() {
       {activeTab === 'personal' && <PersonalDetailsTab {...formProps} />}
       {activeTab === 'study' && <StudentInfoTab {...formProps} />}
       {activeTab === 'assessment' && <SelfAssessmentTab {...formProps} />}
-      {activeTab === 'career' && <CareerFitTab />}
+      {activeTab === 'career' && <CareerFitTab {...formProps} />}
       {activeTab === 'family' && <FamilyContactsTab {...formProps} />}
       {activeTab === 'counselor' && <CounselorFeedbackTab {...formProps} />}
       {activeTab === 'documents' && <DocumentsTab {...formProps} />}

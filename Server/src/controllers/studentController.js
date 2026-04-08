@@ -1,6 +1,7 @@
 // server/src/controllers/studentController.js
 
 const Student = require('../models/Student');
+const { assessOcean } = require('../utils/oceanCalculator');
 const { calculateRiskScore } = require('../utils/riskCalculator');
 const { objectToCamelCase } = require('../utils/caseConvert');
 const { Pool } = require('pg');
@@ -214,6 +215,38 @@ async function searchStudents(req, res, next) {
   }
 }
 
+async function calculateOcean(req, res, next) {
+  try {
+    const { id } = req.params;
+    const result = await Student.findById(id);
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+
+    // Build responses object from stored fields
+    const data = result.data;
+    const responses = {};
+    for (let i = 1; i <= 15; i++) {
+      responses[i] = Number(data[`oceanQ${i}`]) || 0;
+    }
+
+    const assessment = assessOcean(responses);
+
+    // Save scores back to student record
+    await Student.update(id, {
+      oceanExtraversion:      assessment.scores.extraversion,
+      oceanAgreeableness:     assessment.scores.agreeableness,
+      oceanConscientiousness: assessment.scores.conscientiousness,
+      oceanNeuroticism:       assessment.scores.neuroticism,
+      oceanOpenness:          assessment.scores.openness,
+    });
+
+    res.json({ success: true, data: assessment });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   register,
   getStudent,
@@ -224,4 +257,5 @@ module.exports = {
   calculateRisk,
   uploadPhotos,
   searchStudents,
+  calculateOcean,
 };

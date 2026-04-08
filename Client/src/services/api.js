@@ -61,6 +61,7 @@ export const studentAPI = {
   search: (query) => api.get(`/students/search?q=${encodeURIComponent(query || '')}`),
   calculateRisk: (id) => api.post(`/students/${encodeURIComponent(id)}/calculate-risk`),
   uploadPhotos: (id, photos) => api.post(`/students/${encodeURIComponent(id)}/upload-photos`, photos),
+  calculateOcean: (id) => api.post(`/students/${encodeURIComponent(id)}/calculate-ocean`),
 };
 
 export const documentAPI = {
