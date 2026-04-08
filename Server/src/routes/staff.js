@@ -3,6 +3,7 @@
   const express    = require('express');
   const router     = express.Router();
   const staffCtrl  = require('../controllers/staffController');
+  const auditCtrl  = require('../controllers/auditController');  // ← ADD THIS LINE
 
   // Middleware — check staff is logged in
   function requireStaffAuth(req, res, next) {
@@ -37,6 +38,10 @@
   router.get('/students/search',       requireStaffAuth,                         staffCtrl.searchStudents);
   router.get('/students/:id',          requireStaffAuth,                         staffCtrl.getStudent);
   router.put('/students/:id',          requireStaffAuth,                         staffCtrl.updateStudent);
+
+  // ── Audit log routes ──
+  router.get('/audit/:studentId',     requireStaffAuth,              auditCtrl.getAuditLog);
+  router.get('/audit-range',          requireStaffAuth, requireAdmin, auditCtrl.getAuditLogRange);
 
   // ── Column config ──
   router.get('/column-config/:screen',  requireStaffAuth,                          staffCtrl.getColumnConfig);
