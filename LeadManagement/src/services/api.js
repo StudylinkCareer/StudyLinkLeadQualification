@@ -15,7 +15,6 @@ async function request(method, path, body) {
   const data = await res.json();
   if (!data.success) throw new Error(data.error || 'Request failed');
 
-  // Universal camelCase conversion — applies to all API responses
   if (Array.isArray(data.data)) {
     data.data = data.data.map(objectToCamelCase);
   } else if (data.data && typeof data.data === 'object') {
@@ -25,14 +24,14 @@ async function request(method, path, body) {
   return data;
 }
 
-// ── Auth ──
+// ── Auth ──────────────────────────────────────────────────────
 export const authAPI = {
   login:        (email, password) => request('POST', '/api/staff/login', { email, password }),
   logout:       ()                => request('POST', '/api/staff/logout'),
   checkSession: ()                => request('GET',  '/api/staff/session'),
 };
 
-// ── Staff ──
+// ── Staff ─────────────────────────────────────────────────────
 export const staffAPI = {
   list:           ()                         => request('GET',  '/api/staff'),
   listActive:     ()                         => request('GET',  '/api/staff/active'),
@@ -42,31 +41,32 @@ export const staffAPI = {
   deactivate:     (id)                       => request('PUT',  `/api/staff/${id}/deactivate`),
   assign:         (studentId, data)          => request('PUT',  `/api/staff/assign/${studentId}`, data),
   massAssign:     (studentIds, field, value) => request('PUT',  '/api/staff/mass-assign', { studentIds, field, value }),
+  setTarget:      (id, target)               => request('PUT',  `/api/staff/${id}/target`, { target }),
 };
 
-// ── Students ──
+// ── Students ──────────────────────────────────────────────────
 export const studentAPI = {
-  search: (q)        => request('GET', `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
-  get:    (id)       => request('GET', `/api/staff/students/${id}`),
-  update: (id, data) => request('PUT', `/api/staff/students/${id}`, data),
-  calculateRisk:  (id) => request('POST', `/api/staff/students/${id}/calculate-risk`),
-  calculateOcean: (id) => request('POST', `/api/staff/students/${id}/calculate-ocean`),
+  search:         (q)        => request('GET',  `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
+  get:            (id)       => request('GET',  `/api/staff/students/${id}`),
+  update:         (id, data) => request('PUT',  `/api/staff/students/${id}`, data),
+  calculateRisk:  (id)       => request('POST', `/api/staff/students/${id}/calculate-risk`),
+  calculateOcean: (id)       => request('POST', `/api/staff/students/${id}/calculate-ocean`),
 };
 
-// ── Notes ──
+// ── Notes ─────────────────────────────────────────────────────
 export const notesAPI = {
   list:   (studentId)                    => request('GET',    `/api/notes/${studentId}`),
   add:    (studentId, noteType, content) => request('POST',   `/api/notes/${studentId}`, { noteType, content }),
   delete: (id)                           => request('DELETE', `/api/notes/${id}`),
 };
 
-// ── Column Config ──
+// ── Column Config ─────────────────────────────────────────────
 export const columnConfigAPI = {
   get:  (screen)         => request('GET', `/api/staff/column-config/${screen}`),
   save: (screen, config) => request('PUT', `/api/staff/column-config/${screen}`, { config }),
 };
 
-// ── Audit Log ──
+// ── Audit Log ─────────────────────────────────────────────────
 export const auditAPI = {
   getForStudent: (studentId) => request('GET', `/api/staff/audit/${studentId}`),
   getRange:      (from, to)  => request('GET', `/api/staff/audit-range?from=${from}&to=${to}`),

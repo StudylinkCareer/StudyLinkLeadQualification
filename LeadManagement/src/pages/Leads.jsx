@@ -218,6 +218,7 @@ export default function Leads() {
   const { isManager, isAdmin, staff } = useAuth();
   const navigate  = useNavigate();
   const location  = useLocation();
+  const [drillIds, setDrillIds] = useState([]);
 
   useEffect(() => {
     loadLeads();
@@ -237,8 +238,9 @@ export default function Leads() {
     const drill = location.state?.drillFilter;
     if (!drill) return;
     const { key, value } = drill;
-    if (key === 'leadStatus' && value === 'active') {
-      // Active = not Won or Lost — show all statuses except Won/Lost
+    if (key === '_ids' && Array.isArray(value)) {
+      setDrillIds(value);
+    } else if (key === 'leadStatus' && value === 'active') {
       setFilters(f => ({
         ...f,
         leadStatus: ['New','Contacted','Qualified','Proposal','Negotiation','On Hold'],
@@ -248,7 +250,6 @@ export default function Leads() {
     }
     setShowFilters(true);
     setPage(1);
-    // Clear state so back-navigation doesn't re-apply
     window.history.replaceState({}, '');
   }, [location.state]);
 
@@ -294,6 +295,11 @@ export default function Leads() {
 
   const filtered = useMemo(() => {
     let r = leads;
+
+    // ── Drill-down by specific IDs (from pipeline stats) ──────
+    if (drillIds.length > 0) {
+      r = r.filter(l => drillIds.includes(l.uniqueId));
+    }
 
     // ── Role-based scoping — ALL non-manager staff ──────────
     if (!isManager) {
