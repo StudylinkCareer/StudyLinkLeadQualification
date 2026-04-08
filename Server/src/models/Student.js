@@ -108,9 +108,16 @@ async function update(uniqueId, data) {
   const values = [];
   let i = 1;
 
-  for (const key of Object.keys(data)) {
+  const seen = new Set();
+    for (const key of Object.keys(data)) {
     // Skip read-only system fields
     if (READONLY_FIELDS.has(key)) continue;
+
+    // Skip duplicate columns (e.g. both motherContactCC and motherContactCc
+    // converting to the same mother_contact_cc)
+    const col = toSnakeCase(key);
+    if (seen.has(col)) continue;
+    seen.add(col);
 
     let value = data[key];
     if (key === 'destinationCountry' && Array.isArray(value)) {
