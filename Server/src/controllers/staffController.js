@@ -2,6 +2,7 @@
 
 const Staff = require('../models/Staff');
 const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
+const { logChanges } = require('./auditController');  // ← ADD THIS LINE
 
 // ── Auth ──────────────────────────────────────────────────────
 async function login(req, res, next) {
@@ -269,9 +270,14 @@ async function getStudent(req, res, next) {
   }
 }
 
+// ── Replace the existing updateStudent function in staffController.js ─────────
+// Also add this require at the top of staffController.js:
+// const { logChanges } = require('./auditController');
+
 async function updateStudent(req, res, next) {
   try {
     const { Pool } = require('pg');
+    const { logChanges } = require('./auditController');
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -280,18 +286,29 @@ async function updateStudent(req, res, next) {
     const { id } = req.params;
     const READONLY = new Set(['uniqueId', 'createdAt', 'updatedAt']);
 
+    // Fetch current values for audit comparison
+    const existing = await pool.query(
+      `SELECT * FROM students WHERE unique_id = $1`, [id]
+    );
+    const oldData = existing.rows.length > 0 ? objectToCamelCase(existing.rows[0]) : {};
+
     const fields = [];
     const values = [];
     let i = 1;
+    const seen = new Set();
 
     for (const key of Object.keys(req.body)) {
       if (READONLY.has(key)) continue;
-      fields.push(`${toSnakeCase(key)} = $${i}`);
-      values.push(req.body[key]);
+      const col = toSnakeCase(key);
+      if (seen.has(col)) continue;
+      seen.add(col);
+      fields.push(`${col} = $${i}`);
+      values.push(req.body[key] === '' || req.body[key] === null || req.body[key] === undefined ? null : req.body[key]);
       i++;
     }
 
     if (fields.length === 0) {
+      await pool.end();
       return res.json({ success: true });
     }
 
@@ -304,8 +321,17 @@ async function updateStudent(req, res, next) {
       `UPDATE students SET ${fields.join(', ')} WHERE unique_id = $${i}`,
       values
     );
-    await pool.end();
 
+    // Write audit log entries
+    await logChanges({
+      studentId: id,
+      changedBy: req.session.staffName || req.session.staffEmail || 'unknown',
+      oldData,
+      newData: req.body,
+      source: 'staff_app',
+    });
+
+    await pool.end();
     res.json({ success: true });
   } catch (err) {
     next(err);

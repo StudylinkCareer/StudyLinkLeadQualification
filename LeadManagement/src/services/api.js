@@ -63,3 +63,9 @@ export const columnConfigAPI = {
   get:  (screen)         => request('GET', `/api/staff/column-config/${screen}`),
   save: (screen, config) => request('PUT', `/api/staff/column-config/${screen}`, { config }),
 };
+
+// ── Audit Log ──
+export const auditAPI = {
+  getForStudent: (studentId) => request('GET', `/api/staff/audit/${studentId}`),
+  getRange:      (from, to)  => request('GET', `/api/staff/audit-range?from=${from}&to=${to}`),
+};
