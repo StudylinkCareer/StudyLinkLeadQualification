@@ -384,7 +384,7 @@ export default function LeadDetail() {
                 <EditField label="School/Event" name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
               </div>
             ) : (
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', justifyItems:'start', width:'100%' }}>
                 {/* Top section: contact info + photos top-right */}
                 <div style={{ gridColumn:'1 / -1', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'1rem' }}>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', flex:1 }}>
