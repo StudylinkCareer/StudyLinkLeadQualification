@@ -373,9 +373,16 @@ export default function LeadDetail() {
             )}
           </div>
 
-          {/* Lead Information */}
+          {/* Student Information */}
           <div className="section-card">
-            <div className="section-header"><span className="section-title">Lead Information</span></div>
+            {/* Header row: title left, photos right */}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
+              <span className="section-title">Student Information</span>
+              <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
+                <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>
+                <PhotoThumb url={lead.qrCodeImageUrl} label="QR Code"  isRound={false}/>
+              </div>
+            </div>
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                 <EditField label="Study Plans"  name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
@@ -384,20 +391,11 @@ export default function LeadDetail() {
                 <EditField label="School/Event" name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
               </div>
             ) : (
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', justifyItems:'start', width:'100%' }}>
-                {/* Top section: contact info + photos top-right */}
-                <div style={{ gridColumn:'1 / -1', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'1rem' }}>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', flex:1 }}>
-                    <Field label="Email"      value={lead.email}/>
-                    <Field label="Phone"      value={lead.phone}/>
-                    <Field label="Stone Tier" value={lead.stoneTier}/>
-                    <Field label="Risk Score" value={lead.riskScore}/>
-                  </div>
-                  <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
-                    <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>
-                    <PhotoThumb url={lead.qrCodeImageUrl} label="QR Code"  isRound={false}/>
-                  </div>
-                </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+                <Field label="Email"         value={lead.email}/>
+                <Field label="Phone"         value={lead.phone}/>
+                <Field label="Stone Tier"    value={lead.stoneTier}/>
+                <Field label="Risk Score"    value={lead.riskScore}/>
                 <Field label="Study Plans"   value={lead.studyPlans}/>
                 <Field label="Destination"   value={lead.destinationCountry}/>
                 <Field label="Timeline"      value={lead.timeline}/>
