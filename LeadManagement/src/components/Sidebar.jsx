@@ -2,7 +2,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiBarChart2,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -28,20 +28,11 @@ export default function Sidebar() {
         <span className="nav-section">Main</span>
 
         <button
-          className={`nav-item ${isActive('/dashboard') && !isActive('/counselor-dashboard') ? 'active' : ''}`}
+          className={`nav-item ${isActive('/dashboard') ? 'active' : ''}`}
           onClick={() => navigate('/dashboard')}
         >
           <FiGrid size={16} /> Dashboard
         </button>
-
-        {(isManager || isAdmin) && (
-          <button
-            className={`nav-item ${isActive('/counselor-dashboard') ? 'active' : ''}`}
-            onClick={() => navigate('/counselor-dashboard')}
-          >
-            <FiBarChart2 size={16} /> By Counselor
-          </button>
-        )}
 
         <button
           className={`nav-item ${isActive('/leads') ? 'active' : ''}`}

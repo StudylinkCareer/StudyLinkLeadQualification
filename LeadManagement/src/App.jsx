@@ -4,7 +4,6 @@ import { useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import CounselorDashboard from './pages/CounselorDashboard';
 import Leads from './pages/Leads';
 import LeadDetail from './pages/LeadDetail';
 import Staff from './pages/Staff';
@@ -26,7 +25,6 @@ export default function App() {
     <Routes>
       <Route path="/login"                element={<Login />} />
       <Route path="/dashboard"            element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
-      <Route path="/counselor-dashboard"  element={<ProtectedLayout><CounselorDashboard /></ProtectedLayout>} />
       <Route path="/leads"                element={<ProtectedLayout><Leads /></ProtectedLayout>} />
       <Route path="/leads/:id"            element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
       <Route path="/staff"                element={<ProtectedLayout><Staff /></ProtectedLayout>} />
