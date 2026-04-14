@@ -1,236 +1,182 @@
-require('dotenv').config();
-const pool = require('../services/db');
-const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
+// server/src/models/Student.js
+// CHANGES:
+//   - buildContactColumns() now includes phoneCountryCode1-5 to match live GAS HEADERS
+//   - create() adds hiddenPhoneCountryCode, motherPhone, motherPhoneCountryCode,
+//     fatherPhone, fatherPhoneCountryCode to match live GAS HEADERS
+//   - status: 'Active' on all new records
+//   - create() now includes campaignType, campaignName, campaignStart, campaignEnd
 
-// ── System fields that should never be set via update() ─────────────────────
-const READONLY_FIELDS = new Set(['uniqueId', 'createdAt', 'updatedAt']);
+const sheets = require('../services/googleSheets');
 
-// ── ID generation: yyyymmddnnn ───────────────────────────────────────────────
-async function generateUniqueId() {
+const REQUIRED_FIELDS = [];
+const MAX_CONTACTS = 2;
+
+function toIndochinaISO() {
+  return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).replace(' ', 'T') + '+07:00';
+}
+
+function generateDatePrefix() {
   const now = new Date();
   const ict = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-  const yyyy = ict.getFullYear();
-  const mm   = String(ict.getMonth() + 1).padStart(2, '0');
-  const dd   = String(ict.getDate()).padStart(2, '0');
-  const prefix = `${yyyy}${mm}${dd}`;
-
-  const result = await pool.query(
-    `SELECT unique_id FROM students 
-     WHERE unique_id LIKE $1 
-     ORDER BY unique_id DESC LIMIT 1`,
-    [`${prefix}%`]
-  );
-
-  let seq = 1;
-  if (result.rows.length > 0) {
-    const lastSeq = parseInt(result.rows[0].unique_id.slice(-3), 10);
-    if (!isNaN(lastSeq)) seq = lastSeq + 1;
-  }
-  return `${prefix}${String(seq).padStart(3, '0')}`;
+  const y = ict.getFullYear();
+  const m = String(ict.getMonth() + 1).padStart(2, '0');
+  const d = String(ict.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
 }
 
-// ── create ───────────────────────────────────────────────────────────────────
-async function create(data) {
-  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
-    throw new Error('Invalid email format');
+async function generateUniqueId() {
+  const prefix = generateDatePrefix();
+  const seq = await sheets.getNextSequenceNumber(prefix);
+  return `${prefix}-${String(seq).padStart(2, '0')}`;
+}
+
+function validate(data, partial = false) {
+  const errors = [];
+  if (!partial) {
+    for (const field of REQUIRED_FIELDS) {
+      if (!data[field] || (typeof data[field] === 'string' && !data[field].trim())) {
+        errors.push(`${field} is required`);
+      }
+    }
   }
+  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+    errors.push('Invalid email format');
+  }
+  return errors;
+}
+
+// Builds contact columns including phoneCountryCode to match live GAS HEADERS:
+// contactMedium1, phoneCountryCode1, contactDetail1 ... (x5)
+function buildContactColumns(data) {
+  const cols = {};
+  for (let i = 1; i <= MAX_CONTACTS; i++) {
+    cols[`contactMedium${i}`]      = data[`contactMedium${i}`]      || '';
+    cols[`phoneCountryCode${i}`]   = data[`phoneCountryCode${i}`]   || '';
+    cols[`contactDetail${i}`]      = data[`contactDetail${i}`]      || '';
+  }
+  return cols;
+}
+
+async function create(data) {
+  const errors = validate(data);
+  if (errors.length) throw new Error(errors.join(', '));
 
   const uniqueId = await generateUniqueId();
-  const now = new Date();
+  const now = toIndochinaISO();
+  const record = {
+    uniqueId,
+    fullName:               data.fullName               || '',
+    ...buildContactColumns(data),
+    email:                  data.email                  || '',
+    hiddenPhoneCountryCode: data.hiddenPhoneCountryCode || data.phoneCountryCode || '',
+    phone:                  data.phone                  || '',
+    studyPlans:             data.studyPlans             || '',
+    leadSource:             data.leadSource             || '',
+    interaction:            data.interaction            || '',
+    destinationCountry:     Array.isArray(data.destinationCountry)
+                              ? data.destinationCountry.join(', ')
+                              : data.destinationCountry || '',
+    timeline:               data.timeline               || '',
+    processApplication:     data.processApplication     || '',
+    residency:              data.residency              || data.placeOfResidence || '',
+    yearOfBirth:            data.yearOfBirth            || '',
+    preferredSocial:        data.preferredSocial        || '',
+    socialConsent:          data.socialConsent          || data.connectWithYou  || '',
+    schoolEvent:            data.schoolEvent            || '',
+    budget:                 data.budget                 || '',
+    scholarshipDemand:      data.scholarshipDemand      || '',
+    englishLevel:           data.englishLevel           || '',
+    gpa:                    data.gpa                    || '',
+    immigrationHistory:     data.immigrationHistory     || '',
+    sponsorIncome:          data.sponsorIncome          || '',
+    incomeEvidence:         data.incomeEvidence         || '',
+    studyPlanGap:           data.studyPlanGap           || '',
+    ultimateObjective:      data.ultimateObjective      || '',
+    riskScore:              data.riskScore              || '',
+    stoneTier:              data.stoneTier              || '',
+    headshotUrl:            data.headshotUrl            || '',
+    qrCodeImageUrl:         data.qrCodeImageUrl         || '',
+    motherEmail:            data.motherEmail            || '',
+    motherFullName:         data.motherFullName         || '',
+    motherPhoneCountryCode: data.motherPhoneCountryCode || '',
+    motherPhone:            data.motherPhone            || '',
+    motherContactMedium:    data.motherContactMedium    || '',
+    motherContactCC:        data.motherContactCC        || '',
+    motherContactDetail:    data.motherContactDetail    || '',
+    fatherEmail:            data.fatherEmail            || '',
+    fatherFullName:         data.fatherFullName         || '',
+    fatherPhoneCountryCode: data.fatherPhoneCountryCode || '',
+    fatherPhone:            data.fatherPhone            || '',
+    fatherContactMedium:    data.fatherContactMedium    || '',
+    fatherContactCC:        data.fatherContactCC        || '',
+    fatherContactDetail:    data.fatherContactDetail    || '',
+    counselingNotes:        data.counselingNotes        || '',
+    caseOfficerNotes:       data.caseOfficerNotes       || '',
+    managementNotes:        data.managementNotes        || '',
+    campaignType:           data.campaignType           || '',
+    campaignName:           data.campaignName           || '',
+    campaignStart:          data.campaignStart          || null,
+    campaignEnd:            data.campaignEnd            || null,
+    createdAt:              now,
+    updatedAt:              now,
+    status:                 'Active',
+  };
 
-  await pool.query(
-    `INSERT INTO students (
-      unique_id, full_name,
-      contact_medium1, phone_country_code1, contact_detail1,
-      contact_medium2, phone_country_code2, contact_detail2,
-      email, hidden_phone_country_code, phone,
-      study_plans, lead_source, residency,
-      year_of_birth, preferred_social, social_consent, school_event,
-      status, created_at, updated_at
-    ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
-    )`,
-    [
-      uniqueId,
-      data.fullName          || '',
-      data.contactMedium1    || '',
-      data.phoneCountryCode1 || '',
-      data.contactDetail1    || '',
-      data.contactMedium2    || '',
-      data.phoneCountryCode2 || '',
-      data.contactDetail2    || '',
-      data.email             || '',
-      data.phoneCountryCode  || '',
-      data.phone             || '',
-      data.studyPlans        || '',
-      data.leadSource        || '',
-      data.residency         || '',
-      data.yearOfBirth       || '',
-      data.preferredSocial   || '',
-      data.socialConsent     || '',
-      data.schoolEvent       || '',
-      'Active',
-      now,
-      now,
-    ]
-  );
-
-  const result = await pool.query(
-    'SELECT * FROM students WHERE unique_id = $1', [uniqueId]
-  );
-  return objectToCamelCase(result.rows[0]);
+  await sheets.createStudentRow(record);
+  return record;
 }
 
-// ── findById ─────────────────────────────────────────────────────────────────
-async function findById(uniqueId) {
-  const result = await pool.query(
-    'SELECT * FROM students WHERE unique_id = $1', [uniqueId]
-  );
-  if (result.rows.length === 0) return null;
-  return { data: objectToCamelCase(result.rows[0]) };
-}
-
-// ── findByEmail ──────────────────────────────────────────────────────────────
 async function findByEmail(email) {
-  const result = await pool.query(
-    'SELECT * FROM students WHERE email = $1', [email]
-  );
-  if (result.rows.length === 0) return null;
-  return { data: objectToCamelCase(result.rows[0]) };
+  const result = await sheets.getStudentByEmail(email);
+  if (!result) return null;
+  return { data: result.row, rowIndex: result.rowIndex };
 }
 
-// ── update ───────────────────────────────────────────────────────────────────
+async function findById(uniqueId) {
+  const result = await sheets.getStudentById(uniqueId);
+  if (!result) return null;
+  return { data: result.row, rowIndex: result.rowIndex };
+}
+
 async function update(uniqueId, data) {
   const existing = await findById(uniqueId);
   if (!existing) throw new Error('Student not found');
 
-  const fields = [];
-  const values = [];
-  let i = 1;
-
-  const seen = new Set();
-    for (const key of Object.keys(data)) {
-    // Skip read-only system fields
-    if (READONLY_FIELDS.has(key)) continue;
-
-    // Skip duplicate columns (e.g. both motherContactCC and motherContactCc
-    // converting to the same mother_contact_cc)
-    const col = toSnakeCase(key);
-    if (seen.has(col)) continue;
-    seen.add(col);
-
-    let value = data[key];
+  const updated = { ...existing.data };
+  for (const [key, value] of Object.entries(data)) {
+    if (key === 'uniqueId' || key === 'createdAt') continue;
     if (key === 'destinationCountry' && Array.isArray(value)) {
-      value = value.join(', ');
+      updated[key] = value.join(', ');
+    } else {
+      updated[key] = value ?? updated[key];
     }
-
-    fields.push(`${toSnakeCase(key)} = $${i}`);
-    // Send NULL instead of empty string — PostgreSQL date/timestamp columns reject ""
-    values.push(value === '' || value === null || value === undefined ? null : value);
-    i++;
   }
+  updated.updatedAt = toIndochinaISO();
 
-  if (fields.length === 0) return existing.data;
-
-  fields.push(`updated_at = $${i}`);
-  values.push(new Date());
-  i++;
-  values.push(uniqueId);
-
-  await pool.query(
-    `UPDATE students SET ${fields.join(', ')} WHERE unique_id = $${i}`,
-    values
-  );
-
-  const result = await pool.query(
-    'SELECT * FROM students WHERE unique_id = $1', [uniqueId]
-  );
-  return objectToCamelCase(result.rows[0]);
+  await sheets.updateStudentRow(uniqueId, updated);
+  return updated;
 }
 
-// ── checkDuplicates ──────────────────────────────────────────────────────────
 async function checkDuplicates(email, phone) {
-  const result = await pool.query(
-    `SELECT * FROM students 
-     WHERE (email = $1 AND email != '') 
-        OR (phone = $2 AND phone != '')`,
-    [email || '', phone || '']
-  );
-  return result.rows.map(objectToCamelCase);
+  return sheets.searchDuplicates(email, phone);
 }
 
-// ── deactivateRecords ────────────────────────────────────────────────────────
 async function deactivateRecords(uniqueIds) {
-  await pool.query(
-    `UPDATE students SET status = 'Inactive', updated_at = $1 
-     WHERE unique_id = ANY($2)`,
-    [new Date(), uniqueIds]
-  );
-  return { deactivated: uniqueIds };
+  return sheets.deactivateRecords(uniqueIds);
 }
 
-// ── uploadPhotos ─────────────────────────────────────────────────────────────
 async function uploadPhotos(uniqueId, photos) {
-  const fields = [];
-  const values = [];
-  let i = 1;
-
-  if (photos.headshot) {
-    fields.push(`headshot_url = $${i}`);
-    values.push(photos.headshot);
-    i++;
-  }
-  if (photos.qrCodeImage) {
-    fields.push(`qr_code_image_url = $${i}`);
-    values.push(photos.qrCodeImage);
-    i++;
-  }
-
-  if (fields.length === 0) return {};
-
-  fields.push(`updated_at = $${i}`);
-  values.push(new Date());
-  i++;
-  values.push(uniqueId);
-
-  await pool.query(
-    `UPDATE students SET ${fields.join(', ')} WHERE unique_id = $${i}`,
-    values
-  );
-
-  const result = await pool.query(
-    'SELECT headshot_url, qr_code_image_url FROM students WHERE unique_id = $1',
-    [uniqueId]
-  );
-  if (result.rows.length === 0) throw new Error('Student not found');
-  return {
-    headshotUrl:    result.rows[0].headshot_url,
-    qrCodeImageUrl: result.rows[0].qr_code_image_url,
-  };
-}
-
-// ── searchStudents ───────────────────────────────────────────────────────────
-async function searchStudents(query) {
-  const q = `%${query}%`;
-  const result = await pool.query(
-    `SELECT * FROM students 
-     WHERE full_name ILIKE $1 
-        OR email     ILIKE $1 
-        OR phone     ILIKE $1 
-        OR unique_id ILIKE $1
-     ORDER BY created_at DESC`,
-    [q]
-  );
-  return result.rows.map(objectToCamelCase);
+  return sheets.uploadPhotos(uniqueId, photos);
 }
 
 module.exports = {
   create,
-  findById,
   findByEmail,
+  findById,
   update,
   checkDuplicates,
   deactivateRecords,
+  validate,
+  generateUniqueId,
   uploadPhotos,
-  searchStudents,
 };

@@ -1,24 +1,22 @@
 // server/src/controllers/studentController.js
+// CHANGES:
+//   - Added deactivateRecords() endpoint
+//   - register() now accepts and saves campaignType, campaignName, campaignStart, campaignEnd
 
 const Student = require('../models/Student');
-const { assessOcean } = require('../utils/oceanCalculator');
 const { calculateRiskScore } = require('../utils/riskCalculator');
-const { objectToCamelCase } = require('../utils/caseConvert');
-const { Pool } = require('pg');
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
 
 async function register(req, res, next) {
   try {
     const { email, phone, fullName, contactMediums, studyPlans, leadSource,
             yearOfBirth, residency, schoolEvent, socialConsent,
-            preferredSocial, phoneCountryCode, contactMedium1 } = req.body;
+            preferredSocial, phoneCountryCode, contactMedium1,
+            campaignType, campaignName, campaignStart, campaignEnd } = req.body;
 
+    // Check for duplicates (skip when both are empty — QR-only login)
     if (email || phone) {
       const dupes = await Student.checkDuplicates(email, phone);
+      // Only block if there's an ACTIVE duplicate
       const activeDupes = dupes.filter((d) => (d.status || 'Active') === 'Active');
       if (activeDupes.length > 0) {
         return res.status(409).json({
@@ -44,9 +42,15 @@ async function register(req, res, next) {
       contactDetails:   req.body.contactDetails || {},
       studyPlans:       studyPlans       || '',
       leadSource:       leadSource       || '',
+      campaignType:     campaignType     || '',
+      campaignName:     campaignName     || '',
+      campaignStart:    campaignStart    || null,
+      campaignEnd:      campaignEnd      || null,
     });
 
+    // Store uniqueId in session
     req.session.uniqueId = student.uniqueId;
+
     res.status(201).json({ success: true, data: student });
   } catch (err) {
     next(err);
@@ -83,6 +87,7 @@ async function getByEmail(req, res, next) {
     }
 
     req.session.uniqueId = result.data.uniqueId;
+
     res.json({ success: true, data: result.data });
   } catch (err) {
     next(err);
@@ -93,6 +98,7 @@ async function updateStudent(req, res, next) {
   try {
     const { id } = req.params;
     console.log(`[UPDATE] Student ${id} — fields:`, Object.keys(req.body).join(', '));
+    console.log(`[UPDATE] Values:`, JSON.stringify(req.body));
     const updated = await Student.update(id, req.body);
     console.log(`[UPDATE] Saved OK — updatedAt: ${updated.updatedAt}`);
     res.json({ success: true, data: updated });
@@ -115,6 +121,7 @@ async function checkDuplicate(req, res, next) {
   }
 }
 
+// ─── NEW: deactivateRecords — counselor or system can deactivate records ───
 async function deactivateRecords(req, res, next) {
   try {
     const { uniqueIds } = req.body;
@@ -155,8 +162,12 @@ const MAX_IMAGE_BASE64_LENGTH = 2.7 * 1024 * 1024;
 
 function validateBase64Image(data, label) {
   if (!data || typeof data !== 'string') return null;
-  if (data.length > MAX_IMAGE_BASE64_LENGTH) return `${label} exceeds 2 MB size limit`;
-  if (!data.startsWith('data:image/')) return `${label} is not a valid image data URL`;
+  if (data.length > MAX_IMAGE_BASE64_LENGTH) {
+    return `${label} exceeds 2 MB size limit`;
+  }
+  if (!data.startsWith('data:image/')) {
+    return `${label} is not a valid image data URL`;
+  }
   return null;
 }
 
@@ -166,11 +177,9 @@ async function uploadPhotos(req, res, next) {
     const { headshot, qrCodeImage, additionalQrImages } = req.body;
 
     const errors = [
-      headshot    && validateBase64Image(headshot,    'Headshot'),
+      headshot && validateBase64Image(headshot, 'Headshot'),
       qrCodeImage && validateBase64Image(qrCodeImage, 'QR code image'),
-      ...(Array.isArray(additionalQrImages)
-        ? additionalQrImages.map((img, i) => validateBase64Image(img, `Additional QR image ${i + 1}`))
-        : []),
+      ...(Array.isArray(additionalQrImages) ? additionalQrImages.map((img, i) => validateBase64Image(img, `Additional QR image ${i + 1}`)) : []),
     ].filter(Boolean);
 
     if (errors.length > 0) {
@@ -187,61 +196,12 @@ async function uploadPhotos(req, res, next) {
   }
 }
 
-// ── Search students directly from PostgreSQL ─────────────────────────────────
 async function searchStudents(req, res, next) {
   try {
     const { q } = req.query;
-    let query;
-    let params;
-
-    if (!q || q.trim() === '') {
-      query  = `SELECT * FROM students ORDER BY created_at DESC NULLS LAST`;
-      params = [];
-    } else {
-      const search = '%' + q.replace(/\*/g, '%').toLowerCase() + '%';
-      query = `
-        SELECT * FROM students
-        WHERE LOWER(full_name) LIKE $1
-           OR LOWER(email)     LIKE $1
-           OR phone             LIKE $1
-        ORDER BY created_at DESC NULLS LAST`;
-      params = [search];
-    }
-
-    const result = await pool.query(query, params);
-    res.json({ success: true, data: result.rows.map(objectToCamelCase) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-async function calculateOcean(req, res, next) {
-  try {
-    const { id } = req.params;
-    const result = await Student.findById(id);
-    if (!result) {
-      return res.status(404).json({ success: false, error: 'Student not found' });
-    }
-
-    // Build responses object from stored fields
-    const data = result.data;
-    const responses = {};
-    for (let i = 1; i <= 15; i++) {
-      responses[i] = Number(data[`oceanQ${i}`]) || 0;
-    }
-
-    const assessment = assessOcean(responses);
-
-    // Save scores back to student record
-    await Student.update(id, {
-      oceanExtraversion:      assessment.scores.extraversion,
-      oceanAgreeableness:     assessment.scores.agreeableness,
-      oceanConscientiousness: assessment.scores.conscientiousness,
-      oceanNeuroticism:       assessment.scores.neuroticism,
-      oceanOpenness:          assessment.scores.openness,
-    });
-
-    res.json({ success: true, data: assessment });
+    const sheets = require('../services/googleSheets');
+    const results = await sheets.searchStudents(q || '');
+    res.json({ success: true, data: results });
   } catch (err) {
     next(err);
   }
@@ -253,9 +213,8 @@ module.exports = {
   getByEmail,
   updateStudent,
   checkDuplicate,
-  deactivateRecords,
+  deactivateRecords,  // ← NEW
   calculateRisk,
   uploadPhotos,
   searchStudents,
-  calculateOcean,
 };
