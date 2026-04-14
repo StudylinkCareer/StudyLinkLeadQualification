@@ -564,10 +564,18 @@ export default function Leads() {
               <tbody>
                 {paginated.map(lead => (
                   <tr key={lead.uniqueId} style={{cursor:'pointer'}}
-                    onClick={()=>navigate(`/leads/${lead.uniqueId}`)}>
+                    onClick={e => {
+                      if (e.target.type === 'checkbox' || e.target.closest('td')?.classList.contains('checkbox-cell')) return;
+                      navigate(`/leads/${lead.uniqueId}`);
+                    }}>
                     {isManager && (
-                      <td onClick={e=>{e.stopPropagation();toggleSelect(lead.uniqueId);}}>
-                        <input type="checkbox" checked={selected.includes(lead.uniqueId)} onChange={()=>{}}/>
+                      <td className="checkbox-cell" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(lead.uniqueId)}
+                          onChange={() => toggleSelect(lead.uniqueId)}
+                          onClick={e => e.stopPropagation()}
+                        />
                       </td>
                     )}
                     {visibleCols.map(col => renderCell(col, lead))}
