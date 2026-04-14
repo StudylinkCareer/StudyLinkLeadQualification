@@ -440,20 +440,6 @@ export default function Leads() {
       <div className="page-body">
         {/* Toolbar */}
         <div className="table-toolbar">
-          <div className="search-input-wrap">
-            <FiSearch size={15}/>
-            <input className="search-input"
-              placeholder="Search name, email, phone, ID... (* wildcard)"
-              value={filters.search}
-              onChange={e=>setFilter('search',e.target.value)}
-            />
-            {filters.search && (
-              <button style={{background:'none',border:'none',cursor:'pointer',padding:'0 4px'}}
-                onClick={()=>setFilter('search','')}>
-                <FiX size={13}/>
-              </button>
-            )}
-          </div>
           <button className={`btn btn--sm ${showFilters?'btn--primary':'btn--secondary'}`}
             onClick={()=>setShowFilters(f=>!f)}
             style={{display:'flex',alignItems:'center',gap:'0.4rem'}}>
@@ -468,6 +454,20 @@ export default function Leads() {
           {activeFilterCount>0 && (
             <button className="btn btn--ghost btn--sm" onClick={clearFilters}>Clear all</button>
           )}
+          <div className="search-input-wrap" style={{flex:1}}>
+            <FiSearch size={15}/>
+            <input className="search-input"
+              placeholder="Search name, email, phone, ID... (* wildcard)"
+              value={filters.search}
+              onChange={e=>setFilter('search',e.target.value)}
+            />
+            {filters.search && (
+              <button style={{background:'none',border:'none',cursor:'pointer',padding:'0 4px'}}
+                onClick={()=>setFilter('search','')}>
+                <FiX size={13}/>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filter panel */}
@@ -515,7 +515,7 @@ export default function Leads() {
         )}
 
         <div className="table-card">
-          <div className="table-wrap">
+          <div className="table-wrap" id="leads-table-wrap" style={{overflowX:"auto"}}>
             <table style={{tableLayout:'fixed'}}>
               <colgroup>
                 {isManager && <col style={{width:'40px'}}/>}
@@ -582,6 +582,9 @@ export default function Leads() {
             </table>
           </div>
 
+          <div style={{overflowX:'auto',padding:'2px 0'}}>
+            <div style={{height:'8px',minWidth:'100%'}}/>
+          </div>
           <div className="table-pagination">
             <span>{filtered.length} leads</span>
             <div className="pagination-controls">
@@ -605,6 +608,12 @@ export default function Leads() {
             {staffList.map(s=><option key={s.id} value={s.fullName}>{s.fullName}</option>)}
           </select>
           <button className="btn btn--primary btn--sm" onClick={handleMassAssign} disabled={!massValue}>Assign</button>
+          {isAdmin && (
+            <button className="btn btn--sm" onClick={handleMassDelete}
+              style={{background:'var(--danger)',color:'#fff',border:'none'}}>
+              🗑 Delete
+            </button>
+          )}
           <button className="btn btn--ghost btn--sm" onClick={()=>setSelected([])} style={{color:'#fff'}}>Clear</button>
         </div>
       )}
