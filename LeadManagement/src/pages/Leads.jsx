@@ -363,6 +363,13 @@ export default function Leads() {
     catch(e) { alert(e.message); }
   }
 
+  async function handleMassDelete() {
+    if (selected.length===0) return;
+    if (!confirm(`Permanently delete ${selected.length} record${selected.length!==1?'s':''}? This cannot be undone.`)) return;
+    try { await studentAPI.deleteRecords(selected); await loadLeads(); setSelected([]); }
+    catch(e) { alert(e.message); }
+  }
+
   // ── Column resize ──────────────────────────────────────────
   function startResize(e, key) {
     e.preventDefault();
