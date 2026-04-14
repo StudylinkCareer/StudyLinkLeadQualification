@@ -394,11 +394,30 @@ async function saveColumnConfig(req, res, next) {
   } catch (err) { next(err); }
 }
 
+async function deleteStudents(req, res, next) {
+  try {
+    const { uniqueIds } = req.body;
+    if (!uniqueIds || !Array.isArray(uniqueIds) || uniqueIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'uniqueIds array is required' });
+    }
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+    await pool.query(`DELETE FROM audit_log WHERE student_id = ANY($1)`, [uniqueIds]);
+    await pool.query(`DELETE FROM student_notes WHERE student_id = ANY($1)`, [uniqueIds]);
+    await pool.query(`DELETE FROM students WHERE unique_id = ANY($1)`, [uniqueIds]);
+    await pool.end();
+    res.json({ success: true, deleted: uniqueIds.length });
+  } catch (err) { next(err); }
+}
+
 module.exports = {
   login, logout, checkSession,
   listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
   assignStaff, massAssign, searchStudents, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,
-  setTarget,
+  setTarget, deleteStudents,
 };

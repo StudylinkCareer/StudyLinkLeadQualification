@@ -51,6 +51,7 @@ export const studentAPI = {
   update:         (id, data) => request('PUT',  `/api/staff/students/${id}`, data),
   calculateRisk:  (id)       => request('POST', `/api/staff/students/${id}/calculate-risk`),
   calculateOcean: (id)       => request('POST', `/api/staff/students/${id}/calculate-ocean`),
+  deleteRecords:  (ids)      => request('DELETE', '/api/staff/students', { uniqueIds: ids }),
 };
 
 // ── Notes ─────────────────────────────────────────────────────
