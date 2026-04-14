@@ -533,13 +533,10 @@ export default function Leads() {
               <thead>
                 <tr>
                   {isManager && (
-                    <th className="checkbox-col" onClick={e => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
+                    <th className="checkbox-col">
+                      <input type="checkbox"
                         checked={paginated.length>0 && paginated.every(l=>selected.includes(l.uniqueId))}
-                        onChange={e => { e.stopPropagation(); toggleAll(); }}
-                        onClick={e => e.stopPropagation()}
-                      />
+                        onChange={toggleAll}/>
                     </th>
                   )}
                   {visibleCols.map(col => (
@@ -571,18 +568,10 @@ export default function Leads() {
               <tbody>
                 {paginated.map(lead => (
                   <tr key={lead.uniqueId} style={{cursor:'pointer'}}
-                    onClick={e => {
-                      if (e.target.type === 'checkbox' || e.target.closest('td')?.classList.contains('checkbox-cell')) return;
-                      navigate(`/leads/${lead.uniqueId}`);
-                    }}>
+                    onClick={()=>navigate(`/leads/${lead.uniqueId}`)}>
                     {isManager && (
-                      <td className="checkbox-cell" onClick={e => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selected.includes(lead.uniqueId)}
-                          onChange={() => toggleSelect(lead.uniqueId)}
-                          onClick={e => e.stopPropagation()}
-                        />
+                      <td onClick={e=>{e.stopPropagation();toggleSelect(lead.uniqueId);}}>
+                        <input type="checkbox" checked={selected.includes(lead.uniqueId)} onChange={()=>{}}/>
                       </td>
                     )}
                     {visibleCols.map(col => renderCell(col, lead))}
