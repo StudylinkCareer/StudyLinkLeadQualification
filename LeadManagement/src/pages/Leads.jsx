@@ -222,8 +222,7 @@ export default function Leads() {
 
   useEffect(() => {
     loadLeads();
-    staffAPI.listActive().then(d=>setStaffList(d.data||[])).catch(()=>{});
-    staffAPI.listActive().then(d=>setStaffList((d.data||[]).filter(s=>s.role==='Counselor'))).catch(()=>{});
+    staffAPI.listActive().then(d=>setStaffList((d.data||[]).filter(s=>s.role==='Counselor' && ['Quality','PreSales','Counselor'].includes(s.position)))).catch(()=>{});
     columnConfigAPI.get('leads').then(d => {
       if (d.data) {
         setColumns(d.data);
