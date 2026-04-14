@@ -38,6 +38,7 @@ router.get('/students/:id',                 requireStaffAuth,                   
 router.put('/students/:id',                 requireStaffAuth,                        staffCtrl.updateStudent);
 router.post('/students/:id/calculate-risk', requireStaffAuth,                        staffCtrl.calculateRisk);
 router.post('/students/:id/calculate-ocean',requireStaffAuth,                        staffCtrl.calculateOceanStudent);
+router.delete('/students',                  requireStaffAuth, requireAdmin,          staffCtrl.deleteStudents);
 
 // ── Audit log routes ──────────────────────────────────────────
 router.get('/audit/:studentId',  requireStaffAuth,              auditCtrl.getAuditLog);
