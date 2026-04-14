@@ -526,10 +526,13 @@ export default function Leads() {
               <thead>
                 <tr>
                   {isManager && (
-                    <th className="checkbox-col">
-                      <input type="checkbox"
+                    <th className="checkbox-col" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
                         checked={paginated.length>0 && paginated.every(l=>selected.includes(l.uniqueId))}
-                        onChange={toggleAll}/>
+                        onChange={e => { e.stopPropagation(); toggleAll(); }}
+                        onClick={e => e.stopPropagation()}
+                      />
                     </th>
                   )}
                   {visibleCols.map(col => (
