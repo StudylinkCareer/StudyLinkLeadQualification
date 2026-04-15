@@ -1,4 +1,8 @@
 // src/pages/LeadDetail.jsx
+// CHANGES:
+//   - Added campaignType, campaignName, campaignStart, campaignEnd to FIELD_LABELS
+//   - Added 4 read-only campaign fields to Student Information view section
+
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
@@ -89,6 +93,9 @@ const FIELD_LABELS = {
   ultimateObjective:'Ultimate Objective', counselor:'Counselor',
   seniorCounselor:'Senior Counselor', presales:'Pre-Sales', marketingStaff:'Marketing Staff',
   riskScore:'Risk Score', stoneTier:'Stone Tier',
+  // ── Campaign fields ──
+  campaignType:'Campaign Type', campaignName:'Campaign Name',
+  campaignStart:'Campaign Start', campaignEnd:'Campaign End',
 };
 
 function canDo(perm, role) { return Array.isArray(perm) ? perm.includes(role) : false; }
@@ -96,6 +103,11 @@ function canDo(perm, role) { return Array.isArray(perm) ? perm.includes(role) : 
 function formatDate(dt) {
   if (!dt) return '';
   return new Date(dt).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+function formatShortDate(dt) {
+  if (!dt) return null;
+  return String(dt).slice(0, 10);
 }
 
 function Field({ label, value }) {
@@ -164,7 +176,7 @@ export default function LeadDetail() {
   const [saving, setSaving]     = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState({});
-  const [showHistory, setShowHistory]         = useState(false);
+  const [showHistory, setShowHistory]               = useState(false);
   const [showOceanQuestions, setShowOceanQuestions] = useState(false);
   const [assign, setAssign]     = useState({});
   const [noteType, setNoteType] = useState('counselor');
@@ -367,7 +379,7 @@ export default function LeadDetail() {
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
                 <Field label="Status"     value={lead.leadStatus||'New'}/>
-                <Field label="Close Date" value={lead.closeDate?new Date(lead.closeDate).toLocaleDateString():null}/>
+                <Field label="Close Date" value={formatShortDate(lead.closeDate)}/>
                 <Field label="Confidence" value={lead.confidence}/>
               </div>
             )}
@@ -375,7 +387,6 @@ export default function LeadDetail() {
 
           {/* Student Information */}
           <div className="section-card">
-            {/* Header row: title left, photos right */}
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
               <div>
                 <span className="section-title">Student Information</span>
@@ -407,8 +418,18 @@ export default function LeadDetail() {
                 <Field label="School/Event"  value={lead.schoolEvent}/>
                 <Field label="Year of Birth" value={lead.yearOfBirth}/>
                 <Field label="Residency"     value={lead.residency}/>
-                <Field label="Created"       value={lead.createdAt?new Date(lead.createdAt).toLocaleDateString():null}/>
-                <Field label="Updated"       value={lead.updatedAt?new Date(lead.updatedAt).toLocaleDateString():null}/>
+                <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
+                <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
+                {/* ── Campaign / Event fields (read-only) ── */}
+                {(lead.campaignType || lead.campaignName || lead.campaignStart) && (<>
+                  <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
+                    <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
+                  </div>
+                  <Field label="Campaign Type"  value={lead.campaignType}/>
+                  <Field label="Campaign Name"  value={lead.campaignName}/>
+                  <Field label="Event Start"    value={formatShortDate(lead.campaignStart)}/>
+                  <Field label="Event End"      value={formatShortDate(lead.campaignEnd)}/>
+                </>)}
               </div>
             )}
           </div>
@@ -424,7 +445,6 @@ export default function LeadDetail() {
               )}
             </div>
 
-            {/* Stone tier banner */}
             {lead.stoneTier && STONE_IMAGES[lead.stoneTier] && (
               <div style={{
                 display:'flex', alignItems:'center', gap:'1rem',
