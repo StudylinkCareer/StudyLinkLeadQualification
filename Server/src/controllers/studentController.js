@@ -196,6 +196,41 @@ async function uploadPhotos(req, res, next) {
   }
 }
 
+async function calculateOcean(req, res, next) {
+  try {
+    const { id } = req.params;
+    const result = await Student.findById(id);
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+
+    const data = result.data;
+
+    // Build responses object {1: val, 2: val, ... 15: val} for oceanCalculator
+    const responses = {};
+    for (let i = 1; i <= 15; i++) {
+      responses[i] = Number(data[`oceanQ${i}`]) || 0;
+    }
+
+    const { assessOcean } = require('../utils/oceanCalculator');
+    const { scores, narrative } = assessOcean(responses);
+
+    // Persist numeric scores to DB (narrative is returned but not stored)
+    await Student.update(id, {
+      oceanExtraversion:      scores.extraversion,
+      oceanAgreeableness:     scores.agreeableness,
+      oceanConscientiousness: scores.conscientiousness,
+      oceanNeuroticism:       scores.neuroticism,
+      oceanOpenness:          scores.openness,
+    });
+
+    res.json({ success: true, data: { scores, narrative } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+
 async function searchStudents(req, res, next) {
   try {
     const { q } = req.query;
@@ -212,8 +247,9 @@ module.exports = {
   getByEmail,
   updateStudent,
   checkDuplicate,
-  deactivateRecords,  // ← NEW
+  deactivateRecords,
   calculateRisk,
+  calculateOcean,
   uploadPhotos,
   searchStudents,
 };
