@@ -31,6 +31,10 @@ export default function OTPVerification() {
     schoolEvent,
     preferredSocial,
     connectWithYou,
+    campaignType,
+    campaignName,
+    campaignStart,
+    campaignEnd,
   } = location.state || {};
 
   const [code, setCode] = useState('');
@@ -71,6 +75,7 @@ export default function OTPVerification() {
           selectedRecordId, recordsToDeactivate,
           yearOfBirth, placeOfResidence, studyPlan,
           schoolEvent, preferredSocial, connectWithYou,
+          campaignType, campaignName, campaignStart, campaignEnd,
         },
         replace: true,
       });

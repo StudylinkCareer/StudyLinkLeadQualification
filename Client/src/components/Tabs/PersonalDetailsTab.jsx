@@ -11,7 +11,7 @@ import { getTranslatedOptions } from '../../utils/formFields';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { t } from '../../i18n';
 
-const MAX_CONTACTS = 2;
+const MAX_CONTACTS = 2; // ← Limited to 2
 
 export default function PersonalDetailsTab({
   formData,
@@ -32,14 +32,17 @@ export default function PersonalDetailsTab({
   const [scanningFamily, setScanningFamily] = useState(false);
   const [selectedParent, setSelectedParent] = useState('mother');
 
+  // Dual mode toggle per slot — remembers phone/email choice, defaults to 'email'
   const [dualMode, setDualMode] = useState({});
   const getDualMode = (slot) => dualMode[slot] || 'email';
   const setSlotDualMode = (slot, mode) => setDualMode((prev) => ({ ...prev, [slot]: mode }));
 
+  // Dual mode toggle per family contact
   const [familyDualMode, setFamilyDualMode] = useState({});
   const getFamilyDualMode = (pfx) => familyDualMode[pfx] || 'email';
   const setFamilyContactDualMode = (pfx, mode) => setFamilyDualMode((prev) => ({ ...prev, [pfx]: mode }));
 
+  // ── Contact slots ──
   const activeContacts = [];
   for (let i = 1; i <= MAX_CONTACTS; i++) {
     if (formData[`contactMedium${i}`]) activeContacts.push(i);
@@ -66,6 +69,7 @@ export default function PersonalDetailsTab({
   const slotsToShow = [...activeContacts];
   if (nextSlot) slotsToShow.push(nextSlot);
 
+  // ── Render detail input based on medium type ──
   const renderDetailInput = (slot, medium) => {
     if (!medium) {
       return (
@@ -80,12 +84,13 @@ export default function PersonalDetailsTab({
     }
 
     if (PHONE_MEDIUMS.includes(medium) && !DUAL_MEDIUMS.includes(medium)) {
+      // Pure phone medium — CC + phone number
       return (
         <div style={{ display: 'flex', gap: '0.25rem', flex: 1 }}>
           <PhoneInput
             countryCodeName={`phoneCountryCode${slot}`}
             numberName={`contactDetail${slot}`}
-            countryCodeValue={formData[`phoneCountryCode${slot}`]}
+            countryCodeValue={formData[`phoneCountryCode${slot}`] || '+84'}
             numberValue={formData[`contactDetail${slot}`] || '0'}
             onChange={updateField}
           />
@@ -94,7 +99,8 @@ export default function PersonalDetailsTab({
     }
 
     if (EMAIL_MEDIUMS.includes(medium) && !DUAL_MEDIUMS.includes(medium)) {
-      if (formData[`phoneCountryCode${slot}`] !== 'N/A') updateField(`phoneCountryCode${slot}`, 'N/A');
+      // Pure email medium
+      updateField(`phoneCountryCode${slot}`, 'N/A');
       return (
         <input
           className="form-input contact-detail-input"
@@ -107,6 +113,7 @@ export default function PersonalDetailsTab({
     }
 
     if (DUAL_MEDIUMS.includes(medium)) {
+      // Dual medium — show toggle then appropriate input
       const mode = getDualMode(slot);
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1 }}>
@@ -146,7 +153,7 @@ export default function PersonalDetailsTab({
             <PhoneInput
               countryCodeName={`phoneCountryCode${slot}`}
               numberName={`contactDetail${slot}`}
-              countryCodeValue={formData[`phoneCountryCode${slot}`]}
+              countryCodeValue={formData[`phoneCountryCode${slot}`] || '+84'}
               numberValue={formData[`contactDetail${slot}`] || '0'}
               onChange={updateField}
             />
@@ -156,7 +163,7 @@ export default function PersonalDetailsTab({
     }
 
     // Plain text (Messenger, etc.)
-    if (formData[`phoneCountryCode${slot}`] !== 'N/A') updateField(`phoneCountryCode${slot}`, 'N/A');
+    updateField(`phoneCountryCode${slot}`, 'N/A');
     return (
       <input
         className="form-input contact-detail-input"
@@ -168,6 +175,7 @@ export default function PersonalDetailsTab({
     );
   };
 
+  // ── Render family contact detail input ──
   const renderFamilyDetailInput = (pfx, medium, ccField, detailField) => {
     if (!medium) {
       return (
@@ -186,7 +194,7 @@ export default function PersonalDetailsTab({
         <PhoneInput
           countryCodeName={ccField}
           numberName={detailField}
-          countryCodeValue={formData[ccField]}
+          countryCodeValue={formData[ccField] || '+84'}
           numberValue={formData[detailField] || '0'}
           onChange={updateField}
         />
@@ -194,7 +202,7 @@ export default function PersonalDetailsTab({
     }
 
     if (EMAIL_MEDIUMS.includes(medium) && !DUAL_MEDIUMS.includes(medium)) {
-      if (formData[ccField] !== 'N/A') updateField(ccField, 'N/A');
+      updateField(ccField, 'N/A');
       return (
         <input
           className="form-input contact-detail-input"
@@ -246,7 +254,7 @@ export default function PersonalDetailsTab({
             <PhoneInput
               countryCodeName={ccField}
               numberName={detailField}
-              countryCodeValue={formData[ccField]}
+              countryCodeValue={formData[ccField] || '+84'}
               numberValue={formData[detailField] || '0'}
               onChange={updateField}
             />
@@ -256,7 +264,7 @@ export default function PersonalDetailsTab({
     }
 
     // Plain text
-    if (formData[ccField] !== 'N/A') updateField(ccField, 'N/A');
+    updateField(ccField, 'N/A');
     return (
       <input
         className="form-input contact-detail-input"
@@ -268,6 +276,7 @@ export default function PersonalDetailsTab({
     );
   };
 
+  // ── QR scan for contact slots ──
   const handleSlotQrScan = async (decodedText, frameImage) => {
     setScanningForSlot(null);
     const parsed = parseQrContent(decodedText);
@@ -285,6 +294,7 @@ export default function PersonalDetailsTab({
     }
   };
 
+  // ── QR scan for family contact ──
   const handleFamilyQrScan = async (decodedText, frameImage) => {
     setScanningFamily(false);
     const parsed = parseQrContent(decodedText);
@@ -297,6 +307,7 @@ export default function PersonalDetailsTab({
     }
   };
 
+  // ── Dynamic field names based on selected parent ──
   const pfx = selectedParent;
   const familyFields = {
     fullName:      `${pfx}FullName`,
@@ -329,6 +340,7 @@ export default function PersonalDetailsTab({
         </div>
       </div>
 
+      {/* ── Student details ── */}
       <div className="form-section">
         <TextInput
           label={t('fullName', language)}
@@ -362,6 +374,7 @@ export default function PersonalDetailsTab({
                         handleRemoveContact(slot);
                       } else {
                         updateField(`contactMedium${slot}`, newMedium);
+                        // Set defaults based on medium type
                         if (PHONE_MEDIUMS.includes(newMedium) && !DUAL_MEDIUMS.includes(newMedium)) {
                           updateField(`phoneCountryCode${slot}`, '+84');
                           updateField(`contactDetail${slot}`, '0');
@@ -424,15 +437,23 @@ export default function PersonalDetailsTab({
           error={personalErrors.email}
         />
 
-        <PhoneInput
+        <TextInput
           label={t('phoneField', language)}
-          countryCodeName="hiddenPhoneCountryCode"
-          numberName="phone"
-          countryCodeValue={formData.hiddenPhoneCountryCode}
-          numberValue={formData.phone || '0'}
+          name="phone"
+          value={formData.phone}
           onChange={updateField}
+          type="tel"
           mandatory
+          placeholder="+84"
           error={personalErrors.phone}
+        />
+
+        <TextInput
+          label={t('facebookProfile', language)}
+          name="facebookProfile"
+          value={formData.facebookProfile}
+          onChange={updateField}
+          placeholder={t('facebookProfilePlaceholder', language)}
         />
 
         <SelectInput
@@ -446,6 +467,64 @@ export default function PersonalDetailsTab({
         />
       </div>
 
+      {/* ── Event / Campaign Information (read-only, from QR code) ── */}
+      {(formData.campaignType || formData.campaignName || formData.campaignStart) && (
+        <div className="form-section">
+          <h3 className="form-section-title">{t('campaignSection', language)}</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {formData.campaignType && (
+              <div className="form-field">
+                <label className="form-label">{t('campaignType', language)}</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={formData.campaignType}
+                  disabled
+                  readOnly
+                />
+              </div>
+            )}
+            {formData.campaignName && (
+              <div className="form-field">
+                <label className="form-label">{t('campaignName', language)}</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={formData.campaignName}
+                  disabled
+                  readOnly
+                />
+              </div>
+            )}
+            {formData.campaignStart && (
+              <div className="form-field">
+                <label className="form-label">{t('campaignStart', language)}</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={formData.campaignStart}
+                  disabled
+                  readOnly
+                />
+              </div>
+            )}
+            {formData.campaignEnd && formData.campaignEnd !== formData.campaignStart && (
+              <div className="form-field">
+                <label className="form-label">{t('campaignEnd', language)}</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={formData.campaignEnd}
+                  disabled
+                  readOnly
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Family Contact section ── */}
       <div className="form-section">
         <h3 className="form-section-title">{t('familyContactSection', language)}</h3>
 
@@ -479,7 +558,7 @@ export default function PersonalDetailsTab({
           label={t('phoneField', language)}
           countryCodeName={familyFields.countryCode}
           numberName={familyFields.phone}
-          countryCodeValue={formData[familyFields.countryCode]}
+          countryCodeValue={formData[familyFields.countryCode] || '+84'}
           numberValue={formData[familyFields.phone] || ''}
           onChange={updateField}
           mandatory

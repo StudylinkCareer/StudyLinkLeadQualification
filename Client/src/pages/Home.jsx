@@ -1,5 +1,6 @@
 // client/src/pages/Home.jsx
-import { useState, useEffect, useRef } from 'react';
+
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiCamera } from 'react-icons/fi';
 import { useAuth } from '../hooks/useAuth';
@@ -7,7 +8,7 @@ import { authAPI } from '../services/api';
 import HeadshotCapture from '../components/Camera/HeadshotCapture';
 import DuplicateModal from '../components/DuplicateModal';
 import { parseQrContent, isFacebookUrl } from '../utils/qrCodeParser';
-import { CONTACT_MEDIUMS, LOGIN_SOCIAL_MEDIUMS, VIETNAM_PROVINCES, COUNTRY_CODES, STUDY_PLANS } from '../utils/formFields';
+import { CONTACT_MEDIUMS, EMAIL_MEDIUMS, VIETNAM_PROVINCES, COUNTRY_CODES, STUDY_PLANS } from '../utils/formFields';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import LanguageSelector from '../components/LanguageSelector';
@@ -21,7 +22,7 @@ function Home() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneCountryCode, setPhoneCountryCode] = useState('+84');
-  const [phoneNumber, setPhoneNumber] = useState('0');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [yearOfBirth, setYearOfBirth] = useState('');
   const [placeOfResidence, setPlaceOfResidence] = useState('');
   const [studyPlan, setStudyPlan] = useState('');
@@ -40,17 +41,22 @@ function Home() {
   const [pendingNav, setPendingNav] = useState(null);
   const [duplicateModal, setDuplicateModal] = useState(null);
 
-  // Country code dropdown state
-  const [ccOpen, setCcOpen] = useState(false);
-  const [ccSearch, setCcSearch] = useState('');
-  const ccDropdownRef = useRef(null);
+  // ── Campaign / Event fields — read silently from QR URL params ──
+  // ?ct = campaign type, ?en = event name, ?sd = start date, ?ed = end date
+  const [campaignType]  = useState(() => new URLSearchParams(window.location.search).get('ct')  || '');
+  const [campaignName]  = useState(() => new URLSearchParams(window.location.search).get('en')  || '');
+  const [campaignStart] = useState(() => new URLSearchParams(window.location.search).get('sd')  || '');
+  const [campaignEnd]   = useState(() => new URLSearchParams(window.location.search).get('ed')  || '');
 
   useEffect(() => {
     const stored = localStorage.getItem('studylink_lockout');
     if (stored) {
       const until = parseInt(stored, 10);
-      if (Date.now() < until) { setLockoutUntil(until); }
-      else { localStorage.removeItem('studylink_lockout'); }
+      if (Date.now() < until) {
+        setLockoutUntil(until);
+      } else {
+        localStorage.removeItem('studylink_lockout');
+      }
     }
   }, []);
 
@@ -61,42 +67,28 @@ function Home() {
     }
   }, [pendingNav, isAuthenticated, navigate]);
 
-  // Close CC dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (ccDropdownRef.current && !ccDropdownRef.current.contains(e.target)) {
-        setCcOpen(false);
-        setCcSearch('');
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const filteredCC = COUNTRY_CODES.filter(
-    (c) =>
-      c.country.toLowerCase().includes(ccSearch.toLowerCase()) ||
-      c.code.includes(ccSearch)
-  );
-
   const isLockedOut = lockoutUntil && Date.now() < lockoutUntil;
 
   if (authLoading) {
     return (
       <div className="home-page">
-        <div className="home-header" />
         <div className="home-card"><p>{t('loading', language)}</p></div>
       </div>
     );
   }
 
-  const getExtraFields = () => ({ yearOfBirth, placeOfResidence, studyPlan, schoolEvent, preferredSocial, connectWithYou });
+  const getExtraFields = () => ({
+    yearOfBirth, placeOfResidence, studyPlan, schoolEvent,
+    preferredSocial, connectWithYou,
+    campaignType, campaignName, campaignStart, campaignEnd,
+  });
 
   const sendOtpAndNavigate = async (mode, extraState = {}) => {
     setLoadingMessage(t('sendingOtp', language));
     try {
       const otpResult = await authAPI.requestOTP(email);
       const phone = `${phoneCountryCode} ${phoneNumber}`;
+
       if (otpResult?.bypassed && otpResult?.code) {
         setLoadingMessage(t('otpReceived', language));
         await new Promise((r) => setTimeout(r, 800));
@@ -110,6 +102,7 @@ function Home() {
         setPendingNav({ email, phone, fullName, mode: resolvedMode, ...getExtraFields(), ...extraState });
         return;
       }
+
       navigate('/verify', { state: { email, phone, fullName, mode, ...getExtraFields(), ...extraState } });
     } catch (err) {
       setError(err.message || t('otpFailed', language));
@@ -119,24 +112,29 @@ function Home() {
   const handleLogin = async () => {
     setError('');
     setDuplicateModal(null);
+
+    // Per-field validation
     const errors = {};
-    if (!fullName.trim())      errors.fullName = true;
-    if (!email.trim())         errors.email = true;
-    if (!phoneNumber.trim())   errors.phoneNumber = true;
-    if (!yearOfBirth.trim())   errors.yearOfBirth = true;
-    if (!schoolEvent.trim())   errors.schoolEvent = true;
-    if (!placeOfResidence)     errors.placeOfResidence = true;
-    if (!studyPlan)            errors.studyPlan = true;
-    if (!connectWithYou)       errors.connectWithYou = true;
+    if (!fullName.trim())         errors.fullName = true;
+    if (!email.trim())            errors.email = true;
+    if (!phoneNumber.trim())      errors.phoneNumber = true;
+    if (!yearOfBirth.trim())      errors.yearOfBirth = true;
+    if (!schoolEvent.trim())      errors.schoolEvent = true;
+    if (!placeOfResidence)        errors.placeOfResidence = true;
+    if (!studyPlan)               errors.studyPlan = true;
+    if (!connectWithYou)          errors.connectWithYou = true;
+
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return setError(t('loginFieldsRequired', language));
     }
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
       setFieldErrors({ email: true });
       return setError(t('invalidEmail', language));
     }
+
     setFieldErrors({});
     setLoading(true);
     setLoadingMessage(t('checking', language));
@@ -167,7 +165,9 @@ function Home() {
     setLoading(true);
     try {
       await sendOtpAndNavigate('change', { selectedRecordId: selectedId, recordsToDeactivate });
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const navigateWithQr = async () => {
@@ -181,7 +181,16 @@ function Home() {
       setPendingNav({ email: safeEmail, phone, fullName, mode: 'create', ...getExtraFields() });
     } catch (err) {
       setError(err.message || t('qrLoginFailed', language));
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQrScanned = (decodedText, frameImageDataUrl) => {
+    const parsed = parseQrContent(decodedText);
+    if (frameImageDataUrl) sessionStorage.setItem('studylink_qr_image', frameImageDataUrl);
+    if (isFacebookUrl(decodedText)) sessionStorage.setItem('studylink_facebook_profile', decodedText);
+    finalizeQrAndNavigate(parsed.medium, parsed.detail, frameImageDataUrl);
   };
 
   const finalizeQrAndNavigate = (medium, detail) => {
@@ -208,119 +217,116 @@ function Home() {
 
   return (
     <div className="home-page">
-
-      {/* ── Red header ── */}
-      <div className="home-header">
-        <div className="home-headshot-circle" onClick={() => setShowHeadshot(true)} title={t('takePhoto', language)}>
-          {headshotPreview
-            ? <img src={headshotPreview} alt="Headshot" className="home-headshot-img" />
-            : <div className="home-headshot-placeholder"><FiCamera size={20} /></div>
-          }
-        </div>
-        <LanguageSelector />
-      </div>
-
-      {/* ── White card ── */}
       <div className="home-card">
 
-        <div className="home-logo-circle">
-          <img src="/studylink-logo.png" alt="StudyLink" className="home-logo-img" />
-        </div>
-
+        {/* Logo */}
         <div className="home-logo">
+          <img src="/studylink-logo.png" alt="StudyLink" className="home-logo-img" />
           <p className="home-subtitle">{t('appSubtitle', language)}</p>
         </div>
 
-        <div className="home-tagline">
-          <span className="home-tagline-text">{t('appSubtitle', language)}</span>
+        {/* Language selector */}
+        <LanguageSelector />
+
+        {/* Headshot */}
+        <div
+          className="home-headshot-circle"
+          onClick={() => setShowHeadshot(true)}
+          title={t('takePhoto', language)}
+        >
+          {headshotPreview ? (
+            <img src={headshotPreview} alt="Headshot" className="home-headshot-img" />
+          ) : (
+            <div className="home-headshot-placeholder">
+              <FiCamera size={32} />
+              <span>{t('takePhoto', language)}</span>
+            </div>
+          )}
         </div>
 
+        {/* Prize banner */}
+        <div className="home-prize-banner">
+          <div className="home-prize-icons">🎊<br />🎉</div>
+          <div>
+            <strong>{t('homePrizeTitle', language)}</strong>
+            <p>{t('homePrizeSubtitle', language)}</p>
+          </div>
+        </div>
+
+        {/* Form fields */}
         <div className="home-form">
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="fullName">{t('fullName', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label" htmlFor="fullName">
+              {t('fullName', language)}<span className="home-mandatory">*</span>
+            </label>
             <input id="fullName" className={`home-row-input${fieldErrors.fullName ? ' home-input--error' : ''}`} type="text"
               value={fullName} onChange={(e) => { setFullName(e.target.value); setFieldErrors((p) => ({ ...p, fullName: false })); }}
               placeholder={t('fullNamePlaceholder', language)} disabled={loading || isLockedOut} />
           </div>
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="email">{t('emailLabel', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label" htmlFor="email">
+              {t('emailLabel', language)}<span className="home-mandatory">*</span>
+            </label>
             <input id="email" className={`home-row-input${fieldErrors.email ? ' home-input--error' : ''}`} type="email"
               value={email} onChange={(e) => { setEmail(e.target.value); setFieldErrors((p) => ({ ...p, email: false })); }}
               placeholder={t('emailPlaceholder', language)} disabled={loading || isLockedOut} />
           </div>
 
           <div className="home-row">
-            <label className="home-row-label">{t('phoneLabel', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label">
+              {t('phoneLabel', language)}<span className="home-mandatory">*</span>
+            </label>
             <div className={`home-phone-row${fieldErrors.phoneNumber ? ' home-input--error' : ''}`}>
-
-              {/* Custom country code dropdown — shows code in button, country+code in list */}
-              <div className="phone-country-wrapper" ref={ccDropdownRef}>
-                <button
-                  type="button"
-                  className="home-phone-code"
-                  onClick={() => !loading && !isLockedOut && setCcOpen(!ccOpen)}
-                  disabled={loading || isLockedOut}
-                >
-                  {phoneCountryCode} <span className="phone-country-arrow">▾</span>
-                </button>
-                {ccOpen && (
-                  <div className="phone-country-dropdown">
-                    <input
-                      className="phone-country-search"
-                      type="text"
-                      value={ccSearch}
-                      onChange={(e) => setCcSearch(e.target.value)}
-                      placeholder="Search country..."
-                      autoFocus
-                    />
-                    <ul className="phone-country-list">
-                      {filteredCC.map((c) => (
-                        <li
-                          key={`${c.country}-${c.code}`}
-                          className={`phone-country-option ${c.code === phoneCountryCode ? 'phone-country-option--selected' : ''}`}
-                          onClick={() => { setPhoneCountryCode(c.code); setCcOpen(false); setCcSearch(''); }}
-                        >
-                          <span className="phone-country-name">{c.country}</span>
-                          <span className="phone-country-code">{c.code}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-
-              <input className="home-row-input" type="tel" value={phoneNumber}
+              <select
+                className="home-phone-code"
+                value={phoneCountryCode}
+                onChange={(e) => setPhoneCountryCode(e.target.value)}
+                disabled={loading || isLockedOut}
+              >
+                {COUNTRY_CODES.map((c) => (
+                  <option key={`${c.code}-${c.country}`} value={c.code}>{c.code}</option>
+                ))}
+              </select>
+              <input
+                className="home-row-input"
+                type="tel"
+                value={phoneNumber}
                 onChange={(e) => {
-                  let digits = e.target.value.replace(/\D/g, '');
-                  if (!digits.startsWith('0')) digits = '0' + digits.replace(/^0*/, '');
-                  if (digits === '') digits = '0';
-                  digits = digits.slice(0, 10);
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
                   const formatted = digits.length > 3 ? digits.slice(0, 3) + ' ' + digits.slice(3) : digits;
                   setPhoneNumber(formatted);
                   setFieldErrors((p) => ({ ...p, phoneNumber: false }));
                 }}
-                placeholder="e.g. 098 1234567" disabled={loading || isLockedOut} />
+                placeholder="e.g. 098 1234567"
+                disabled={loading || isLockedOut}
+              />
             </div>
           </div>
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="yearOfBirth">{t('yearOfBirth', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label" htmlFor="yearOfBirth">
+              {t('yearOfBirth', language)}<span className="home-mandatory">*</span>
+            </label>
             <input id="yearOfBirth" className={`home-row-input${fieldErrors.yearOfBirth ? ' home-input--error' : ''}`} type="text"
               value={yearOfBirth} onChange={(e) => { setYearOfBirth(e.target.value); setFieldErrors((p) => ({ ...p, yearOfBirth: false })); }}
               placeholder={t('yearOfBirthPlaceholder', language)} disabled={loading || isLockedOut} />
           </div>
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="schoolEvent">{t('schoolEventLabel', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label" htmlFor="schoolEvent">
+              {t('schoolEventLabel', language)}<span className="home-mandatory">*</span>
+            </label>
             <input id="schoolEvent" className={`home-row-input${fieldErrors.schoolEvent ? ' home-input--error' : ''}`} type="text"
               value={schoolEvent} onChange={(e) => { setSchoolEvent(e.target.value); setFieldErrors((p) => ({ ...p, schoolEvent: false })); }}
               placeholder={t('schoolEventPlaceholder', language)} disabled={loading || isLockedOut} />
           </div>
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="placeOfResidence">{t('placeOfResidence', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label" htmlFor="placeOfResidence">
+              {t('placeOfResidence', language)}<span className="home-mandatory">*</span>
+            </label>
             <select id="placeOfResidence" className={`home-row-input${fieldErrors.placeOfResidence ? ' home-input--error' : ''}`}
               value={placeOfResidence} onChange={(e) => { setPlaceOfResidence(e.target.value); setFieldErrors((p) => ({ ...p, placeOfResidence: false })); }}
               disabled={loading || isLockedOut}>
@@ -330,7 +336,9 @@ function Home() {
           </div>
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="studyPlan">{t('studyPlansLabel', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label" htmlFor="studyPlan">
+              {t('studyPlansLabel', language)}<span className="home-mandatory">*</span>
+            </label>
             <select id="studyPlan" className={`home-row-input${fieldErrors.studyPlan ? ' home-input--error' : ''}`}
               value={studyPlan} onChange={(e) => { setStudyPlan(e.target.value); setFieldErrors((p) => ({ ...p, studyPlan: false })); }}
               disabled={loading || isLockedOut}>
@@ -344,25 +352,32 @@ function Home() {
           </div>
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="preferredSocial">{t('preferredSocial', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label" htmlFor="preferredSocial">
+              {t('preferredSocial', language)}<span className="home-mandatory">*</span>
+            </label>
             <select id="preferredSocial" className="home-row-input"
-              value={preferredSocial} onChange={(e) => setPreferredSocial(e.target.value)} disabled={loading || isLockedOut}>
-              {LOGIN_SOCIAL_MEDIUMS.map((m) => <option key={m} value={m}>{m}</option>)}
+              value={preferredSocial} onChange={(e) => setPreferredSocial(e.target.value)}
+              disabled={loading || isLockedOut}>
+              {EMAIL_MEDIUMS.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
 
           <div className="home-row">
-            <label className="home-row-label">{t('connectWithYou', language)}<span className="home-mandatory">*</span></label>
+            <label className="home-row-label">
+              {t('connectWithYou', language)}<span className="home-mandatory">*</span>
+            </label>
             <div className={`home-row-radios${fieldErrors.connectWithYou ? ' home-input--error' : ''}`}>
               <label className="home-radio-label">
                 <input type="radio" name="connectWithYou" value="Yes"
                   checked={connectWithYou === 'Yes'} onChange={() => { setConnectWithYou('Yes'); setFieldErrors((p) => ({ ...p, connectWithYou: false })); }}
-                  disabled={loading || isLockedOut} />{t('yes', language)}
+                  disabled={loading || isLockedOut} />
+                {t('yes', language)}
               </label>
               <label className="home-radio-label">
                 <input type="radio" name="connectWithYou" value="No"
                   checked={connectWithYou === 'No'} onChange={() => { setConnectWithYou('No'); setFieldErrors((p) => ({ ...p, connectWithYou: false })); }}
-                  disabled={loading || isLockedOut} />{t('no', language)}
+                  disabled={loading || isLockedOut} />
+                {t('no', language)}
               </label>
             </div>
           </div>
@@ -406,7 +421,11 @@ function Home() {
 
       <HeadshotCapture
         isOpen={showHeadshot}
-        onCapture={(dataUrl) => { setShowHeadshot(false); setHeadshotPreview(dataUrl); sessionStorage.setItem('studylink_headshot', dataUrl); }}
+        onCapture={(dataUrl) => {
+          setShowHeadshot(false);
+          setHeadshotPreview(dataUrl);
+          sessionStorage.setItem('studylink_headshot', dataUrl);
+        }}
         onClose={() => setShowHeadshot(false)}
       />
     </div>

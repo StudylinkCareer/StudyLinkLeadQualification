@@ -47,9 +47,9 @@ const TAB_KEYS = [
   { key: 'study' },
   { key: 'assessment' },
   { key: 'career' },
-//  { key: 'family' },
+  { key: 'family' },
   { key: 'counselor', counselorOnly: true },
-  { key: 'documents', counselorOnly: true },
+  { key: 'documents' },
 ];
 
 export default function Dashboard() {
@@ -62,7 +62,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const loadingRef = useRef(false);
-  const [validationTriggered, setValidationTriggered] = useState(false);
 
   const [pendingHeadshot, setPendingHeadshot] = useState(null);
   const [pendingQrImage, setPendingQrImage] = useState(null);
@@ -82,6 +81,10 @@ export default function Dashboard() {
   const locationConnectWithYou = location.state?.connectWithYou;
   const locationSelectedRecordId = location.state?.selectedRecordId;
   const locationRecordsToDeactivate = location.state?.recordsToDeactivate;
+  const locationCampaignType  = location.state?.campaignType;
+  const locationCampaignName  = location.state?.campaignName;
+  const locationCampaignStart = location.state?.campaignStart;
+  const locationCampaignEnd   = location.state?.campaignEnd;
 
   const [phone] = useState(() => {
     if (locationPhone) { sessionStorage.setItem('studylink_phone', locationPhone); return locationPhone; }
@@ -128,6 +131,22 @@ export default function Dashboard() {
   const [selectedRecordId] = useState(() => {
     if (locationSelectedRecordId) { sessionStorage.setItem('studylink_selectedRecordId', locationSelectedRecordId); return locationSelectedRecordId; }
     return sessionStorage.getItem('studylink_selectedRecordId') || null;
+  });
+  const [loginCampaignType] = useState(() => {
+    if (locationCampaignType) { sessionStorage.setItem('studylink_campaignType', locationCampaignType); return locationCampaignType; }
+    return sessionStorage.getItem('studylink_campaignType') || '';
+  });
+  const [loginCampaignName] = useState(() => {
+    if (locationCampaignName) { sessionStorage.setItem('studylink_campaignName', locationCampaignName); return locationCampaignName; }
+    return sessionStorage.getItem('studylink_campaignName') || '';
+  });
+  const [loginCampaignStart] = useState(() => {
+    if (locationCampaignStart) { sessionStorage.setItem('studylink_campaignStart', locationCampaignStart); return locationCampaignStart; }
+    return sessionStorage.getItem('studylink_campaignStart') || '';
+  });
+  const [loginCampaignEnd] = useState(() => {
+    if (locationCampaignEnd) { sessionStorage.setItem('studylink_campaignEnd', locationCampaignEnd); return locationCampaignEnd; }
+    return sessionStorage.getItem('studylink_campaignEnd') || '';
   });
 
   const { formData, updateField, saving, lastSaved, dirty, saveAll, discard } = useFormState(
@@ -184,6 +203,12 @@ export default function Dashboard() {
       sessionStorage.removeItem('studylink_qr_contact');
     }
 
+    const fbProfile = sessionStorage.getItem('studylink_facebook_profile');
+    if (fbProfile && !formData.facebookProfile) {
+      updateField('facebookProfile', fbProfile);
+      sessionStorage.removeItem('studylink_facebook_profile');
+    }
+
     const isTempEmail = (e) => e && e.includes('@studylink.temp');
     if (!studentData.email && loginEmail && !isTempEmail(loginEmail)) updateField('email', loginEmail);
     if (!studentData.phone && phone) {
@@ -202,10 +227,7 @@ export default function Dashboard() {
     if (!studentData.yearOfBirth && loginYearOfBirth) { updateField('yearOfBirth', loginYearOfBirth); sessionStorage.removeItem('studylink_yearOfBirth'); }
     if (!studentData.schoolEvent && loginSchoolEvent) { updateField('schoolEvent', loginSchoolEvent); sessionStorage.removeItem('studylink_schoolEvent'); }
     if (!studentData.residency && loginPlaceOfResidence) { updateField('residency', loginPlaceOfResidence); sessionStorage.removeItem('studylink_placeOfResidence'); }
-    if (!studentData.socialConsent && loginConnectWithYou) { 
-       updateField('socialConsent', loginConnectWithYou);
-       sessionStorage.removeItem('studylink_connectWithYou'); 
-      }
+    if (!studentData.connectWithYou && loginConnectWithYou) { updateField('connectWithYou', loginConnectWithYou); sessionStorage.removeItem('studylink_connectWithYou'); }
 
     const headshot = sessionStorage.getItem('studylink_headshot');
     if (headshot) { setPendingHeadshot(headshot); sessionStorage.removeItem('studylink_headshot'); }
@@ -265,6 +287,10 @@ export default function Dashboard() {
             preferredSocial:  loginPreferredSocial || '',
             contactMedium1:   loginPreferredSocial || '',
             studyPlans:       loginStudyPlan       || '',
+            campaignType:     loginCampaignType    || '',
+            campaignName:     loginCampaignName    || '',
+            campaignStart:    loginCampaignStart   || null,
+            campaignEnd:      loginCampaignEnd     || null,
           });
           setStudentData(cleanTempData(res.data));
           setStudentId(res.data.uniqueId);
@@ -319,7 +345,6 @@ export default function Dashboard() {
     const hasUnsaved = dirty || !!pendingHeadshot || !!pendingQrImage || additionalQrImages.length > 0;
     if (hasUnsaved && !savingRef.current) await handleSave();
     setActiveTab(newTab);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [dirty, pendingHeadshot, pendingQrImage, additionalQrImages, handleSave]);
 
   const handleClose = useCallback(async () => {
@@ -355,9 +380,6 @@ export default function Dashboard() {
   const { complete: familyComplete, missing: familyMissing, errorFields: familyErrors } = checkFamilyMandatoryFields(formData);
   const hasChanges = dirty || !!pendingHeadshot || !!pendingQrImage || additionalQrImages.length > 0;
 
-  const displayErrors = validationTriggered ? personalErrors : {};
-  const displayFamilyErrors = validationTriggered ? familyErrors : {};
-
   const prereqs = checkSelfAssessmentPrereqs(formData, pendingHeadshot, pendingQrImage);
   const disabledTabs = {};
   if (!mandatoryComplete) {
@@ -369,32 +391,6 @@ export default function Dashboard() {
       disabledTabs[tab] = `Complete required fields: ${familyMissing.join(', ')}`;
     });
   }
-
-  const handleNextWithValidation = () => {
-    const isValid = activeTab === 'personal'
-      ? mandatoryComplete && familyComplete
-      : activeTab === 'family'
-      ? familyComplete
-      : true;
-
-    if (!isValid) {
-      setValidationTriggered(true);
-    } else {
-      setValidationTriggered(false);
-      const vTabs = tabs.filter((tab) => !disabledTabs[tab.key]);
-      const cIdx = vTabs.findIndex((tab) => tab.key === activeTab);
-      const nTab = cIdx < vTabs.length - 1 ? vTabs[cIdx + 1] : null;
-      if (nTab) handleTabChange(nTab.key);
-    }
-  };
-
-  // Validation warning — reused in both header and footer
-  const validationWarning = validationTriggered && (
-    <div className="mandatory-warning">
-      <strong>Required fields missing: </strong>
-      {!mandatoryComplete ? mandatoryMissing.join(', ') : familyMissing.join(', ')}
-    </div>
-  );
 
   if (counselorSearchMode) {
     return (
@@ -426,8 +422,7 @@ export default function Dashboard() {
   const formProps = {
     formData, updateField, saving, lastSaved, saveAll,
     pendingHeadshot, pendingQrImage,
-    personalErrors: displayErrors,
-    familyErrors: displayFamilyErrors,
+    personalErrors, familyErrors,
     onNewHeadshot: (dataUrl) => setPendingHeadshot(dataUrl),
     onNewQrImage: (dataUrl) => {
       if (!pendingQrImage && !formData.qrCodeImageUrl) setPendingQrImage(dataUrl);
@@ -437,18 +432,19 @@ export default function Dashboard() {
     onOpenQrScanner: () => setShowQrScanner(true),
   };
 
+  // Compute prev/next once for use in both toolbars
   const visibleTabs = tabs.filter((tab) => !disabledTabs[tab.key]);
   const currentIdx = visibleTabs.findIndex((tab) => tab.key === activeTab);
   const prevTab = currentIdx > 0 ? visibleTabs[currentIdx - 1] : null;
-
-  const allCurrentIdx = tabs.findIndex((tab) => tab.key === activeTab);
-  const hasNextTab = allCurrentIdx < tabs.length - 1;
+  const nextTab = currentIdx < visibleTabs.length - 1 ? visibleTabs[currentIdx + 1] : null;
 
   return (
     <AppLayout tabs={tabs} activeTab={activeTab} onTabChange={handleTabChange} disabledTabs={disabledTabs}>
 
       {/* ---- Toolbar ---- */}
       <div className="dashboard-toolbar">
+
+        {/* Left: photos */}
         <div className="dashboard-toolbar-left">
           <PhotoDisplay
             formData={formData}
@@ -460,6 +456,7 @@ export default function Dashboard() {
           />
         </div>
 
+        {/* Right: flags top, all buttons bottom-aligned in one row */}
         <div className="dashboard-toolbar-right">
           <LanguageSelector />
           <div className="dashboard-toolbar-buttons">
@@ -479,8 +476,8 @@ export default function Dashboard() {
             <button className="btn btn--secondary btn--sm" onClick={handleCancel} disabled={saving}>
               {t('cancel', language)}
             </button>
-            {hasNextTab ? (
-              <button className="btn btn--primary btn--sm" onClick={handleNextWithValidation} disabled={saving} style={{ fontSize: '1.25rem', padding: '0.25rem 0.625rem', lineHeight: 1 }}>
+            {nextTab ? (
+              <button className="btn btn--primary btn--sm" onClick={() => handleTabChange(nextTab.key)} disabled={saving} style={{ fontSize: '1.25rem', padding: '0.25rem 0.625rem', lineHeight: 1 }}>
                 ›
               </button>
             ) : (
@@ -492,6 +489,7 @@ export default function Dashboard() {
           <div className="dashboard-toolbar-status">
             {saving && <span className="save-indicator saving">{t('savingStatus', language)}</span>}
             {!saving && saveError && <span className="unsaved-indicator">{saveError}</span>}
+            {!saving && !saveError && !mandatoryComplete && <span className="unsaved-indicator">{t('fillMandatory', language)}</span>}
             {!saving && !saveError && mandatoryComplete && hasChanges && <span className="unsaved-indicator">{t('unsavedChanges', language)}</span>}
             {!saving && !saveError && !hasChanges && lastSaved && (
               <span className="save-indicator saved">{t('savedAt', language)} {lastSaved.toLocaleTimeString()}</span>
@@ -500,14 +498,24 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ---- Mandatory fields warning — header ---- */}
-      {validationWarning}
+      {/* ---- Mandatory fields warning ---- */}
+      {!mandatoryComplete && (
+        <div className="mandatory-warning">
+          <strong>Required fields missing: </strong>{mandatoryMissing.join(', ')}
+        </div>
+      )}
+      
+      {mandatoryComplete && !familyComplete && (
+        <div className="mandatory-warning">
+          <strong>Required fields missing: </strong>{familyMissing.join(', ')}
+        </div>
+      )}
 
       {/* ---- Tab content ---- */}
       {activeTab === 'personal' && <PersonalDetailsTab {...formProps} />}
       {activeTab === 'study' && <StudentInfoTab {...formProps} />}
       {activeTab === 'assessment' && <SelfAssessmentTab {...formProps} />}
-      {activeTab === 'career' && <CareerFitTab {...formProps} />}
+      {activeTab === 'career' && <CareerFitTab />}
       {activeTab === 'family' && <FamilyContactsTab {...formProps} />}
       {activeTab === 'counselor' && <CounselorFeedbackTab {...formProps} />}
       {activeTab === 'documents' && <DocumentsTab {...formProps} />}
@@ -521,10 +529,6 @@ export default function Dashboard() {
             </button>
           ) : <div />}
         </div>
-
-        {/* ---- Mandatory fields warning — footer ---- */}
-        {validationWarning}
-
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <button className="btn btn--outline btn--sm" onClick={handleClose} disabled={saving}>
             {t('close', language)}
@@ -532,8 +536,8 @@ export default function Dashboard() {
           <button className="btn btn--secondary btn--sm" onClick={handleCancel} disabled={saving}>
             {t('cancel', language)}
           </button>
-          {hasNextTab ? (
-            <button className="btn btn--primary btn--sm" onClick={handleNextWithValidation} disabled={saving} style={{ fontSize: '1.25rem', padding: '0.25rem 0.625rem', lineHeight: 1 }}>
+          {nextTab ? (
+            <button className="btn btn--primary btn--sm" onClick={() => handleTabChange(nextTab.key)} disabled={saving} style={{ fontSize: '1.25rem', padding: '0.25rem 0.625rem', lineHeight: 1 }}>
               ›
             </button>
           ) : (
