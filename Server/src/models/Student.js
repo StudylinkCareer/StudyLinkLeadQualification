@@ -108,12 +108,20 @@ const COLUMNS = [
 const DB_TO_JS = Object.fromEntries(COLUMNS.map(c => [c.db, c.js]));
 const JS_TO_DB = Object.fromEntries(COLUMNS.map(c => [c.js, c.db]));
 
+// Columns stored as DATE in PostgreSQL — returned as ISO timestamps, trim to YYYY-MM-DD
+const DATE_COLUMNS = new Set(['closeDate', 'campaignStart', 'campaignEnd']);
+
 // ── Convert a DB row (snake_case) to a JS object (camelCase) ──
 function rowToJs(row) {
   if (!row) return null;
   const result = {};
   for (const [key, value] of Object.entries(row)) {
-    result[DB_TO_JS[key] || key] = value;
+    const jsKey = DB_TO_JS[key] || key;
+    if (DATE_COLUMNS.has(jsKey) && value) {
+      result[jsKey] = String(value).slice(0, 10);
+    } else {
+      result[jsKey] = value;
+    }
   }
   return result;
 }

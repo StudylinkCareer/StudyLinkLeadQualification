@@ -482,11 +482,11 @@ export default function PersonalDetailsTab({
             </div>
             <div className="form-field">
               <label className="form-label">{t('campaignStart', language)}</label>
-              <input className="form-input" type="text" value={formData.campaignStart || ''} disabled readOnly />
+              <input className="form-input" type="text" value={formData.campaignStart ? String(formData.campaignStart).slice(0, 10) : ''} disabled readOnly />
             </div>
             <div className="form-field">
               <label className="form-label">{t('campaignEnd', language)}</label>
-              <input className="form-input" type="text" value={formData.campaignEnd || ''} disabled readOnly />
+              <input className="form-input" type="text" value={formData.campaignEnd ? String(formData.campaignEnd).slice(0, 10) : ''} disabled readOnly />
             </div>
           </div>
         </div>
