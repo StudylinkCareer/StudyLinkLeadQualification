@@ -2,7 +2,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -49,6 +49,12 @@ export default function Sidebar() {
               onClick={() => navigate('/staff')}
             >
               <FiUserCheck size={16} /> Staff
+            </button>
+            <button
+              className={`nav-item ${isActive('/settings/columns') ? 'active' : ''}`}
+              onClick={() => navigate('/settings/columns')}
+            >
+              <FiLayout size={16} /> Column Settings
             </button>
           </>
         )}
