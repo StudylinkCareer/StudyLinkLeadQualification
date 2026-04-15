@@ -227,6 +227,11 @@ async function calculateRisk(req, res, next) {
   try {
     const { id } = req.params;
     const result = await Student.findById(id);
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+
+    const riskResult = calculateRiskScore(result.data);
 
     await Student.update(id, {
       riskScore: String(riskResult.totalScore),
