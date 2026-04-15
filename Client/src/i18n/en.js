@@ -1,10 +1,16 @@
+// client/src/i18n/en.js
+// CHANGES:
+//   - Updated per StudyLink_Lexicon_Review.xlsx (April 2026)
+//   - Added ocean_q1–q15 translation keys
+//   - Added campaignSection, campaignType, campaignName, campaignStart, campaignEnd
+
 const en = {
   // ── Language selector ──
   languageLabel: 'Language',
 
   // ── Login page (Home.jsx) ──
   appTitle: 'StudyLink',
-  appSubtitle: 'Your Career Guidance',
+  appSubtitle: 'Your going aboard index',
   homePrizeTitle: 'Lucky draw for Vinfast motorbike',
   homePrizeSubtitle: 'and many other feng shui gifts',
   takePhoto: 'Selfie time',
@@ -12,7 +18,7 @@ const en = {
   emailPlaceholder: 'your.email@example.com',
   phoneLabel: 'Phone Number',
   phonePlaceholder: '+84 xxx xxx xxx',
-  loginBtn: 'Turbo charge your career',
+  loginBtn: 'Start your adventure',
   sendingOtp: 'Sending OTP...',
   otpReceived: 'OTP received — auto-verifying...',
   redirecting: 'Verified! Opening your profile...',
@@ -48,7 +54,7 @@ const en = {
   // ── OTP Verification ──
   verifyEmail: 'Verify Email',
   otpPrompt: 'Enter the 6-digit code sent to',
-  otpPlaceholder: '000000',	
+  otpPlaceholder: '000000',
   otpHint: 'Check your email for the 6-digit code, then paste it here',
   enterCode: 'Please enter the 6-digit code',
   verifying: 'Verifying...',
@@ -78,10 +84,10 @@ const en = {
   tabPersonalShort: 'Personal',
   tabStudy: 'Study Information',
   tabStudyShort: 'Study',
-  tabAssessment: 'Are you ready?',
-  tabAssessmentShort: 'Ready?',
-  tabCareer: 'Career Fit',
-  tabCareerShort: 'Career',
+  tabAssessment: 'Read your index',
+  tabAssessmentShort: 'Index',
+  tabCareer: 'Personality/Career',
+  tabCareerShort: 'Personality',
   tabFamily: 'Family Contacts',
   tabFamilyShort: 'Family',
   tabCounselor: 'Staff Follow-up',
@@ -101,14 +107,14 @@ const en = {
   schoolEventPlaceholder: 'Enter event/school',
   placeOfResidence: 'Residence',
   placeOfResidencePlaceholder: 'Select your province',
-  preferredSocial: 'Platform',
+  preferredSocial: 'Social media',
   preferredSocialPlacholder: 'Select your preferred platform',
   connectWithYou: 'Connect with us?',
   yes: 'Yes',
   no: 'No',
   contactDetailsLabel: 'Contact Details',
   selectMedium: 'Select medium...',
-  enterDetails: 'Scan youe QR Code or enter {medium} details',
+  enterDetails: 'Scan your QR Code or enter {medium} details',
   selectMediumFirst: 'Select a medium first',
   scanQrToFill: 'Scan QR to fill',
   remove: 'Remove',
@@ -116,22 +122,29 @@ const en = {
   phoneField: 'Phone',
   facebookProfile: 'Facebook Profile',
   facebookProfilePlaceholder: 'Facebook profile URL',
-  studyPlansLabel: 'Study dreams',
+  studyPlansLabel: 'Dream',
+
+  // ── Event / Campaign Information (read-only, populated from QR URL) ──
+  campaignSection:  'Event Information',
+  campaignType:     'Campaign Type',
+  campaignName:     'Event Name',
+  campaignStart:    'Event Start Date',
+  campaignEnd:      'Event End Date',
 
   // ── Student Info Tab ──
   studyInfoTitle: 'Study Information',
   destinationCountry: 'Destination Country',
   timeline: 'Timeline',
   processApplication: 'Process Application',
-  residencyProvince: 'Residency (Province)',
+  residencyProvince: 'Residency (Province/City)',
 
   // ── Self Assessment Tab ──
-  selfAssessmentTitle: 'Career options',
+  selfAssessmentTitle: 'Read your score',
   liveScorePreview: 'Opportunity Preview:',
   calculating: 'Calculating...',
-  calculateRiskScore: 'Ranking yourself',
+  calculateRiskScore: 'Calculate your score',
   weightLabel: 'Weight:',
-  assessmentBannerPrompt: 'Complete the questionnaire for your personal assessment',
+  assessmentBannerPrompt: 'Complete the questionnaire for your index calculation',
   assessmentBannerResult: 'Studying abroad worldwide at top schools',
 
   // Self Assessment field labels
@@ -150,7 +163,7 @@ const en = {
   incomeEvidence: 'Income Evidence',
   incomeEvidenceDesc: 'Percentage of income that can be documented',
   studyPlanGap: 'Study Plan & Gap Years',
-  studyPlanGapDesc: 'Relevance of study plan and gap between studies',
+  studyPlanGapDesc: 'Relevance of study plan and gap between studies (if still in high school: select 5)',
   ultimateObjective: 'Ultimate Objective',
   ultimateObjectiveDesc: 'Primary goal for studying abroad',
 
@@ -178,8 +191,8 @@ const en = {
   'immigrationHistory_tier_Visa rejection (self)': 'Visa rejection (self)',
   'immigrationHistory_tier_Rejection/overstay (family)': 'Rejection/overstay (family)',
   'immigrationHistory_tier_No travel history': 'No travel history',
-  'immigrationHistory_tier_Travelled in Asia': 'Travelled in Asia',
-  'immigrationHistory_tier_Travelled to Western countries': 'Travelled West',
+  'immigrationHistory_tier_Travelled in Asia': 'Travelled in Asia (not yet to Western)',
+  'immigrationHistory_tier_Travelled to Western countries': 'Travelled to Western countries',
   'sponsorIncome_tier_< 300M VND': '< 300M VND',
   'sponsorIncome_tier_300-500M VND': '300-500M VND',
   'sponsorIncome_tier_500-800M VND': '500-800M VND',
@@ -190,21 +203,38 @@ const en = {
   'incomeEvidence_tier_50% documented': '50%',
   'incomeEvidence_tier_70-75% documented': '70-75%',
   'incomeEvidence_tier_100% documented': '100%',
-  'studyPlanGap_tier_Different major, 5+ year gap': 'Diff major, 5+ yr gap',
-  'studyPlanGap_tier_Different major, 2-5 year gap': 'Diff major, 2-5 yr gap',
+  'studyPlanGap_tier_Different major, 5+ year gap': 'Different major, 5+ yr gap',
+  'studyPlanGap_tier_Different major, 2-5 year gap': 'Different major, 2-5 yr gap',
   'studyPlanGap_tier_Same major, 2-5 year gap': 'Same major, 2-5 yr gap',
   'studyPlanGap_tier_Same major, < 2 year gap': 'Same major, < 2 yr gap',
-  'studyPlanGap_tier_Same major, no gap': 'Same major, no gap',
+  'studyPlanGap_tier_Same major, no gap': 'Same major, no gap (select 5 if still in high school)',
   'ultimateObjective_tier_Migration only': 'Migration only',
   'ultimateObjective_tier_Work only': 'Work only',
   'ultimateObjective_tier_Study but work more': 'Study but work more',
   'ultimateObjective_tier_Study for migration pathway': 'Study for migration',
   'ultimateObjective_tier_Study only': 'Study only',
 
-  // ── Career Fit Tab ──
-  careerFitTitle: 'Career Fit',
+  // ── Career Fit / OCEAN Tab ──
+  careerFitTitle: 'Personality/Career',
   careerFitInBuild: 'Currently in build and evaluation',
   careerFitComeback: 'Come back later for this.',
+
+  // OCEAN assessment questions
+  ocean_q1:  'I am the life of the party and enjoy being the center of attention.',
+  ocean_q2:  "I sympathize with others' feelings and feel for those less fortunate.",
+  ocean_q3:  'I am always prepared and keep my belongings organized.',
+  ocean_q4:  'I have frequent mood swings and get stressed easily.',
+  ocean_q5:  'I have a vivid imagination and enjoy thinking about abstract ideas.',
+  ocean_q6:  "I don't talk a lot and tend to keep to myself.",
+  ocean_q7:  "I am not really interested in others' problems or feelings.",
+  ocean_q8:  'I often forget to put things back in their proper place.',
+  ocean_q9:  "I am relaxed most of the time and don't worry much.",
+  ocean_q10: 'I am not interested in theoretical or philosophical discussions.',
+  ocean_q11: 'I feel comfortable around people and start conversations easily.',
+  ocean_q12: 'I have a soft heart and try to make people feel at ease.',
+  ocean_q13: 'I pay attention to details and like to get chores done right away.',
+  ocean_q14: 'I get upset easily and often feel blue or anxious.',
+  ocean_q15: 'I enjoy hearing new ideas and looking at art or nature.',
 
   // ── Family & Contacts Tab ──
   familyContactSection: 'Family Contact',
@@ -268,8 +298,9 @@ const en = {
   nextBtn: 'Next',
   contactDetailRequired: 'Enter contact detail',
 
-  // ── Form field options (Student Info) — translated arrays ──
-  studyPlanOptions: ['Study Abroad', 'English Summer Camp', 'Study in Vietnam', 'Do not study'],
+  // ── Form field options — translated arrays ──
+  // NOTE: order must match STUDY_PLANS / TIMELINES / etc. in formFields.js
+  studyPlanOptions: ['Do not study', 'Study in Vietnam', 'Study Abroad'],
   leadSourceOptions: [
     'Databases',
     'FB-Zalo-GG-TikTok ads',
@@ -307,11 +338,26 @@ const en = {
   'package_Diamond/First Class': 'Diamond/First Class',
 
   // ── Stone subtitles ──
-  stoneSubtitle_Quartz: 'Congratulations! Quartz represents a high index of pure energy and balance. StudyLink will support you with International Programs locally with Scholarships—a smart decision to enjoy a world-class education while staying close to your family.',
-  stoneSubtitle_Agate: 'Congratulations! Agate brings protection and enduring stability. A journey to Asian and European cultures will help you broaden your mindset and develop excellent adaptability. StudyLink will be your Companion on this abroad journey, starting RIGHT NOW!',
-  stoneSubtitle_Sapphire: 'Congratulations! The blue hue of Sapphire is a symbol of virtue and wisdom. You possess a practical vision, and Europe or Australasia is the perfect environment for you to maximize your potential. StudyLink will be your Companion on this abroad journey, starting RIGHT NOW!',
-  stoneSubtitle_Ruby: 'Congratulations! Ruby represents power and confidence, forecasting a brilliant journey at leading educational powerhouses across 5 continents. You are ready to conquer great and beautiful challenges. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
-  stoneSubtitle_Diamond: 'Congratulations! Diamond is the apex of perseverance and brilliance. You can aim at the global "cathedrals" of knowledge, places reserved for the most excellent individuals. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
+  stoneSubtitle_Quartz:   'Congratulations! Quartz represents a high index of pure energy and balance. StudyLink will support you with International Programs locally with Scholarships—a smart decision to enjoy a world-class education while staying close to your family. Contact StudyLink NOW!',
+  stoneSubtitle_Agate:    'Congratulations! Agate brings protection and enduring stability. A journey to Asian and European cultures will help you broaden your mindset and develop excellent adaptability. StudyLink will be your Companion on this abroad journey, contact us RIGHT NOW!',
+  stoneSubtitle_Sapphire: 'Congratulations! The blue hue of Sapphire is a symbol of virtue and wisdom. You possess a practical vision, and Europe or Australasia is the perfect environment for you to maximize your potential. StudyLink will be your Companion on this abroad journey, contact us NOW!',
+  stoneSubtitle_Ruby:     'Congratulations! Ruby represents power and confidence, forecasting a brilliant journey at leading educational powerhouses across 5 continents. You are ready to conquer great and beautiful challenges. StudyLink will be your Companion on this study abroad journey, contact us NOW!',
+  stoneSubtitle_Diamond:  'Congratulations! Diamond is the apex of perseverance and brilliance. You can aim at the global top institutions, places reserved for the most excellent individuals. StudyLink will be your Companion on this study abroad journey, contact us NOW!',
+
+  // ── Score breakdown table headers ──
+  scoreBreakdown: 'Score Breakdown',
+  colField: 'Field',
+  colValue: 'Value',
+  colTier: 'Tier',
+  colScore: 'Score',
+  colTotal: 'Total',
+
+  // ── Stone names (translated) ──
+  stone_Quartz:   'Quartz',
+  stone_Agate:    'Agate',
+  stone_Sapphire: 'Sapphire',
+  stone_Ruby:     'Ruby',
+  stone_Diamond:  'Diamond',
 };
 
 export default en;

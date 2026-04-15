@@ -1,3 +1,9 @@
+// client/src/i18n/vi.js
+// CHANGES:
+//   - Updated per StudyLink_Lexicon_Review.xlsx (April 2026)
+//   - Added ocean_q1–q15 translation keys (Vietnamese)
+//   - Added campaignSection, campaignType, campaignName, campaignStart, campaignEnd
+
 const vi = {
   // ── Language selector ──
   languageLabel: 'Ngôn ngữ',
@@ -27,7 +33,7 @@ const vi = {
   loginCheckFailed: 'Kiểm tra đăng nhập thất bại. Vui lòng thử lại.',
   lockedOut: 'Quá nhiều lần nhập sai mã OTP. Vui lòng thử lại sau.',
   qrScanned: 'Đã quét mã QR. Chọn nền tảng:',
-  fbNotice: 'Đây là URL hồ sơ Facebook — sẽ được lưu vào trường Hồ sơ Facebook.',
+  fbNotice: 'Đây là link trang Facebook — sẽ được lưu vào ô Hồ sơ Facebook.',
   skip: 'Bỏ qua',
   loading: 'Đang tải...',
 
@@ -80,11 +86,11 @@ const vi = {
   tabStudyShort: 'Học tập',
   tabAssessment: 'Xem chỉ số',
   tabAssessmentShort: 'Chỉ số',
-  tabCareer: 'Phù hợp nghề nghiệp',
-  tabCareerShort: 'Nghề nghiệp',
+  tabCareer: 'Tính cách/Nghề nghiệp',
+  tabCareerShort: 'Tính cách',
   tabFamily: 'Liên hệ gia đình',
   tabFamilyShort: 'Gia đình',
-  tabCounselor: 'Theo dõi nhân viên',
+  tabCounselor: 'Nhân viên theo dõi',
   tabCounselorShort: 'Nhân viên',
   tabDocuments: 'Tài liệu',
   tabDocumentsShort: 'Tài liệu',
@@ -101,7 +107,7 @@ const vi = {
   schoolEventPlaceholder: 'Thông tin sự kiện/trường tham dự',
   placeOfResidence: 'Nơi cư trú',
   preferredSocial: 'Mạng xã hội',
-  connectWithYou: 'Kết nối với bạn?',
+  connectWithYou: 'Bạn muốn kết nối?',
   yes: 'Có',
   no: 'Không',
   contactDetailsLabel: 'Thông tin liên hệ',
@@ -112,13 +118,20 @@ const vi = {
   remove: 'Xóa',
   emailField: 'Email',
   phoneField: 'Điện thoại',
-  facebookProfile: 'Hồ sơ Facebook',
+  facebookProfile: 'Trang Facebook',
   facebookProfilePlaceholder: 'URL hồ sơ Facebook',
   studyPlansLabel: 'Ước mơ',
 
+  // ── Event / Campaign Information (read-only, populated from QR URL) ──
+  campaignSection: 'Thông tin sự kiện',
+  campaignType:    'Loại chiến dịch',
+  campaignName:    'Tên sự kiện',
+  campaignStart:   'Ngày bắt đầu',
+  campaignEnd:     'Ngày kết thúc',
+
   // ── Student Info Tab ──
   studyInfoTitle: 'Thông Tin Học Tập',
-  destinationCountry: 'Quốc gia đích',
+  destinationCountry: 'Quốc gia yêu thích',
   timeline: 'Thời gian dự kiến',
   processApplication: 'Xử lý hồ sơ',
   residencyProvince: 'Nơi cư trú (Tỉnh/TP)',
@@ -129,27 +142,27 @@ const vi = {
   calculating: 'Đang tính...',
   calculateRiskScore: 'Tính chỉ số xuất ngoại',
   weightLabel: '(Bỏ trọng số)',
-  assessmentBannerPrompt: 'Hoàn thành bảng câu hỏi để nhận đánh giá cá nhân',
+  assessmentBannerPrompt: 'Hoàn thành bảng câu hỏi để tính chỉ số',
   assessmentBannerResult: 'Du học tại các trường hàng đầu thế giới',
 
   // Self Assessment field labels
   budget: 'Ngân sách',
   budgetDesc: 'Ngân sách du học cho mỗi năm',
-  scholarshipDemand: 'Nhu cầu học bổng',
+  scholarshipDemand: 'Nhu cầu Học bổng',
   scholarshipDemandDesc: 'Mức học bổng tối thiểu',
   englishLevel: 'Trình độ tiếng Anh',
   englishLevelDesc: 'Năng lực tiếng Anh hiện tại',
   gpa: 'Điểm trung bình (GPA)',
   gpaDesc: 'Kết quả học tập (thang điểm 10)',
-  immigrationHistory: 'Lịch sử xuất nhập cảnh',
-  immigrationHistoryDesc: 'Lịch sử visa và du lịch',
+  immigrationHistory: 'Lịch sử di trú',
+  immigrationHistoryDesc: 'Lịch sử đi nước ngoài và visa',
   sponsorIncome: 'Thu nhập người bảo lãnh',
   sponsorIncomeDesc: 'Thu nhập hàng năm của người bảo lãnh',
   incomeEvidence: 'Chứng minh thu nhập',
-  incomeEvidenceDesc: 'Tỉ lệ thu nhập có chứng từ minh bạch (ví dụ 50%: thu nhập 100 triệu nhưng chứng từ chứng minh được 50 triệu)',
+  incomeEvidenceDesc: 'Tỉ lệ thu nhập có chứng từ minh bạch',
   studyPlanGap: 'Kế hoạch du học và Khoảng trống',
-  studyPlanGapDesc: 'Du học ngành liên quan với ngành học trước, và khoảng trống giữa các bậc học hoặc công việc',
-  ultimateObjective: 'Mục tiêu cuối cùng',
+  studyPlanGapDesc: 'Du học ngành liên quan và khoảng trống giữa các bậc học (nếu đang học trung học: chọn 5)',
+  ultimateObjective: 'Mục tiêu cuối',
   ultimateObjectiveDesc: 'Mục tiêu chính của việc du học',
 
   // Self Assessment tier labels
@@ -163,7 +176,7 @@ const vi = {
   'scholarshipDemand_tier_30-50% scholarship': '30-50%',
   'scholarshipDemand_tier_20-25% scholarship': '20-25%',
   'scholarshipDemand_tier_No scholarship needed': 'Không cần',
-  'englishLevel_tier_Beginner': 'Mới bắt đầu',
+  'englishLevel_tier_Beginner': 'Vỡ lòng',
   'englishLevel_tier_IELTS 4-4.5': 'IELTS 4-4.5',
   'englishLevel_tier_IELTS 5-5.5': 'IELTS 5-5.5',
   'englishLevel_tier_IELTS 6-6.5': 'IELTS 6-6.5',
@@ -176,7 +189,7 @@ const vi = {
   'immigrationHistory_tier_Visa rejection (self)': 'Bị từ chối visa (bản thân)',
   'immigrationHistory_tier_Rejection/overstay (family)': 'Từ chối/quá hạn (gia đình)',
   'immigrationHistory_tier_No travel history': 'Chưa từng đi nước ngoài',
-  'immigrationHistory_tier_Travelled in Asia': 'Đã đi châu Á',
+  'immigrationHistory_tier_Travelled in Asia': 'Đã đi châu Á (chưa từng đi phương Tây)',
   'immigrationHistory_tier_Travelled to Western countries': 'Đã đi Bắc Mỹ, Châu Âu, Châu Úc',
   'sponsorIncome_tier_< 300M VND': '< 300 triệu',
   'sponsorIncome_tier_300-500M VND': '300-500 triệu',
@@ -192,17 +205,34 @@ const vi = {
   'studyPlanGap_tier_Different major, 2-5 year gap': 'Khác ngành, trống 2-5 năm',
   'studyPlanGap_tier_Same major, 2-5 year gap': 'Cùng ngành, trống 2-5 năm',
   'studyPlanGap_tier_Same major, < 2 year gap': 'Cùng ngành, trống < 2 năm',
-  'studyPlanGap_tier_Same major, no gap': 'Cùng ngành, không trống',
+  'studyPlanGap_tier_Same major, no gap': 'Cùng ngành, không khoảng trống (chọn 5 nếu đang học trung học)',
   'ultimateObjective_tier_Migration only': 'Chỉ định cư',
   'ultimateObjective_tier_Work only': 'Chỉ làm việc',
   'ultimateObjective_tier_Study but work more': 'Học nhưng làm thêm nhiều',
   'ultimateObjective_tier_Study for migration pathway': 'Học để định cư',
   'ultimateObjective_tier_Study only': 'Chỉ du học',
 
-  // ── Career Fit Tab ──
-  careerFitTitle: 'Phù Hợp Nghề Nghiệp',
+  // ── Career Fit / OCEAN Tab ──
+  careerFitTitle: 'Tính cách/Nghề nghiệp',
   careerFitInBuild: 'Đang trong giai đoạn xây dựng và đánh giá',
   careerFitComeback: 'Vui lòng quay lại sau.',
+
+  // OCEAN assessment questions (Vietnamese)
+  ocean_q1:  'Tôi là người khuấy động bầu không khí trong các bữa tiệc và thích trở thành trung tâm của sự chú ý.',
+  ocean_q2:  'Tôi đồng cảm với cảm xúc của người khác và thương cảm cho những người kém may mắn.',
+  ocean_q3:  'Tôi luôn chuẩn bị sẵn sàng và giữ đồ đạc của mình ngăn nắp.',
+  ocean_q4:  'Tôi thường thay đổi tâm trạng thất thường và dễ bị căng thẳng.',
+  ocean_q5:  'Tôi có trí tưởng tượng phong phú và thích suy nghĩ về những ý tưởng trừu tượng.',
+  ocean_q6:  'Tôi không nói nhiều và thường sống khép kín.',
+  ocean_q7:  'Tôi không thực sự quan tâm đến vấn đề hay cảm xúc của người khác.',
+  ocean_q8:  'Tôi thường quên đặt đồ vật về đúng chỗ.',
+  ocean_q9:  'Phần lớn thời gian tôi khá thoải mái và không lo lắng nhiều.',
+  ocean_q10: 'Tôi không hứng thú với các cuộc thảo luận mang tính lý thuyết hay triết học.',
+  ocean_q11: 'Tôi cảm thấy thoải mái khi ở cạnh mọi người và dễ dàng bắt chuyện.',
+  ocean_q12: 'Tôi có trái tim mềm yếu và cố gắng làm cho mọi người cảm thấy dễ chịu.',
+  ocean_q13: 'Tôi chú ý đến chi tiết và thích hoàn thành công việc ngay lập tức.',
+  ocean_q14: 'Tôi dễ buồn bực và thường cảm thấy u sầu hoặc lo lắng.',
+  ocean_q15: 'Tôi thích nghe những ý tưởng mới và ngắm nhìn nghệ thuật hoặc thiên nhiên.',
 
   // ── Family & Contacts Tab ──
   familyContactSection: 'Liên hệ gia đình',
@@ -226,8 +256,8 @@ const vi = {
   withdraw: 'Rút lui',
   enterNow: 'Tham gia ngay',
 
-  // ── Counselor Feedback Tab ──
-  counselorFeedbackTitle: 'Theo dõi nhân viên',
+  // ── Staff Follow-up Tab ──
+  counselorFeedbackTitle: 'Nhân viên theo dõi',
   marketingSection: 'Marketing',
   leadSource: 'Nguồn khách hàng',
   interaction: 'Mức độ tương tác',
@@ -235,8 +265,8 @@ const vi = {
   addNotePrefix: 'Thêm ghi chú',
   addNoteSuffix: '...',
   counselingLabel: 'Tư vấn',
-  caseOfficerLabel: 'Nhân viên phụ trách',
-  managementLabel: 'Tiếp thị',
+  caseOfficerLabel: 'Nhân viên xử lý hồ sơ',
+  managementLabel: 'Nhân viên Tiếp thị',
 
   // ── Documents Tab ──
   documentsTitle: 'Tài Liệu',
@@ -266,8 +296,9 @@ const vi = {
   nextBtn: 'Tiếp tục',
   contactDetailRequired: 'Nhập thông tin liên hệ',
 
-  // ── Form field options (Student Info) — translated arrays ──
-  studyPlanOptions: ['Du học', 'Trại hè tiếng Anh', 'Học tại Việt Nam', 'Không học'],
+  // ── Form field options — translated arrays ──
+  // NOTE: order must match STUDY_PLANS / TIMELINES / etc. in formFields.js
+  studyPlanOptions: ['Không đi học', 'Học trong nước', 'Du học dài hạn'],
   leadSourceOptions: [
     'Cơ sở dữ liệu',
     'Quảng cáo FB-Zalo-GG-TikTok',
@@ -305,11 +336,26 @@ const vi = {
   'package_Diamond/First Class': 'Kim cương / Hạng nhất',
 
   // ── Stone subtitles ──
-  stoneSubtitle_Quartz: 'Chúc mừng Bạn! Thạch Anh đại diện cho chỉ số năng lượng thanh khiết và sự cân bằng. StudyLink sẽ hỗ trợ bạn Du Học Tại Chỗ và Học Bổng, quyết định thông minh để tận hưởng giáo dục chuẩn quốc tế mà vẫn được gần gũi gia đình.',
-  stoneSubtitle_Agate: 'Chúc mừng Bạn! Mã Não mang lại sự bảo hộ và ổn định bền vững. Hành trình đến với các nền văn hóa Á - Âu sẽ giúp bạn mở rộng tư duy và khả năng thích nghi tuyệt vời. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, ngay từ BÂY GIỜ!',
-  stoneSubtitle_Sapphire: 'Chúc mừng Bạn! Sắc xanh của Ngọc Bích là biểu tượng của tâm lành và trí tuệ. Bạn có tầm nhìn thực tế và Châu Âu hoặc Châu Úc là môi trường phù hợp để phát huy tối đa năng lực bản thân. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, ngay từ BÂY GIỜ!',
-  stoneSubtitle_Ruby: 'Chúc mừng Bạn! Viên Hồng Ngọc đại diện cho quyền lực và sự tự tin, dự báo một hành trình rực rỡ tại các cường quốc giáo dục 5 Châu. Bạn đã sẵn sàng để chinh phục những thử thách lớn lao và đẹp đẽ. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, ngay từ BÂY GIỜ!',
-  stoneSubtitle_Diamond: 'Chúc mừng Bạn! Kim Cương là đỉnh cao của sự kiên định và rực rỡ. Đừng ngần ngại chinh phục những "thánh đường" tri thức toàn cầu, nơi dành cho những người xuất sắc nhất. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, ngay từ BÂY GIỜ!',
+  stoneSubtitle_Quartz:   'Chúc mừng Bạn! Viên Thạch Anh đại diện cho chỉ số năng lượng thanh khiết và sự cân bằng. StudyLink sẽ hỗ trợ bạn Du Học Tại Chỗ và Học Bổng, quyết định thông minh để tận hưởng giáo dục chuẩn quốc tế mà vẫn được gần gũi gia đình. Hãy liên hệ StudyLink NGAY!',
+  stoneSubtitle_Agate:    'Chúc mừng Bạn! Viên Mã Não mang lại sự bảo hộ và ổn định bền vững. Hành trình đến với các nền văn hóa Á - Âu sẽ giúp bạn mở rộng tư duy và khả năng thích nghi tuyệt vời. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, hãy liên hệ NGAY với chúng tôi!',
+  stoneSubtitle_Sapphire: 'Chúc mừng Bạn! Sắc xanh của viên Ngọc Bích là biểu tượng của tâm lành và trí tuệ. Bạn có tầm nhìn thực tế, Châu Âu hoặc Châu Úc là môi trường phù hợp để bạn phát huy tối đa năng lực bản thân. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, hãy liên hệ NGAY!',
+  stoneSubtitle_Ruby:     'Chúc mừng Bạn! Viên Hồng Ngọc đại diện cho quyền lực và sự tự tin, dự báo một hành trình rực rỡ tại các cường quốc giáo dục khắp 5 Châu. Bạn đã sẵn sàng để chinh phục những thử thách lớn lao và đẹp đẽ. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, hãy liên hệ NGAY!',
+  stoneSubtitle_Diamond:  'Chúc mừng Bạn! Viên Kim Cương là đỉnh cao của sự kiên định và rực rỡ. Đừng ngần ngại chinh phục những ngôi trường Top toàn cầu, nơi dành cho những người xuất sắc nhất. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, hãy liên hệ NGAY!',
+
+  // ── Score breakdown table headers ──
+  scoreBreakdown: 'Chi tiết điểm số',
+  colField: 'Tiêu chí',
+  colValue: 'Giá trị',
+  colTier: 'Mức',
+  colScore: 'Điểm',
+  colTotal: 'Tổng',
+
+  // ── Stone names (translated) ──
+  stone_Quartz:   'Thạch Anh',
+  stone_Agate:    'Mã Não',
+  stone_Sapphire: 'Ngọc Bích',
+  stone_Ruby:     'Hồng Ngọc',
+  stone_Diamond:  'Kim Cương',
 };
 
 export default vi;
