@@ -190,6 +190,7 @@ const { calculateOceanScores, generateNarrative } = (() => {
 async function calculateOcean(req, res, next) {
   try {
     const { id } = req.params;
+    console.log(`[OCEAN] Calculating for student: ${id}`);
     const result = await Student.findById(id);
     if (!result) {
       return res.status(404).json({ success: false, error: 'Student not found' });
@@ -202,22 +203,26 @@ async function calculateOcean(req, res, next) {
     for (let i = 1; i <= 15; i++) {
       responses[i] = data[`oceanQ${i}`] ? Number(data[`oceanQ${i}`]) : 0;
     }
+    console.log(`[OCEAN] Responses:`, responses);
 
     const scores    = calculateOceanScores(responses);
     const narrative = generateNarrative(scores);
+    console.log(`[OCEAN] Scores:`, scores);
 
     // Save scores and narrative to DB
     await Student.update(id, {
-      oceanExtraversion:      scores.extraversion,
-      oceanAgreeableness:     scores.agreeableness,
-      oceanConscientiousness: scores.conscientiousness,
-      oceanNeuroticism:       scores.neuroticism,
-      oceanOpenness:          scores.openness,
+      oceanExtraversion:      Number(scores.extraversion),
+      oceanAgreeableness:     Number(scores.agreeableness),
+      oceanConscientiousness: Number(scores.conscientiousness),
+      oceanNeuroticism:       Number(scores.neuroticism),
+      oceanOpenness:          Number(scores.openness),
       oceanNarrative:         narrative,
     });
+    console.log(`[OCEAN] Saved scores and narrative to DB`);
 
     res.json({ success: true, data: { scores, narrative } });
   } catch (err) {
+    console.error(`[OCEAN] Error:`, err.message);
     next(err);
   }
 }
