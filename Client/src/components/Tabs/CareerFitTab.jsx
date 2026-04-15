@@ -7,7 +7,6 @@ import { useState } from 'react';
 import { studentAPI } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { t } from '../../i18n';
-import OceanRadarChart from '../OceanRadarChart';
 import { getArchetype } from '../../utils/oceanArchetypes';
 
 const QUESTION_KEYS = [

@@ -8,7 +8,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
-import OceanRadarChart from '../components/OceanRadarChart';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
 
@@ -515,19 +514,51 @@ export default function LeadDetail() {
               <div style={{ marginBottom:'1rem' }}>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start', marginBottom:'1rem' }}>
 
-                  {/* LEFT: radar + trait table */}
+                  {/* LEFT: radar chart + single bar-style trait table */}
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
-                    <OceanRadarChart scores={oceanResult.scores} size={220}/>
-                    <div style={{ width:'80%', fontSize:'12px', color:'var(--text-secondary)' }}>
+                    <svg width="200" height="195" viewBox="-15 0 230 195" style={{ overflow:'visible' }}>
+                      {(() => {
+                        const cx=100, cy=100, r=70;
+                        const keys = ['extraversion','agreeableness','conscientiousness','neuroticism','openness'];
+                        const angles = keys.map((_,i) => (Math.PI*2*i)/5 - Math.PI/2);
+                        const pt = (a, rad) => [cx + rad*Math.cos(a), cy + rad*Math.sin(a)];
+                        const rings = [0.33,0.67,1.0];
+                        const scorePoints = keys.map((k,i) => {
+                          const v = Math.max(0, Math.min(15, Number(oceanResult.scores[k])||0));
+                          return pt(angles[i], (v/15)*r);
+                        });
+                        const labels = ['Extraversion','Agree.','Conscient.','Neurotic.','Open.'];
+                        const offsets = [{dx:0,dy:-14},{dx:14,dy:0},{dx:8,dy:14},{dx:-8,dy:14},{dx:-18,dy:0}];
+                        const anchors = ['middle','start','middle','middle','end'];
+                        return (<>
+                          {rings.map((ratio,ri) => (
+                            <polygon key={ri} points={angles.map(a=>pt(a,r*ratio).join(',')).join(' ')} fill="none" stroke="#e5e7eb" strokeWidth={ri===2?1:0.5}/>
+                          ))}
+                          {angles.map((a,i) => { const [x,y]=pt(a,r); return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#e5e7eb" strokeWidth="0.5"/>; })}
+                          <polygon points={scorePoints.map(p=>p.join(',')).join(' ')} fill="rgba(234,170,60,0.2)" stroke="#EAA83C" strokeWidth="1.5"/>
+                          {scorePoints.map(([x,y],i) => <circle key={i} cx={x} cy={y} r="3" fill="#EAA83C"/>)}
+                          {labels.map((label,i) => {
+                            const [bx,by]=pt(angles[i],r+14);
+                            const {dx,dy}=offsets[i];
+                            return <text key={i} x={bx+dx} y={by+dy} textAnchor={anchors[i]} fontSize="11" fill="#6b7280">{label}</text>;
+                          })}
+                        </>);
+                      })()}
+                    </svg>
+                    <div style={{ width:'90%' }}>
                       {['extraversion','agreeableness','conscientiousness','neuroticism','openness'].map(k => {
                         const score = Number(oceanResult.scores[k]) || 0;
                         const lv = score >= 12 ? { label:'High', color:'var(--primary)' }
                                  : score >= 7  ? { label:'Average', color:'#EAA83C' }
                                  :               { label:'Low', color:'var(--text-secondary)' };
+                        const pct = Math.round((score/15)*100);
                         return (
-                          <div key={k} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
-                            <span style={{ textTransform:'capitalize' }}>{k}</span>
-                            <span style={{ fontWeight:500, color:lv.color }}>{lv.label}</span>
+                          <div key={k} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'3px 0', borderBottom:'1px solid var(--border)', fontSize:'12px' }}>
+                            <span style={{ width:'120px', color:'var(--text-secondary)', textTransform:'capitalize', flexShrink:0 }}>{k}</span>
+                            <div style={{ flex:1, height:'6px', background:'var(--border)', borderRadius:'3px', overflow:'hidden' }}>
+                              <div style={{ width:`${pct}%`, height:'100%', background:lv.color, borderRadius:'3px' }}/>
+                            </div>
+                            <span style={{ width:'56px', textAlign:'right', fontWeight:600, color:lv.color, flexShrink:0 }}>{lv.label}</span>
                           </div>
                         );
                       })}
