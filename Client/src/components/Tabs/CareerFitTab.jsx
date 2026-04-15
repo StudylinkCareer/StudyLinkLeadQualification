@@ -133,59 +133,6 @@ function getLevel(score) {
   if (score >= 7)  return { label: 'Average', color: '#EAA83C' };
   return               { label: 'Low',     color: 'var(--text-secondary, #6b7280)' };
 }
-  if (!archetype) return null;
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: '0.75rem',
-      maxWidth: '280px',
-    }}>
-      <span style={{
-        display: 'inline-block', background: colors.badge, color: '#fff',
-        fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
-        letterSpacing: '0.5px', padding: '0.2rem 0.6rem',
-        borderRadius: '20px', alignSelf: 'flex-start',
-      }}>
-        {archetype.group}
-      </span>
-
-      <div style={{ fontSize: '1.375rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>
-        {archetype.name}
-      </div>
-
-      <div>
-        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          Best Career Paths
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-          {archetype.careers.map((career, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
-              <span style={{
-                width: '20px', height: '20px', borderRadius: '50%',
-                background: colors.badge, color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '0.7rem', fontWeight: 700, flexShrink: 0,
-              }}>{i + 1}</span>
-              <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{career}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {flexTraits.length > 0 && (
-        <div style={{
-          background: 'var(--bg-secondary)', borderRadius: '8px',
-          padding: '0.625rem 0.875rem', fontSize: '0.8rem', color: 'var(--text-secondary)',
-        }}>
-          <span style={{ fontWeight: 600 }}>💡 Flex potential: </span>
-          {flexTraits.map((f, i) => (
-            <span key={i}>{f.trait} (score {f.score}){i < flexTraits.length - 1 ? ', ' : ''}</span>
-          ))}
-          {' '}— with development these traits could unlock additional archetypes.
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function CareerFitTab({ formData, updateField, saveAll }) {
   const [responses, setResponses] = useState(() => {
@@ -307,14 +254,14 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
                   </div>
                   {result.flexTraits?.length > 0 && (
                     <div>
-                      <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'4px' }}>Flex Potential</div>
-                      <div style={{ fontSize:'12px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'5px', maxWidth:'165px' }}>
+                      <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>Flex Potential</div>
+                      <div style={{ fontSize:'13px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'8px' }}>
                         With development these traits could unlock additional archetypes:
                       </div>
-                      <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
                         {result.flexTraits.map((f, i) => (
-                          <div key={i} style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'12px', color:'var(--text-secondary)' }}>
-                            <span style={{ width:'5px', height:'5px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
+                          <div key={i} style={{ display:'flex', alignItems:'center', gap:'8px', fontSize:'13px', color:'var(--text-secondary)' }}>
+                            <span style={{ width:'7px', height:'7px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
                             {f.trait} ({f.score})
                           </div>
                         ))}

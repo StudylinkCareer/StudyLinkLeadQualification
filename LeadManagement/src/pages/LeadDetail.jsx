@@ -560,14 +560,14 @@ export default function LeadDetail() {
                         </div>
                         {oceanResult.flexTraits?.length > 0 && (
                           <div>
-                            <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'4px' }}>Flex Potential</div>
-                            <div style={{ fontSize:'12px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'5px', maxWidth:'165px' }}>
+                            <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>Flex Potential</div>
+                            <div style={{ fontSize:'13px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'8px' }}>
                               With development these traits could unlock additional archetypes:
                             </div>
-                            <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
+                            <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
                               {oceanResult.flexTraits.map((f, i) => (
-                                <div key={i} style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'12px', color:'var(--text-secondary)' }}>
-                                  <span style={{ width:'5px', height:'5px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
+                                <div key={i} style={{ display:'flex', alignItems:'center', gap:'8px', fontSize:'13px', color:'var(--text-secondary)' }}>
+                                  <span style={{ width:'7px', height:'7px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
                                   {f.trait} (score {f.score})
                                 </div>
                               ))}
