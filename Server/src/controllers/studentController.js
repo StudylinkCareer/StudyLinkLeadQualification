@@ -199,8 +199,7 @@ async function uploadPhotos(req, res, next) {
 async function searchStudents(req, res, next) {
   try {
     const { q } = req.query;
-    const sheets = require('../services/googleSheets');
-    const results = await sheets.searchStudents(q || '');
+    const results = await Student.search(q || '');
     res.json({ success: true, data: results });
   } catch (err) {
     next(err);
