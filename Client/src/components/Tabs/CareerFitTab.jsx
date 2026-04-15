@@ -163,16 +163,21 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
     setError('');
     setCalculating(true);
     try {
-      if (saveAll) await saveAll();
+      // Save question responses to DB first, then calculate
+      const questionData = {};
+      for (let i = 1; i <= 15; i++) {
+        questionData[`oceanQ${i}`] = responses[i] || null;
+      }
+      await studentAPI.update(formData.uniqueId, questionData);
+
       const res = await studentAPI.calculateOcean(formData.uniqueId);
       const scores    = res.data.scores;
       const narrative = res.data.narrative || '';
 
-      // Save archetype name and narrative to DB
+      // Save archetype name to DB (narrative already saved by calculateOcean endpoint)
       const archetypeData = getArchetype(scores, language);
       await studentAPI.update(formData.uniqueId, {
         oceanArchetype: archetypeData.archetype?.name || '',
-        oceanNarrative: narrative,
       });
       updateField('oceanArchetype', archetypeData.archetype?.name || '');
       updateField('oceanNarrative', narrative);
@@ -182,7 +187,7 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
         document.querySelector('.ocean-result-banner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
     } catch (err) {
-      setError(err.message || t('careerFitCalculating', language));
+      setError(err.message || 'Calculation failed. Please try again.');
     } finally {
       setCalculating(false);
     }
