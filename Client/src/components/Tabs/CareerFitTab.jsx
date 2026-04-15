@@ -205,17 +205,35 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
           background:'var(--bg-secondary)', borderRadius:'12px',
           padding:'1.5rem', marginBottom:'1.5rem', border:'1px solid var(--border)',
         }}>
-          {/* Recompute archetype in render so it responds to language changes */}
           {(() => {
             const archetypeData = getArchetype(result.scores, language);
             const arch   = archetypeData.archetype;
             const colors = archetypeData.colors || fallbackColors;
             const flex   = archetypeData.flexTraits || [];
+            const TRAIT_KEYS = ['extraversion','agreeableness','conscientiousness','neuroticism','openness'];
             return (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start' }}>
 
-                {/* LEFT: OceanRadarChart (has interactive tooltip + bar table built in) */}
-                <OceanRadarChart scores={result.scores} size={240}/>
+                {/* LEFT: inline radar chart ONLY + single bar-style trait table */}
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
+                  <RadarChart scores={result.scores}/>
+                  <div style={{ width:'90%' }}>
+                    {TRAIT_KEYS.map(k => {
+                      const score = Number(result.scores[k]) || 0;
+                      const lv    = getLevel(score);
+                      const pct   = Math.round((score / 15) * 100);
+                      return (
+                        <div key={k} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'3px 0', borderBottom:'1px solid var(--border, #e5e7eb)', fontSize:'12px' }}>
+                          <span style={{ width:'120px', color:'var(--text-secondary)', textTransform:'capitalize', flexShrink:0 }}>{k}</span>
+                          <div style={{ flex:1, height:'6px', background:'var(--border, #e5e7eb)', borderRadius:'3px', overflow:'hidden' }}>
+                            <div style={{ width:`${pct}%`, height:'100%', background:lv.color, borderRadius:'3px' }}/>
+                          </div>
+                          <span style={{ width:'56px', textAlign:'right', fontWeight:600, color:lv.color, flexShrink:0 }}>{lv.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 {/* RIGHT: archetype */}
                 {arch && (
@@ -263,7 +281,7 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
             );
           })()}
 
-          {/* Narrative full width below */}
+          {/* Narrative full width below — shown once stored in DB */}
           {result.narrative && (
             <p style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)', fontSize:'0.9rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
               {result.narrative}
