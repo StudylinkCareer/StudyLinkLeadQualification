@@ -7,7 +7,6 @@
 
 import { useState } from 'react';
 import { studentAPI } from '../../services/api';
-import OceanRadarChart from '../OceanRadarChart';
 import { getArchetype } from '../../utils/oceanArchetypes';
 
 const QUESTIONS = [
@@ -60,7 +59,80 @@ function LikertScale({ questionId, value, onChange }) {
   );
 }
 
-function ArchetypeCard({ archetype, flexTraits, colors }) {
+// ── Inline radar chart matching approved sketch ───────────────
+function RadarChart({ scores }) {
+  const cx = 105, cy = 100, r = 75;
+  const traits = [
+    { key:'extraversion',      label:'Extraversion' },
+    { key:'agreeableness',     label:'Agreeableness' },
+    { key:'conscientiousness', label:'Conscientiousness' },
+    { key:'neuroticism',       label:'Neuroticism' },
+    { key:'openness',          label:'Openness' },
+  ];
+  const angles = traits.map((_, i) => (Math.PI * 2 * i) / 5 - Math.PI / 2);
+
+  function pt(angle, radius) {
+    return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
+  }
+
+  const gridRings = [0.33, 0.67, 1.0];
+  const scorePoints = traits.map((t, i) => {
+    const val = Math.max(0, Math.min(15, Number(scores[t.key]) || 0));
+    return pt(angles[i], (val / 15) * r);
+  });
+
+  const labelOffsets = [
+    { dx: 0,    dy: -14 },   // Extraversion — top
+    { dx: 14,   dy: 0   },   // Agreeableness — right
+    { dx: 10,   dy: 14  },   // Conscientiousness — bottom right
+    { dx: -10,  dy: 14  },   // Neuroticism — bottom left
+    { dx: -18,  dy: 0   },   // Openness — left (pulled further left)
+  ];
+
+  const anchors = ['middle', 'start', 'middle', 'middle', 'end'];
+
+  return (
+    <svg width="220" height="215" viewBox="0 0 210 210" style={{ overflow:'visible' }}>
+      {/* Grid rings */}
+      {gridRings.map((ratio, ri) => (
+        <polygon key={ri}
+          points={angles.map(a => pt(a, r * ratio).join(',')).join(' ')}
+          fill="none" stroke="var(--border, #e5e7eb)" strokeWidth={ri === 2 ? 1 : 0.5}/>
+      ))}
+      {/* Grid spokes */}
+      {angles.map((a, i) => {
+        const [x, y] = pt(a, r);
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--border, #e5e7eb)" strokeWidth="0.5"/>;
+      })}
+      {/* Score polygon */}
+      <polygon
+        points={scorePoints.map(p => p.join(',')).join(' ')}
+        fill="rgba(234,170,60,0.2)" stroke="#EAA83C" strokeWidth="1.5"/>
+      {/* Score dots */}
+      {scorePoints.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="3" fill="#EAA83C"/>
+      ))}
+      {/* Labels */}
+      {traits.map((t, i) => {
+        const [bx, by] = pt(angles[i], r + 14);
+        const { dx, dy } = labelOffsets[i];
+        return (
+          <text key={i} x={bx + dx} y={by + dy}
+            textAnchor={anchors[i]} fontSize="10.5"
+            fill="var(--text-secondary, #6b7280)">
+            {t.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+function getLevel(score) {
+  if (score >= 12) return { label: 'High',    color: 'var(--primary, #2563EB)' };
+  if (score >= 7)  return { label: 'Average', color: '#EAA83C' };
+  return               { label: 'Low',     color: 'var(--text-secondary, #6b7280)' };
+}
   if (!archetype) return null;
   return (
     <div style={{
@@ -192,21 +264,71 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
           background:'var(--bg-secondary)', borderRadius:'12px',
           padding:'1.5rem', marginBottom:'1.5rem', border:'1px solid var(--border)',
         }}>
-          {/* Two-column layout: chart left, archetype right */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem', alignItems:'start' }}>
-            {/* Left: chart + trait scores */}
-            <div>
-              <OceanRadarChart scores={result.scores} size={260}/>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start' }}>
+
+            {/* LEFT: radar chart + trait table */}
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
+              <RadarChart scores={result.scores}/>
+              <div style={{ width:'80%', fontSize:'12px', color:'var(--text-secondary)' }}>
+                {['extraversion','agreeableness','conscientiousness','neuroticism','openness'].map(k => {
+                  const lv = getLevel(Number(result.scores[k]) || 0);
+                  return (
+                    <div key={k} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
+                      <span style={{ textTransform:'capitalize' }}>{k}</span>
+                      <span style={{ fontWeight:500, color:lv.color }}>{lv.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            {/* Right: archetype card */}
-            <ArchetypeCard
-              archetype={result.archetype}
-              flexTraits={result.flexTraits || []}
-              colors={result.colors || fallbackColors}
-            />
+
+            {/* RIGHT: archetype block */}
+            {result.archetype && (() => {
+              const arch   = result.archetype;
+              const colors = result.colors || { badge:'#4F46E5' };
+              return (
+                <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
+                  <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'11px', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px', padding:'3px 10px', borderRadius:'20px', alignSelf:'flex-start' }}>
+                    {arch.group}
+                  </span>
+                  <div style={{ fontSize:'18px', fontWeight:600, color:'var(--text-primary)', lineHeight:1.2 }}>
+                    {arch.name}
+                  </div>
+                  <div>
+                    <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>Best Career Paths</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:'5px' }}>
+                      {arch.careers.map((c, i) => (
+                        <div key={i} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'13px' }}>
+                          <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:600, flexShrink:0 }}>{i+1}</span>
+                          <span style={{ color:'var(--text-primary)' }}>{c}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {result.flexTraits?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'4px' }}>Flex Potential</div>
+                      <div style={{ fontSize:'12px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'5px', maxWidth:'165px' }}>
+                        With development these traits could unlock additional archetypes:
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
+                        {result.flexTraits.map((f, i) => (
+                          <div key={i} style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'12px', color:'var(--text-secondary)' }}>
+                            <span style={{ width:'5px', height:'5px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
+                            {f.trait} ({f.score})
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
+
+          {/* Narrative full width below */}
           {result.narrative && (
-            <p style={{ marginTop:'1rem', fontSize:'0.9rem', lineHeight:1.6, color:'var(--text-secondary)', borderTop:'1px solid var(--border)', paddingTop:'1rem' }}>
+            <p style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)', fontSize:'0.9rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
               {result.narrative}
             </p>
           )}

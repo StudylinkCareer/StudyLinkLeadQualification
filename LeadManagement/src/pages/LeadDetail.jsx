@@ -514,40 +514,64 @@ export default function LeadDetail() {
 
             {oceanResult ? (
               <div style={{ marginBottom:'1rem' }}>
-                {/* Two-column layout: chart left, archetype right */}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem', alignItems:'start', marginBottom:'1rem' }}>
-                  <div>
-                    <OceanRadarChart scores={oceanResult.scores} size={260}/>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start', marginBottom:'1rem' }}>
+
+                  {/* LEFT: radar + trait table */}
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
+                    <OceanRadarChart scores={oceanResult.scores} size={220}/>
+                    <div style={{ width:'80%', fontSize:'12px', color:'var(--text-secondary)' }}>
+                      {['extraversion','agreeableness','conscientiousness','neuroticism','openness'].map(k => {
+                        const score = Number(oceanResult.scores[k]) || 0;
+                        const lv = score >= 12 ? { label:'High', color:'var(--primary)' }
+                                 : score >= 7  ? { label:'Average', color:'#EAA83C' }
+                                 :               { label:'Low', color:'var(--text-secondary)' };
+                        return (
+                          <div key={k} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
+                            <span style={{ textTransform:'capitalize' }}>{k}</span>
+                            <span style={{ fontWeight:500, color:lv.color }}>{lv.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
+
+                  {/* RIGHT: archetype */}
                   {oceanResult.archetype && (() => {
                     const arch   = oceanResult.archetype;
-                    const colors = oceanResult.colors || GROUP_COLORS[arch.group] || { badge:'#999' };
+                    const colors = oceanResult.colors || GROUP_COLORS[arch.group] || { badge:'#4F46E5' };
                     return (
-                      <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
-                        <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', padding:'0.2rem 0.6rem', borderRadius:'20px', alignSelf:'flex-start' }}>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
+                        <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'11px', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px', padding:'3px 10px', borderRadius:'20px', alignSelf:'flex-start' }}>
                           {arch.group}
                         </span>
-                        <div style={{ fontSize:'1.25rem', fontWeight:700, color:'var(--text-primary)', lineHeight:1.2 }}>
+                        <div style={{ fontSize:'1.125rem', fontWeight:600, color:'var(--text-primary)', lineHeight:1.2 }}>
                           {arch.name}
                         </div>
                         <div>
-                          <div style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.4rem', textTransform:'uppercase', letterSpacing:'0.5px' }}>Best Career Paths</div>
-                          <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+                          <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>Best Career Paths</div>
+                          <div style={{ display:'flex', flexDirection:'column', gap:'5px' }}>
                             {arch.careers.map((c, i) => (
-                              <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.875rem' }}>
-                                <span style={{ width:'20px', height:'20px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', fontWeight:700, flexShrink:0 }}>{i+1}</span>
-                                <span style={{ color:'var(--text-primary)', fontWeight:500 }}>{c}</span>
+                              <div key={i} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'0.8125rem' }}>
+                                <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:600, flexShrink:0 }}>{i+1}</span>
+                                <span style={{ color:'var(--text-primary)' }}>{c}</span>
                               </div>
                             ))}
                           </div>
                         </div>
                         {oceanResult.flexTraits?.length > 0 && (
-                          <div style={{ fontSize:'0.8rem', color:'var(--text-secondary)', background:'var(--bg-secondary)', borderRadius:'6px', padding:'0.625rem 0.75rem' }}>
-                            <span style={{ fontWeight:600 }}>💡 Flex potential: </span>
-                            {oceanResult.flexTraits.map((f,i) => (
-                              <span key={i}>{f.trait} (score {f.score}){i < oceanResult.flexTraits.length-1 ? ', ' : ''}</span>
-                            ))}
-                            {' '}— with development these traits could unlock additional archetypes.
+                          <div>
+                            <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'4px' }}>Flex Potential</div>
+                            <div style={{ fontSize:'12px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'5px', maxWidth:'165px' }}>
+                              With development these traits could unlock additional archetypes:
+                            </div>
+                            <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
+                              {oceanResult.flexTraits.map((f, i) => (
+                                <div key={i} style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'12px', color:'var(--text-secondary)' }}>
+                                  <span style={{ width:'5px', height:'5px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
+                                  {f.trait} (score {f.score})
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
