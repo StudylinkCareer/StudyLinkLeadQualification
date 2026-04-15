@@ -515,7 +515,7 @@ export default function Dashboard() {
       {activeTab === 'personal' && <PersonalDetailsTab {...formProps} />}
       {activeTab === 'study' && <StudentInfoTab {...formProps} />}
       {activeTab === 'assessment' && <SelfAssessmentTab {...formProps} />}
-      {activeTab === 'career' && <CareerFitTab />}
+      {activeTab === 'career' && <CareerFitTab {...formProps} />}
       {activeTab === 'family' && <FamilyContactsTab {...formProps} />}
       {activeTab === 'counselor' && <CounselorFeedbackTab {...formProps} />}
       {activeTab === 'documents' && <DocumentsTab {...formProps} />}

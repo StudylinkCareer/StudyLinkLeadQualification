@@ -313,7 +313,7 @@ async function update(uniqueId, data) {
   let   paramIdx   = 1;
 
   for (const [jsKey, value] of Object.entries(data)) {
-    if (jsKey === 'uniqueId' || jsKey === 'createdAt') continue;
+    if (jsKey === 'uniqueId' || jsKey === 'createdAt' || jsKey === 'updatedAt') continue;
     const dbCol = JS_TO_DB[jsKey];
     if (!dbCol) continue; // ignore unknown fields
 
