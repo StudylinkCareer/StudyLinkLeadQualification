@@ -137,7 +137,55 @@ async function deactivateRecords(req, res, next) {
   }
 }
 
-const { calculateOceanScores, generateNarrative } = require('../utils/oceanCalculator');
+const { calculateOceanScores, generateNarrative } = (() => {
+  function calculateOceanScores(responses) {
+    const q = responses;
+    return {
+      extraversion:      (q[1]||0) + (6-(q[6]||0))  + (q[11]||0),
+      agreeableness:     (q[2]||0) + (6-(q[7]||0))  + (q[12]||0),
+      conscientiousness: (q[3]||0) + (6-(q[8]||0))  + (q[13]||0),
+      neuroticism:       (q[4]||0) + (6-(q[9]||0))  + (q[14]||0),
+      openness:          (q[5]||0) + (6-(q[10]||0)) + (q[15]||0),
+    };
+  }
+  function getLevel(score) {
+    if (score >= 12) return 'high';
+    if (score >= 7)  return 'average';
+    return 'low';
+  }
+  function generateNarrative(scores) {
+    const { extraversion, agreeableness, conscientiousness, neuroticism, openness } = scores;
+    const traits = {
+      extraversion: {
+        high: 'highly energetic and sociable, thriving in group settings',
+        average: 'comfortable in both social and solitary settings',
+        low: 'thoughtful and self-sufficient, preferring deeper one-on-one conversations',
+      },
+      agreeableness: {
+        high: 'warm, empathetic and cooperative, naturally building strong relationships',
+        average: 'balanced between cooperation and assertiveness',
+        low: 'direct and results-focused, bringing a competitive edge to challenges',
+      },
+      conscientiousness: {
+        high: 'highly organised and disciplined, with a strong ability to plan and follow through',
+        average: 'reasonably structured and dependable, balancing flexibility with responsibility',
+        low: 'spontaneous and adaptable, bringing creativity to new situations',
+      },
+      neuroticism: {
+        high: 'emotionally sensitive and deeply aware of the world around them',
+        average: 'generally emotionally stable with occasional stress responses',
+        low: 'calm and resilient under pressure, maintaining emotional stability',
+      },
+      openness: {
+        high: 'imaginative and intellectually curious, with a passion for new ideas',
+        average: 'open to new experiences while also appreciating familiar approaches',
+        low: 'practical and grounded, preferring clear facts and proven methods',
+      },
+    };
+    return `This person is ${traits.extraversion[getLevel(extraversion)]}. They are ${traits.agreeableness[getLevel(agreeableness)]}. When it comes to organisation, they are ${traits.conscientiousness[getLevel(conscientiousness)]}. Emotionally, they are ${traits.neuroticism[getLevel(neuroticism)]}. In terms of intellectual curiosity, they are ${traits.openness[getLevel(openness)]}.`;
+  }
+  return { calculateOceanScores, generateNarrative };
+})();
 
 async function calculateOcean(req, res, next) {
   try {
@@ -175,14 +223,10 @@ async function calculateOcean(req, res, next) {
 }
 
 
+async function calculateRisk(req, res, next) {
   try {
     const { id } = req.params;
     const result = await Student.findById(id);
-    if (!result) {
-      return res.status(404).json({ success: false, error: 'Student not found' });
-    }
-
-    const riskResult = calculateRiskScore(result.data);
 
     await Student.update(id, {
       riskScore: String(riskResult.totalScore),
