@@ -9,7 +9,9 @@ import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
 import OceanRadarChart from '../components/OceanRadarChart';
+import { findArchetype, GROUP_COLORS } from '../utils/oceanArchetype';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
+import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
 
 // ── Stone images ──────────────────────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
@@ -205,15 +207,17 @@ export default function LeadDetail() {
         marketingStaff:  l.marketingStaff  || '',
       });
       if (l.oceanExtraversion) {
+        const scores = {
+          extraversion:      l.oceanExtraversion,
+          agreeableness:     l.oceanAgreeableness,
+          conscientiousness: l.oceanConscientiousness,
+          neuroticism:       l.oceanNeuroticism,
+          openness:          l.oceanOpenness,
+        };
         setOceanResult({
-          scores: {
-            extraversion:      l.oceanExtraversion,
-            agreeableness:     l.oceanAgreeableness,
-            conscientiousness: l.oceanConscientiousness,
-            neuroticism:       l.oceanNeuroticism,
-            openness:          l.oceanOpenness,
-          },
+          scores,
           narrative: l.oceanNarrative || '',
+          ...getArchetype(scores),
         });
       }
     }).catch(e=>console.error(e))
@@ -285,15 +289,21 @@ export default function LeadDetail() {
     setRecalcOcean(true);
     try {
       const res = await studentAPI.calculateOcean(id);
-      setOceanResult(res.data);
+      const scores = res.data.scores;
+      const archetypeData = getArchetype(scores);
+      setOceanResult({ ...res.data, ...archetypeData });
       setLead(l => ({
         ...l,
-        oceanExtraversion:      res.data.scores.extraversion,
-        oceanAgreeableness:     res.data.scores.agreeableness,
-        oceanConscientiousness: res.data.scores.conscientiousness,
-        oceanNeuroticism:       res.data.scores.neuroticism,
-        oceanOpenness:          res.data.scores.openness,
+        oceanExtraversion:      scores.extraversion,
+        oceanAgreeableness:     scores.agreeableness,
+        oceanConscientiousness: scores.conscientiousness,
+        oceanNeuroticism:       scores.neuroticism,
+        oceanOpenness:          scores.openness,
+        oceanArchetype:         archetypeData.archetype?.name || '',
       }));
+      if (archetypeData.archetype) {
+        await studentAPI.update(id, { oceanArchetype: archetypeData.archetype.name });
+      }
       alert('Career Fit profile updated successfully');
     } catch(e) { alert(e.message); }
     finally { setRecalcOcean(false); }
@@ -504,9 +514,46 @@ export default function LeadDetail() {
 
             {oceanResult ? (
               <div style={{ marginBottom:'1rem' }}>
-                <OceanRadarChart scores={oceanResult.scores} size={260}/>
+                {/* Radar chart left, archetype right */}
+                <div style={{ display:'flex', gap:'1.5rem', flexWrap:'wrap', alignItems:'flex-start', marginBottom:'1rem' }}>
+                  <div style={{ flexShrink:0 }}>
+                    <OceanRadarChart scores={oceanResult.scores} size={240}/>
+                  </div>
+                  {oceanResult.archetype && (() => {
+                    const arch   = oceanResult.archetype;
+                    const colors = oceanResult.colors || GROUP_COLORS[arch.group] || { bg:'#F9F9F9', border:'#ccc', badge:'#999', text:'#333' };
+                    return (
+                      <div style={{ flex:1, minWidth:'200px', display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+                        <div style={{ background:colors.bg, border:`1.5px solid ${colors.border}`, borderRadius:'12px', padding:'1rem' }}>
+                          <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', padding:'0.2rem 0.6rem', borderRadius:'20px', marginBottom:'0.5rem' }}>
+                            {arch.group}
+                          </span>
+                          <div style={{ fontSize:'1.0625rem', fontWeight:700, color:colors.text, marginBottom:'0.625rem' }}>
+                            {arch.name}
+                          </div>
+                          <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
+                            {arch.careers.map((c, i) => (
+                              <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.8125rem' }}>
+                                <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', fontWeight:700, flexShrink:0 }}>{i+1}</span>
+                                {c}
+                              </div>
+                            ))}
+                          </div>
+                          {oceanResult.flexTraits?.length > 0 && (
+                            <div style={{ marginTop:'0.625rem', fontSize:'0.75rem', color:colors.text, background:'rgba(255,255,255,0.6)', borderRadius:'6px', padding:'0.5rem' }}>
+                              <span style={{ fontWeight:600 }}>💡 Flex potential: </span>
+                              {oceanResult.flexTraits.map((f,i) => (
+                                <span key={i}>{f.trait} ({f.score}){i < oceanResult.flexTraits.length-1 ? ', ' : ''}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
                 {oceanResult.narrative && (
-                  <p style={{ marginTop:'1rem', fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
+                  <p style={{ fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
                     {oceanResult.narrative}
                   </p>
                 )}
