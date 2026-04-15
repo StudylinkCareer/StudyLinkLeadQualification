@@ -471,55 +471,23 @@ export default function PersonalDetailsTab({
       {(formData.campaignType || formData.campaignName || formData.campaignStart) && (
         <div className="form-section">
           <h3 className="form-section-title">{t('campaignSection', language)}</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {formData.campaignType && (
-              <div className="form-field">
-                <label className="form-label">{t('campaignType', language)}</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  value={formData.campaignType}
-                  disabled
-                  readOnly
-                />
-              </div>
-            )}
-            {formData.campaignName && (
-              <div className="form-field">
-                <label className="form-label">{t('campaignName', language)}</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  value={formData.campaignName}
-                  disabled
-                  readOnly
-                />
-              </div>
-            )}
-            {formData.campaignStart && (
-              <div className="form-field">
-                <label className="form-label">{t('campaignStart', language)}</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  value={formData.campaignStart}
-                  disabled
-                  readOnly
-                />
-              </div>
-            )}
-            {formData.campaignEnd && formData.campaignEnd !== formData.campaignStart && (
-              <div className="form-field">
-                <label className="form-label">{t('campaignEnd', language)}</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  value={formData.campaignEnd}
-                  disabled
-                  readOnly
-                />
-              </div>
-            )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div className="form-field">
+              <label className="form-label">{t('campaignType', language)}</label>
+              <input className="form-input" type="text" value={formData.campaignType || ''} disabled readOnly />
+            </div>
+            <div className="form-field">
+              <label className="form-label">{t('campaignName', language)}</label>
+              <input className="form-input" type="text" value={formData.campaignName || ''} disabled readOnly />
+            </div>
+            <div className="form-field">
+              <label className="form-label">{t('campaignStart', language)}</label>
+              <input className="form-input" type="text" value={formData.campaignStart || ''} disabled readOnly />
+            </div>
+            <div className="form-field">
+              <label className="form-label">{t('campaignEnd', language)}</label>
+              <input className="form-input" type="text" value={formData.campaignEnd || ''} disabled readOnly />
+            </div>
           </div>
         </div>
       )}
