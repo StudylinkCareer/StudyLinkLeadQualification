@@ -108,7 +108,7 @@ const COLUMNS = [
 const DB_TO_JS = Object.fromEntries(COLUMNS.map(c => [c.db, c.js]));
 const JS_TO_DB = Object.fromEntries(COLUMNS.map(c => [c.js, c.db]));
 
-// Columns stored as DATE in PostgreSQL — returned as ISO timestamps, trim to YYYY-MM-DD
+// Columns stored as DATE in PostgreSQL — pg driver returns JS Date objects, convert to YYYY-MM-DD
 const DATE_COLUMNS = new Set(['closeDate', 'campaignStart', 'campaignEnd']);
 
 // ── Convert a DB row (snake_case) to a JS object (camelCase) ──
@@ -118,7 +118,9 @@ function rowToJs(row) {
   for (const [key, value] of Object.entries(row)) {
     const jsKey = DB_TO_JS[key] || key;
     if (DATE_COLUMNS.has(jsKey) && value) {
-      result[jsKey] = String(value).slice(0, 10);
+      // pg returns Date objects for DATE columns — convert to YYYY-MM-DD string
+      const d = value instanceof Date ? value : new Date(value);
+      result[jsKey] = d.toISOString().slice(0, 10);
     } else {
       result[jsKey] = value;
     }
