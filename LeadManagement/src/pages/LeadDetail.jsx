@@ -517,37 +517,38 @@ export default function LeadDetail() {
                 {/* Radar chart left, archetype right */}
                 <div style={{ display:'flex', gap:'1.5rem', flexWrap:'wrap', alignItems:'flex-start', marginBottom:'1rem' }}>
                   <div style={{ flexShrink:0 }}>
-                    <OceanRadarChart scores={oceanResult.scores} size={240}/>
+                    <OceanRadarChart scores={oceanResult.scores} size={300}/>
                   </div>
                   {oceanResult.archetype && (() => {
                     const arch   = oceanResult.archetype;
-                    const colors = oceanResult.colors || GROUP_COLORS[arch.group] || { bg:'#F9F9F9', border:'#ccc', badge:'#999', text:'#333' };
+                    const colors = oceanResult.colors || GROUP_COLORS[arch.group] || { badge:'#999' };
                     return (
-                      <div style={{ flex:1, minWidth:'200px', display:'flex', flexDirection:'column', gap:'0.75rem' }}>
-                        <div style={{ background:colors.bg, border:`1.5px solid ${colors.border}`, borderRadius:'12px', padding:'1rem' }}>
-                          <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', padding:'0.2rem 0.6rem', borderRadius:'20px', marginBottom:'0.5rem' }}>
-                            {arch.group}
-                          </span>
-                          <div style={{ fontSize:'1.0625rem', fontWeight:700, color:colors.text, marginBottom:'0.625rem' }}>
-                            {arch.name}
-                          </div>
+                      <div style={{ flex:1, minWidth:'200px', maxWidth:'280px', display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+                        <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', padding:'0.2rem 0.6rem', borderRadius:'20px', alignSelf:'flex-start' }}>
+                          {arch.group}
+                        </span>
+                        <div style={{ fontSize:'1.0625rem', fontWeight:700, color:'var(--text-primary)', lineHeight:1.2 }}>
+                          {arch.name}
+                        </div>
+                        <div>
+                          <div style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.4rem', textTransform:'uppercase', letterSpacing:'0.5px' }}>Best Career Paths</div>
                           <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
                             {arch.careers.map((c, i) => (
                               <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.8125rem' }}>
                                 <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', fontWeight:700, flexShrink:0 }}>{i+1}</span>
-                                {c}
+                                <span style={{ color:'var(--text-primary)', fontWeight:500 }}>{c}</span>
                               </div>
                             ))}
                           </div>
-                          {oceanResult.flexTraits?.length > 0 && (
-                            <div style={{ marginTop:'0.625rem', fontSize:'0.75rem', color:colors.text, background:'rgba(255,255,255,0.6)', borderRadius:'6px', padding:'0.5rem' }}>
-                              <span style={{ fontWeight:600 }}>💡 Flex potential: </span>
-                              {oceanResult.flexTraits.map((f,i) => (
-                                <span key={i}>{f.trait} ({f.score}){i < oceanResult.flexTraits.length-1 ? ', ' : ''}</span>
-                              ))}
-                            </div>
-                          )}
                         </div>
+                        {oceanResult.flexTraits?.length > 0 && (
+                          <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', background:'var(--bg-secondary)', borderRadius:'6px', padding:'0.5rem' }}>
+                            <span style={{ fontWeight:600 }}>💡 Flex potential: </span>
+                            {oceanResult.flexTraits.map((f,i) => (
+                              <span key={i}>{f.trait} ({f.score}){i < oceanResult.flexTraits.length-1 ? ', ' : ''}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

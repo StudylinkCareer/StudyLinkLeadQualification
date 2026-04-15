@@ -64,9 +64,8 @@ function ArchetypeCard({ archetype, flexTraits, colors }) {
   if (!archetype) return null;
   return (
     <div style={{
-      background: colors.bg, border: `1.5px solid ${colors.border}`,
-      borderRadius: '12px', padding: '1.25rem',
       display: 'flex', flexDirection: 'column', gap: '0.75rem',
+      maxWidth: '280px',
     }}>
       <span style={{
         display: 'inline-block', background: colors.badge, color: '#fff',
@@ -77,12 +76,12 @@ function ArchetypeCard({ archetype, flexTraits, colors }) {
         {archetype.group}
       </span>
 
-      <div style={{ fontSize: '1.375rem', fontWeight: 700, color: colors.text, lineHeight: 1.2 }}>
+      <div style={{ fontSize: '1.375rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>
         {archetype.name}
       </div>
 
       <div>
-        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.text, marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           Best Career Paths
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
@@ -94,7 +93,7 @@ function ArchetypeCard({ archetype, flexTraits, colors }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '0.7rem', fontWeight: 700, flexShrink: 0,
               }}>{i + 1}</span>
-              <span style={{ color: colors.text, fontWeight: 500 }}>{career}</span>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{career}</span>
             </div>
           ))}
         </div>
@@ -102,8 +101,8 @@ function ArchetypeCard({ archetype, flexTraits, colors }) {
 
       {flexTraits.length > 0 && (
         <div style={{
-          background: 'rgba(255,255,255,0.6)', borderRadius: '8px',
-          padding: '0.625rem 0.875rem', fontSize: '0.8rem', color: colors.text,
+          background: 'var(--bg-secondary)', borderRadius: '8px',
+          padding: '0.625rem 0.875rem', fontSize: '0.8rem', color: 'var(--text-secondary)',
         }}>
           <span style={{ fontWeight: 600 }}>💡 Flex potential: </span>
           {flexTraits.map((f, i) => (
@@ -194,7 +193,7 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
           padding:'1.5rem', marginBottom:'1.5rem', border:'1px solid var(--border)',
         }}>
           <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:'1.5rem', alignItems:'start' }}>
-            <OceanRadarChart scores={result.scores} size={240}/>
+            <OceanRadarChart scores={result.scores} size={300}/>
             <ArchetypeCard
               archetype={result.archetype}
               flexTraits={result.flexTraits || []}
