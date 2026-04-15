@@ -1,7 +1,7 @@
 // client/src/services/api.js
 // CHANGES: Added authAPI.checkLogin(), studentAPI.deactivateRecords()
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 async function request(method, endpoint, data) {
   const options = {
@@ -60,8 +60,8 @@ export const studentAPI = {
   deactivateRecords: (uniqueIds) => api.post('/students/deactivate', { uniqueIds }),  // ← NEW
   search: (query) => api.get(`/students/search?q=${encodeURIComponent(query || '')}`),
   calculateRisk: (id) => api.post(`/students/${encodeURIComponent(id)}/calculate-risk`),
-  uploadPhotos: (id, photos) => api.post(`/students/${encodeURIComponent(id)}/upload-photos`, photos),
   calculateOcean: (id) => api.post(`/students/${encodeURIComponent(id)}/calculate-ocean`),
+  uploadPhotos: (id, photos) => api.post(`/students/${encodeURIComponent(id)}/upload-photos`, photos),
 };
 
 export const documentAPI = {
