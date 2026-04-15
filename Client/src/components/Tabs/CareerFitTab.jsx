@@ -1,60 +1,44 @@
 // client/src/components/Tabs/CareerFitTab.jsx
 // CHANGES:
-//   - Added archetype calculation using oceanArchetypes.js
-//   - Shows archetype name, group, and top 3 careers after calculate
-//   - Flex trait warnings shown when score is borderline
-//   - Archetype saved to DB via studentAPI.update
+//   - Full bilingual support (EN/VI) via t() and language-aware getArchetype()
+//   - Questions, scale labels, UI strings all translatable
 
 import { useState } from 'react';
 import { studentAPI } from '../../services/api';
+import { useLanguage } from '../../contexts/LanguageContext';
+import { t } from '../../i18n';
+import OceanRadarChart from '../OceanRadarChart';
 import { getArchetype } from '../../utils/oceanArchetypes';
 
-const QUESTIONS = [
-  { id: 1,  text: 'I am the life of the party and enjoy being the center of attention.' },
-  { id: 2,  text: "I sympathize with others' feelings and feel for those less fortunate." },
-  { id: 3,  text: 'I am always prepared and keep my belongings organized.' },
-  { id: 4,  text: 'I have frequent mood swings and get stressed easily.' },
-  { id: 5,  text: 'I have a vivid imagination and enjoy thinking about abstract ideas.' },
-  { id: 6,  text: "I don't talk a lot and tend to keep to myself." },
-  { id: 7,  text: "I am not really interested in others' problems or feelings." },
-  { id: 8,  text: 'I often forget to put things back in their proper place.' },
-  { id: 9,  text: "I am relaxed most of the time and don't worry much." },
-  { id: 10, text: 'I am not interested in theoretical or philosophical discussions.' },
-  { id: 11, text: 'I feel comfortable around people and start conversations easily.' },
-  { id: 12, text: 'I have a soft heart and try to make people feel at ease.' },
-  { id: 13, text: 'I pay attention to details and like to get chores done right away.' },
-  { id: 14, text: 'I get upset easily and often feel blue or anxious.' },
-  { id: 15, text: 'I enjoy hearing new ideas and looking at art or nature.' },
+const QUESTION_KEYS = [
+  'ocean_q1',  'ocean_q2',  'ocean_q3',  'ocean_q4',  'ocean_q5',
+  'ocean_q6',  'ocean_q7',  'ocean_q8',  'ocean_q9',  'ocean_q10',
+  'ocean_q11', 'ocean_q12', 'ocean_q13', 'ocean_q14', 'ocean_q15',
 ];
 
-const SCALE_LABELS = [
-  { value: 1, label: 'Strongly Disagree' },
-  { value: 2, label: 'Disagree' },
-  { value: 3, label: 'Neutral' },
-  { value: 4, label: 'Agree' },
-  { value: 5, label: 'Strongly Agree' },
-];
-
-function LikertScale({ questionId, value, onChange }) {
+function LikertScale({ questionId, value, onChange, labels }) {
   return (
     <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', marginTop:'0.5rem' }}>
-      {SCALE_LABELS.map(({ value: v, label }) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(questionId, v)}
-          style={{
-            flex:1, minWidth:'80px', padding:'0.5rem 0.25rem',
-            border: `2px solid ${value === v ? 'var(--primary, #2563EB)' : 'var(--border, #e5e7eb)'}`,
-            borderRadius:'8px', background: value === v ? 'var(--primary, #2563EB)' : 'transparent',
-            color: value === v ? '#fff' : 'var(--text-secondary, #6b7280)',
-            cursor:'pointer', fontSize:'0.75rem', fontWeight: value === v ? 600 : 400,
-            transition:'all 0.15s',
-          }}>
-          <div style={{ fontWeight:700, fontSize:'1rem', marginBottom:'0.125rem' }}>{v}</div>
-          <div style={{ fontSize:'0.65rem', lineHeight:1.2 }}>{label}</div>
-        </button>
-      ))}
+      {labels.map((label, idx) => {
+        const v = idx + 1;
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(questionId, v)}
+            style={{
+              flex:1, minWidth:'80px', padding:'0.5rem 0.25rem',
+              border: `2px solid ${value === v ? 'var(--primary, #2563EB)' : 'var(--border, #e5e7eb)'}`,
+              borderRadius:'8px', background: value === v ? 'var(--primary, #2563EB)' : 'transparent',
+              color: value === v ? '#fff' : 'var(--text-secondary, #6b7280)',
+              cursor:'pointer', fontSize:'0.75rem', fontWeight: value === v ? 600 : 400,
+              transition:'all 0.15s',
+            }}>
+            <div style={{ fontWeight:700, fontSize:'1rem', marginBottom:'0.125rem' }}>{v}</div>
+            <div style={{ fontSize:'0.65rem', lineHeight:1.2 }}>{label}</div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -135,6 +119,10 @@ function getLevel(score) {
 }
 
 export default function CareerFitTab({ formData, updateField, saveAll }) {
+  const { language } = useLanguage();
+
+  const scaleLabels = t('careerFitScaleLabels', language);
+
   const [responses, setResponses] = useState(() => {
     const r = {};
     for (let i = 1; i <= 15; i++) {
@@ -145,14 +133,16 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
 
   const [result, setResult] = useState(() => {
     if (formData.oceanExtraversion) {
-      const scores = {
-        extraversion:      Number(formData.oceanExtraversion),
-        agreeableness:     Number(formData.oceanAgreeableness),
-        conscientiousness: Number(formData.oceanConscientiousness),
-        neuroticism:       Number(formData.oceanNeuroticism),
-        openness:          Number(formData.oceanOpenness),
+      return {
+        scores: {
+          extraversion:      Number(formData.oceanExtraversion),
+          agreeableness:     Number(formData.oceanAgreeableness),
+          conscientiousness: Number(formData.oceanConscientiousness),
+          neuroticism:       Number(formData.oceanNeuroticism),
+          openness:          Number(formData.oceanOpenness),
+        },
+        narrative: formData.oceanNarrative || '',
       };
-      return { scores, narrative: formData.oceanNarrative || '', ...getArchetype(scores) };
     }
     return null;
   });
@@ -170,26 +160,30 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
   const allAnswered   = answeredCount === 15;
 
   async function handleCalculate() {
-    if (!allAnswered) { setError('Please answer all 15 questions before calculating.'); return; }
+    if (!allAnswered) { setError(t('careerFitComplete', language)); return; }
     setError('');
     setCalculating(true);
     try {
       if (saveAll) await saveAll();
       const res = await studentAPI.calculateOcean(formData.uniqueId);
-      const scores = res.data.scores;
-      const archetypeData = getArchetype(scores);
+      const scores    = res.data.scores;
+      const narrative = res.data.narrative || '';
 
-      if (archetypeData.archetype) {
-        await studentAPI.update(formData.uniqueId, { oceanArchetype: archetypeData.archetype.name });
-        updateField('oceanArchetype', archetypeData.archetype.name);
-      }
+      // Save archetype name and narrative to DB
+      const archetypeData = getArchetype(scores, language);
+      await studentAPI.update(formData.uniqueId, {
+        oceanArchetype: archetypeData.archetype?.name || '',
+        oceanNarrative: narrative,
+      });
+      updateField('oceanArchetype', archetypeData.archetype?.name || '');
+      updateField('oceanNarrative', narrative);
 
-      setResult({ ...res.data, ...archetypeData });
+      setResult({ scores, narrative });
       setTimeout(() => {
         document.querySelector('.ocean-result-banner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
     } catch (err) {
-      setError(err.message || 'Calculation failed');
+      setError(err.message || t('careerFitCalculating', language));
     } finally {
       setCalculating(false);
     }
@@ -200,9 +194,9 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
   return (
     <div className="tab-content">
       <div className="tab-header">
-        <h2>Career Fit Assessment</h2>
+        <h2>{t('careerFitTitle', language)}</h2>
         <p style={{ color:'var(--text-secondary)', fontSize:'0.875rem', marginTop:'0.25rem' }}>
-          Rate each statement on a scale of 1 (Strongly Disagree) to 5 (Strongly Agree)
+          {t('careerFitSubtitle', language)}
         </p>
       </div>
 
@@ -211,67 +205,63 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
           background:'var(--bg-secondary)', borderRadius:'12px',
           padding:'1.5rem', marginBottom:'1.5rem', border:'1px solid var(--border)',
         }}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start' }}>
+          {/* Recompute archetype in render so it responds to language changes */}
+          {(() => {
+            const archetypeData = getArchetype(result.scores, language);
+            const arch   = archetypeData.archetype;
+            const colors = archetypeData.colors || fallbackColors;
+            const flex   = archetypeData.flexTraits || [];
+            return (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start' }}>
 
-            {/* LEFT: radar chart + trait table */}
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
-              <RadarChart scores={result.scores}/>
-              <div style={{ width:'80%', fontSize:'12px', color:'var(--text-secondary)' }}>
-                {['extraversion','agreeableness','conscientiousness','neuroticism','openness'].map(k => {
-                  const lv = getLevel(Number(result.scores[k]) || 0);
-                  return (
-                    <div key={k} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
-                      <span style={{ textTransform:'capitalize' }}>{k}</span>
-                      <span style={{ fontWeight:500, color:lv.color }}>{lv.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+                {/* LEFT: OceanRadarChart (has interactive tooltip + bar table built in) */}
+                <OceanRadarChart scores={result.scores} size={240}/>
 
-            {/* RIGHT: archetype block */}
-            {result.archetype && (() => {
-              const arch   = result.archetype;
-              const colors = result.colors || { badge:'#4F46E5' };
-              return (
-                <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
-                  <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'11px', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px', padding:'3px 10px', borderRadius:'20px', alignSelf:'flex-start' }}>
-                    {arch.group}
-                  </span>
-                  <div style={{ fontSize:'18px', fontWeight:600, color:'var(--text-primary)', lineHeight:1.2 }}>
-                    {arch.name}
-                  </div>
-                  <div>
-                    <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>Best Career Paths</div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:'5px' }}>
-                      {arch.careers.map((c, i) => (
-                        <div key={i} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'13px' }}>
-                          <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:600, flexShrink:0 }}>{i+1}</span>
-                          <span style={{ color:'var(--text-primary)' }}>{c}</span>
-                        </div>
-                      ))}
+                {/* RIGHT: archetype */}
+                {arch && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
+                    <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'11px', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px', padding:'3px 10px', borderRadius:'20px', alignSelf:'flex-start' }}>
+                      {arch.group}
+                    </span>
+                    <div style={{ fontSize:'18px', fontWeight:600, color:'var(--text-primary)', lineHeight:1.2 }}>
+                      {arch.name}
                     </div>
-                  </div>
-                  {result.flexTraits?.length > 0 && (
                     <div>
-                      <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>Flex Potential</div>
-                      <div style={{ fontSize:'13px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'8px' }}>
-                        With development these traits could unlock additional archetypes:
+                      <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>
+                        {t('careerFitBestCareers', language)}
                       </div>
-                      <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
-                        {result.flexTraits.map((f, i) => (
-                          <div key={i} style={{ display:'flex', alignItems:'center', gap:'8px', fontSize:'13px', color:'var(--text-secondary)' }}>
-                            <span style={{ width:'7px', height:'7px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
-                            {f.trait} ({f.score})
+                      <div style={{ display:'flex', flexDirection:'column', gap:'5px' }}>
+                        {arch.careers.map((c, i) => (
+                          <div key={i} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'13px' }}>
+                            <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:600, flexShrink:0 }}>{i+1}</span>
+                            <span style={{ color:'var(--text-primary)' }}>{c}</span>
                           </div>
                         ))}
                       </div>
                     </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
+                    {flex.length > 0 && (
+                      <div>
+                        <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>
+                          {t('careerFitFlexPotential', language)}
+                        </div>
+                        <div style={{ fontSize:'13px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'8px' }}>
+                          {t('careerFitFlexDesc', language)}
+                        </div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
+                          {flex.map((f, i) => (
+                            <div key={i} style={{ display:'flex', alignItems:'center', gap:'8px', fontSize:'13px', color:'var(--text-secondary)' }}>
+                              <span style={{ width:'7px', height:'7px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
+                              {f.trait} ({f.score})
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Narrative full width below */}
           {result.narrative && (
@@ -287,30 +277,35 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
           border:'1px solid var(--border)', textAlign:'center',
           color:'var(--text-secondary)', fontSize:'0.875rem',
         }}>
-          Complete all 15 questions and click Calculate to see your personality profile.
-          <div style={{ marginTop:'0.5rem', fontSize:'0.8125rem' }}>{answeredCount}/15 questions answered</div>
+          {t('careerFitComplete', language)}
+          <div style={{ marginTop:'0.5rem', fontSize:'0.8125rem' }}>
+            {answeredCount}{t('careerFitAnsweredOf', language)}
+          </div>
         </div>
       )}
 
       <div style={{ display:'flex', flexDirection:'column', gap:'1.5rem' }}>
-        {QUESTIONS.map(({ id, text }) => (
-          <div key={id} style={{
-            background:'var(--bg-secondary)', borderRadius:'10px',
-            padding:'1rem', border:'1px solid var(--border)',
-          }}>
-            <div style={{ display:'flex', gap:'0.75rem', marginBottom:'0.25rem' }}>
-              <span style={{
-                background: responses[id] ? 'var(--primary, #2563EB)' : 'var(--border)',
-                color: responses[id] ? '#fff' : 'var(--text-secondary)',
-                borderRadius:'50%', width:'24px', height:'24px',
-                display:'flex', alignItems:'center', justifyContent:'center',
-                fontSize:'0.75rem', fontWeight:700, flexShrink:0,
-              }}>{id}</span>
-              <p style={{ margin:0, fontSize:'0.9375rem', lineHeight:1.5 }}>{text}</p>
+        {QUESTION_KEYS.map((key, idx) => {
+          const id = idx + 1;
+          return (
+            <div key={id} style={{
+              background:'var(--bg-secondary)', borderRadius:'10px',
+              padding:'1rem', border:'1px solid var(--border)',
+            }}>
+              <div style={{ display:'flex', gap:'0.75rem', marginBottom:'0.25rem' }}>
+                <span style={{
+                  background: responses[id] ? 'var(--primary, #2563EB)' : 'var(--border)',
+                  color: responses[id] ? '#fff' : 'var(--text-secondary)',
+                  borderRadius:'50%', width:'24px', height:'24px',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontSize:'0.75rem', fontWeight:700, flexShrink:0,
+                }}>{id}</span>
+                <p style={{ margin:0, fontSize:'0.9375rem', lineHeight:1.5 }}>{t(key, language)}</p>
+              </div>
+              <LikertScale questionId={id} value={responses[id]} onChange={handleResponse} labels={scaleLabels}/>
             </div>
-            <LikertScale questionId={id} value={responses[id]} onChange={handleResponse}/>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {error && (
@@ -328,7 +323,10 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
           className="btn btn--primary btn--lg"
           onClick={handleCalculate}
           disabled={calculating || !allAnswered}>
-          {calculating ? 'Calculating...' : `Calculate My Profile${!allAnswered ? ` (${answeredCount}/15)` : ''}`}
+          {calculating
+            ? t('careerFitCalculating', language)
+            : `${t('careerFitCalculate', language)}${!allAnswered ? ` (${answeredCount}/15)` : ''}`
+          }
         </button>
       </div>
     </div>

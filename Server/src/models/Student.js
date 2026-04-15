@@ -98,6 +98,8 @@ const COLUMNS = [
   { db: 'ocean_conscientiousness',   js: 'oceanConscientiousness' },
   { db: 'ocean_neuroticism',         js: 'oceanNeuroticism' },
   { db: 'ocean_openness',            js: 'oceanOpenness' },
+  { db: 'ocean_narrative',           js: 'oceanNarrative' },
+  { db: 'ocean_archetype',           js: 'oceanArchetype' },
   { db: 'campaign_type',             js: 'campaignType' },
   { db: 'campaign_name',             js: 'campaignName' },
   { db: 'campaign_start',            js: 'campaignStart' },

@@ -213,9 +213,16 @@ const vi = {
   'ultimateObjective_tier_Study only': 'Chỉ du học',
 
   // ── Career Fit / OCEAN Tab ──
-  careerFitTitle: 'Tính cách/Nghề nghiệp',
-  careerFitInBuild: 'Đang trong giai đoạn xây dựng và đánh giá',
-  careerFitComeback: 'Vui lòng quay lại sau.',
+  careerFitTitle: 'Phù hợp nghề nghiệp',
+  careerFitSubtitle: 'Đánh giá mỗi câu theo thang điểm từ 1 (Hoàn toàn không đồng ý) đến 5 (Hoàn toàn đồng ý)',
+  careerFitCalculate: 'Tính toán hồ sơ của tôi',
+  careerFitCalculating: 'Đang tính toán...',
+  careerFitComplete: 'Hoàn thành 15 câu hỏi và nhấn Tính toán để xem hồ sơ tính cách của bạn.',
+  careerFitAnsweredOf: '/15 câu đã trả lời',
+  careerFitBestCareers: 'Hướng nghề nghiệp tốt nhất',
+  careerFitFlexPotential: 'Tiềm năng phát triển',
+  careerFitFlexDesc: 'Khi phát triển, các đặc điểm này có thể mở ra các hình mẫu bổ sung:',
+  careerFitScaleLabels: ['Hoàn toàn không đồng ý', 'Không đồng ý', 'Trung lập', 'Đồng ý', 'Hoàn toàn đồng ý'],
 
   // OCEAN assessment questions (Vietnamese)
   ocean_q1:  'Tôi là người khuấy động bầu không khí trong các bữa tiệc và thích trở thành trung tâm của sự chú ý.',

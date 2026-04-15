@@ -215,9 +215,16 @@ const en = {
   'ultimateObjective_tier_Study only': 'Study only',
 
   // ── Career Fit / OCEAN Tab ──
-  careerFitTitle: 'Personality/Career',
-  careerFitInBuild: 'Currently in build and evaluation',
-  careerFitComeback: 'Come back later for this.',
+  careerFitTitle: 'Career Fit',
+  careerFitSubtitle: 'Rate each statement on a scale of 1 (Strongly Disagree) to 5 (Strongly Agree)',
+  careerFitCalculate: 'Calculate My Profile',
+  careerFitCalculating: 'Calculating...',
+  careerFitComplete: 'Complete all 15 questions and click Calculate to see your personality profile.',
+  careerFitAnsweredOf: '/15 questions answered',
+  careerFitBestCareers: 'Best Career Paths',
+  careerFitFlexPotential: 'Flex Potential',
+  careerFitFlexDesc: 'With development these traits could unlock additional archetypes:',
+  careerFitScaleLabels: ['Strongly Disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly Agree'],
 
   // OCEAN assessment questions
   ocean_q1:  'I am the life of the party and enjoy being the center of attention.',
