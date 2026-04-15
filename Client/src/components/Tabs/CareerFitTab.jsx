@@ -117,7 +117,7 @@ function getLevel(score) {
   return               { label: 'Low',     color: 'var(--text-secondary, #6b7280)' };
 }
 
-export default function CareerFitTab({ formData, updateField, saveAll }) {
+export default function CareerFitTab({ formData, updateField, saveAll, onStudentUpdated }) {
   const { language } = useLanguage();
 
   const scaleLabels = t('careerFitScaleLabels', language);
@@ -174,15 +174,19 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
       const scores    = res.data.scores;
       const narrative = res.data.narrative || '';
 
-      // Save archetype name to DB (narrative already saved by calculateOcean endpoint)
       const archetypeData = getArchetype(scores, language);
-      await studentAPI.update(formData.uniqueId, {
-        oceanArchetype: archetypeData.archetype?.name || '',
-      });
-      updateField('oceanArchetype', archetypeData.archetype?.name || '');
-      updateField('oceanNarrative', narrative);
 
       setResult({ scores, narrative });
+
+      // Update all ocean fields in formData so auto-save on tab change persists them
+      updateField('oceanExtraversion',      scores.extraversion);
+      updateField('oceanAgreeableness',     scores.agreeableness);
+      updateField('oceanConscientiousness', scores.conscientiousness);
+      updateField('oceanNeuroticism',       scores.neuroticism);
+      updateField('oceanOpenness',          scores.openness);
+      updateField('oceanNarrative',         narrative);
+      updateField('oceanArchetype',         archetypeData.archetype?.name || '');
+
       setTimeout(() => {
         document.querySelector('.ocean-result-banner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);

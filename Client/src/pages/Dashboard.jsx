@@ -1,4 +1,4 @@
-// client/src/pages/Dashboard.jsx
+// client/src/pages/Dashboard.jsx.
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { FiUser, FiBook, FiBarChart2, FiUsers, FiClipboard, FiSave, FiX, FiArrowLeft, FiFileText, FiTarget, FiLogOut } from 'react-icons/fi';
