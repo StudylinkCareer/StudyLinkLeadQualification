@@ -514,39 +514,40 @@ export default function LeadDetail() {
 
             {oceanResult ? (
               <div style={{ marginBottom:'1rem' }}>
-                {/* Radar chart left, archetype right */}
-                <div style={{ display:'flex', gap:'1.5rem', flexWrap:'wrap', alignItems:'flex-start', marginBottom:'1rem' }}>
-                  <div style={{ flexShrink:0 }}>
-                    <OceanRadarChart scores={oceanResult.scores} size={300}/>
+                {/* Two-column layout: chart left, archetype right */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem', alignItems:'start', marginBottom:'1rem' }}>
+                  <div>
+                    <OceanRadarChart scores={oceanResult.scores} size={260}/>
                   </div>
                   {oceanResult.archetype && (() => {
                     const arch   = oceanResult.archetype;
                     const colors = oceanResult.colors || GROUP_COLORS[arch.group] || { badge:'#999' };
                     return (
-                      <div style={{ flex:1, minWidth:'200px', maxWidth:'280px', display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
                         <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', padding:'0.2rem 0.6rem', borderRadius:'20px', alignSelf:'flex-start' }}>
                           {arch.group}
                         </span>
-                        <div style={{ fontSize:'1.0625rem', fontWeight:700, color:'var(--text-primary)', lineHeight:1.2 }}>
+                        <div style={{ fontSize:'1.25rem', fontWeight:700, color:'var(--text-primary)', lineHeight:1.2 }}>
                           {arch.name}
                         </div>
                         <div>
                           <div style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.4rem', textTransform:'uppercase', letterSpacing:'0.5px' }}>Best Career Paths</div>
                           <div style={{ display:'flex', flexDirection:'column', gap:'0.3rem' }}>
                             {arch.careers.map((c, i) => (
-                              <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.8125rem' }}>
-                                <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', fontWeight:700, flexShrink:0 }}>{i+1}</span>
+                              <div key={i} style={{ display:'flex', alignItems:'center', gap:'0.4rem', fontSize:'0.875rem' }}>
+                                <span style={{ width:'20px', height:'20px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', fontWeight:700, flexShrink:0 }}>{i+1}</span>
                                 <span style={{ color:'var(--text-primary)', fontWeight:500 }}>{c}</span>
                               </div>
                             ))}
                           </div>
                         </div>
                         {oceanResult.flexTraits?.length > 0 && (
-                          <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', background:'var(--bg-secondary)', borderRadius:'6px', padding:'0.5rem' }}>
+                          <div style={{ fontSize:'0.8rem', color:'var(--text-secondary)', background:'var(--bg-secondary)', borderRadius:'6px', padding:'0.625rem 0.75rem' }}>
                             <span style={{ fontWeight:600 }}>💡 Flex potential: </span>
                             {oceanResult.flexTraits.map((f,i) => (
-                              <span key={i}>{f.trait} ({f.score}){i < oceanResult.flexTraits.length-1 ? ', ' : ''}</span>
+                              <span key={i}>{f.trait} (score {f.score}){i < oceanResult.flexTraits.length-1 ? ', ' : ''}</span>
                             ))}
+                            {' '}— with development these traits could unlock additional archetypes.
                           </div>
                         )}
                       </div>
@@ -554,7 +555,7 @@ export default function LeadDetail() {
                   })()}
                 </div>
                 {oceanResult.narrative && (
-                  <p style={{ fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
+                  <p style={{ fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-secondary)', borderTop:'1px solid var(--border)', paddingTop:'1rem' }}>
                     {oceanResult.narrative}
                   </p>
                 )}

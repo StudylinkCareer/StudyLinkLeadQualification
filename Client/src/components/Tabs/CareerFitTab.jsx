@@ -192,8 +192,13 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
           background:'var(--bg-secondary)', borderRadius:'12px',
           padding:'1.5rem', marginBottom:'1.5rem', border:'1px solid var(--border)',
         }}>
-          <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:'1.5rem', alignItems:'start' }}>
-            <OceanRadarChart scores={result.scores} size={300}/>
+          {/* Two-column layout: chart left, archetype right */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem', alignItems:'start' }}>
+            {/* Left: chart + trait scores */}
+            <div>
+              <OceanRadarChart scores={result.scores} size={260}/>
+            </div>
+            {/* Right: archetype card */}
             <ArchetypeCard
               archetype={result.archetype}
               flexTraits={result.flexTraits || []}
@@ -201,7 +206,7 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
             />
           </div>
           {result.narrative && (
-            <p style={{ marginTop:'1rem', fontSize:'0.9rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
+            <p style={{ marginTop:'1rem', fontSize:'0.9rem', lineHeight:1.6, color:'var(--text-secondary)', borderTop:'1px solid var(--border)', paddingTop:'1rem' }}>
               {result.narrative}
             </p>
           )}
