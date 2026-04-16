@@ -11,6 +11,7 @@ const studentRoutes = require('./routes/students');
 const documentRoutes = require('./routes/documents');
 const qrRoutes = require('./routes/qr');
 const errorHandler = require('./middleware/errorHandler');
+const staffRoutes = require('./routes/staff');
 
 const app = express();
 
@@ -64,6 +65,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/qr', qrRoutes);
+app.use('/api/staff', staffRoutes);
 
 // Error handling
 app.use(errorHandler);
