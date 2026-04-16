@@ -296,8 +296,6 @@
   }
 }
 
-@media (max-width: 640px) {
-
 /* Mobile: keep all 5 tiers in a single row */
 @media (max-width: 640px) {
   .tier-options {
@@ -314,9 +312,6 @@
     font-size: 0.6rem;
   }
 }
-
-
-
 
 /* Phone Input */
 .phone-input-row {
