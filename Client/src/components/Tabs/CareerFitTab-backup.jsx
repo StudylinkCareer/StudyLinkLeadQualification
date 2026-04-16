@@ -2,7 +2,6 @@
 // CHANGES:
 //   - Full bilingual support (EN/VI) via t() and language-aware getArchetype()
 //   - Questions, scale labels, UI strings all translatable
-//   - Responsive result layout: 2 columns on desktop, 1 column on mobile
 
 import { useState } from 'react';
 import { studentAPI } from '../../services/api';
@@ -18,7 +17,7 @@ const QUESTION_KEYS = [
 
 function LikertScale({ questionId, value, onChange, labels }) {
   return (
-    <div style={{ display:'flex', gap:'0.35rem', flexWrap:'wrap', marginTop:'0.5rem' }}>
+    <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', marginTop:'0.5rem' }}>
       {labels.map((label, idx) => {
         const v = idx + 1;
         return (
@@ -27,7 +26,7 @@ function LikertScale({ questionId, value, onChange, labels }) {
             type="button"
             onClick={() => onChange(questionId, v)}
             style={{
-              flex:1, minWidth:'55px', padding:'0.5rem 0.25rem',
+              flex:1, minWidth:'80px', padding:'0.5rem 0.25rem',
               border: `2px solid ${value === v ? 'var(--primary, #2563EB)' : 'var(--border, #e5e7eb)'}`,
               borderRadius:'8px', background: value === v ? 'var(--primary, #2563EB)' : 'transparent',
               color: value === v ? '#fff' : 'var(--text-secondary, #6b7280)',
@@ -43,7 +42,7 @@ function LikertScale({ questionId, value, onChange, labels }) {
   );
 }
 
-// ── Inline radar chart ────────────────────────────────────────
+// ── Inline radar chart matching approved sketch ───────────────
 function RadarChart({ scores }) {
   const cx = 105, cy = 100, r = 75;
   const traits = [
@@ -66,32 +65,37 @@ function RadarChart({ scores }) {
   });
 
   const labelOffsets = [
-    { dx: 0,    dy: -14 },
-    { dx: 14,   dy: 0   },
-    { dx: 10,   dy: 14  },
-    { dx: -10,  dy: 14  },
-    { dx: -18,  dy: 0   },
+    { dx: 0,    dy: -14 },   // Extraversion — top
+    { dx: 14,   dy: 0   },   // Agreeableness — right
+    { dx: 10,   dy: 14  },   // Conscientiousness — bottom right
+    { dx: -10,  dy: 14  },   // Neuroticism — bottom left
+    { dx: -18,  dy: 0   },   // Openness — left (pulled further left)
   ];
 
   const anchors = ['middle', 'start', 'middle', 'middle', 'end'];
 
   return (
     <svg width="220" height="215" viewBox="0 0 210 210" style={{ overflow:'visible' }}>
+      {/* Grid rings */}
       {gridRings.map((ratio, ri) => (
         <polygon key={ri}
           points={angles.map(a => pt(a, r * ratio).join(',')).join(' ')}
           fill="none" stroke="var(--border, #e5e7eb)" strokeWidth={ri === 2 ? 1 : 0.5}/>
       ))}
+      {/* Grid spokes */}
       {angles.map((a, i) => {
         const [x, y] = pt(a, r);
         return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--border, #e5e7eb)" strokeWidth="0.5"/>;
       })}
+      {/* Score polygon */}
       <polygon
         points={scorePoints.map(p => p.join(',')).join(' ')}
         fill="rgba(234,170,60,0.2)" stroke="#EAA83C" strokeWidth="1.5"/>
+      {/* Score dots */}
       {scorePoints.map(([x, y], i) => (
         <circle key={i} cx={x} cy={y} r="3" fill="#EAA83C"/>
       ))}
+      {/* Labels */}
       {traits.map((t, i) => {
         const [bx, by] = pt(angles[i], r + 14);
         const { dx, dy } = labelOffsets[i];
@@ -159,6 +163,7 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
     setError('');
     setCalculating(true);
     try {
+      // Save question responses to DB first, then calculate
       const questionData = {};
       for (let i = 1; i <= 15; i++) {
         questionData[`oceanQ${i}`] = responses[i] || null;
@@ -173,6 +178,7 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
 
       setResult({ scores, narrative });
 
+      // Update all ocean fields in formData so auto-save on tab change persists them
       updateField('oceanExtraversion',      scores.extraversion);
       updateField('oceanAgreeableness',     scores.agreeableness);
       updateField('oceanConscientiousness', scores.conscientiousness);
@@ -193,8 +199,6 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
 
   const fallbackColors = { bg:'#F0F4FF', border:'#C7D2FE', badge:'#4F46E5', text:'#3730A3' };
 
-  const TRAIT_KEYS = ['extraversion','agreeableness','conscientiousness','neuroticism','openness'];
-
   return (
     <div className="tab-content">
       <div className="tab-header">
@@ -214,89 +218,83 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
             const arch   = archetypeData.archetype;
             const colors = archetypeData.colors || fallbackColors;
             const flex   = archetypeData.flexTraits || [];
+            const TRAIT_KEYS = ['extraversion','agreeableness','conscientiousness','neuroticism','openness'];
             return (
-              <>
-                {/* Responsive grid — 2 cols on desktop, 1 col on mobile */}
-                <div style={{
-                  display:'grid',
-                  gridTemplateColumns:'repeat(auto-fit, minmax(280px, 1fr))',
-                  gap:'1.5rem',
-                  alignItems:'start',
-                }}>
-                  {/* LEFT: radar chart + trait bars */}
-                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
-                    <RadarChart scores={result.scores}/>
-                    <div style={{ width:'100%' }}>
-                      {TRAIT_KEYS.map(k => {
-                        const score = Number(result.scores[k]) || 0;
-                        const lv    = getLevel(score);
-                        const pct   = Math.round((score / 15) * 100);
-                        return (
-                          <div key={k} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'3px 0', borderBottom:'1px solid var(--border, #e5e7eb)', fontSize:'12px' }}>
-                            <span style={{ width:'120px', color:'var(--text-secondary)', textTransform:'capitalize', flexShrink:0 }}>{k}</span>
-                            <div style={{ flex:1, height:'6px', background:'var(--border, #e5e7eb)', borderRadius:'3px', overflow:'hidden' }}>
-                              <div style={{ width:`${pct}%`, height:'100%', background:lv.color, borderRadius:'3px' }}/>
-                            </div>
-                            <span style={{ width:'56px', textAlign:'right', fontWeight:600, color:lv.color, flexShrink:0 }}>{lv.label}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start' }}>
 
-                  {/* RIGHT: archetype */}
-                  {arch && (
-                    <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
-                      <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'11px', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px', padding:'3px 10px', borderRadius:'20px', alignSelf:'flex-start' }}>
-                        {arch.group}
-                      </span>
-                      <div style={{ fontSize:'18px', fontWeight:600, color:'var(--text-primary)', lineHeight:1.2 }}>
-                        {arch.name}
+                {/* LEFT: inline radar chart ONLY + single bar-style trait table */}
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
+                  <RadarChart scores={result.scores}/>
+                  <div style={{ width:'90%' }}>
+                    {TRAIT_KEYS.map(k => {
+                      const score = Number(result.scores[k]) || 0;
+                      const lv    = getLevel(score);
+                      const pct   = Math.round((score / 15) * 100);
+                      return (
+                        <div key={k} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'3px 0', borderBottom:'1px solid var(--border, #e5e7eb)', fontSize:'12px' }}>
+                          <span style={{ width:'120px', color:'var(--text-secondary)', textTransform:'capitalize', flexShrink:0 }}>{k}</span>
+                          <div style={{ flex:1, height:'6px', background:'var(--border, #e5e7eb)', borderRadius:'3px', overflow:'hidden' }}>
+                            <div style={{ width:`${pct}%`, height:'100%', background:lv.color, borderRadius:'3px' }}/>
+                          </div>
+                          <span style={{ width:'56px', textAlign:'right', fontWeight:600, color:lv.color, flexShrink:0 }}>{lv.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* RIGHT: archetype */}
+                {arch && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
+                    <span style={{ display:'inline-block', background:colors.badge, color:'#fff', fontSize:'11px', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px', padding:'3px 10px', borderRadius:'20px', alignSelf:'flex-start' }}>
+                      {arch.group}
+                    </span>
+                    <div style={{ fontSize:'18px', fontWeight:600, color:'var(--text-primary)', lineHeight:1.2 }}>
+                      {arch.name}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>
+                        {t('careerFitBestCareers', language)}
                       </div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'5px' }}>
+                        {arch.careers.map((c, i) => (
+                          <div key={i} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'13px' }}>
+                            <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:600, flexShrink:0 }}>{i+1}</span>
+                            <span style={{ color:'var(--text-primary)' }}>{c}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {flex.length > 0 && (
                       <div>
                         <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>
-                          {t('careerFitBestCareers', language)}
+                          {t('careerFitFlexPotential', language)}
                         </div>
-                        <div style={{ display:'flex', flexDirection:'column', gap:'5px' }}>
-                          {arch.careers.map((c, i) => (
-                            <div key={i} style={{ display:'flex', alignItems:'center', gap:'7px', fontSize:'13px' }}>
-                              <span style={{ width:'18px', height:'18px', borderRadius:'50%', background:colors.badge, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:600, flexShrink:0 }}>{i+1}</span>
-                              <span style={{ color:'var(--text-primary)' }}>{c}</span>
+                        <div style={{ fontSize:'13px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'8px' }}>
+                          {t('careerFitFlexDesc', language)}
+                        </div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
+                          {flex.map((f, i) => (
+                            <div key={i} style={{ display:'flex', alignItems:'center', gap:'8px', fontSize:'13px', color:'var(--text-secondary)' }}>
+                              <span style={{ width:'7px', height:'7px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
+                              {f.trait} ({f.score})
                             </div>
                           ))}
                         </div>
                       </div>
-                      {flex.length > 0 && (
-                        <div>
-                          <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>
-                            {t('careerFitFlexPotential', language)}
-                          </div>
-                          <div style={{ fontSize:'13px', color:'var(--text-secondary)', lineHeight:1.5, marginBottom:'8px' }}>
-                            {t('careerFitFlexDesc', language)}
-                          </div>
-                          <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
-                            {flex.map((f, i) => (
-                              <div key={i} style={{ display:'flex', alignItems:'center', gap:'8px', fontSize:'13px', color:'var(--text-secondary)' }}>
-                                <span style={{ width:'7px', height:'7px', borderRadius:'50%', background:'#EAA83C', flexShrink:0 }}/>
-                                {f.trait} ({f.score})
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Narrative — full width below both columns */}
-                {result.narrative && (
-                  <p style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)', fontSize:'0.9rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
-                    {result.narrative}
-                  </p>
+                    )}
+                  </div>
                 )}
-              </>
+              </div>
             );
           })()}
+
+          {/* Narrative full width below — shown once stored in DB */}
+          {result.narrative && (
+            <p style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)', fontSize:'0.9rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
+              {result.narrative}
+            </p>
+          )}
         </div>
       ) : (
         <div style={{
