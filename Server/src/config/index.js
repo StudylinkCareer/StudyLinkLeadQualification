@@ -1,17 +1,16 @@
 require('dotenv').config();
-
 const nodeEnv = process.env.NODE_ENV || 'development';
-
 const sessionSecret = process.env.SESSION_SECRET || 'studylink-dev-secret-change-in-production';
 if (nodeEnv === 'production' && sessionSecret === 'studylink-dev-secret-change-in-production') {
   console.error('[FATAL] SESSION_SECRET must be set in production. Exiting.');
   process.exit(1);
 }
-
 module.exports = {
   port: process.env.PORT,
   nodeEnv,
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  corsOrigin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+    : ['http://localhost:3000'],
   session: {
     secret: sessionSecret,
     maxAge: parseInt(process.env.SESSION_MAX_AGE || '86400000', 10),
@@ -25,8 +24,7 @@ module.exports = {
   drive: {
     rootFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
   },
-
-    gas: {
+  gas: {
     sendOtpUrl: process.env.GAS_SEND_OTP_URL || '',
     sheetsUrl:  process.env.GAS_SHEETS_URL    || '',
   },
