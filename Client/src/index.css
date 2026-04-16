@@ -515,6 +515,18 @@ body {
   color: var(--text-secondary);
 }
 
+@media (max-width: 640px) {
+  .assessment-banner--result {
+    flex-direction: column;
+    text-align: center;
+    padding: 1.25rem 1rem;
+  }
+
+  .assessment-banner-stone-img {
+    width: 90px;
+    height: 90px;
+  }
+}
 
 /* OTP Input */
 .otp-input-container {

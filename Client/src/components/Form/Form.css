@@ -297,28 +297,26 @@
 }
 
 @media (max-width: 640px) {
+
+/* Mobile: keep all 5 tiers in a single row */
+@media (max-width: 640px) {
   .tier-options {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.25rem;
+  }
+
+  .tier-option {
+    padding: 0.35rem 0.1rem;
+    min-height: 50px;
+  }
+
+  .tier-option-label {
+    font-size: 0.6rem;
   }
 }
 
-@media (max-width: 400px) {
-  .tier-options {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
 
-@media (max-width: 375px) {
-  .tier-options {
-    flex-wrap: wrap;
-  }
-  .tier-btn {
-    flex: 1 1 calc(33.333% - 0.5rem);
-    min-width: 0;
-    font-size: 0.75rem;
-    padding: 0.375rem 0.25rem;
-  }
-}
+
 
 /* Phone Input */
 .phone-input-row {
