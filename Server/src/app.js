@@ -12,6 +12,7 @@ const documentRoutes = require('./routes/documents');
 const qrRoutes = require('./routes/qr');
 const errorHandler = require('./middleware/errorHandler');
 const staffRoutes = require('./routes/staff');
+const notesRoutes = require('./routes/notes');
 
 const app = express();
 
@@ -66,6 +67,7 @@ app.use('/api/students', studentRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/qr', qrRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/notes', notesRoutes);  // ← add here
 
 // Error handling
 app.use(errorHandler);
