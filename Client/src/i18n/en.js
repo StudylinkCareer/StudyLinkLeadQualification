@@ -8,7 +8,6 @@ const en = {
   // ── Language selector ──
   languageLabel: 'Language',
 
-  // ── Login page (Home.jsx) ──
   appTitle: 'StudyLink',
   appSubtitle: 'Your going aboard index',
   homePrizeTitle: 'Lucky draw for Vinfast motorbike',
@@ -37,7 +36,6 @@ const en = {
   skip: 'Skip',
   loading: 'Loading...',
 
-  // ── Duplicate detection modal ──
   inactiveTitle: 'Account Deactivated',
   inactiveMessage: 'Your email or phone matches a deactivated account. Would you like to create a new record instead?',
   createNewRecord: 'Create New Record',
@@ -51,7 +49,6 @@ const en = {
   statusActive: 'Active',
   statusInactive: 'Inactive',
 
-  // ── OTP Verification ──
   verifyEmail: 'Verify Email',
   otpPrompt: 'Enter the 6-digit code sent to',
   otpPlaceholder: '000000',
@@ -66,7 +63,6 @@ const en = {
   verificationFailed: 'Verification failed',
   attemptsRemaining: 'attempts remaining',
 
-  // ── Dashboard toolbar ──
   close: 'Close',
   back: 'Back',
   cancel: 'Cancel',
@@ -79,7 +75,6 @@ const en = {
   loadFailed: 'Failed to load student data',
   retry: 'Retry',
 
-  // ── Tab names (Dashboard) ──
   tabPersonal: 'Personal Details',
   tabPersonalShort: 'Personal',
   tabStudy: 'Study Information',
@@ -96,7 +91,6 @@ const en = {
   tabDocumentsShort: 'Documents',
   tabComplete: 'Complete:',
 
-  // ── Personal Details Tab ──
   personalDetailsTitle: 'Personal Details',
   fullName: 'Name',
   fullNamePlaceholder: 'Enter name',
@@ -124,21 +118,18 @@ const en = {
   facebookProfilePlaceholder: 'Facebook profile URL',
   studyPlansLabel: 'Dream',
 
-  // ── Event / Campaign Information (read-only, populated from QR URL) ──
-  campaignSection:  'Event Information',
-  campaignType:     'Campaign Type',
-  campaignName:     'Event Name',
-  campaignStart:    'Event Start Date',
-  campaignEnd:      'Event End Date',
+  campaignSection: 'Event Information',
+  campaignType:    'Campaign Type',
+  campaignName:    'Event Name',
+  campaignStart:   'Event Start Date',
+  campaignEnd:     'Event End Date',
 
-  // ── Student Info Tab ──
   studyInfoTitle: 'Study Information',
   destinationCountry: 'Destination Country',
   timeline: 'Timeline',
   processApplication: 'Process Application',
   residencyProvince: 'Residency (Province/City)',
 
-  // ── Self Assessment Tab ──
   selfAssessmentTitle: 'Read your score',
   liveScorePreview: 'Opportunity Preview:',
   calculating: 'Calculating...',
@@ -147,7 +138,6 @@ const en = {
   assessmentBannerPrompt: 'Complete the questionnaire for your index calculation',
   assessmentBannerResult: 'Studying abroad worldwide at top schools',
 
-  // Self Assessment field labels
   budget: 'Budget',
   budgetDesc: 'Annual available budget for studying abroad',
   scholarshipDemand: 'Scholarship Demand',
@@ -167,7 +157,6 @@ const en = {
   ultimateObjective: 'Ultimate Objective',
   ultimateObjectiveDesc: 'Primary goal for studying abroad',
 
-  // Self Assessment tier labels
   'budget_tier_< 300M VND': '< 300M VND',
   'budget_tier_300-500M VND': '300-500M VND',
   'budget_tier_500-800M VND': '500-800M VND',
@@ -226,7 +215,6 @@ const en = {
   careerFitFlexDesc: 'With development these traits could unlock additional archetypes:',
   careerFitScaleLabels: ['Strongly Disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly Agree'],
 
-  // OCEAN assessment questions
   ocean_q1:  'I am the life of the party and enjoy being the center of attention.',
   ocean_q2:  "I sympathize with others' feelings and feel for those less fortunate.",
   ocean_q3:  'I am always prepared and keep my belongings organized.',
@@ -243,7 +231,6 @@ const en = {
   ocean_q14: 'I get upset easily and often feel blue or anxious.',
   ocean_q15: 'I enjoy hearing new ideas and looking at art or nature.',
 
-  // ── Family & Contacts Tab ──
   familyContactSection: 'Family Contact',
   parentType: 'Parent',
   parentMother: 'Mother',
@@ -265,7 +252,6 @@ const en = {
   withdraw: 'Withdraw',
   enterNow: 'Enter Now',
 
-  // ── Staff Follow-up Tab ──
   counselorFeedbackTitle: 'Staff Follow-up',
   marketingSection: 'Marketing',
   leadSource: 'Lead Source',
@@ -277,7 +263,6 @@ const en = {
   caseOfficerLabel: 'Case Officer',
   managementLabel: 'Marketing',
 
-  // ── Documents Tab ──
   documentsTitle: 'Documents',
   documentsDescription: 'A list of all existing documents are retrieved and listed. User can click on the Document ID Hyperlink to display it in a separate window.',
   viewInDrive: 'View all files in Google Drive',
@@ -299,59 +284,29 @@ const en = {
   descRequired: 'Description is required',
   fileTooLarge: 'File exceeds 10 MB size limit',
 
-  // ── SelectInput ──
   selectDefault: 'Select...',
   prevBtn: 'Previous',
   nextBtn: 'Next',
   contactDetailRequired: 'Enter contact detail',
 
-  // ── Form field options — translated arrays ──
-  // NOTE: order must match STUDY_PLANS / TIMELINES / etc. in formFields.js
   studyPlanOptions: ['Do not study', 'Study in Vietnam', 'Study Abroad'],
-  leadSourceOptions: [
-    'Databases',
-    'FB-Zalo-GG-TikTok ads',
-    'School outreach',
-    'Subagent referrals',
-    'Ex-client',
-  ],
-  interactionOptions: [
-    'Only left contact',
-    'Queries',
-    'Fill lead form partly',
-    'Fill lead form fully',
-    'Call in-Walk in',
-  ],
-  timelineOptions: [
-    'Next 6 months',
-    '6-12 months',
-    '12-24 months',
-    '24-36 months',
-    '36+ months',
-  ],
-  processApplicationOptions: [
-    "I'll do it myself",
-    'I have an agent',
-    'Talking to agents',
-    'Relatives in Vietnam will help',
-    'Relatives overseas will help',
-  ],
+  leadSourceOptions: ['Databases', 'FB-Zalo-GG-TikTok ads', 'School outreach', 'Subagent referrals', 'Ex-client'],
+  interactionOptions: ['Only left contact', 'Queries', 'Fill lead form partly', 'Fill lead form fully', 'Call in-Walk in'],
+  timelineOptions: ['Next 6 months', '6-12 months', '12-24 months', '24-36 months', '36+ months'],
+  processApplicationOptions: ["I'll do it myself", 'I have an agent', 'Talking to agents', 'Relatives in Vietnam will help', 'Relatives overseas will help'],
 
-  // ── Stone tier packages ──
   'package_Standard': 'Standard',
   'package_Silver/Economy': 'Silver/Economy',
   'package_Gold/Premium': 'Gold/Premium',
   'package_Platinum/Business': 'Platinum/Business',
   'package_Diamond/First Class': 'Diamond/First Class',
 
-  // ── Stone subtitles ──
   stoneSubtitle_Quartz:   'Congratulations! Quartz represents a high index of pure energy and balance. StudyLink will support you with International Programs locally with Scholarships—a smart decision to enjoy a world-class education while staying close to your family. Contact StudyLink NOW!',
   stoneSubtitle_Agate:    'Congratulations! Agate brings protection and enduring stability. A journey to Asian and European cultures will help you broaden your mindset and develop excellent adaptability. StudyLink will be your Companion on this abroad journey, contact us RIGHT NOW!',
   stoneSubtitle_Sapphire: 'Congratulations! The blue hue of Sapphire is a symbol of virtue and wisdom. You possess a practical vision, and Europe or Australasia is the perfect environment for you to maximize your potential. StudyLink will be your Companion on this abroad journey, contact us NOW!',
   stoneSubtitle_Ruby:     'Congratulations! Ruby represents power and confidence, forecasting a brilliant journey at leading educational powerhouses across 5 continents. You are ready to conquer great and beautiful challenges. StudyLink will be your Companion on this study abroad journey, contact us NOW!',
   stoneSubtitle_Diamond:  'Congratulations! Diamond is the apex of perseverance and brilliance. You can aim at the global top institutions, places reserved for the most excellent individuals. StudyLink will be your Companion on this study abroad journey, contact us NOW!',
 
-  // ── Score breakdown table headers ──
   scoreBreakdown: 'Score Breakdown',
   colField: 'Field',
   colValue: 'Value',
@@ -359,7 +314,6 @@ const en = {
   colScore: 'Score',
   colTotal: 'Total',
 
-  // ── Stone names (translated) ──
   stone_Quartz:   'Quartz',
   stone_Agate:    'Agate',
   stone_Sapphire: 'Sapphire',

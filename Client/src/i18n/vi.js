@@ -5,10 +5,8 @@
 //   - Added campaignSection, campaignType, campaignName, campaignStart, campaignEnd
 
 const vi = {
-  // ── Language selector ──
   languageLabel: 'Ngôn ngữ',
 
-  // ── Login page (Home.jsx) ──
   appTitle: 'StudyLink',
   appSubtitle: 'Xem chỉ số xuất ngoại',
   homePrizeTitle: 'Dự thưởng xe máy điện Vinfast',
@@ -37,7 +35,6 @@ const vi = {
   skip: 'Bỏ qua',
   loading: 'Đang tải...',
 
-  // ── Duplicate detection modal ──
   inactiveTitle: 'Tài khoản đã vô hiệu hóa',
   inactiveMessage: 'Email hoặc số điện thoại của bạn khớp với một tài khoản đã bị vô hiệu hóa. Bạn có muốn tạo hồ sơ mới không?',
   createNewRecord: 'Tạo hồ sơ mới',
@@ -51,7 +48,6 @@ const vi = {
   statusActive: 'Hoạt động',
   statusInactive: 'Vô hiệu hóa',
 
-  // ── OTP Verification ──
   verifyEmail: 'Xác minh Email',
   otpPrompt: 'Nhập mã 6 chữ số đã gửi đến',
   otpPlaceholder: '000000',
@@ -66,7 +62,6 @@ const vi = {
   verificationFailed: 'Xác minh thất bại',
   attemptsRemaining: 'lần thử còn lại',
 
-  // ── Dashboard toolbar ──
   close: 'Đóng',
   back: 'Quay lại',
   cancel: 'Hủy',
@@ -79,7 +74,6 @@ const vi = {
   loadFailed: 'Tải dữ liệu học sinh thất bại',
   retry: 'Thử lại',
 
-  // ── Tab names (Dashboard) ──
   tabPersonal: 'Thông tin cá nhân',
   tabPersonalShort: 'Cá nhân',
   tabStudy: 'Thông tin học tập',
@@ -96,7 +90,6 @@ const vi = {
   tabDocumentsShort: 'Tài liệu',
   tabComplete: 'Hoàn thành:',
 
-  // ── Personal Details Tab ──
   personalDetailsTitle: 'Thông Tin Cá Nhân',
   fullName: 'Họ và tên',
   fullNamePlaceholder: 'Nhập họ và tên',
@@ -122,21 +115,18 @@ const vi = {
   facebookProfilePlaceholder: 'URL hồ sơ Facebook',
   studyPlansLabel: 'Ước mơ',
 
-  // ── Event / Campaign Information (read-only, populated from QR URL) ──
   campaignSection: 'Thông tin sự kiện',
   campaignType:    'Loại chiến dịch',
   campaignName:    'Tên sự kiện',
   campaignStart:   'Ngày bắt đầu',
   campaignEnd:     'Ngày kết thúc',
 
-  // ── Student Info Tab ──
   studyInfoTitle: 'Thông Tin Học Tập',
   destinationCountry: 'Quốc gia yêu thích',
   timeline: 'Thời gian dự kiến',
   processApplication: 'Xử lý hồ sơ',
   residencyProvince: 'Nơi cư trú (Tỉnh/TP)',
 
-  // ── Self Assessment Tab ──
   selfAssessmentTitle: 'Xem chỉ số',
   liveScorePreview: 'Xem trước điểm:',
   calculating: 'Đang tính...',
@@ -145,7 +135,6 @@ const vi = {
   assessmentBannerPrompt: 'Hoàn thành bảng câu hỏi để tính chỉ số',
   assessmentBannerResult: 'Du học tại các trường hàng đầu thế giới',
 
-  // Self Assessment field labels
   budget: 'Ngân sách',
   budgetDesc: 'Ngân sách du học cho mỗi năm',
   scholarshipDemand: 'Nhu cầu Học bổng',
@@ -165,7 +154,6 @@ const vi = {
   ultimateObjective: 'Mục tiêu cuối',
   ultimateObjectiveDesc: 'Mục tiêu chính của việc du học',
 
-  // Self Assessment tier labels
   'budget_tier_< 300M VND': '< 300 triệu',
   'budget_tier_300-500M VND': '300-500 triệu',
   'budget_tier_500-800M VND': '500-800 triệu',
@@ -224,7 +212,6 @@ const vi = {
   careerFitFlexDesc: 'Khi phát triển, các đặc điểm này có thể mở ra các hình mẫu bổ sung:',
   careerFitScaleLabels: ['Hoàn toàn không đồng ý', 'Không đồng ý', 'Trung lập', 'Đồng ý', 'Hoàn toàn đồng ý'],
 
-  // OCEAN assessment questions (Vietnamese)
   ocean_q1:  'Tôi là người khuấy động bầu không khí trong các bữa tiệc và thích trở thành trung tâm của sự chú ý.',
   ocean_q2:  'Tôi đồng cảm với cảm xúc của người khác và thương cảm cho những người kém may mắn.',
   ocean_q3:  'Tôi luôn chuẩn bị sẵn sàng và giữ đồ đạc của mình ngăn nắp.',
@@ -241,7 +228,6 @@ const vi = {
   ocean_q14: 'Tôi dễ buồn bực và thường cảm thấy u sầu hoặc lo lắng.',
   ocean_q15: 'Tôi thích nghe những ý tưởng mới và ngắm nhìn nghệ thuật hoặc thiên nhiên.',
 
-  // ── Family & Contacts Tab ──
   familyContactSection: 'Liên hệ gia đình',
   parentType: 'Phụ huynh',
   parentMother: 'Mẹ',
@@ -263,7 +249,6 @@ const vi = {
   withdraw: 'Rút lui',
   enterNow: 'Tham gia ngay',
 
-  // ── Staff Follow-up Tab ──
   counselorFeedbackTitle: 'Nhân viên theo dõi',
   marketingSection: 'Marketing',
   leadSource: 'Nguồn khách hàng',
@@ -275,7 +260,6 @@ const vi = {
   caseOfficerLabel: 'Nhân viên xử lý hồ sơ',
   managementLabel: 'Nhân viên Tiếp thị',
 
-  // ── Documents Tab ──
   documentsTitle: 'Tài Liệu',
   documentsDescription: 'Danh sách tất cả tài liệu đã được tải lên. Bấm vào mã tài liệu để xem trong cửa sổ mới.',
   viewInDrive: 'Xem tất cả tệp trong Google Drive',
@@ -297,59 +281,29 @@ const vi = {
   descRequired: 'Vui lòng nhập mô tả',
   fileTooLarge: 'Tệp vượt quá 10 MB',
 
-  // ── SelectInput ──
   selectDefault: 'Chọn',
   prevBtn: 'Quay lại',
   nextBtn: 'Tiếp tục',
   contactDetailRequired: 'Nhập thông tin liên hệ',
 
-  // ── Form field options — translated arrays ──
-  // NOTE: order must match STUDY_PLANS / TIMELINES / etc. in formFields.js
   studyPlanOptions: ['Không đi học', 'Học trong nước', 'Du học dài hạn'],
-  leadSourceOptions: [
-    'Cơ sở dữ liệu',
-    'Quảng cáo FB-Zalo-GG-TikTok',
-    'Tiếp cận trường học',
-    'Đại lý giới thiệu',
-    'Khách hàng cũ',
-  ],
-  interactionOptions: [
-    'Chỉ để lại liên hệ',
-    'Có hỏi thăm',
-    'Điền form một phần',
-    'Điền form đầy đủ',
-    'Gọi điện - Đến trực tiếp',
-  ],
-  timelineOptions: [
-    '6 tháng tới',
-    '6-12 tháng',
-    '12-24 tháng',
-    '24-36 tháng',
-    'Hơn 36 tháng',
-  ],
-  processApplicationOptions: [
-    'Tự làm',
-    'Đã có đại lý',
-    'Đang tìm đại lý',
-    'Người thân ở VN giúp',
-    'Người thân ở nước ngoài giúp',
-  ],
+  leadSourceOptions: ['Cơ sở dữ liệu', 'Quảng cáo FB-Zalo-GG-TikTok', 'Tiếp cận trường học', 'Đại lý giới thiệu', 'Khách hàng cũ'],
+  interactionOptions: ['Chỉ để lại liên hệ', 'Có hỏi thăm', 'Điền form một phần', 'Điền form đầy đủ', 'Gọi điện - Đến trực tiếp'],
+  timelineOptions: ['6 tháng tới', '6-12 tháng', '12-24 tháng', '24-36 tháng', 'Hơn 36 tháng'],
+  processApplicationOptions: ['Tự làm', 'Đã có đại lý', 'Đang tìm đại lý', 'Người thân ở VN giúp', 'Người thân ở nước ngoài giúp'],
 
-  // ── Stone tier packages ──
   'package_Standard': 'Tiêu chuẩn',
   'package_Silver/Economy': 'Bạc / Tiết kiệm',
   'package_Gold/Premium': 'Vàng / Cao cấp',
   'package_Platinum/Business': 'Bạch kim / Doanh nhân',
   'package_Diamond/First Class': 'Kim cương / Hạng nhất',
 
-  // ── Stone subtitles ──
   stoneSubtitle_Quartz:   'Chúc mừng Bạn! Viên Thạch Anh đại diện cho chỉ số năng lượng thanh khiết và sự cân bằng. StudyLink sẽ hỗ trợ bạn Du Học Tại Chỗ và Học Bổng, quyết định thông minh để tận hưởng giáo dục chuẩn quốc tế mà vẫn được gần gũi gia đình. Hãy liên hệ StudyLink NGAY!',
   stoneSubtitle_Agate:    'Chúc mừng Bạn! Viên Mã Não mang lại sự bảo hộ và ổn định bền vững. Hành trình đến với các nền văn hóa Á - Âu sẽ giúp bạn mở rộng tư duy và khả năng thích nghi tuyệt vời. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, hãy liên hệ NGAY với chúng tôi!',
   stoneSubtitle_Sapphire: 'Chúc mừng Bạn! Sắc xanh của viên Ngọc Bích là biểu tượng của tâm lành và trí tuệ. Bạn có tầm nhìn thực tế, Châu Âu hoặc Châu Úc là môi trường phù hợp để bạn phát huy tối đa năng lực bản thân. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, hãy liên hệ NGAY!',
   stoneSubtitle_Ruby:     'Chúc mừng Bạn! Viên Hồng Ngọc đại diện cho quyền lực và sự tự tin, dự báo một hành trình rực rỡ tại các cường quốc giáo dục khắp 5 Châu. Bạn đã sẵn sàng để chinh phục những thử thách lớn lao và đẹp đẽ. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, hãy liên hệ NGAY!',
   stoneSubtitle_Diamond:  'Chúc mừng Bạn! Viên Kim Cương là đỉnh cao của sự kiên định và rực rỡ. Đừng ngần ngại chinh phục những ngôi trường Top toàn cầu, nơi dành cho những người xuất sắc nhất. StudyLink sẽ Đồng Hành cùng bạn trên hành trình xuất ngoại, hãy liên hệ NGAY!',
 
-  // ── Score breakdown table headers ──
   scoreBreakdown: 'Chi tiết điểm số',
   colField: 'Tiêu chí',
   colValue: 'Giá trị',
@@ -357,7 +311,6 @@ const vi = {
   colScore: 'Điểm',
   colTotal: 'Tổng',
 
-  // ── Stone names (translated) ──
   stone_Quartz:   'Thạch Anh',
   stone_Agate:    'Mã Não',
   stone_Sapphire: 'Ngọc Bích',
