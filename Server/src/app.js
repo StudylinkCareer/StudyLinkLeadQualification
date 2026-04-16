@@ -9,11 +9,10 @@ const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
 const studentRoutes = require('./routes/students');
 const documentRoutes = require('./routes/documents');
-const staffRoutes = require('./routes/staff');
-const noteRoutes  = require('./routes/notes');
+const qrRoutes = require('./routes/qr');
 const errorHandler = require('./middleware/errorHandler');
-const app = express();
 
+const app = express();
 
 // Redis session store
 let sessionStore;
@@ -64,8 +63,7 @@ app.use('/api', apiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/documents', documentRoutes);
-app.use('/api/staff', staffRoutes);
-app.use('/api/notes', noteRoutes);
+app.use('/api/qr', qrRoutes);
 
 // Error handling
 app.use(errorHandler);
