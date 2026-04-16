@@ -45,7 +45,7 @@ if (config.nodeEnv === 'production') {
   app.set('trust proxy', 1);
 }
 
-// Session
+// Session.
 app.use(session({
   store: sessionStore,
   secret: config.session.secret,
