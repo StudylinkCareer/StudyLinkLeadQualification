@@ -1,5 +1,5 @@
 // client/src/services/api.js
-// CHANGES: Added authAPI.checkLogin(), studentAPI.deactivateRecords()
+// CHANGES: Added authAPI.checkLogin(), studentAPI.deactivateRecords(), studentAPI.calculateOcean with language
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -38,7 +38,7 @@ const api = {
 };
 
 export const authAPI = {
-  checkLogin: (email, phone) => api.post('/auth/check-login', { email, phone }),  // ← NEW
+  checkLogin: (email, phone) => api.post('/auth/check-login', { email, phone }),
   requestOTP: (email) => api.post('/auth/request-otp', { email }),
   verifyOTP: (email, code) => api.post('/auth/verify-otp', { email, code }),
   checkSession: () => api.get('/auth/session'),
@@ -57,10 +57,10 @@ export const studentAPI = {
     if (phone) params.set('phone', phone);
     return api.get(`/students/check-duplicate?${params}`);
   },
-  deactivateRecords: (uniqueIds) => api.post('/students/deactivate', { uniqueIds }),  // ← NEW
+  deactivateRecords: (uniqueIds) => api.post('/students/deactivate', { uniqueIds }),
   search: (query) => api.get(`/students/search?q=${encodeURIComponent(query || '')}`),
   calculateRisk: (id) => api.post(`/students/${encodeURIComponent(id)}/calculate-risk`),
-  calculateOcean: (id) => api.post(`/students/${encodeURIComponent(id)}/calculate-ocean`),
+  calculateOcean: (id, language = 'en') => api.post(`/students/${encodeURIComponent(id)}/calculate-ocean?language=${language}`),
   uploadPhotos: (id, photos) => api.post(`/students/${encodeURIComponent(id)}/upload-photos`, photos),
 };
 

@@ -1,7 +1,7 @@
 // client/src/components/Tabs/CareerFitTab.jsx
 // CHANGES:
-//   - Full bilingual support (EN/VI) via t() and language-aware getArchetype()
-//   - Questions, scale labels, UI strings all translatable
+//   - Radar chart labels now bilingual via language prop
+//   - calculateOcean API call now passes language for bilingual narrative
 //   - Responsive result layout: 2 columns on desktop, 1 column on mobile
 
 import { useState } from 'react';
@@ -15,6 +15,15 @@ const QUESTION_KEYS = [
   'ocean_q6',  'ocean_q7',  'ocean_q8',  'ocean_q9',  'ocean_q10',
   'ocean_q11', 'ocean_q12', 'ocean_q13', 'ocean_q14', 'ocean_q15',
 ];
+
+// Trait labels per language — order matches radar angles
+const TRAIT_LABELS = {
+  en: ['Extraversion', 'Agreeableness', 'Conscientiousness', 'Neuroticism', 'Openness'],
+  vi: ['Hướng ngoại',  'Dễ chịu',       'Tận tâm',           'Nhạy cảm',   'Cởi mở'],
+};
+
+// Trait keys matching the same order
+const TRAIT_KEYS = ['extraversion', 'agreeableness', 'conscientiousness', 'neuroticism', 'openness'];
 
 function LikertScale({ questionId, value, onChange, labels }) {
   return (
@@ -43,16 +52,11 @@ function LikertScale({ questionId, value, onChange, labels }) {
   );
 }
 
-// ── Inline radar chart ────────────────────────────────────────
-function RadarChart({ scores }) {
+function RadarChart({ scores, language }) {
   const cx = 105, cy = 100, r = 75;
-  const traits = [
-    { key:'extraversion',      label:'Extraversion' },
-    { key:'agreeableness',     label:'Agreeableness' },
-    { key:'conscientiousness', label:'Conscientiousness' },
-    { key:'neuroticism',       label:'Neuroticism' },
-    { key:'openness',          label:'Openness' },
-  ];
+  const labels = TRAIT_LABELS[language] || TRAIT_LABELS.en;
+
+  const traits = TRAIT_KEYS.map((key, i) => ({ key, label: labels[i] }));
   const angles = traits.map((_, i) => (Math.PI * 2 * i) / 5 - Math.PI / 2);
 
   function pt(angle, radius) {
@@ -60,8 +64,8 @@ function RadarChart({ scores }) {
   }
 
   const gridRings = [0.33, 0.67, 1.0];
-  const scorePoints = traits.map((t, i) => {
-    const val = Math.max(0, Math.min(15, Number(scores[t.key]) || 0));
+  const scorePoints = traits.map((tr, i) => {
+    const val = Math.max(0, Math.min(15, Number(scores[tr.key]) || 0));
     return pt(angles[i], (val / 15) * r);
   });
 
@@ -92,14 +96,14 @@ function RadarChart({ scores }) {
       {scorePoints.map(([x, y], i) => (
         <circle key={i} cx={x} cy={y} r="3" fill="#EAA83C"/>
       ))}
-      {traits.map((t, i) => {
+      {traits.map((tr, i) => {
         const [bx, by] = pt(angles[i], r + 14);
         const { dx, dy } = labelOffsets[i];
         return (
           <text key={i} x={bx + dx} y={by + dy}
             textAnchor={anchors[i]} fontSize="10.5"
             fill="var(--text-secondary, #6b7280)">
-            {t.label}
+            {tr.label}
           </text>
         );
       })}
@@ -115,7 +119,6 @@ function getLevel(score) {
 
 export default function CareerFitTab({ formData, updateField, saveAll, onStudentUpdated }) {
   const { language } = useLanguage();
-
   const scaleLabels = t('careerFitScaleLabels', language);
 
   const [responses, setResponses] = useState(() => {
@@ -165,7 +168,8 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
       }
       await studentAPI.update(formData.uniqueId, questionData);
 
-      const res = await studentAPI.calculateOcean(formData.uniqueId);
+      // Pass language so server generates narrative in the right language
+      const res = await studentAPI.calculateOcean(formData.uniqueId, language);
       const scores    = res.data.scores;
       const narrative = res.data.narrative || '';
 
@@ -192,8 +196,7 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
   }
 
   const fallbackColors = { bg:'#F0F4FF', border:'#C7D2FE', badge:'#4F46E5', text:'#3730A3' };
-
-  const TRAIT_KEYS = ['extraversion','agreeableness','conscientiousness','neuroticism','openness'];
+  const traitLabels = TRAIT_LABELS[language] || TRAIT_LABELS.en;
 
   return (
     <div className="tab-content">
@@ -216,24 +219,23 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
             const flex   = archetypeData.flexTraits || [];
             return (
               <>
-                {/* Responsive grid — 2 cols on desktop, 1 col on mobile */}
                 <div style={{
                   display:'grid',
                   gridTemplateColumns:'repeat(auto-fit, minmax(280px, 1fr))',
                   gap:'1.5rem',
                   alignItems:'start',
                 }}>
-                  {/* LEFT: radar chart + trait bars */}
+                  {/* LEFT: radar + trait bars */}
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
-                    <RadarChart scores={result.scores}/>
+                    <RadarChart scores={result.scores} language={language}/>
                     <div style={{ width:'100%' }}>
-                      {TRAIT_KEYS.map(k => {
+                      {TRAIT_KEYS.map((k, i) => {
                         const score = Number(result.scores[k]) || 0;
                         const lv    = getLevel(score);
                         const pct   = Math.round((score / 15) * 100);
                         return (
                           <div key={k} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'3px 0', borderBottom:'1px solid var(--border, #e5e7eb)', fontSize:'12px' }}>
-                            <span style={{ width:'120px', color:'var(--text-secondary)', textTransform:'capitalize', flexShrink:0 }}>{k}</span>
+                            <span style={{ width:'120px', color:'var(--text-secondary)', flexShrink:0 }}>{traitLabels[i]}</span>
                             <div style={{ flex:1, height:'6px', background:'var(--border, #e5e7eb)', borderRadius:'3px', overflow:'hidden' }}>
                               <div style={{ width:`${pct}%`, height:'100%', background:lv.color, borderRadius:'3px' }}/>
                             </div>
@@ -288,7 +290,7 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
                   )}
                 </div>
 
-                {/* Narrative — full width below both columns */}
+                {/* Narrative — full width below */}
                 {result.narrative && (
                   <p style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)', fontSize:'0.9rem', lineHeight:1.6, color:'var(--text-secondary)' }}>
                     {result.narrative}
