@@ -1,5 +1,6 @@
 // server/src/routes/qr.js
 // Proxy route for QR Code Monkey API — avoids browser CORS restrictions
+// Uses native fetch (Node 18+) — no node-fetch dependency needed
 
 const express = require('express');
 const router  = express.Router();
@@ -9,27 +10,20 @@ router.post('/upload-logo', async (req, res, next) => {
     const { imageBase64, mimeType } = req.body;
     if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
 
-    // Convert base64 to buffer
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const buffer     = Buffer.from(base64Data, 'base64');
     const ext        = (mimeType || 'image/jpeg').split('/')[1] || 'jpg';
+    const boundary   = '----FormBoundary' + Math.random().toString(36).slice(2);
+    const CRLF       = '\r\n';
+    const header     = `--${boundary}${CRLF}Content-Disposition: form-data; name="file"; filename="logo.${ext}"${CRLF}Content-Type: ${mimeType || 'image/jpeg'}${CRLF}${CRLF}`;
+    const footer     = `${CRLF}--${boundary}--${CRLF}`;
+    const body       = Buffer.concat([Buffer.from(header), buffer, Buffer.from(footer)]);
 
-    // Build multipart form manually
-    const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
-    const CRLF     = '\r\n';
-    const header   = `--${boundary}${CRLF}Content-Disposition: form-data; name="file"; filename="logo.${ext}"${CRLF}Content-Type: ${mimeType || 'image/jpeg'}${CRLF}${CRLF}`;
-    const footer   = `${CRLF}--${boundary}--${CRLF}`;
-
-    const headerBuf = Buffer.from(header, 'utf-8');
-    const footerBuf = Buffer.from(footer, 'utf-8');
-    const body      = Buffer.concat([headerBuf, buffer, footerBuf]);
-
-    const fetch = require('node-fetch');
     const upRes = await fetch('https://api.qrcode-monkey.com/qr/uploadImage', {
       method:  'POST',
       headers: {
         'Content-Type':   `multipart/form-data; boundary=${boundary}`,
-        'Content-Length': body.length,
+        'Content-Length': String(body.length),
       },
       body,
     });
@@ -40,7 +34,7 @@ router.post('/upload-logo', async (req, res, next) => {
     }
 
     const json = await upRes.json();
-    res.json(json); // returns { file: "filename.jpg" }
+    res.json(json);
   } catch (err) {
     next(err);
   }
@@ -48,8 +42,7 @@ router.post('/upload-logo', async (req, res, next) => {
 
 router.post('/generate', async (req, res, next) => {
   try {
-    const fetch  = require('node-fetch');
-    const qrRes  = await fetch('https://api.qrcode-monkey.com/qr/custom', {
+    const qrRes = await fetch('https://api.qrcode-monkey.com/qr/custom', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(req.body),
@@ -60,7 +53,7 @@ router.post('/generate', async (req, res, next) => {
       return res.status(502).json({ error: `QR generation failed: ${txt}` });
     }
 
-    const imgBuffer = await qrRes.buffer();
+    const imgBuffer = Buffer.from(await qrRes.arrayBuffer());
     res.set('Content-Type', 'image/png');
     res.send(imgBuffer);
   } catch (err) {
