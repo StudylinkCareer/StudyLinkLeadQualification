@@ -22,7 +22,7 @@ function Home() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneCountryCode, setPhoneCountryCode] = useState('+84');
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('0');
   const [yearOfBirth, setYearOfBirth] = useState('');
   const [placeOfResidence, setPlaceOfResidence] = useState('');
   const [studyPlan, setStudyPlan] = useState('');
@@ -40,13 +40,6 @@ function Home() {
   const [lockoutUntil, setLockoutUntil] = useState(null);
   const [pendingNav, setPendingNav] = useState(null);
   const [duplicateModal, setDuplicateModal] = useState(null);
-
-  // ── Campaign / Event fields — read silently from QR URL params ──
-  // ?ct = campaign type, ?en = event name, ?sd = start date, ?ed = end date
-  const [campaignType]  = useState(() => new URLSearchParams(window.location.search).get('ct')  || '');
-  const [campaignName]  = useState(() => new URLSearchParams(window.location.search).get('en')  || '');
-  const [campaignStart] = useState(() => new URLSearchParams(window.location.search).get('sd')  || '');
-  const [campaignEnd]   = useState(() => new URLSearchParams(window.location.search).get('ed')  || '');
 
   useEffect(() => {
     const stored = localStorage.getItem('studylink_lockout');
@@ -77,11 +70,7 @@ function Home() {
     );
   }
 
-  const getExtraFields = () => ({
-    yearOfBirth, placeOfResidence, studyPlan, schoolEvent,
-    preferredSocial, connectWithYou,
-    campaignType, campaignName, campaignStart, campaignEnd,
-  });
+  const getExtraFields = () => ({ yearOfBirth, placeOfResidence, studyPlan, schoolEvent, preferredSocial, connectWithYou });
 
   const sendOtpAndNavigate = async (mode, extraState = {}) => {
     setLoadingMessage(t('sendingOtp', language));
@@ -217,10 +206,18 @@ function Home() {
 
   return (
     <div className="home-page">
+      <div className="home-card">
 
-      {/* ── Red header banner ── */}
-      <div className="home-header">
-        {/* Headshot circle — top left */}
+        {/* Logo */}
+        <div className="home-logo">
+          <img src="/studylink-logo.png" alt="StudyLink" className="home-logo-img" />
+          <p className="home-subtitle">{t('appSubtitle', language)}</p>
+        </div>
+
+        {/* Language selector */}
+        <LanguageSelector />
+
+        {/* Headshot */}
         <div
           className="home-headshot-circle"
           onClick={() => setShowHeadshot(true)}
@@ -230,30 +227,19 @@ function Home() {
             <img src={headshotPreview} alt="Headshot" className="home-headshot-img" />
           ) : (
             <div className="home-headshot-placeholder">
-              <FiCamera size={24} />
+              <FiCamera size={32} />
+              <span>{t('takePhoto', language)}</span>
             </div>
           )}
         </div>
 
-        {/* Language selector — top right */}
-        <LanguageSelector />
-      </div>
-
-      {/* ── White card ── */}
-      <div className="home-card">
-
-        {/* Logo circle overlapping header/card boundary */}
-        <div className="home-logo-circle">
-          <img src="/studylink-logo.png" alt="StudyLink" className="home-logo-img" />
-        </div>
-
-        {/* Subtitle + tagline */}
-        <div className="home-logo">
-          <p className="home-subtitle">{t('appSubtitle', language)}</p>
-        </div>
-
-        <div className="home-tagline">
-          <span className="home-tagline-text">{t('homePrizeTitle', language)}</span>
+        {/* Prize banner */}
+        <div className="home-prize-banner">
+          <div className="home-prize-icons">🎊<br />🎉</div>
+          <div>
+            <strong>{t('homePrizeTitle', language)}</strong>
+            <p>{t('homePrizeSubtitle', language)}</p>
+          </div>
         </div>
 
         {/* Form fields */}
@@ -302,7 +288,7 @@ function Home() {
                   setPhoneNumber(formatted);
                   setFieldErrors((p) => ({ ...p, phoneNumber: false }));
                 }}
-                placeholder="e.g. 098 1234567"
+                placeholder={t('phonePlaceholder', language)}
                 disabled={loading || isLockedOut}
               />
             </div>

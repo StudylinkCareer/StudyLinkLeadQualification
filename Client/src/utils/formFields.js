@@ -4,10 +4,9 @@
 
 import { t } from '../i18n';
 
-export const LOGIN_SOCIAL_MEDIUMS = ['Zalo', 'Facebook', 'TikTok', 'YouTube', 'WhatsApp', 'Messenger', 'Instagram', 'Threads', 'Line', 'Skype', 'Telegram', 'Viber'];
-export const CONTACT_MEDIUMS = ['Zalo', 'Facebook', 'Messenger', 'WhatsApp', 'Email', 'Instagram', 'Threads', 'TikTok', 'Line', 'Telegram', 'Viber', 'YouTube', 'Skype'];
-export const PHONE_MEDIUMS = ['WhatsApp', 'Zalo', 'Viber', 'Telegram', 'Line'];
-export const EMAIL_MEDIUMS = ['Facebook', 'Instagram', 'Threads', 'TikTok', 'YouTube', 'Skype'];
+export const CONTACT_MEDIUMS = ['Phone', 'Zalo', 'Facebook', 'Messenger', 'WhatsApp', 'Email', 'Instagram', 'Threads', 'TikTok', 'Line', 'Telegram', 'Viber', 'YouTube', 'Skype'];
+export const PHONE_MEDIUMS = ['Phone', 'WhatsApp', 'Zalo', 'Viber', 'Telegram', 'Line'];
+export const EMAIL_MEDIUMS = ['Email', 'Facebook', 'Instagram', 'Threads', 'TikTok', 'YouTube', 'Skype'];
 export const DUAL_MEDIUMS = ['Facebook', 'Instagram', 'Threads'];
 
 export const COUNTRY_CODES = [
@@ -38,7 +37,7 @@ export const COUNTRY_CODES = [
   { code: '+1', country: 'USA' },
 ];
 
-export const STUDY_PLANS = ['Study Abroad', 'English Summer Camp', 'Study in Vietnam', 'Do not study', ];
+export const STUDY_PLANS = ['Do not study', 'Study in Vietnam', 'Study Abroad', 'English Summer School'];
 
 export const LEAD_SOURCES = [
   'Databases',
