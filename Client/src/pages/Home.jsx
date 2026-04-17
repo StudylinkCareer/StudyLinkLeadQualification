@@ -356,7 +356,7 @@ function Home() {
             <select id="preferredSocial" className="home-row-input"
               value={preferredSocial} onChange={(e) => setPreferredSocial(e.target.value)}
               disabled={loading || isLockedOut}>
-              {EMAIL_MEDIUMS.map((m) => <option key={m} value={m}>{m}</option>)}
+              {CONTACT_MEDIUMS.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
 

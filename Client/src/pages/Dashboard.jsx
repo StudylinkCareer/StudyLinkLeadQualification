@@ -76,7 +76,7 @@ export default function Dashboard() {
   const locationPreferredSocial = location.state?.preferredSocial;
   const locationStudyPlan = location.state?.studyPlan;
   const locationYearOfBirth = location.state?.yearOfBirth;
-  const locationSchoolEvent = location.state?.schoolEvent;
+  const locationReferralSource = location.state?.referralSource;
   const locationPlaceOfResidence = location.state?.placeOfResidence;
   const locationConnectWithYou = location.state?.connectWithYou;
   const locationSelectedRecordId = location.state?.selectedRecordId;
@@ -116,10 +116,12 @@ export default function Dashboard() {
     if (locationYearOfBirth) { sessionStorage.setItem('studylink_yearOfBirth', locationYearOfBirth); return locationYearOfBirth; }
     return sessionStorage.getItem('studylink_yearOfBirth') || '';
   });
-  const [loginSchoolEvent] = useState(() => {
-    if (locationSchoolEvent) { sessionStorage.setItem('studylink_schoolEvent', locationSchoolEvent); return locationSchoolEvent; }
-    return sessionStorage.getItem('studylink_schoolEvent') || '';
+  
+  const [loginReferralSource] = useState(() => {
+    if (locationReferralSource) { sessionStorage.setItem('studylink_referralSource', locationReferralSource); return locationReferralSource; }
+    return sessionStorage.getItem('studylink_referralSource') || '';
   });
+
   const [loginPlaceOfResidence] = useState(() => {
     if (locationPlaceOfResidence) { sessionStorage.setItem('studylink_placeOfResidence', locationPlaceOfResidence); return locationPlaceOfResidence; }
     return sessionStorage.getItem('studylink_placeOfResidence') || '';
@@ -225,7 +227,7 @@ export default function Dashboard() {
     if (!studentData.contactMedium1 && loginPreferredSocial) { updateField('contactMedium1', loginPreferredSocial); sessionStorage.removeItem('studylink_preferredSocial'); }
     if (!studentData.studyPlans && loginStudyPlan) { updateField('studyPlans', loginStudyPlan); sessionStorage.removeItem('studylink_studyPlan'); }
     if (!studentData.yearOfBirth && loginYearOfBirth) { updateField('yearOfBirth', loginYearOfBirth); sessionStorage.removeItem('studylink_yearOfBirth'); }
-    if (!studentData.schoolEvent && loginSchoolEvent) { updateField('schoolEvent', loginSchoolEvent); sessionStorage.removeItem('studylink_schoolEvent'); }
+    if (!studentData.referralSource && loginReferralSource) { updateField('referralSource', loginReferralSource); sessionStorage.removeItem('studylink_referralSource'); }
     if (!studentData.residency && loginPlaceOfResidence) { updateField('residency', loginPlaceOfResidence); sessionStorage.removeItem('studylink_placeOfResidence'); }
     if (!studentData.connectWithYou && loginConnectWithYou) { updateField('connectWithYou', loginConnectWithYou); sessionStorage.removeItem('studylink_connectWithYou'); }
 
@@ -282,7 +284,7 @@ export default function Dashboard() {
             fullName:         loginFullName        || '',
             yearOfBirth:      loginYearOfBirth     || '',
             residency:        loginPlaceOfResidence|| '',
-            schoolEvent:      loginSchoolEvent     || '',
+            referralSource:   loginReferralSource  || '',
             socialConsent:    loginConnectWithYou  || '',
             preferredSocial:  loginPreferredSocial || '',
             contactMedium1:   loginPreferredSocial || '',
