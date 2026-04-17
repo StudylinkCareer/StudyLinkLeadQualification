@@ -286,7 +286,7 @@ const vi = {
   nextBtn: 'Tiếp tục',
   contactDetailRequired: 'Nhập thông tin liên hệ',
 
-  studyPlanOptions: ['Không đi học', 'Học trong nước', 'Du học dài hạn'],
+  studyPlanOptions: ['Du học dài hạn','Trại hè tiếng Anh', 'Học trong nước', 'Không đi học'],
   leadSourceOptions: ['Cơ sở dữ liệu', 'Quảng cáo FB-Zalo-GG-TikTok', 'Tiếp cận trường học', 'Đại lý giới thiệu', 'Khách hàng cũ'],
   interactionOptions: ['Chỉ để lại liên hệ', 'Có hỏi thăm', 'Điền form một phần', 'Điền form đầy đủ', 'Gọi điện - Đến trực tiếp'],
   timelineOptions: ['6 tháng tới', '6-12 tháng', '12-24 tháng', '24-36 tháng', 'Hơn 36 tháng'],

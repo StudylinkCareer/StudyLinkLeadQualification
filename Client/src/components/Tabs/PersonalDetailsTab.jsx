@@ -438,14 +438,6 @@ export default function PersonalDetailsTab({
           error={personalErrors.phone}
         />
 
-        <TextInput
-          label={t('facebookProfile', language)}
-          name="facebookProfile"
-          value={formData.facebookProfile}
-          onChange={updateField}
-          placeholder={t('facebookProfilePlaceholder', language)}
-        />
-
         <SelectInput
           label={t('studyPlansLabel', language)}
           name="studyPlans"
