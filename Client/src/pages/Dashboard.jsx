@@ -47,9 +47,9 @@ const TAB_KEYS = [
   { key: 'study' },
   { key: 'assessment' },
   { key: 'career' },
-  { key: 'family' },
+  { key: 'family', counselorOnly: true },
   { key: 'counselor', counselorOnly: true },
-  { key: 'documents' },
+  { key: 'documents', counselorOnly: true },
 ];
 
 export default function Dashboard() {
