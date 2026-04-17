@@ -288,7 +288,7 @@ function Home() {
                   setPhoneNumber(formatted);
                   setFieldErrors((p) => ({ ...p, phoneNumber: false }));
                 }}
-                placeholder={t('phonePlaceholder', language)}
+                placeholder="e.g. 098 1234567"
                 disabled={loading || isLockedOut}
               />
             </div>
