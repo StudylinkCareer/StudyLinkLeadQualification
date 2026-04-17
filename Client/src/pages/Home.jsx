@@ -1,4 +1,7 @@
 // client/src/pages/Home.jsx
+// CHANGES:
+//   - Replaced schoolEvent field with referralSource (mandatory, captured here and copied to PersonalDetails as read-only)
+//   - Event/School field removed from the form
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -26,7 +29,7 @@ function Home() {
   const [yearOfBirth, setYearOfBirth] = useState('');
   const [placeOfResidence, setPlaceOfResidence] = useState('');
   const [studyPlan, setStudyPlan] = useState('');
-  const [schoolEvent, setSchoolEvent] = useState('');
+  const [referralSource, setReferralSource] = useState('');
   const [preferredSocial, setPreferredSocial] = useState('Zalo');
   const [connectWithYou, setConnectWithYou] = useState('');
   const [error, setError] = useState('');
@@ -76,7 +79,7 @@ function Home() {
   }
 
   const getExtraFields = () => ({
-    yearOfBirth, placeOfResidence, studyPlan, schoolEvent,
+    yearOfBirth, placeOfResidence, studyPlan, referralSource,
     preferredSocial, connectWithYou,
     campaignType, campaignName, campaignStart, campaignEnd,
   });
@@ -112,14 +115,14 @@ function Home() {
     setDuplicateModal(null);
 
     const errors = {};
-    if (!fullName.trim())         errors.fullName = true;
-    if (!email.trim())            errors.email = true;
-    if (!phoneNumber.trim())      errors.phoneNumber = true;
-    if (!yearOfBirth.trim())      errors.yearOfBirth = true;
-    if (!schoolEvent.trim())      errors.schoolEvent = true;
-    if (!placeOfResidence)        errors.placeOfResidence = true;
-    if (!studyPlan)               errors.studyPlan = true;
-    if (!connectWithYou)          errors.connectWithYou = true;
+    if (!fullName.trim())          errors.fullName = true;
+    if (!email.trim())             errors.email = true;
+    if (!phoneNumber.trim())       errors.phoneNumber = true;
+    if (!yearOfBirth.trim())       errors.yearOfBirth = true;
+    if (!referralSource.trim())    errors.referralSource = true;
+    if (!placeOfResidence)         errors.placeOfResidence = true;
+    if (!studyPlan)                errors.studyPlan = true;
+    if (!connectWithYou)           errors.connectWithYou = true;
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -310,12 +313,12 @@ function Home() {
           </div>
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="schoolEvent">
-              {t('schoolEventLabel', language)}<span className="home-mandatory">*</span>
+            <label className="home-row-label" htmlFor="referralSource">
+              {t('referralSource', language)}<span className="home-mandatory">*</span>
             </label>
-            <input id="schoolEvent" className={`home-row-input${fieldErrors.schoolEvent ? ' home-input--error' : ''}`} type="text"
-              value={schoolEvent} onChange={(e) => { setSchoolEvent(e.target.value); setFieldErrors((p) => ({ ...p, schoolEvent: false })); }}
-              placeholder={t('schoolEventPlaceholder', language)} disabled={loading || isLockedOut} />
+            <input id="referralSource" className={`home-row-input${fieldErrors.referralSource ? ' home-input--error' : ''}`} type="text"
+              value={referralSource} onChange={(e) => { setReferralSource(e.target.value); setFieldErrors((p) => ({ ...p, referralSource: false })); }}
+              placeholder={t('referralSourcePlaceholder', language)} disabled={loading || isLockedOut} />
           </div>
 
           <div className="home-row">
