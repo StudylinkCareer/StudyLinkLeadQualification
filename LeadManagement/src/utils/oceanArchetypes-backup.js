@@ -2,7 +2,6 @@
 // Also copy to: LeadManagement/src/utils/oceanArchetypes.js
 //
 // Bilingual (EN/VI) OCEAN archetype engine
-// 17 Apr 2026 — Group 4 career lists updated to align with 2026 job market doc
 
 const ARCHETYPES = {
   // ── Group 1: Proactive Leaders (High C, High E) ──────────────
@@ -117,11 +116,11 @@ const ARCHETYPES = {
     vi: { name: 'Người nắm bắt Cơ hội',   group: 'Những người thích nghi xã hội', careers: ['Đại lý quảng bá', 'Đại sứ thương hiệu', 'Người săn tìm tài năng'] },
   },
   '-_-_-_+_-': {
-    en: { name: 'The Quiet Supporter',     group: 'Social Adaptables',  careers: ['Administrative Assistant', 'Customer Service', 'Clergy'] },
+    en: { name: 'The Quiet Supporter',     group: 'Social Adaptables',  careers: ['Administrative Assistant', 'Customer Service Specialist', 'Clergy'] },
     vi: { name: 'Người hỗ trợ Thầm lặng', group: 'Những người thích nghi xã hội', careers: ['Trợ lý hành chính', 'Chăm sóc khách hàng', 'Giáo sĩ'] },
   },
   '-_-_-_-_-': {
-    en: { name: 'The Minimalist',          group: 'Social Adaptables',  careers: ['Quality Assurance Tester', 'Data Entry', 'Night Auditor'] },
+    en: { name: 'The Minimalist',          group: 'Social Adaptables',  careers: ['Quality Assurance Tester', 'Data Entry Specialist', 'Night Auditor'] },
     vi: { name: 'Người tối giản',          group: 'Những người thích nghi xã hội', careers: ['Người kiểm thử chất lượng', 'Nhập liệu', 'Kiểm toán viên ca đêm'] },
   },
   '-_-_+_+_+': {
@@ -137,7 +136,7 @@ const ARCHETYPES = {
     vi: { name: 'Người quan sát Nhẹ nhàng', group: 'Những người thích nghi xã hội', careers: ['Người chăm sóc động vật', 'Thợ cắm hoa', 'Người điều phối nhóm hỗ trợ'] },
   },
   '-_-_-_-_+': {
-    en: { name: 'The Solitary Watchman',   group: 'Social Adaptables',  careers: ['Security Guard', 'Remote Monitor', 'Fire Lookout'] },
+    en: { name: 'The Solitary Watchman',   group: 'Social Adaptables',  careers: ['Security Analyst', 'Remote Monitor', 'Independent Researcher'] },
     vi: { name: 'Người canh gác Đơn độc', group: 'Những người thích nghi xã hội', careers: ['Nhân viên bảo vệ', 'Người giám sát từ xa', 'Người canh gác cháy rừng'] },
   },
 };
