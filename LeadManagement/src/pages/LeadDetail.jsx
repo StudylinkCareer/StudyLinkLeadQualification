@@ -1,7 +1,12 @@
 // src/pages/LeadDetail.jsx
 // CHANGES:
-//   - Added campaignType, campaignName, campaignStart, campaignEnd to FIELD_LABELS
-//   - Added 4 read-only campaign fields to Student Information view section
+//   - Added campaignType/Name/Start/End to FIELD_LABELS
+//   - Added 4 read-only campaign fields to Student Information view
+//   - Full Tier 3: all missing Display/Edit fields, Family Contacts edit mode
+//   - Fix 1: d.fullName in page-title + section header (live updates while editing)
+//   - Fix 2: EditField spreads ...rest; validation attrs on Year of Birth / Phone / CCs
+//   - Fix 3: updateEditMedium auto-fills CC based on medium type
+//   - saveAll() expanded to send all new fields
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -61,6 +66,7 @@ const OBJECTIVE_OPTS         = ['Migration only','Work only','Study but work mor
 const STUDY_PLAN_OPTS        = ['Study Abroad','English Summer Camp','Study in Vietnam','Do not study'];
 const TIMELINE_OPTS          = ['Next 6 months','6-12 months','12-24 months','24-36 months','36+ months'];
 const CONTACT_MEDIUMS_OPTS   = ['Phone','Zalo','Facebook','Messenger','WhatsApp','Email','Instagram','Threads','TikTok','Line','Telegram','Viber','YouTube','Skype'];
+const PHONE_MEDIUMS_SET      = new Set(['Phone','WhatsApp','Zalo','Viber','Telegram','Line']);
 const SOCIAL_CONSENT_OPTS    = ['Yes','No'];
 const PROCESS_APP_OPTS       = ["I'll do it myself",'I have an agent','Talking to agents','Relatives in Vietnam will help','Relatives overseas will help'];
 const INTERACTION_OPTS       = ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
@@ -96,10 +102,8 @@ const FIELD_LABELS = {
   ultimateObjective:'Ultimate Objective', counselor:'Counselor',
   seniorCounselor:'Senior Counselor', presales:'Pre-Sales', marketingStaff:'Marketing Staff',
   riskScore:'Risk Score', stoneTier:'Stone Tier',
-  // ── Campaign fields ──
   campaignType:'Campaign Type', campaignName:'Campaign Name',
   campaignStart:'Campaign Start', campaignEnd:'Campaign End',
-  // ← ADD THESE ↓
   fullName:'Full Name', email:'Email', phone:'Phone',
   yearOfBirth:'Year of Birth', residency:'Residency',
   preferredSocial:'Preferred Social', socialConsent:'Social Consent',
@@ -107,9 +111,11 @@ const FIELD_LABELS = {
   contactMedium1:'Primary Contact Medium', phoneCountryCode1:'Primary Contact CC', contactDetail1:'Primary Contact Detail',
   contactMedium2:'Secondary Contact Medium', phoneCountryCode2:'Secondary Contact CC', contactDetail2:'Secondary Contact Detail',
   motherFullName:'Mother Name', motherEmail:'Mother Email', motherPhone:'Mother Phone',
-  motherContactMedium:'Mother Contact Medium', motherContactDetail:'Mother Contact Detail',
+  motherPhoneCountryCode:'Mother Phone CC',
+  motherContactMedium:'Mother Contact Medium', motherContactCC:'Mother Contact CC', motherContactDetail:'Mother Contact Detail',
   fatherFullName:'Father Name', fatherEmail:'Father Email', fatherPhone:'Father Phone',
-  fatherContactMedium:'Father Contact Medium', fatherContactDetail:'Father Contact Detail',
+  fatherPhoneCountryCode:'Father Phone CC',
+  fatherContactMedium:'Father Contact Medium', fatherContactCC:'Father Contact CC', fatherContactDetail:'Father Contact Detail',
   referralSource:'Referral Source',
 };
 
@@ -134,7 +140,7 @@ function Field({ label, value }) {
   );
 }
 
-function EditField({ label, name, value, onChange, type='text', options }) {
+function EditField({ label, name, value, onChange, type='text', options, ...rest }) {
   return (
     <div className="form-group" style={{ margin:0 }}>
       <label className="form-label">{label}</label>
@@ -144,13 +150,18 @@ function EditField({ label, name, value, onChange, type='text', options }) {
           {options.map(o=><option key={o} value={o}>{o}</option>)}
         </select>
       ) : (
-        <input className="form-input" type={type} value={value||''} onChange={e=>onChange(name,e.target.value)}/>
+        <input
+          className="form-input"
+          type={type}
+          value={value||''}
+          onChange={e=>onChange(name,e.target.value)}
+          {...rest}
+        />
       )}
     </div>
   );
 }
 
-// ── Photo placeholder ─────────────────────────────────────────────────────────
 function PhotoThumb({ url, label, isRound }) {
   return (
     <div style={{ textAlign:'center' }}>
@@ -241,29 +252,71 @@ export default function LeadDetail() {
   function cancelEdit() { setEditData({}); setEditMode(false); }
   function updateEdit(name, value) { setEditData(d=>({...d,[name]:value})); }
 
+  function updateEditMedium(mediumField, ccField, newMedium) {
+    setEditData(prev => {
+      const next = { ...prev, [mediumField]: newMedium };
+      const currentCC = prev[ccField] || '';
+      if (PHONE_MEDIUMS_SET.has(newMedium)) {
+        if (!currentCC || currentCC === 'N/A') next[ccField] = '+84';
+      } else if (newMedium) {
+        next[ccField] = 'N/A';
+      }
+      return next;
+    });
+  }
+
   async function saveAll() {
     setSaving(true);
     try {
       if (editMode) {
         await studentAPI.update(id, {
-          leadStatus:         editData.leadStatus,
-          closeDate:          editData.closeDate || null,
-          confidence:         editData.confidence,
-          studyPlans:         editData.studyPlans,
-          destinationCountry: editData.destinationCountry,
-          timeline:           editData.timeline,
-          schoolEvent:        editData.schoolEvent,
-          leadSource:         editData.leadSource,
-          interaction:        editData.interaction,
-          budget:             editData.budget,
-          scholarshipDemand:  editData.scholarshipDemand,
-          englishLevel:       editData.englishLevel,
-          gpa:                editData.gpa,
-          immigrationHistory: editData.immigrationHistory,
-          sponsorIncome:      editData.sponsorIncome,
-          incomeEvidence:     editData.incomeEvidence,
-          studyPlanGap:       editData.studyPlanGap,
-          ultimateObjective:  editData.ultimateObjective,
+          leadStatus:             editData.leadStatus,
+          closeDate:              editData.closeDate || null,
+          confidence:             editData.confidence,
+          fullName:               editData.fullName,
+          email:                  editData.email,
+          phone:                  editData.phone,
+          yearOfBirth:            editData.yearOfBirth,
+          residency:              editData.residency,
+          studyPlans:             editData.studyPlans,
+          destinationCountry:     editData.destinationCountry,
+          timeline:               editData.timeline,
+          schoolEvent:            editData.schoolEvent,
+          preferredSocial:        editData.preferredSocial,
+          socialConsent:          editData.socialConsent,
+          processApplication:     editData.processApplication,
+          contactMedium1:         editData.contactMedium1,
+          phoneCountryCode1:      editData.phoneCountryCode1,
+          contactDetail1:         editData.contactDetail1,
+          contactMedium2:         editData.contactMedium2,
+          phoneCountryCode2:      editData.phoneCountryCode2,
+          contactDetail2:         editData.contactDetail2,
+          referralSource:         editData.referralSource,
+          leadSource:             editData.leadSource,
+          interaction:            editData.interaction,
+          budget:                 editData.budget,
+          scholarshipDemand:      editData.scholarshipDemand,
+          englishLevel:           editData.englishLevel,
+          gpa:                    editData.gpa,
+          immigrationHistory:     editData.immigrationHistory,
+          sponsorIncome:          editData.sponsorIncome,
+          incomeEvidence:         editData.incomeEvidence,
+          studyPlanGap:           editData.studyPlanGap,
+          ultimateObjective:      editData.ultimateObjective,
+          motherFullName:         editData.motherFullName,
+          motherEmail:            editData.motherEmail,
+          motherPhoneCountryCode: editData.motherPhoneCountryCode,
+          motherPhone:            editData.motherPhone,
+          motherContactMedium:    editData.motherContactMedium,
+          motherContactCC:        editData.motherContactCC,
+          motherContactDetail:    editData.motherContactDetail,
+          fatherFullName:         editData.fatherFullName,
+          fatherEmail:            editData.fatherEmail,
+          fatherPhoneCountryCode: editData.fatherPhoneCountryCode,
+          fatherPhone:            editData.fatherPhone,
+          fatherContactMedium:    editData.fatherContactMedium,
+          fatherContactCC:        editData.fatherContactCC,
+          fatherContactDetail:    editData.fatherContactDetail,
           ...Object.fromEntries(
             Array.from({length:15}, (_,i) => [`oceanQ${i+1}`, editData[`oceanQ${i+1}`] || null])
           ),
@@ -361,7 +414,7 @@ export default function LeadDetail() {
           <button className="btn btn--ghost btn--icon" onClick={()=>navigate('/leads')}>
             <FiArrowLeft size={16}/>
           </button>
-          <span className="page-title">{lead.fullName || 'Lead Detail'}</span>
+          <span className="page-title">{d.fullName || 'Lead Detail'}</span>
           <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>
             {lead.uniqueId}
           </span>
@@ -409,12 +462,25 @@ export default function LeadDetail() {
           </div>
 
           {/* Student Information */}
-          {editMode ? (
+          <div className="section-card">
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
+              <div>
+                <span className="section-title">Student Information</span>
+                <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
+                  {d.fullName || '—'}
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
+                <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>
+                <PhotoThumb url={lead.qrCodeImageUrl} label="QR Code"  isRound={false}/>
+              </div>
+            </div>
+            {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                 <EditField label="Full Name"           name="fullName"           value={d.fullName}           onChange={updateEdit}/>
                 <EditField label="Email"               name="email"              value={d.email}              onChange={updateEdit} type="email"/>
-                <EditField label="Phone"               name="phone"              value={d.phone}              onChange={updateEdit} type="tel"/>
-                <EditField label="Year of Birth"       name="yearOfBirth"        value={d.yearOfBirth}        onChange={updateEdit}/>
+                <EditField label="Phone"               name="phone"              value={d.phone}              onChange={updateEdit} type="tel" inputMode="tel" pattern="[0-9 +()\-]*" placeholder="0XX XXX XXXX"/>
+                <EditField label="Year of Birth"       name="yearOfBirth"        value={d.yearOfBirth}        onChange={updateEdit} type="number" min={1920} max={new Date().getFullYear()} placeholder="e.g. 1998"/>
                 <EditField label="Residency"           name="residency"          value={d.residency}          onChange={updateEdit}/>
                 <EditField label="Study Plans"         name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
                 <EditField label="Destination"         name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
@@ -424,17 +490,14 @@ export default function LeadDetail() {
                 <EditField label="Social Consent"      name="socialConsent"      value={d.socialConsent}      onChange={updateEdit} options={SOCIAL_CONSENT_OPTS}/>
                 <EditField label="Process Application" name="processApplication" value={d.processApplication} onChange={updateEdit} options={PROCESS_APP_OPTS}/>
 
-                {/* Primary contact slot */}
-                <EditField label="Primary Medium"      name="contactMedium1"     value={d.contactMedium1}     onChange={updateEdit} options={CONTACT_MEDIUMS_OPTS}/>
-                <EditField label="Primary CC"          name="phoneCountryCode1"  value={d.phoneCountryCode1}  onChange={updateEdit}/>
+                <EditField label="Primary Medium"      name="contactMedium1"     value={d.contactMedium1}     onChange={(_,v)=>updateEditMedium('contactMedium1','phoneCountryCode1',v)} options={CONTACT_MEDIUMS_OPTS}/>
+                <EditField label="Primary CC"          name="phoneCountryCode1"  value={d.phoneCountryCode1}  onChange={updateEdit} inputMode="tel" pattern="\+?[0-9]{1,4}|N/A" placeholder="+84"/>
                 <EditField label="Primary Detail"      name="contactDetail1"     value={d.contactDetail1}     onChange={updateEdit}/>
 
-                {/* Secondary contact slot */}
-                <EditField label="Secondary Medium"    name="contactMedium2"     value={d.contactMedium2}     onChange={updateEdit} options={CONTACT_MEDIUMS_OPTS}/>
-                <EditField label="Secondary CC"        name="phoneCountryCode2"  value={d.phoneCountryCode2}  onChange={updateEdit}/>
+                <EditField label="Secondary Medium"    name="contactMedium2"     value={d.contactMedium2}     onChange={(_,v)=>updateEditMedium('contactMedium2','phoneCountryCode2',v)} options={CONTACT_MEDIUMS_OPTS}/>
+                <EditField label="Secondary CC"        name="phoneCountryCode2"  value={d.phoneCountryCode2}  onChange={updateEdit} inputMode="tel" pattern="\+?[0-9]{1,4}|N/A" placeholder="+84"/>
                 <EditField label="Secondary Detail"    name="contactDetail2"     value={d.contactDetail2}     onChange={updateEdit}/>
 
-                {/* Referral Source — only when campaign data exists */}
                 {(d.campaignType || d.campaignName || d.campaignStart) && (
                   <EditField label="Referral Source"   name="referralSource"     value={d.referralSource}     onChange={updateEdit}/>
                 )}
@@ -459,7 +522,6 @@ export default function LeadDetail() {
                 <Field label="Created"              value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"              value={formatShortDate(lead.updatedAt)}/>
 
-                {/* Campaign / Event block — read-only, appears only when campaign data exists */}
                 {(lead.campaignType || lead.campaignName || lead.campaignStart) && (<>
                   <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
                     <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
@@ -472,6 +534,7 @@ export default function LeadDetail() {
                 </>)}
               </div>
             )}
+          </div>
 
           {/* Self Assessment */}
           <div className="section-card">
@@ -545,7 +608,6 @@ export default function LeadDetail() {
               <div style={{ marginBottom:'1rem' }}>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start', marginBottom:'1rem' }}>
 
-                  {/* LEFT: radar chart + single bar-style trait table */}
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
                     <svg width="200" height="195" viewBox="-15 0 230 195" style={{ overflow:'visible' }}>
                       {(() => {
@@ -596,7 +658,6 @@ export default function LeadDetail() {
                     </div>
                   </div>
 
-                  {/* RIGHT: archetype */}
                   {oceanResult.archetype && (() => {
                     const arch   = oceanResult.archetype;
                     const colors = oceanResult.colors || GROUP_COLORS[arch.group] || { badge:'#4F46E5' };
@@ -708,28 +769,57 @@ export default function LeadDetail() {
           {/* Family Contacts */}
           <div className="section-card">
             <div className="section-header"><span className="section-title">Family Contacts</span></div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
-              <div>
-                <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Mother</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                  <Field label="Name"           value={lead.motherFullName}/>
-                  <Field label="Email"          value={lead.motherEmail}/>
-                  <Field label="Phone"          value={lead.motherPhone}/>
-                  <Field label="Contact Medium" value={lead.motherContactMedium}/>
-                  <Field label="Contact Detail" value={lead.motherContactDetail}/>
+            {editMode ? (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+                <div>
+                  <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Mother</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                    <EditField label="Name"           name="motherFullName"         value={d.motherFullName}         onChange={updateEdit}/>
+                    <EditField label="Email"          name="motherEmail"            value={d.motherEmail}            onChange={updateEdit} type="email"/>
+                    <EditField label="Phone CC"       name="motherPhoneCountryCode" value={d.motherPhoneCountryCode} onChange={updateEdit} inputMode="tel" pattern="\+?[0-9]{1,4}|N/A" placeholder="+84"/>
+                    <EditField label="Phone"          name="motherPhone"            value={d.motherPhone}            onChange={updateEdit} type="tel" inputMode="tel" pattern="[0-9 +()\-]*"/>
+                    <EditField label="Contact Medium" name="motherContactMedium"    value={d.motherContactMedium}    onChange={(_,v)=>updateEditMedium('motherContactMedium','motherContactCC',v)} options={CONTACT_MEDIUMS_OPTS}/>
+                    <EditField label="Contact CC"     name="motherContactCC"        value={d.motherContactCC}        onChange={updateEdit} inputMode="tel" pattern="\+?[0-9]{1,4}|N/A"/>
+                    <EditField label="Contact Detail" name="motherContactDetail"    value={d.motherContactDetail}    onChange={updateEdit}/>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Father</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                    <EditField label="Name"           name="fatherFullName"         value={d.fatherFullName}         onChange={updateEdit}/>
+                    <EditField label="Email"          name="fatherEmail"            value={d.fatherEmail}            onChange={updateEdit} type="email"/>
+                    <EditField label="Phone CC"       name="fatherPhoneCountryCode" value={d.fatherPhoneCountryCode} onChange={updateEdit} inputMode="tel" pattern="\+?[0-9]{1,4}|N/A" placeholder="+84"/>
+                    <EditField label="Phone"          name="fatherPhone"            value={d.fatherPhone}            onChange={updateEdit} type="tel" inputMode="tel" pattern="[0-9 +()\-]*"/>
+                    <EditField label="Contact Medium" name="fatherContactMedium"    value={d.fatherContactMedium}    onChange={(_,v)=>updateEditMedium('fatherContactMedium','fatherContactCC',v)} options={CONTACT_MEDIUMS_OPTS}/>
+                    <EditField label="Contact CC"     name="fatherContactCC"        value={d.fatherContactCC}        onChange={updateEdit} inputMode="tel" pattern="\+?[0-9]{1,4}|N/A"/>
+                    <EditField label="Contact Detail" name="fatherContactDetail"    value={d.fatherContactDetail}    onChange={updateEdit}/>
+                  </div>
                 </div>
               </div>
-              <div>
-                <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Father</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                  <Field label="Name"           value={lead.fatherFullName}/>
-                  <Field label="Email"          value={lead.fatherEmail}/>
-                  <Field label="Phone"          value={lead.fatherPhone}/>
-                  <Field label="Contact Medium" value={lead.fatherContactMedium}/>
-                  <Field label="Contact Detail" value={lead.fatherContactDetail}/>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+                <div>
+                  <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Mother</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                    <Field label="Name"           value={lead.motherFullName}/>
+                    <Field label="Email"          value={lead.motherEmail}/>
+                    <Field label="Phone"          value={[lead.motherPhoneCountryCode, lead.motherPhone].filter(x => x && x !== 'N/A').join(' ')}/>
+                    <Field label="Contact Medium" value={lead.motherContactMedium}/>
+                    <Field label="Contact Detail" value={[lead.motherContactCC, lead.motherContactDetail].filter(x => x && x !== 'N/A').join(' ')}/>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Father</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                    <Field label="Name"           value={lead.fatherFullName}/>
+                    <Field label="Email"          value={lead.fatherEmail}/>
+                    <Field label="Phone"          value={[lead.fatherPhoneCountryCode, lead.fatherPhone].filter(x => x && x !== 'N/A').join(' ')}/>
+                    <Field label="Contact Medium" value={lead.fatherContactMedium}/>
+                    <Field label="Contact Detail" value={[lead.fatherContactCC, lead.fatherContactDetail].filter(x => x && x !== 'N/A').join(' ')}/>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Notes */}

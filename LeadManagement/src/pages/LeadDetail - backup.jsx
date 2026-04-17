@@ -46,24 +46,27 @@ const PERMS = {
   },
 };
 
-const LEAD_STATUSES   = ['New','Contacted','Qualified','Proposal','Negotiation','Won','Lost','On Hold'];
-const CONFIDENCE_OPTS = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
-const NOTE_TYPES      = { counselor:'Counselor Note', presales:'PreSales Note', management:'Management Note' };
-const ENGLISH_LEVELS  = ['Beginner','IELTS 4-4.5','IELTS 5-5.5','IELTS 6-6.5','IELTS 7+'];
-const GPA_OPTIONS     = ['< 6.5','6.5-6.9','7-7.9','8-8.9','9+'];
-const BUDGET_OPTIONS  = ['< 300M VND','300-500M VND','500-800M VND','800M-1B VND','1-1.5B VND'];
-const SCHOLARSHIP_OPTS= ['100% scholarship','60-90% scholarship','30-50% scholarship','20-25% scholarship','No scholarship needed'];
-const IMMIGRATION_OPTS= ['Visa rejection (self)','Rejection/overstay (family)','No travel history','Travelled in Asia','Travelled to Western countries'];
-const SPONSOR_OPTS    = ['< 300M VND','300-500M VND','500-800M VND','800M-1B VND','1-1.5B VND'];
-const INCOME_OPTS     = ['0% documented','30-35% documented','50% documented','70-75% documented','100% documented'];
-const STUDY_GAP_OPTS  = ['Different major, 5+ year gap','Different major, 2-5 year gap','Same major, 2-5 year gap','Same major, < 2 year gap','Same major, no gap'];
-const OBJECTIVE_OPTS  = ['Migration only','Work only','Study but work more','Study for migration pathway','Study only'];
-const STUDY_PLAN_OPTS = ['Study Abroad','English Summer Camp','Study in Vietnam','Do not study'];
-const TIMELINE_OPTS   = ['Next 6 months','6-12 months','12-24 months','24-36 months','36+ months'];
-const INTERACTION_OPTS= ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
-const LEAD_SOURCE_OPTS= ['Databases','FB-Zalo-GG-TikTok ads','School outreach','Subagent referrals','Ex-client'];
+const LEAD_STATUSES          = ['New','Contacted','Qualified','Proposal','Negotiation','Won','Lost','On Hold'];
+const CONFIDENCE_OPTS        = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
+const NOTE_TYPES             = { counselor:'Counselor Note', presales:'PreSales Note', management:'Management Note' };
+const ENGLISH_LEVELS         = ['Beginner','IELTS 4-4.5','IELTS 5-5.5','IELTS 6-6.5','IELTS 7+'];
+const GPA_OPTIONS            = ['< 6.5','6.5-6.9','7-7.9','8-8.9','9+'];
+const BUDGET_OPTIONS         = ['< 300M VND','300-500M VND','500-800M VND','800M-1B VND','1-1.5B VND'];
+const SCHOLARSHIP_OPTS       = ['100% scholarship','60-90% scholarship','30-50% scholarship','20-25% scholarship','No scholarship needed'];
+const IMMIGRATION_OPTS       = ['Visa rejection (self)','Rejection/overstay (family)','No travel history','Travelled in Asia','Travelled to Western countries'];
+const SPONSOR_OPTS           = ['< 300M VND','300-500M VND','500-800M VND','800M-1B VND','1-1.5B VND'];
+const INCOME_OPTS            = ['0% documented','30-35% documented','50% documented','70-75% documented','100% documented'];
+const STUDY_GAP_OPTS         = ['Different major, 5+ year gap','Different major, 2-5 year gap','Same major, 2-5 year gap','Same major, < 2 year gap','Same major, no gap'];
+const OBJECTIVE_OPTS         = ['Migration only','Work only','Study but work more','Study for migration pathway','Study only'];
+const STUDY_PLAN_OPTS        = ['Study Abroad','English Summer Camp','Study in Vietnam','Do not study'];
+const TIMELINE_OPTS          = ['Next 6 months','6-12 months','12-24 months','24-36 months','36+ months'];
+const CONTACT_MEDIUMS_OPTS   = ['Phone','Zalo','Facebook','Messenger','WhatsApp','Email','Instagram','Threads','TikTok','Line','Telegram','Viber','YouTube','Skype'];
+const SOCIAL_CONSENT_OPTS    = ['Yes','No'];
+const PROCESS_APP_OPTS       = ["I'll do it myself",'I have an agent','Talking to agents','Relatives in Vietnam will help','Relatives overseas will help'];
+const INTERACTION_OPTS       = ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
+const LEAD_SOURCE_OPTS       = ['Databases','FB-Zalo-GG-TikTok ads','School outreach','Subagent referrals','Ex-client'];
 
-const LIKERT_LABELS = ['','Strongly Disagree','Disagree','Neutral','Agree','Strongly Agree'];
+const LIKERT_LABELS          = ['','Strongly Disagree','Disagree','Neutral','Agree','Strongly Agree'];
 
 const OCEAN_QUESTIONS = [
   { id:1,  text:'I am the life of the party and enjoy being the center of attention.' },
@@ -96,6 +99,18 @@ const FIELD_LABELS = {
   // ── Campaign fields ──
   campaignType:'Campaign Type', campaignName:'Campaign Name',
   campaignStart:'Campaign Start', campaignEnd:'Campaign End',
+  // ← ADD THESE ↓
+  fullName:'Full Name', email:'Email', phone:'Phone',
+  yearOfBirth:'Year of Birth', residency:'Residency',
+  preferredSocial:'Preferred Social', socialConsent:'Social Consent',
+  processApplication:'Process Application',
+  contactMedium1:'Primary Contact Medium', phoneCountryCode1:'Primary Contact CC', contactDetail1:'Primary Contact Detail',
+  contactMedium2:'Secondary Contact Medium', phoneCountryCode2:'Secondary Contact CC', contactDetail2:'Secondary Contact Detail',
+  motherFullName:'Mother Name', motherEmail:'Mother Email', motherPhone:'Mother Phone',
+  motherContactMedium:'Mother Contact Medium', motherContactDetail:'Mother Contact Detail',
+  fatherFullName:'Father Name', fatherEmail:'Father Email', fatherPhone:'Father Phone',
+  fatherContactMedium:'Father Contact Medium', fatherContactDetail:'Father Contact Detail',
+  referralSource:'Referral Source',
 };
 
 function canDo(perm, role) { return Array.isArray(perm) ? perm.includes(role) : false; }
@@ -394,53 +409,69 @@ export default function LeadDetail() {
           </div>
 
           {/* Student Information */}
-          <div className="section-card">
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
-              <div>
-                <span className="section-title">Student Information</span>
-                <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
-                  {lead.fullName || '—'}
-                </div>
-              </div>
-              <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
-                <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>
-                <PhotoThumb url={lead.qrCodeImageUrl} label="QR Code"  isRound={false}/>
-              </div>
-            </div>
-            {editMode ? (
+          {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <EditField label="Study Plans"  name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
-                <EditField label="Destination"  name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
-                <EditField label="Timeline"     name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
-                <EditField label="School/Event" name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
+                <EditField label="Full Name"           name="fullName"           value={d.fullName}           onChange={updateEdit}/>
+                <EditField label="Email"               name="email"              value={d.email}              onChange={updateEdit} type="email"/>
+                <EditField label="Phone"               name="phone"              value={d.phone}              onChange={updateEdit} type="tel"/>
+                <EditField label="Year of Birth"       name="yearOfBirth"        value={d.yearOfBirth}        onChange={updateEdit}/>
+                <EditField label="Residency"           name="residency"          value={d.residency}          onChange={updateEdit}/>
+                <EditField label="Study Plans"         name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
+                <EditField label="Destination"         name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
+                <EditField label="Timeline"            name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
+                <EditField label="School/Event"        name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
+                <EditField label="Preferred Social"    name="preferredSocial"    value={d.preferredSocial}    onChange={updateEdit} options={CONTACT_MEDIUMS_OPTS}/>
+                <EditField label="Social Consent"      name="socialConsent"      value={d.socialConsent}      onChange={updateEdit} options={SOCIAL_CONSENT_OPTS}/>
+                <EditField label="Process Application" name="processApplication" value={d.processApplication} onChange={updateEdit} options={PROCESS_APP_OPTS}/>
+
+                {/* Primary contact slot */}
+                <EditField label="Primary Medium"      name="contactMedium1"     value={d.contactMedium1}     onChange={updateEdit} options={CONTACT_MEDIUMS_OPTS}/>
+                <EditField label="Primary CC"          name="phoneCountryCode1"  value={d.phoneCountryCode1}  onChange={updateEdit}/>
+                <EditField label="Primary Detail"      name="contactDetail1"     value={d.contactDetail1}     onChange={updateEdit}/>
+
+                {/* Secondary contact slot */}
+                <EditField label="Secondary Medium"    name="contactMedium2"     value={d.contactMedium2}     onChange={updateEdit} options={CONTACT_MEDIUMS_OPTS}/>
+                <EditField label="Secondary CC"        name="phoneCountryCode2"  value={d.phoneCountryCode2}  onChange={updateEdit}/>
+                <EditField label="Secondary Detail"    name="contactDetail2"     value={d.contactDetail2}     onChange={updateEdit}/>
+
+                {/* Referral Source — only when campaign data exists */}
+                {(d.campaignType || d.campaignName || d.campaignStart) && (
+                  <EditField label="Referral Source"   name="referralSource"     value={d.referralSource}     onChange={updateEdit}/>
+                )}
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <Field label="Email"         value={lead.email}/>
-                <Field label="Phone"         value={lead.phone}/>
-                <Field label="Stone Tier"    value={lead.stoneTier}/>
-                <Field label="Risk Score"    value={lead.riskScore}/>
-                <Field label="Study Plans"   value={lead.studyPlans}/>
-                <Field label="Destination"   value={lead.destinationCountry}/>
-                <Field label="Timeline"      value={lead.timeline}/>
-                <Field label="School/Event"  value={lead.schoolEvent}/>
-                <Field label="Year of Birth" value={lead.yearOfBirth}/>
-                <Field label="Residency"     value={lead.residency}/>
-                <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
-                <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
-                {/* ── Campaign / Event fields (read-only) ── */}
+                <Field label="Email"                value={lead.email}/>
+                <Field label="Phone"                value={lead.phone}/>
+                <Field label="Stone Tier"           value={lead.stoneTier}/>
+                <Field label="Risk Score"           value={lead.riskScore}/>
+                <Field label="Study Plans"          value={lead.studyPlans}/>
+                <Field label="Destination"          value={lead.destinationCountry}/>
+                <Field label="Timeline"             value={lead.timeline}/>
+                <Field label="School/Event"         value={lead.schoolEvent}/>
+                <Field label="Year of Birth"        value={lead.yearOfBirth}/>
+                <Field label="Residency"            value={lead.residency}/>
+                <Field label="Preferred Social"     value={lead.preferredSocial}/>
+                <Field label="Social Consent"       value={lead.socialConsent}/>
+                <Field label="Process Application"  value={lead.processApplication}/>
+                <Field label="Primary Contact"      value={[lead.contactMedium1, lead.phoneCountryCode1, lead.contactDetail1].filter(x => x && x !== 'N/A').join(' · ')}/>
+                <Field label="Secondary Contact"    value={[lead.contactMedium2, lead.phoneCountryCode2, lead.contactDetail2].filter(x => x && x !== 'N/A').join(' · ')}/>
+                <Field label="Created"              value={formatShortDate(lead.createdAt)}/>
+                <Field label="Updated"              value={formatShortDate(lead.updatedAt)}/>
+
+                {/* Campaign / Event block — read-only, appears only when campaign data exists */}
                 {(lead.campaignType || lead.campaignName || lead.campaignStart) && (<>
                   <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
                     <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
                   </div>
-                  <Field label="Campaign Type"  value={lead.campaignType}/>
-                  <Field label="Campaign Name"  value={lead.campaignName}/>
-                  <Field label="Event Start"    value={formatShortDate(lead.campaignStart)}/>
-                  <Field label="Event End"      value={formatShortDate(lead.campaignEnd)}/>
+                  <Field label="Campaign Type"   value={lead.campaignType}/>
+                  <Field label="Campaign Name"   value={lead.campaignName}/>
+                  <Field label="Event Start"     value={formatShortDate(lead.campaignStart)}/>
+                  <Field label="Event End"       value={formatShortDate(lead.campaignEnd)}/>
+                  <Field label="Referral Source" value={lead.referralSource}/>
                 </>)}
               </div>
             )}
-          </div>
 
           {/* Self Assessment */}
           <div className="section-card">
