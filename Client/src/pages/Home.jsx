@@ -41,6 +41,11 @@ function Home() {
   const [pendingNav, setPendingNav] = useState(null);
   const [duplicateModal, setDuplicateModal] = useState(null);
 
+  const [campaignType]  = useState(() => new URLSearchParams(window.location.search).get('ct')  || '');
+  const [campaignName]  = useState(() => new URLSearchParams(window.location.search).get('en')  || '');
+  const [campaignStart] = useState(() => new URLSearchParams(window.location.search).get('sd')  || '');
+  const [campaignEnd]   = useState(() => new URLSearchParams(window.location.search).get('ed')  || '');
+
   useEffect(() => {
     const stored = localStorage.getItem('studylink_lockout');
     if (stored) {
@@ -70,7 +75,11 @@ function Home() {
     );
   }
 
-  const getExtraFields = () => ({ yearOfBirth, placeOfResidence, studyPlan, schoolEvent, preferredSocial, connectWithYou });
+  const getExtraFields = () => ({
+    yearOfBirth, placeOfResidence, studyPlan, schoolEvent,
+    preferredSocial, connectWithYou,
+    campaignType, campaignName, campaignStart, campaignEnd,
+  });
 
   const sendOtpAndNavigate = async (mode, extraState = {}) => {
     setLoadingMessage(t('sendingOtp', language));
@@ -102,7 +111,6 @@ function Home() {
     setError('');
     setDuplicateModal(null);
 
-    // Per-field validation
     const errors = {};
     if (!fullName.trim())         errors.fullName = true;
     if (!email.trim())            errors.email = true;
@@ -206,18 +214,9 @@ function Home() {
 
   return (
     <div className="home-page">
-      <div className="home-card">
 
-        {/* Logo */}
-        <div className="home-logo">
-          <img src="/studylink-logo.png" alt="StudyLink" className="home-logo-img" />
-          <p className="home-subtitle">{t('appSubtitle', language)}</p>
-        </div>
-
-        {/* Language selector */}
-        <LanguageSelector />
-
-        {/* Headshot */}
+      {/* ── Red header banner ── */}
+      <div className="home-header">
         <div
           className="home-headshot-circle"
           onClick={() => setShowHeadshot(true)}
@@ -227,22 +226,29 @@ function Home() {
             <img src={headshotPreview} alt="Headshot" className="home-headshot-img" />
           ) : (
             <div className="home-headshot-placeholder">
-              <FiCamera size={32} />
-              <span>{t('takePhoto', language)}</span>
+              <FiCamera size={24} />
             </div>
           )}
         </div>
 
-        {/* Prize banner */}
-        <div className="home-prize-banner">
-          <div className="home-prize-icons">🎊<br />🎉</div>
-          <div>
-            <strong>{t('homePrizeTitle', language)}</strong>
-            <p>{t('homePrizeSubtitle', language)}</p>
-          </div>
+        <LanguageSelector />
+      </div>
+
+      {/* ── White card ── */}
+      <div className="home-card">
+
+        <div className="home-logo-circle">
+          <img src="/studylink-logo.png" alt="StudyLink" className="home-logo-img" />
         </div>
 
-        {/* Form fields */}
+        <div className="home-logo">
+          <p className="home-subtitle">{t('appSubtitle', language)}</p>
+        </div>
+
+        <div className="home-tagline">
+          <span className="home-tagline-text">{t('homePrizeTitle', language)}</span>
+        </div>
+
         <div className="home-form">
 
           <div className="home-row">
