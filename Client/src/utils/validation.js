@@ -19,6 +19,15 @@ export function checkMandatoryFields(formData) {
     errorFields.studyPlans = 'Required';
   }
 
+  // Referral Source is mandatory only when campaign data exists
+  // (matches the conditional rendering of the Event/Campaign block in PersonalDetailsTab).
+  const campaignVisible =
+    formData.campaignType || formData.campaignName || formData.campaignStart;
+  if (campaignVisible && !formData.referralSource?.trim()) {
+    missing.push('Referral Source');
+    errorFields.referralSource = 'Required';
+  }
+
   return { complete: missing.length === 0, missing, errorFields };
 }
 

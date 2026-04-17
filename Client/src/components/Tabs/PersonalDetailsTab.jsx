@@ -479,6 +479,17 @@ export default function PersonalDetailsTab({
               <input className="form-input" type="text" value={formData.campaignEnd ? String(formData.campaignEnd).slice(0, 10) : ''} disabled readOnly />
             </div>
           </div>
+
+          {/* Editable, mandatory referral source */}
+          <TextInput
+            label={t('referralSource', language)}
+            name="referralSource"
+            value={formData.referralSource}
+            onChange={updateField}
+            mandatory
+            placeholder={t('referralSourcePlaceholder', language)}
+            error={personalErrors.referralSource}
+          />
         </div>
       )}
 

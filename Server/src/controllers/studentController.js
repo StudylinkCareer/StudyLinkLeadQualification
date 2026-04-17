@@ -8,7 +8,8 @@ async function register(req, res, next) {
     const { email, phone, fullName, contactMediums, studyPlans, leadSource,
             yearOfBirth, residency, schoolEvent, socialConsent,
             preferredSocial, phoneCountryCode, contactMedium1,
-            campaignType, campaignName, campaignStart, campaignEnd } = req.body;
+            campaignType, campaignName, campaignStart, campaignEnd, 
+            referralSource } = req.body;
 
     if (email || phone) {
       const dupes = await Student.checkDuplicates(email, phone);
@@ -41,6 +42,7 @@ async function register(req, res, next) {
       campaignName:     campaignName     || '',
       campaignStart:    campaignStart    || null,
       campaignEnd:      campaignEnd      || null,
+      referralSource:   referralSource   || '',   // ← ADD THIS LINE
     });
 
     req.session.uniqueId = student.uniqueId;
