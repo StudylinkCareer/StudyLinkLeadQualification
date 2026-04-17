@@ -292,7 +292,8 @@ function Home() {
                 type="tel"
                 value={phoneNumber}
                 onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  let digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  if (!digits.startsWith('0')) digits = '0' + digits.slice(0, 9);
                   const formatted = digits.length > 3 ? digits.slice(0, 3) + ' ' + digits.slice(3) : digits;
                   setPhoneNumber(formatted);
                   setFieldErrors((p) => ({ ...p, phoneNumber: false }));
