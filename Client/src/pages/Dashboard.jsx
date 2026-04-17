@@ -42,14 +42,14 @@ const TAB_ICONS = {
   documents: <FiFileText />,
 };
 
-const TAB_KEYS = [
-  { key: 'personal' },
-  { key: 'study' },
-  { key: 'assessment' },
-  { key: 'career' },
-  { key: 'family', counselorOnly: true },
-  { key: 'counselor', counselorOnly: true },
-  { key: 'documents', counselorOnly: true },
+  const TAB_KEYS = [
+    { key: 'personal' },
+    { key: 'study' },
+    { key: 'assessment' },
+    { key: 'career' },
+    { key: 'family', counselorOnly: true },
+    { key: 'counselor', counselorOnly: true },
+    { key: 'documents', counselorOnly: true },
 ];
 
 export default function Dashboard() {

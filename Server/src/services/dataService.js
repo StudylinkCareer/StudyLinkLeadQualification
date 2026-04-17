@@ -2,12 +2,19 @@ require('dotenv').config();
 const pool = require('./db');
 
 // ── Counselor check ──────────────────────────────────────────────────────────
+// Any active staff with role Counselor/Manager/Director/Admin counts as a
+// "counselor" for Student app tab-access purposes.
 async function checkCounselor(email) {
-  const counselorEmails = (process.env.COUNSELOR_EMAILS || '')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return counselorEmails.includes(email.toLowerCase());
+  if (!email) return false;
+  const allowedRoles = ['Counselor', 'Manager', 'Director', 'Admin'];
+  const result = await pool.query(
+    `SELECT role FROM staff
+     WHERE LOWER(email) = LOWER($1)
+       AND is_active = true
+       AND role = ANY($2::text[])`,
+    [email.trim(), allowedRoles]
+  );
+  return result.rows.length > 0;
 }
 
 // ── Search duplicates ────────────────────────────────────────────────────────
