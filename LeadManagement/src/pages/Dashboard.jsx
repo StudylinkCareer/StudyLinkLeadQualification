@@ -1,4 +1,10 @@
 // src/pages/Dashboard.jsx
+// CHANGES (Apr 18, 2026):
+//   - STATUS_COLORS updated for new lead statuses
+//   - stats.won now checks for 'Contracted'
+//   - stats.active excludes ['Contracted','Lost','Archived']
+//   - pipeline 'active' filter updated to match
+
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI } from '../services/api';
@@ -29,8 +35,23 @@ function getRolling3m() {
 
 // ── Colors ────────────────────────────────────────────────────
 const STONE_COLORS  = { Quartz:'#9CA3AF', Agate:'#78716C', Sapphire:'#2563EB', Ruby:'#DC2626', Diamond:'#8B5CF6' };
-const STATUS_COLORS = { 'New':'#6B7280','Contacted':'#3B82F6','Qualified':'#8B5CF6','Proposal':'#F59E0B','Negotiation':'#F97316','Won':'#10B981','Lost':'#EF4444','On Hold':'#94A3B8' };
+const STATUS_COLORS = {
+  'New':                          '#6B7280',  // grey
+  'Not contactable':              '#94A3B8',  // slate
+  'Engaged':                      '#3B82F6',  // blue
+  'Vetted':                       '#8B5CF6',  // purple
+  'Met with customer and family': '#06B6D4',  // cyan
+  'Proposal':                     '#F59E0B',  // amber
+  'Family negotiation/review':    '#F97316',  // orange
+  'Contracted':                   '#10B981',  // green
+  'Lost':                         '#EF4444',  // red
+  'Nurturing':                    '#14B8A6',  // teal
+  'Archived':                     '#64748B',  // slate-dark
+};
 const SOURCE_COLORS = ['#2563EB','#0891B2','#059669','#D97706','#7C3AED','#DB2777'];
+
+// Terminal statuses — not "active" for pipeline purposes
+const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived'];
 
 const COUNSELOR_STONES        = ['Diamond', 'Ruby', 'Sapphire', 'Agate', 'Quartz', 'Unscored'];
 const COUNSELOR_STONE_COLORS  = {
@@ -145,7 +166,6 @@ export default function Dashboard() {
     Promise.all(promises).catch(console.error).finally(() => setLoading(false));
   }, [staff?.id]);
 
-  // ── Scope leads by role ──────────────────────────────────────
   const scopedLeads = useMemo(() => {
     if (isManager || isAdmin) return leads;
     return leads.filter(l =>
@@ -156,11 +176,10 @@ export default function Dashboard() {
     );
   }, [leads, isManager, isAdmin, staff]);
 
-  // ── Summary stats ────────────────────────────────────────────
   const stats = useMemo(() => {
     const total     = scopedLeads.length;
-    const won       = scopedLeads.filter(l => l.leadStatus === 'Won').length;
-    const active    = scopedLeads.filter(l => !['Won','Lost'].includes(l.leadStatus)).length;
+    const won       = scopedLeads.filter(l => l.leadStatus === 'Contracted').length;
+    const active    = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus)).length;
     const thisMonth = scopedLeads.filter(l => {
       if (!l.createdAt) return false;
       const d = new Date(l.createdAt), now = new Date();
@@ -169,14 +188,13 @@ export default function Dashboard() {
     return { total, won, active, thisMonth };
   }, [scopedLeads]);
 
-  // ── Pipeline stats ────────────────────────────────────────────
   const pipeline = useMemo(() => {
     const weekEnd    = getWeekEnd();
     const monthEnd   = getMonthEnd();
     const quarterEnd = getQuarterEnd();
     const rolling3m  = getRolling3m();
 
-    const active = scopedLeads.filter(l => !['Won','Lost'].includes(l.leadStatus));
+    const active = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus));
     const thisWeek    = active.filter(l => l.closeDate && new Date(l.closeDate) <= weekEnd);
     const thisMonth   = active.filter(l => l.closeDate && new Date(l.closeDate) > weekEnd && new Date(l.closeDate) <= monthEnd);
     const thisQuarter = active.filter(l => l.closeDate && new Date(l.closeDate) > monthEnd && new Date(l.closeDate) <= quarterEnd);
@@ -186,7 +204,6 @@ export default function Dashboard() {
     return { thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
   }, [scopedLeads]);
 
-  // ── Chart data ────────────────────────────────────────────────
   const stoneData = useMemo(() => {
     const counts = {};
     scopedLeads.forEach(l => { const s = l.stoneTier || 'Unscored'; counts[s] = (counts[s]||0)+1; });
@@ -205,7 +222,6 @@ export default function Dashboard() {
     return Object.entries(counts).map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);
   }, [scopedLeads]);
 
-  // ── Counselor chart data (Admin/Manager only) ─────────────────
   const counselorData = useMemo(() => {
     if (!isManager && !isAdmin) return [];
     const map = {};
@@ -225,7 +241,6 @@ export default function Dashboard() {
       .sort((a, b) => b.total - a.total);
   }, [leads, isManager, isAdmin]);
 
-  // ── Drill-down ────────────────────────────────────────────────
   function drillDown(filterKey, filterValue) {
     navigate('/leads', { state: { drillFilter: { key: filterKey, value: filterValue } } });
   }
@@ -254,43 +269,37 @@ export default function Dashboard() {
 
       <div className="page-body">
 
-        {/* ── Summary stat cards ── */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
-          <StatCard label="Total Leads"    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads')}/>
-          <StatCard label="Active"         value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
-          <StatCard label="Won"            value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Won')}/>
-          <StatCard label="New This Month" value={stats.thisMonth} color="#F59E0B" sub="created this month"/>
+          <StatCard label="Total Leads"     value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads')}/>
+          <StatCard label="Active"          value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
+          <StatCard label="Contracted"      value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
+          <StatCard label="New This Month"  value={stats.thisMonth} color="#F59E0B" sub="created this month"/>
         </div>
 
-        {/* ── Charts + pipeline row ── */}
         <div style={{ display:'grid', gridTemplateColumns: showPipeline ? '1fr 1fr 1fr 300px' : '1fr 1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
 
-          {/* Stone chart */}
           <div className="section-card">
             <div className="section-header"><span className="section-title">Leads by Stone</span></div>
             <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
             <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
           </div>
 
-          {/* Status chart */}
           <div className="section-card">
             <div className="section-header"><span className="section-title">Leads by Status</span></div>
             <HBarChart data={statusData} colorMap={STATUS_COLORS} onBarClick={name => drillDown('leadStatus', name)}/>
             <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
           </div>
 
-          {/* Source chart */}
           <div className="section-card">
             <div className="section-header"><span className="section-title">Leads by Source</span></div>
             <HBarChart data={sourceData} defaultColor={SOURCE_COLORS} onBarClick={name => drillDown('leadSource', name)}/>
             <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
           </div>
 
-          {/* Pipeline — staff only */}
           {showPipeline && (
             <div className="section-card" style={{ maxHeight:'480px', overflowY:'auto' }}>
               <div className="section-header"><span className="section-title">Pipeline Statistics</span></div>
-              <PipelineRow label="Target (Won this month)" count={myStaff?.target ?? '—'} isTarget color="var(--primary)" sub={myStaff?.targetSetBy ? `Set by ${myStaff.targetSetBy}` : 'Not set'}/>
+              <PipelineRow label="Target (Contracted this month)" count={myStaff?.target ?? '—'} isTarget color="var(--primary)" sub={myStaff?.targetSetBy ? `Set by ${myStaff.targetSetBy}` : 'Not set'}/>
               <PipelineRow label="Close this week"    count={pipeline.thisWeek.length}     color="#10B981" sub={`by Sunday ${getWeekEnd().toLocaleDateString()}`}     onClick={() => drillPipeline(pipeline.thisWeek)}/>
               <PipelineRow label="Close this month"   count={pipeline.thisMonth.length}    color="#2563EB" sub={`by ${getMonthEnd().toLocaleDateString()}`}            onClick={() => drillPipeline(pipeline.thisMonth)}/>
               <PipelineRow label="Close this quarter" count={pipeline.thisQuarter.length}  color="#8B5CF6" sub={`by ${getQuarterEnd().toLocaleDateString()}`}          onClick={() => drillPipeline(pipeline.thisQuarter)}/>
@@ -301,7 +310,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* ── Leads by Counselor — Admin & Manager only ── */}
         {showCounselor && (
           <div className="section-card">
             <div className="section-header">
@@ -311,7 +319,6 @@ export default function Dashboard() {
               </span>
             </div>
 
-            {/* Legend */}
             <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
               {COUNSELOR_STONES.map(stone => (
                 <div key={stone} style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
@@ -325,14 +332,12 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* Bars */}
             <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
               {counselorData.map(({ counselor, stoneMap, total }) => {
                 const barWidthPct = (total / maxCounselorTotal) * 100;
                 return (
                   <div key={counselor} style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
 
-                    {/* Counselor name */}
                     <div style={{
                       width:'160px', flexShrink:0, textAlign:'right',
                       fontSize:'0.8125rem', fontWeight:500,
@@ -341,7 +346,6 @@ export default function Dashboard() {
                       {counselor}
                     </div>
 
-                    {/* Stacked bar */}
                     <div style={{
                       flex:1, height:'30px', display:'flex',
                       borderRadius:'4px', overflow:'hidden',
@@ -378,7 +382,6 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Total */}
                     <div
                       onClick={() => drillCounselor(Object.values(stoneMap).flat())}
                       style={{ width:'32px', flexShrink:0, fontSize:'0.875rem', fontWeight:700, cursor:'pointer' }}
@@ -392,7 +395,6 @@ export default function Dashboard() {
               })}
             </div>
 
-            {/* Stone totals summary */}
             <div style={{ marginTop:'1.25rem', paddingTop:'0.875rem', borderTop:'1px solid var(--border)', display:'flex', gap:'1.25rem', flexWrap:'wrap' }}>
               {COUNSELOR_STONES.map(stone => {
                 const count = leads.filter(l => (COUNSELOR_STONES.includes(l.stoneTier) ? l.stoneTier : 'Unscored') === stone).length;

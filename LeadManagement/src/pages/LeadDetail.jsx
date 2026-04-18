@@ -1,12 +1,8 @@
 // src/pages/LeadDetail.jsx
-// CHANGES:
-//   - Added campaignType/Name/Start/End to FIELD_LABELS
-//   - Added 4 read-only campaign fields to Student Information view
-//   - Full Tier 3: all missing Display/Edit fields, Family Contacts edit mode
-//   - Fix 1: d.fullName in page-title + section header (live updates while editing)
-//   - Fix 2: EditField spreads ...rest; validation attrs on Year of Birth / Phone / CCs
-//   - Fix 3: updateEditMedium auto-fills CC based on medium type
-//   - saveAll() expanded to send all new fields
+// CHANGES (Apr 18, 2026):
+//   - Imported LEAD_STATUSES + labelFor from shared leadStatusLabels util
+//   - Status dropdown now renders translated labels (defaults to English)
+//   - Removed hardcoded LEAD_STATUSES array
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -15,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
+import { LEAD_STATUSES, labelFor } from '../utils/leadStatusLabels';
 
 // ── Stone images ──────────────────────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
@@ -51,7 +48,6 @@ const PERMS = {
   },
 };
 
-const LEAD_STATUSES          = ['New','Contacted','Qualified','Proposal','Negotiation','Won','Lost','On Hold'];
 const CONFIDENCE_OPTS        = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
 const NOTE_TYPES             = { counselor:'Counselor Note', presales:'PreSales Note', management:'Management Note' };
 const ENGLISH_LEVELS         = ['Beginner','IELTS 4-4.5','IELTS 5-5.5','IELTS 6-6.5','IELTS 7+'];
@@ -140,14 +136,16 @@ function Field({ label, value }) {
   );
 }
 
-function EditField({ label, name, value, onChange, type='text', options, ...rest }) {
+function EditField({ label, name, value, onChange, type='text', options, optionLabels, ...rest }) {
   return (
     <div className="form-group" style={{ margin:0 }}>
       <label className="form-label">{label}</label>
       {options ? (
         <select className="form-select" value={value||''} onChange={e=>onChange(name,e.target.value)}>
           <option value="">—</option>
-          {options.map(o=><option key={o} value={o}>{o}</option>)}
+          {options.map((o, i) => (
+            <option key={o} value={o}>{optionLabels ? optionLabels[i] : o}</option>
+          ))}
         </select>
       ) : (
         <input
@@ -193,6 +191,7 @@ export default function LeadDetail() {
   const navigate  = useNavigate();
   const { staff } = useAuth();
   const role      = staff?.role || '';
+  const language  = 'en'; // MC is English-only for now; swap to useLanguage() hook if/when added
 
   const [lead, setLead]         = useState(null);
   const [notes, setNotes]       = useState([]);
@@ -404,6 +403,9 @@ export default function LeadDetail() {
 
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
 
+  // Status labels for the dropdown in current language
+  const statusOptionLabels = LEAD_STATUSES.map(s => labelFor(s, language));
+
   return (
     <div>
       <Watermark />
@@ -448,13 +450,13 @@ export default function LeadDetail() {
             <div className="section-header"><span className="section-title">Lead Status</span></div>
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
-                <EditField label="Status"     name="leadStatus" value={d.leadStatus} onChange={updateEdit} options={LEAD_STATUSES}/>
+                <EditField label="Status"     name="leadStatus" value={d.leadStatus} onChange={updateEdit} options={LEAD_STATUSES} optionLabels={statusOptionLabels}/>
                 <EditField label="Close Date" name="closeDate"  value={d.closeDate?d.closeDate.split('T')[0]:''} onChange={updateEdit} type="date"/>
                 <EditField label="Confidence" name="confidence" value={d.confidence} onChange={updateEdit} options={CONFIDENCE_OPTS}/>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
-                <Field label="Status"     value={lead.leadStatus||'New'}/>
+                <Field label="Status"     value={labelFor(lead.leadStatus || 'New', language)}/>
                 <Field label="Close Date" value={formatShortDate(lead.closeDate)}/>
                 <Field label="Confidence" value={lead.confidence}/>
               </div>
