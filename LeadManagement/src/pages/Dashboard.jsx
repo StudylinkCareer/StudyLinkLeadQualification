@@ -4,9 +4,19 @@
 //   - stats.won now checks for 'Contracted'
 //   - stats.active excludes ['Contracted','Lost','Archived']
 //   - pipeline 'active' filter updated to match
+//
+// CHANGES (Counselor drill-down):
+//   - Click any counselor row in "Leads by Counselor" to open a drill-down
+//     panel on the right showing that counselor's Leads by Stone +
+//     Leads by Status as mini bar charts. Chart resizes to ~50% width.
+//   - Click the same row again, a different row, or the (×) button to
+//     switch counselors or close the drill-down.
+//   - Mini-chart bars navigate to /leads filtered by counselor +
+//     stone/status (pre-filtered by uniqueId).
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { FiX } from 'react-icons/fi';
 import { studentAPI, staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
@@ -36,21 +46,20 @@ function getRolling3m() {
 // ── Colors ────────────────────────────────────────────────────
 const STONE_COLORS  = { Quartz:'#9CA3AF', Agate:'#78716C', Sapphire:'#2563EB', Ruby:'#DC2626', Diamond:'#8B5CF6' };
 const STATUS_COLORS = {
-  'New':                          '#6B7280',  // grey
-  'Not contactable':              '#94A3B8',  // slate
-  'Engaged':                      '#3B82F6',  // blue
-  'Vetted':                       '#8B5CF6',  // purple
-  'Met with customer and family': '#06B6D4',  // cyan
-  'Proposal':                     '#F59E0B',  // amber
-  'Family negotiation/review':    '#F97316',  // orange
-  'Contracted':                   '#10B981',  // green
-  'Lost':                         '#EF4444',  // red
-  'Nurturing':                    '#14B8A6',  // teal
-  'Archived':                     '#64748B',  // slate-dark
+  'New':                          '#6B7280',
+  'Not contactable':              '#94A3B8',
+  'Engaged':                      '#3B82F6',
+  'Vetted':                       '#8B5CF6',
+  'Met with customer and family': '#06B6D4',
+  'Proposal':                     '#F59E0B',
+  'Family negotiation/review':    '#F97316',
+  'Contracted':                   '#10B981',
+  'Lost':                         '#EF4444',
+  'Nurturing':                    '#14B8A6',
+  'Archived':                     '#64748B',
 };
 const SOURCE_COLORS = ['#2563EB','#0891B2','#059669','#D97706','#7C3AED','#DB2777'];
 
-// Terminal statuses — not "active" for pipeline purposes
 const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived'];
 
 const COUNSELOR_STONES        = ['Diamond', 'Ruby', 'Sapphire', 'Agate', 'Quartz', 'Unscored'];
@@ -150,6 +159,8 @@ export default function Dashboard() {
   const [leads, setLeads]       = useState([]);
   const [myStaff, setMyStaff]   = useState(null);
   const [loading, setLoading]   = useState(true);
+  // Currently selected counselor for drill-down; null = chart full-width.
+  const [selectedCounselor, setSelectedCounselor] = useState(null);
   const { staff, isManager, isAdmin } = useAuth();
   const navigate                = useNavigate();
 
@@ -241,6 +252,32 @@ export default function Dashboard() {
       .sort((a, b) => b.total - a.total);
   }, [leads, isManager, isAdmin]);
 
+  // ── Drill-down data for the selected counselor ────────────────
+  const selectedCounselorLeads = useMemo(() => {
+    if (!selectedCounselor) return [];
+    return leads.filter(l => (l.counselor || 'Unassigned') === selectedCounselor);
+  }, [leads, selectedCounselor]);
+
+  const selectedStoneData = useMemo(() => {
+    const counts = {};
+    selectedCounselorLeads.forEach(l => { const s = l.stoneTier || 'Unscored'; counts[s] = (counts[s]||0)+1; });
+    return ['Diamond','Ruby','Sapphire','Agate','Quartz','Unscored']
+      .filter(k => counts[k]).map(k => ({ name: k, count: counts[k] }));
+  }, [selectedCounselorLeads]);
+
+  const selectedStatusData = useMemo(() => {
+    const counts = {};
+    selectedCounselorLeads.forEach(l => { const s = l.leadStatus || 'New'; counts[s] = (counts[s]||0)+1; });
+    return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  }, [selectedCounselorLeads]);
+
+  // If the selected counselor disappears (e.g. data refresh), drop the selection.
+  useEffect(() => {
+    if (selectedCounselor && !counselorData.some(c => c.counselor === selectedCounselor)) {
+      setSelectedCounselor(null);
+    }
+  }, [counselorData, selectedCounselor]);
+
   function drillDown(filterKey, filterValue) {
     navigate('/leads', { state: { drillFilter: { key: filterKey, value: filterValue } } });
   }
@@ -249,6 +286,26 @@ export default function Dashboard() {
   }
   function drillCounselor(leads) {
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: leads.map(l => l.uniqueId) } } });
+  }
+  // Toggle the drill-down panel for a counselor.
+  // Same name → close; different name → switch.
+  function toggleCounselor(name) {
+    setSelectedCounselor(prev => prev === name ? null : name);
+  }
+  // Drill into /leads filtered by both the selected counselor AND a stone/status.
+  function drillCounselorStone(counselor, stone) {
+    const ids = leads
+      .filter(l => (l.counselor || 'Unassigned') === counselor
+                && (l.stoneTier || 'Unscored')   === stone)
+      .map(l => l.uniqueId);
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
+  }
+  function drillCounselorStatus(counselor, status) {
+    const ids = leads
+      .filter(l => (l.counselor || 'Unassigned') === counselor
+                && (l.leadStatus || 'New')       === status)
+      .map(l => l.uniqueId);
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
   }
 
   if (loading) return <div className="loading-center">Loading dashboard...</div>;
@@ -311,104 +368,192 @@ export default function Dashboard() {
         </div>
 
         {showCounselor && (
-          <div className="section-card">
-            <div className="section-header">
-              <span className="section-title">Leads by Counselor</span>
-              <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
-                Click any segment to view those leads
-              </span>
-            </div>
+          <div style={{
+            display:'grid',
+            gridTemplateColumns: selectedCounselor ? '1fr 1fr' : '1fr',
+            gap:'1rem',
+            transition:'grid-template-columns 0.3s ease',
+          }}>
 
-            <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
-              {COUNSELOR_STONES.map(stone => (
-                <div key={stone} style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                  <div style={{
-                    width:'12px', height:'12px', borderRadius:'3px', flexShrink:0,
-                    background: COUNSELOR_STONE_COLORS[stone],
-                    border: stone === 'Unscored' ? '1px solid #D1D5DB' : 'none',
-                  }}/>
-                  <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{stone}</span>
-                </div>
-              ))}
-            </div>
+            {/* ── Leads by Counselor chart (shrinks when a counselor is selected) ── */}
+            <div className="section-card">
+              <div className="section-header">
+                <span className="section-title">Leads by Counselor</span>
+                <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
+                  Click a counselor to drill down
+                </span>
+              </div>
 
-            <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-              {counselorData.map(({ counselor, stoneMap, total }) => {
-                const barWidthPct = (total / maxCounselorTotal) * 100;
-                return (
-                  <div key={counselor} style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-
-                    <div style={{
-                      width:'160px', flexShrink:0, textAlign:'right',
-                      fontSize:'0.8125rem', fontWeight:500,
-                      overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
-                    }}>
-                      {counselor}
-                    </div>
-
-                    <div style={{
-                      flex:1, height:'30px', display:'flex',
-                      borderRadius:'4px', overflow:'hidden',
-                      background:'var(--bg-secondary)',
-                    }}>
-                      <div style={{ width:`${barWidthPct}%`, display:'flex', height:'100%' }}>
-                        {COUNSELOR_STONES.map(stone => {
-                          const arr = stoneMap[stone] || [];
-                          if (!arr.length) return null;
-                          const segPct = (arr.length / total) * 100;
-                          return (
-                            <div
-                              key={stone}
-                              title={`${counselor} — ${stone}: ${arr.length}`}
-                              onClick={() => drillCounselor(arr)}
-                              style={{
-                                width:`${segPct}%`,
-                                background: COUNSELOR_STONE_COLORS[stone],
-                                display:'flex', alignItems:'center', justifyContent:'center',
-                                cursor:'pointer', overflow:'hidden',
-                                border: stone === 'Unscored' ? '1px solid #D1D5DB' : 'none',
-                              }}
-                              onMouseEnter={e => e.currentTarget.style.filter='brightness(0.85)'}
-                              onMouseLeave={e => e.currentTarget.style.filter='none'}
-                            >
-                              {segPct > 4 && (
-                                <span style={{ fontSize:'0.7rem', fontWeight:700, color: COUNSELOR_STONE_TEXT[stone], userSelect:'none' }}>
-                                  {arr.length}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div
-                      onClick={() => drillCounselor(Object.values(stoneMap).flat())}
-                      style={{ width:'32px', flexShrink:0, fontSize:'0.875rem', fontWeight:700, cursor:'pointer' }}
-                      title={`${counselor} — all ${total} leads`}
-                    >
-                      {total}
-                    </div>
-
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{ marginTop:'1.25rem', paddingTop:'0.875rem', borderTop:'1px solid var(--border)', display:'flex', gap:'1.25rem', flexWrap:'wrap' }}>
-              {COUNSELOR_STONES.map(stone => {
-                const count = leads.filter(l => (COUNSELOR_STONES.includes(l.stoneTier) ? l.stoneTier : 'Unscored') === stone).length;
-                if (!count) return null;
-                return (
+              <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
+                {COUNSELOR_STONES.map(stone => (
                   <div key={stone} style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                    <div style={{ width:'9px', height:'9px', borderRadius:'2px', background: COUNSELOR_STONE_COLORS[stone], border: stone==='Unscored'?'1px solid #D1D5DB':'none' }}/>
-                    <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{stone}:</span>
-                    <span style={{ fontSize:'0.8rem', fontWeight:600 }}>{count}</span>
+                    <div style={{
+                      width:'12px', height:'12px', borderRadius:'3px', flexShrink:0,
+                      background: COUNSELOR_STONE_COLORS[stone],
+                      border: stone === 'Unscored' ? '1px solid #D1D5DB' : 'none',
+                    }}/>
+                    <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{stone}</span>
                   </div>
-                );
-              })}
-              <div style={{ marginLeft:'auto', fontSize:'0.8rem', fontWeight:700 }}>Total: {leads.length}</div>
+                ))}
+              </div>
+
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                {counselorData.map(({ counselor, stoneMap, total }) => {
+                  const barWidthPct = (total / maxCounselorTotal) * 100;
+                  const isSelected  = selectedCounselor === counselor;
+                  return (
+                    <div
+                      key={counselor}
+                      onClick={() => toggleCounselor(counselor)}
+                      style={{
+                        display:'flex', alignItems:'center', gap:'0.75rem',
+                        padding:'0.3rem 0.4rem', borderRadius:'6px',
+                        cursor:'pointer',
+                        background: isSelected ? 'var(--bg-secondary)' : 'transparent',
+                        outline: isSelected ? '1px solid var(--primary)' : 'none',
+                        transition:'background 0.15s, outline 0.15s',
+                      }}
+                      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background='var(--bg-secondary)'; }}
+                      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background='transparent'; }}
+                    >
+
+                      <div style={{
+                        width:'160px', flexShrink:0, textAlign:'right',
+                        fontSize:'0.8125rem', fontWeight: isSelected ? 600 : 500,
+                        overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+                        color: isSelected ? 'var(--primary)' : 'inherit',
+                      }}>
+                        {counselor}
+                      </div>
+
+                      <div style={{
+                        flex:1, height:'30px', display:'flex',
+                        borderRadius:'4px', overflow:'hidden',
+                        background:'var(--bg-secondary)',
+                      }}>
+                        <div style={{ width:`${barWidthPct}%`, display:'flex', height:'100%' }}>
+                          {COUNSELOR_STONES.map(stone => {
+                            const arr = stoneMap[stone] || [];
+                            if (!arr.length) return null;
+                            const segPct = (arr.length / total) * 100;
+                            return (
+                              <div
+                                key={stone}
+                                title={`${counselor} — ${stone}: ${arr.length}`}
+                                style={{
+                                  width:`${segPct}%`,
+                                  background: COUNSELOR_STONE_COLORS[stone],
+                                  display:'flex', alignItems:'center', justifyContent:'center',
+                                  overflow:'hidden',
+                                  border: stone === 'Unscored' ? '1px solid #D1D5DB' : 'none',
+                                }}
+                              >
+                                {segPct > 4 && (
+                                  <span style={{ fontSize:'0.7rem', fontWeight:700, color: COUNSELOR_STONE_TEXT[stone], userSelect:'none' }}>
+                                    {arr.length}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{ width:'32px', flexShrink:0, fontSize:'0.875rem', fontWeight:700 }}
+                        title={`${counselor} — all ${total} leads`}
+                      >
+                        {total}
+                      </div>
+
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ marginTop:'1.25rem', paddingTop:'0.875rem', borderTop:'1px solid var(--border)', display:'flex', gap:'1.25rem', flexWrap:'wrap' }}>
+                {COUNSELOR_STONES.map(stone => {
+                  const count = leads.filter(l => (COUNSELOR_STONES.includes(l.stoneTier) ? l.stoneTier : 'Unscored') === stone).length;
+                  if (!count) return null;
+                  return (
+                    <div key={stone} style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                      <div style={{ width:'9px', height:'9px', borderRadius:'2px', background: COUNSELOR_STONE_COLORS[stone], border: stone==='Unscored'?'1px solid #D1D5DB':'none' }}/>
+                      <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{stone}:</span>
+                      <span style={{ fontSize:'0.8rem', fontWeight:600 }}>{count}</span>
+                    </div>
+                  );
+                })}
+                <div style={{ marginLeft:'auto', fontSize:'0.8rem', fontWeight:700 }}>Total: {leads.length}</div>
+              </div>
             </div>
+
+            {/* ── Drill-down panel (only while a counselor is selected) ── */}
+            {selectedCounselor && (
+              <div className="section-card">
+                <div className="section-header" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.5rem' }}>
+                  <div style={{ display:'flex', flexDirection:'column', minWidth:0 }}>
+                    <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)', fontWeight:500, textTransform:'uppercase', letterSpacing:'0.04em' }}>
+                      Counselor
+                    </span>
+                    <span className="section-title" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                      {selectedCounselor}
+                    </span>
+                    <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.125rem' }}>
+                      {selectedCounselorLeads.length} lead{selectedCounselorLeads.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setSelectedCounselor(null)}
+                    title="Close drill-down"
+                    aria-label="Close drill-down"
+                    style={{
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      width:'28px', height:'28px', padding:0, flexShrink:0,
+                      border:'1px solid var(--border)', borderRadius:'6px',
+                      background:'#fff', color:'var(--text-secondary)', cursor:'pointer',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background='var(--bg-secondary)'; e.currentTarget.style.color='var(--text-primary)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background='#fff'; e.currentTarget.style.color='var(--text-secondary)'; }}
+                  >
+                    <FiX size={15}/>
+                  </button>
+                </div>
+
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginTop:'0.5rem' }}>
+
+                  <div>
+                    <div style={{ fontSize:'0.8125rem', fontWeight:600, marginBottom:'0.625rem' }}>Leads by Stone</div>
+                    {selectedStoneData.length === 0 ? (
+                      <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>No leads</div>
+                    ) : (
+                      <HBarChart
+                        data={selectedStoneData}
+                        colorMap={STONE_COLORS}
+                        onBarClick={name => drillCounselorStone(selectedCounselor, name)}
+                      />
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize:'0.8125rem', fontWeight:600, marginBottom:'0.625rem' }}>Leads by Status</div>
+                    {selectedStatusData.length === 0 ? (
+                      <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>No leads</div>
+                    ) : (
+                      <HBarChart
+                        data={selectedStatusData}
+                        colorMap={STATUS_COLORS}
+                        onBarClick={name => drillCounselorStatus(selectedCounselor, name)}
+                      />
+                    )}
+                  </div>
+
+                </div>
+
+                <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.875rem' }}>
+                  Click a bar to view those leads
+                </div>
+              </div>
+            )}
           </div>
         )}
 
