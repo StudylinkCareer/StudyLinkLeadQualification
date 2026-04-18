@@ -117,6 +117,8 @@ const en = {
   facebookProfile: 'Facebook Profile',
   facebookProfilePlaceholder: 'Facebook profile URL',
   studyPlansLabel: 'Dream',
+  referralSource: 'Referral Source',
+  referralSourcePlaceholder: 'How did you hear about us?',
 
   campaignSection: 'Event Information',
   campaignType:    'Campaign Type',
