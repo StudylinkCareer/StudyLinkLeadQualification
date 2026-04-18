@@ -1,14 +1,24 @@
 // src/components/Sidebar.jsx
+// -----------------------------------------------------------------------------
+// CHANGES:
+//   - Added collapse button (<) in the sidebar header, top-right.
+//     Clicking it calls toggle() from NavCollapseContext which sets
+//     `collapsed = true`; the .nav-collapsed class on .app-layout then
+//     hides the sidebar via CSS.
+// -----------------------------------------------------------------------------
+
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavCollapse } from '../contexts/NavCollapseContext';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
-  const { staff, logout, isAdmin, isManager } = useAuth();
-  const navigate  = useNavigate();
-  const location  = useLocation();
+  const { staff, logout, isAdmin } = useAuth();
+  const { toggle }                  = useNavCollapse();
+  const navigate                    = useNavigate();
+  const location                    = useLocation();
 
   const isActive = (path) => location.pathname.startsWith(path);
 
@@ -20,8 +30,20 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div className="sidebar-logo">StudyLink</div>
-        <div className="sidebar-subtitle">Lead Management</div>
+        <div className="sidebar-header-row">
+          <div>
+            <div className="sidebar-logo">StudyLink</div>
+            <div className="sidebar-subtitle">Lead Management</div>
+          </div>
+          <button
+            className="nav-collapse-btn"
+            onClick={toggle}
+            title="Collapse navigation"
+            aria-label="Collapse navigation"
+          >
+            <FiChevronLeft size={16} />
+          </button>
+        </div>
       </div>
 
       <nav className="sidebar-nav">

@@ -730,3 +730,86 @@ tr:hover td {
   .charts-grid { grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* =============================================================================
+   NAV COLLAPSE / EXPAND
+   Append to end of src/index.css
+   -----------------------------------------------------------------------------
+   - `.nav-collapsed` class is added to `.app-layout` when the sidebar is hidden
+   - Sidebar is removed from flow; main content takes full width
+   - Floating expand button sits top-left of content when collapsed
+   ========================================================================== */
+
+/* Hide the sidebar entirely when collapsed */
+.app-layout.nav-collapsed .sidebar {
+  display: none;
+}
+
+/* Drop the reserved left space so main content uses full width */
+.app-layout.nav-collapsed .main-content {
+  margin-left: 0;
+}
+
+/* ── Collapse button inside the sidebar header ── */
+.sidebar-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.nav-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.nav-collapse-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+/* ── Floating expand button (shown only when collapsed) ── */
+.nav-expand-btn {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  transition: all 0.15s;
+}
+
+.nav-expand-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Mobile: sidebar was already hidden by the existing @media rule, so the
+   expand button should also hide on mobile (since there's nothing to expand
+   back to in the current mobile layout). Adjust if mobile nav is added. */
+@media (max-width: 768px) {
+  .nav-expand-btn { display: none; }
+}
