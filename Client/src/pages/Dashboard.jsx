@@ -3,7 +3,7 @@
 //   - STATUS_COLORS updated for new lead statuses
 //   - stats.won now checks for 'Contracted'
 //   - stats.active excludes ['Contracted','Lost','Archived']
-//   - pipeline 'active' filter updated to match
+//   - pipeline 'active' filter updated to match.
 //
 // CHANGES (Counselor drill-down):
 //   - Click any counselor row in "Leads by Counselor" to open a drill-down
