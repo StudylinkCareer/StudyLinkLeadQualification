@@ -20,7 +20,8 @@
 //   - All UI chrome uses t(key, language)
 //   - Lead Status chart labels + Pipeline Statistics use labelFor(status, language)
 //     from leadStatusLabels.js so status names translate with the language.
-//   - Stone tier names (Diamond, Ruby, etc.) stay English — branded metaphor.
+//   - Stone tier names use stoneLabel(tier, language) from stoneLabels.js —
+//     the DB still stores canonical English values.
 //   - Counselor names are user data and are not translated.
 
 import { useState, useEffect, useMemo } from 'react';
@@ -31,6 +32,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import { labelFor } from '../utils/leadStatusLabels';
+import { stoneLabel } from '../utils/stoneLabels';
 import Watermark from '../components/Watermark';
 
 // ── Date helpers ──────────────────────────────────────────────
@@ -55,7 +57,6 @@ function getRolling3m() {
   return d;
 }
 
-// Simple {placeholder} substitution.
 function fmt(str, params) {
   if (!params) return str;
   return Object.keys(params).reduce(
@@ -121,8 +122,6 @@ function StatCard({ label, value, sub, color, onClick }) {
 }
 
 // ── Horizontal bar chart ──────────────────────────────────────
-// `displayFor` lets the caller override how each entry is displayed
-// (without changing entry.name, which is used for click callbacks).
 function HBarChart({ data, colorMap, defaultColor, onBarClick, displayFor }) {
   const max = Math.max(...data.map(d => d.count), 1);
   return (
@@ -485,7 +484,9 @@ export default function Dashboard() {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
             <div className="section-card">
               <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStone', language)}</span></div>
-              <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
+              <HBarChart data={stoneData} colorMap={STONE_COLORS}
+                displayFor={name => stoneLabel(name, language)}
+                onBarClick={name => drillDown('stoneTier', name)}/>
               <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>{t('dashboard.clickBarToView', language)}</div>
             </div>
 
@@ -502,7 +503,9 @@ export default function Dashboard() {
 
             <div className="section-card">
               <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStone', language)}</span></div>
-              <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
+              <HBarChart data={stoneData} colorMap={STONE_COLORS}
+                displayFor={name => stoneLabel(name, language)}
+                onBarClick={name => drillDown('stoneTier', name)}/>
               <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>{t('dashboard.clickBarToView', language)}</div>
             </div>
 
@@ -542,6 +545,7 @@ export default function Dashboard() {
                 </span>
               </div>
 
+              {/* Stone legend at top of counselor chart */}
               <div style={{ display:'flex', gap:'1rem', flexWrap:'wrap', marginBottom:'1.25rem' }}>
                 {COUNSELOR_STONES.map(stone => (
                   <div key={stone} style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
@@ -550,7 +554,7 @@ export default function Dashboard() {
                       background: COUNSELOR_STONE_COLORS[stone],
                       border: stone === 'Unscored' ? '1px solid #D1D5DB' : 'none',
                     }}/>
-                    <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{stone}</span>
+                    <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{stoneLabel(stone, language)}</span>
                   </div>
                 ))}
               </div>
@@ -598,7 +602,7 @@ export default function Dashboard() {
                             return (
                               <div
                                 key={stone}
-                                title={`${counselor} — ${stone}: ${arr.length}`}
+                                title={`${counselor} — ${stoneLabel(stone, language)}: ${arr.length}`}
                                 style={{
                                   width:`${segPct}%`,
                                   background: COUNSELOR_STONE_COLORS[stone],
@@ -630,6 +634,7 @@ export default function Dashboard() {
                 })}
               </div>
 
+              {/* Bottom stone totals summary */}
               <div style={{ marginTop:'1.25rem', paddingTop:'0.875rem', borderTop:'1px solid var(--border)', display:'flex', gap:'1.25rem', flexWrap:'wrap' }}>
                 {COUNSELOR_STONES.map(stone => {
                   const count = leads.filter(l => (COUNSELOR_STONES.includes(l.stoneTier) ? l.stoneTier : 'Unscored') === stone).length;
@@ -637,7 +642,7 @@ export default function Dashboard() {
                   return (
                     <div key={stone} style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
                       <div style={{ width:'9px', height:'9px', borderRadius:'2px', background: COUNSELOR_STONE_COLORS[stone], border: stone==='Unscored'?'1px solid #D1D5DB':'none' }}/>
-                      <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{stone}:</span>
+                      <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{stoneLabel(stone, language)}:</span>
                       <span style={{ fontSize:'0.8rem', fontWeight:600 }}>{count}</span>
                     </div>
                   );
@@ -686,6 +691,7 @@ export default function Dashboard() {
                     <HBarChart
                       data={selectedStoneData}
                       colorMap={STONE_COLORS}
+                      displayFor={name => stoneLabel(name, language)}
                       onBarClick={name => drillCounselorStone(selectedCounselor, name)}
                     />
                   )}
