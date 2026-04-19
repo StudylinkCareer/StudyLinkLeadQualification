@@ -9,42 +9,28 @@
 //   - Click any counselor row in "Leads by Counselor" to open a drill-down
 //     panel on the right showing that counselor's Leads by Stone +
 //     Leads by Status as mini bar charts. Chart resizes to ~50% width.
-//   - Click the same row again, a different row, or the (×) button to
-//     switch counselors or close the drill-down.
-//   - Mini-chart bars navigate to /leads filtered by counselor +
-//     stone/status (pre-filtered by uniqueId).
 //
 // CHANGES (Manager/Admin KPI layout):
 //   - Manager/Admin dashboard uses a two-level layout:
 //       Level 1: Leads by Stone + Leads by Status side-by-side (full width)
-//       Level 2:
-//         No counselor selected → 2 frames:
-//           Frame 1: Leads by Counselor
-//           Frame 2: Pipeline Statistics (Manager-only column)
-//         Counselor selected → 3 frames:
-//           Frame 1: Leads by Counselor (compressed)
-//           Frame 2: upper = Stone for counselor,
-//                    lower = Status for counselor (stacked)
-//           Frame 3: Pipeline Statistics (2 numeric columns —
-//                    Manager aggregate + selected counselor)
-//   - 'Leads by Source' removed from Manager/Admin view entirely.
-//   - Pipeline Statistics is now a table with common header and row names;
-//     the "counselor" column appears only when a counselor is selected.
-//   - Target row logic is role-dependent:
-//       * Counselor → own target (from /api/staff/me)
-//       * Manager   → aggregate of all active Counselors' targets
-//                     (from /api/staff/active). Sub-text reads
-//                     "Aggregated from N counselors".
-//       * Admin     → Target row is hidden (Admins have no target).
-//   - /api/staff/me is the new secure endpoint so Counselors can fetch
-//     their own target (previously they saw '—' / 'Not set' because
-//     list() is Admin-only).
+//       Level 2: 2 frames (no selection) or 3 frames (counselor selected)
+//   - Pipeline Statistics is a bilingual table (Manager + selected counselor)
+//
+// CHANGES (i18n Phase 2b):
+//   - All UI chrome uses t(key, language)
+//   - Lead Status chart labels + Pipeline Statistics use labelFor(status, language)
+//     from leadStatusLabels.js so status names translate with the language.
+//   - Stone tier names (Diamond, Ruby, etc.) stay English — branded metaphor.
+//   - Counselor names are user data and are not translated.
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiX } from 'react-icons/fi';
 import { studentAPI, staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import { t } from '../i18n';
+import { labelFor } from '../utils/leadStatusLabels';
 import Watermark from '../components/Watermark';
 
 // ── Date helpers ──────────────────────────────────────────────
@@ -67,6 +53,15 @@ function getRolling3m() {
   const d = new Date();
   d.setMonth(d.getMonth() + 3);
   return d;
+}
+
+// Simple {placeholder} substitution.
+function fmt(str, params) {
+  if (!params) return str;
+  return Object.keys(params).reduce(
+    (acc, k) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), params[k]),
+    str
+  );
 }
 
 // ── Colors ────────────────────────────────────────────────────
@@ -125,44 +120,23 @@ function StatCard({ label, value, sub, color, onClick }) {
   );
 }
 
-// ── Pipeline row ──────────────────────────────────────────────
-function PipelineRow({ label, count, sub, color, onClick, isTarget }) {
-  return (
-    <div onClick={onClick} style={{
-      display:'flex', justifyContent:'space-between', alignItems:'center',
-      padding:'0.625rem 0', borderBottom:'1px solid var(--border)',
-      cursor: onClick ? 'pointer' : 'default',
-    }}
-    onMouseEnter={e=>{ if(onClick) e.currentTarget.style.background='var(--bg-secondary)'; }}
-    onMouseLeave={e=>{ e.currentTarget.style.background='transparent'; }}>
-      <div>
-        <div style={{ fontSize:'0.875rem', fontWeight: isTarget ? 600 : 400 }}>{label}</div>
-        {sub && <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{sub}</div>}
-      </div>
-      <div style={{
-        fontSize: isTarget ? '1.25rem' : '1rem',
-        fontWeight:600, color: color || 'var(--text-primary)',
-        minWidth:'2rem', textAlign:'right',
-      }}>
-        {count}
-      </div>
-    </div>
-  );
-}
-
 // ── Horizontal bar chart ──────────────────────────────────────
-function HBarChart({ data, colorMap, defaultColor, onBarClick }) {
+// `displayFor` lets the caller override how each entry is displayed
+// (without changing entry.name, which is used for click callbacks).
+function HBarChart({ data, colorMap, defaultColor, onBarClick, displayFor }) {
   const max = Math.max(...data.map(d => d.count), 1);
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem' }}>
       {data.map((entry, i) => {
         const color = colorMap?.[entry.name] || (Array.isArray(defaultColor) ? defaultColor[i % defaultColor.length] : defaultColor) || '#2563EB';
         const pct = (entry.count / max) * 100;
+        const display = displayFor ? displayFor(entry.name) : entry.name;
         return (
           <div key={entry.name} onClick={() => onBarClick && onBarClick(entry.name)}
             style={{ display:'flex', alignItems:'center', gap:'0.5rem', cursor: onBarClick ? 'pointer' : 'default' }}>
-            <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', width:'110px', flexShrink:0, textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-              {entry.name}
+            <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', width:'110px', flexShrink:0, textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                 title={display}>
+              {display}
             </div>
             <div style={{ flex:1, height:'22px', background:'var(--bg-secondary)', borderRadius:'4px', overflow:'hidden' }}>
               <div style={{
@@ -184,27 +158,22 @@ function HBarChart({ data, colorMap, defaultColor, onBarClick }) {
 export default function Dashboard() {
   const [leads, setLeads]       = useState([]);
   const [myStaff, setMyStaff]   = useState(null);
-  // Full active-staff list — used by Managers to aggregate counselor targets.
   const [activeStaff, setActiveStaff] = useState([]);
   const [loading, setLoading]   = useState(true);
-  // Currently selected counselor for drill-down; null = chart full-width.
   const [selectedCounselor, setSelectedCounselor] = useState(null);
   const { staff, isManager, isAdmin } = useAuth();
+  const { language }            = useLanguage();
   const navigate                = useNavigate();
 
   useEffect(() => {
     const promises = [studentAPI.search('').then(d => setLeads(d.data || []))];
     if (staff?.id) {
       promises.push(
-        // Fetch the logged-in user's OWN record via the secure /me endpoint.
-        // Any role can call this; returns target, targetSetBy, targetSetAt.
         staffAPI.me()
           .then(d => { if (d.data) setMyStaff(d.data); })
           .catch(() => {})
       );
     }
-    // Managers aggregate targets across all active counselors.
-    // Admins don't need this — they won't see a target row at all.
     if (isManager) {
       promises.push(
         staffAPI.listActive()
@@ -290,7 +259,6 @@ export default function Dashboard() {
       .sort((a, b) => b.total - a.total);
   }, [leads, isManager, isAdmin]);
 
-  // ── Drill-down data for the selected counselor ────────────────
   const selectedCounselorLeads = useMemo(() => {
     if (!selectedCounselor) return [];
     return leads.filter(l => (l.counselor || 'Unassigned') === selectedCounselor);
@@ -309,8 +277,6 @@ export default function Dashboard() {
     return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   }, [selectedCounselorLeads]);
 
-  // Pipeline buckets scoped to the selected counselor's leads.
-  // Mirrors the top-level `pipeline` computation but filtered.
   const selectedPipeline = useMemo(() => {
     if (!selectedCounselor) return null;
     const weekEnd    = getWeekEnd();
@@ -327,14 +293,11 @@ export default function Dashboard() {
     return { thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
   }, [selectedCounselor, selectedCounselorLeads]);
 
-  // The selected counselor's own target + targetSetBy, if we have their
-  // staff record available (Manager pulled it via listActive).
   const selectedCounselorStaff = useMemo(() => {
     if (!selectedCounselor) return null;
     return activeStaff.find(s => s.fullName === selectedCounselor) || null;
   }, [activeStaff, selectedCounselor]);
 
-  // If the selected counselor disappears (e.g. data refresh), drop the selection.
   useEffect(() => {
     if (selectedCounselor && !counselorData.some(c => c.counselor === selectedCounselor)) {
       setSelectedCounselor(null);
@@ -347,12 +310,9 @@ export default function Dashboard() {
   function drillPipeline(leads) {
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: leads.map(l => l.uniqueId) } } });
   }
-  // Toggle the drill-down panel for a counselor.
-  // Same name → close; different name → switch.
   function toggleCounselor(name) {
     setSelectedCounselor(prev => prev === name ? null : name);
   }
-  // Drill into /leads filtered by both the selected counselor AND a stone/status.
   function drillCounselorStone(counselor, stone) {
     const ids = leads
       .filter(l => (l.counselor || 'Unassigned') === counselor
@@ -368,57 +328,59 @@ export default function Dashboard() {
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
   }
 
-  if (loading) return <div className="loading-center">Loading dashboard...</div>;
+  if (loading) return <div className="loading-center">{t('dashboard.loading', language)}</div>;
 
   const isManagerOrAdmin = isManager || isAdmin;
   const maxCounselorTotal = Math.max(...counselorData.map(d => d.total), 1);
 
-  // ── Shared: Pipeline Statistics card ─────────────────────────
-  // Rendered as a table with one or two numeric columns:
-  //   - Counselor view: 1 column (their own numbers)
-  //   - Manager view, no selection: 1 column (Manager aggregate)
-  //   - Manager view, counselor selected: 2 columns (Manager + that counselor)
+  // ── Pipeline Statistics: bilingual table ─────────────────────
   const showCounselorCol = isManagerOrAdmin && !!selectedCounselor;
 
-  // Rows are declared once; each row pulls both manager and counselor counts.
   const pipelineRows = [
-    { key:'thisWeek',     label:'Close this week',    sub:`by Sunday ${getWeekEnd().toLocaleDateString()}`, color:'#10B981' },
-    { key:'thisMonth',    label:'Close this month',   sub:`by ${getMonthEnd().toLocaleDateString()}`,        color:'#2563EB' },
-    { key:'thisQuarter',  label:'Close this quarter', sub:`by ${getQuarterEnd().toLocaleDateString()}`,      color:'#8B5CF6' },
-    { key:'rolling',      label:'Rolling 3 months',   sub:'beyond quarter end',                               color:'#F59E0B' },
-    { key:'notProjected', label:'Beyond 3 months',    sub:null,                                               color:'#EF4444' },
-    { key:'noCloseDate',  label:'No close date',      sub:null,                                               color:'#9CA3AF' },
+    { key:'thisWeek',     labelKey:'dashboard.pipeline.closeThisWeek',    subKey:'dashboard.pipeline.closeThisWeek.sub',    subParams:{ date: getWeekEnd().toLocaleDateString()    }, color:'#10B981' },
+    { key:'thisMonth',    labelKey:'dashboard.pipeline.closeThisMonth',   subKey:'dashboard.pipeline.closeThisMonth.sub',   subParams:{ date: getMonthEnd().toLocaleDateString()   }, color:'#2563EB' },
+    { key:'thisQuarter',  labelKey:'dashboard.pipeline.closeThisQuarter', subKey:'dashboard.pipeline.closeThisQuarter.sub', subParams:{ date: getQuarterEnd().toLocaleDateString() }, color:'#8B5CF6' },
+    { key:'rolling',      labelKey:'dashboard.pipeline.rolling3Months',   subKey:'dashboard.pipeline.rolling3Months.sub',   subParams:null,                                            color:'#F59E0B' },
+    { key:'notProjected', labelKey:'dashboard.pipeline.beyond3Months',    subKey:null,                                      subParams:null,                                            color:'#EF4444' },
+    { key:'noCloseDate',  labelKey:'dashboard.pipeline.noCloseDate',      subKey:null,                                      subParams:null,                                            color:'#9CA3AF' },
   ];
 
-  // Resolve the target values displayed in the table header row.
   const managerTargetCount = (() => {
     if (isManager) {
       const cw = activeStaff.filter(s => s.role === 'Counselor' && s.target != null);
       return cw.length > 0 ? cw.reduce((sum, s) => sum + Number(s.target || 0), 0) : '—';
     }
     if (!isAdmin) return myStaff?.target ?? '—';
-    return null; // Admin: no target row
+    return null;
   })();
+
   const managerTargetSub = (() => {
     if (isManager) {
       const n = activeStaff.filter(s => s.role === 'Counselor' && s.target != null).length;
-      return n > 0 ? `Aggregated from ${n} counselor${n === 1 ? '' : 's'}` : 'No counselor targets set';
+      if (n === 0) return t('dashboard.pipeline.target.none', language);
+      const key = n === 1 ? 'dashboard.pipeline.target.aggregated' : 'dashboard.pipeline.target.aggregatedPlural';
+      return fmt(t(key, language), { n });
     }
-    if (!isAdmin) return myStaff?.targetSetBy ? `Set by ${myStaff.targetSetBy}` : 'Not set';
+    if (!isAdmin) {
+      return myStaff?.targetSetBy
+        ? fmt(t('dashboard.pipeline.target.setBy', language), { name: myStaff.targetSetBy })
+        : t('dashboard.pipeline.target.notSet', language);
+    }
     return '';
   })();
+
   const counselorTargetCount = selectedCounselorStaff?.target ?? '—';
-  const showTargetRow = !isAdmin; // Admins get no target row at all.
+  const showTargetRow = !isAdmin;
 
   const pipelineCard = (
-    <div className="section-card" style={{ maxHeight:'480px', overflowY:'auto' }}>
-      <div className="section-header"><span className="section-title">Pipeline Statistics</span></div>
+    <div className="section-card" style={{ height:'100%', overflowY:'auto', alignSelf:'stretch' }}>
+      <div className="section-header"><span className="section-title">{t('dashboard.pipeline.title', language)}</span></div>
       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.875rem' }}>
         <thead>
           <tr>
             <th style={{ textAlign:'left', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)' }}></th>
             <th style={{ textAlign:'right', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'var(--primary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)', width:'72px' }}>
-              {isManager ? 'Manager' : 'You'}
+              {isManager ? t('common.manager', language) : t('common.you', language)}
             </th>
             {showCounselorCol && (
               <th style={{ textAlign:'right', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'#10B981', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)', width:'72px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
@@ -432,7 +394,7 @@ export default function Dashboard() {
           {showTargetRow && (
             <tr>
               <td style={{ padding:'0.625rem 0.25rem', fontWeight:600, borderBottom:'1px solid var(--border)' }}>
-                <div style={{ fontSize:'0.875rem' }}>Target (Contracted this month)</div>
+                <div style={{ fontSize:'0.875rem' }}>{t('dashboard.pipeline.target', language)}</div>
                 {managerTargetSub && <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:400 }}>{managerTargetSub}</div>}
               </td>
               <td style={{ padding:'0.625rem 0.25rem', textAlign:'right', fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', borderBottom:'1px solid var(--border)' }}>
@@ -448,11 +410,12 @@ export default function Dashboard() {
           {pipelineRows.map(row => {
             const mgrLeads = pipeline[row.key] || [];
             const cslLeads = selectedPipeline ? (selectedPipeline[row.key] || []) : [];
+            const subText = row.subKey ? fmt(t(row.subKey, language), row.subParams || {}) : null;
             return (
               <tr key={row.key}>
                 <td style={{ padding:'0.5rem 0.25rem', borderBottom:'1px solid var(--border)' }}>
-                  <div style={{ fontSize:'0.875rem' }}>{row.label}</div>
-                  {row.sub && <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{row.sub}</div>}
+                  <div style={{ fontSize:'0.875rem' }}>{t(row.labelKey, language)}</div>
+                  {subText && <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{subText}</div>}
                 </td>
                 <td
                   onClick={() => drillPipeline(mgrLeads)}
@@ -490,87 +453,92 @@ export default function Dashboard() {
     </div>
   );
 
+  const selectedLeadsCount = selectedCounselorLeads.length;
+  const leadsWord = language === 'vi'
+    ? t('dashboard.counselor.leads', language)
+    : (selectedLeadsCount === 1 ? t('dashboard.counselor.lead', language) : t('dashboard.counselor.leads', language) + 's');
+
   return (
     <div>
       <Watermark />
       <div className="page-header">
-        <span className="page-title">Dashboard</span>
+        <span className="page-title">{t('dashboard.title', language)}</span>
         <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>
-          {isManagerOrAdmin ? 'All leads' : `${staff?.fullName} — your assigned leads`}
+          {isManagerOrAdmin
+            ? t('dashboard.allLeads', language)
+            : `${staff?.fullName} — ${t('dashboard.yourAssignedLeads', language)}`}
         </span>
       </div>
 
       <div className="page-body">
 
-        {/* ── Top stat cards row ───────────────────────────────── */}
+        {/* ── Top stat cards ──────────────────────────────────── */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
-          <StatCard label="Total Leads"     value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads')}/>
-          <StatCard label="Active"          value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
-          <StatCard label="Contracted"      value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
-          <StatCard label="New This Month"  value={stats.thisMonth} color="#F59E0B" sub="created this month"/>
+          <StatCard label={t('dashboard.stat.totalLeads', language)}    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads')}/>
+          <StatCard label={t('dashboard.stat.active', language)}        value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
+          <StatCard label={t('dashboard.stat.contracted', language)}    value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
+          <StatCard label={t('dashboard.stat.newThisMonth', language)}  value={stats.thisMonth} color="#F59E0B" sub={t('dashboard.stat.newThisMonth.sub', language)}/>
         </div>
 
-        {/* ── KPI charts + Pipeline row ────────────────────────── */}
+        {/* ── Level 1 / counselor mixed ───────────────────────── */}
         {isManagerOrAdmin ? (
-          // Manager/Admin — Level 1: Stone + Status side-by-side (full width).
-          // Pipeline moves down to Level 2 (Frame 3).
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
             <div className="section-card">
-              <div className="section-header"><span className="section-title">Leads by Stone</span></div>
+              <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStone', language)}</span></div>
               <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
-              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>{t('dashboard.clickBarToView', language)}</div>
             </div>
 
             <div className="section-card">
-              <div className="section-header"><span className="section-title">Leads by Status</span></div>
-              <HBarChart data={statusData} colorMap={STATUS_COLORS} onBarClick={name => drillDown('leadStatus', name)}/>
-              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+              <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStatus', language)}</span></div>
+              <HBarChart data={statusData} colorMap={STATUS_COLORS}
+                displayFor={name => labelFor(name, language)}
+                onBarClick={name => drillDown('leadStatus', name)}/>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>{t('dashboard.clickBarToView', language)}</div>
             </div>
           </div>
         ) : (
-          // Counselor view (unchanged): Stone / Status / Source / Pipeline
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 300px', gap:'1rem', marginBottom:'1.5rem' }}>
 
             <div className="section-card">
-              <div className="section-header"><span className="section-title">Leads by Stone</span></div>
+              <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStone', language)}</span></div>
               <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
-              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>{t('dashboard.clickBarToView', language)}</div>
             </div>
 
             <div className="section-card">
-              <div className="section-header"><span className="section-title">Leads by Status</span></div>
-              <HBarChart data={statusData} colorMap={STATUS_COLORS} onBarClick={name => drillDown('leadStatus', name)}/>
-              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+              <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStatus', language)}</span></div>
+              <HBarChart data={statusData} colorMap={STATUS_COLORS}
+                displayFor={name => labelFor(name, language)}
+                onBarClick={name => drillDown('leadStatus', name)}/>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>{t('dashboard.clickBarToView', language)}</div>
             </div>
 
             <div className="section-card">
-              <div className="section-header"><span className="section-title">Leads by Source</span></div>
+              <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsBySource', language)}</span></div>
               <HBarChart data={sourceData} defaultColor={SOURCE_COLORS} onBarClick={name => drillDown('leadSource', name)}/>
-              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>{t('dashboard.clickBarToView', language)}</div>
             </div>
 
             {pipelineCard}
           </div>
         )}
 
-        {/* ── Leads by Counselor + drill-down + pipeline (Manager/Admin only) ── */}
+        {/* ── Level 2 (Manager/Admin only) ────────────────────── */}
         {isManagerOrAdmin && (
           <div style={{
             display:'grid',
-            // Pipeline table is always visible in Level 2.
-            // No selection: 2 columns (Counselor chart + Pipeline-Manager only).
-            // With selection: 3 columns (chart + drill-down + Pipeline with 2 numeric cols).
             gridTemplateColumns: selectedCounselor ? '1.3fr 1fr 1fr' : '2fr 1fr',
             gap:'1rem',
             transition:'grid-template-columns 0.3s ease',
           }}>
 
-            {/* ── Frame 1: Leads by Counselor chart ── */}
+            {/* ── Frame 1: Counselor chart ── */}
             <div className="section-card">
               <div className="section-header">
-                <span className="section-title">Leads by Counselor</span>
+                <span className="section-title">{t('dashboard.chart.leadsByCounselor', language)}</span>
                 <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
-                  Click a counselor to drill down
+                  {t('dashboard.clickCounselorToDrill', language)}
                 </span>
               </div>
 
@@ -591,6 +559,7 @@ export default function Dashboard() {
                 {counselorData.map(({ counselor, stoneMap, total }) => {
                   const barWidthPct = (total / maxCounselorTotal) * 100;
                   const isSelected  = selectedCounselor === counselor;
+                  const allLeadsTitle = `${counselor} — ${t('dashboard.counselor.allLeadsTotal', language)} ${total}`;
                   return (
                     <div
                       key={counselor}
@@ -651,7 +620,7 @@ export default function Dashboard() {
 
                       <div
                         style={{ width:'32px', flexShrink:0, fontSize:'0.875rem', fontWeight:700 }}
-                        title={`${counselor} — all ${total} leads`}
+                        title={allLeadsTitle}
                       >
                         {total}
                       </div>
@@ -673,32 +642,31 @@ export default function Dashboard() {
                     </div>
                   );
                 })}
-                <div style={{ marginLeft:'auto', fontSize:'0.8rem', fontWeight:700 }}>Total: {leads.length}</div>
+                <div style={{ marginLeft:'auto', fontSize:'0.8rem', fontWeight:700 }}>{t('dashboard.counselor.total', language)}: {leads.length}</div>
               </div>
             </div>
 
-            {/* ── Frame 2: drill-down charts (Stone upper, Status lower), stacked ── */}
+            {/* ── Frame 2: drill-down ── */}
             {selectedCounselor && (
               <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
 
-                {/* Frame 2 — upper: Leads by Stone for selected counselor */}
                 <div className="section-card">
                   <div className="section-header" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.5rem' }}>
                     <div style={{ display:'flex', flexDirection:'column', minWidth:0 }}>
                       <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)', fontWeight:500, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                        Counselor
+                        {t('dashboard.counselor.label', language)}
                       </span>
                       <span className="section-title" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                         {selectedCounselor}
                       </span>
                       <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.125rem' }}>
-                        {selectedCounselorLeads.length} lead{selectedCounselorLeads.length === 1 ? '' : 's'}
+                        {selectedLeadsCount} {leadsWord}
                       </span>
                     </div>
                     <button
                       onClick={() => setSelectedCounselor(null)}
-                      title="Close drill-down"
-                      aria-label="Close drill-down"
+                      title={t('dashboard.counselor.closeDrilldown', language)}
+                      aria-label={t('dashboard.counselor.closeDrilldown', language)}
                       style={{
                         display:'flex', alignItems:'center', justifyContent:'center',
                         width:'28px', height:'28px', padding:0, flexShrink:0,
@@ -711,9 +679,9 @@ export default function Dashboard() {
                       <FiX size={15}/>
                     </button>
                   </div>
-                  <div style={{ fontSize:'0.8125rem', fontWeight:600, marginBottom:'0.625rem', marginTop:'0.5rem' }}>Leads by Stone</div>
+                  <div style={{ fontSize:'0.8125rem', fontWeight:600, marginBottom:'0.625rem', marginTop:'0.5rem' }}>{t('dashboard.chart.leadsByStone', language)}</div>
                   {selectedStoneData.length === 0 ? (
-                    <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>No leads</div>
+                    <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{t('dashboard.counselor.noLeads', language)}</div>
                   ) : (
                     <HBarChart
                       data={selectedStoneData}
@@ -722,31 +690,31 @@ export default function Dashboard() {
                     />
                   )}
                   <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.625rem' }}>
-                    Click a bar to view those leads
+                    {t('dashboard.clickBarToView', language)}
                   </div>
                 </div>
 
-                {/* Frame 2 — lower: Leads by Status for selected counselor */}
                 <div className="section-card">
-                  <div className="section-header"><span className="section-title">Leads by Status</span></div>
+                  <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStatus', language)}</span></div>
                   {selectedStatusData.length === 0 ? (
-                    <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>No leads</div>
+                    <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{t('dashboard.counselor.noLeads', language)}</div>
                   ) : (
                     <HBarChart
                       data={selectedStatusData}
                       colorMap={STATUS_COLORS}
+                      displayFor={name => labelFor(name, language)}
                       onBarClick={name => drillCounselorStatus(selectedCounselor, name)}
                     />
                   )}
                   <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.625rem' }}>
-                    Click a bar to view those leads
+                    {t('dashboard.clickBarToView', language)}
                   </div>
                 </div>
 
               </div>
             )}
 
-            {/* ── Frame 3: Pipeline Statistics (always visible in Level 2) ── */}
+            {/* ── Frame 3: Pipeline Statistics ── */}
             {pipelineCard}
           </div>
         )}

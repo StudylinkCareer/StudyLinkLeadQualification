@@ -9,11 +9,21 @@
 //     (same aggregate impact).
 //   - Creating a new staff member with role = Counselor also prompts.
 //
-// These are native browser confirm() dialogs to match the existing
-// deactivation pattern.
+// CHANGES (i18n Phase 2b):
+//   - All UI chrome (headers, column labels, modal titles, buttons,
+//     form labels, confirms) uses t(key, language).
+//   - Role badges still show the English role value (since that's the
+//     DB-stored canonical string). The badge color class still uses
+//     the English value (role.toLowerCase()).
+//   - Position & Role dropdown values stay English (they're DB values).
+//   - Confirm prompts use {name} placeholder substitution.
+// -----------------------------------------------------------------------------
+
 import { useState, useEffect } from 'react';
 import { staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import { t } from '../i18n';
 import { FiPlus, FiEdit2, FiUserX, FiKey, FiX, FiTarget } from 'react-icons/fi';
 
 const POSITIONS = [
@@ -23,12 +33,22 @@ const POSITIONS = [
 ];
 const ROLES = ['Director', 'Manager', 'Admin', 'Counselor'];
 
+// Simple {placeholder} templating.
+function fmt(str, params) {
+  if (!params) return str;
+  return Object.keys(params).reduce(
+    (acc, k) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), params[k]),
+    str
+  );
+}
+
 function roleBadge(role) {
   return <span className={`badge badge--${role?.toLowerCase()}`}>{role}</span>;
 }
 
 function StaffModal({ staff, onClose, onSaved }) {
   const isEdit = !!staff;
+  const { language } = useLanguage();
   const [form, setForm] = useState({
     fullName:      staff?.fullName      || '',
     email:         staff?.email         || '',
@@ -45,27 +65,24 @@ function StaffModal({ staff, onClose, onSaved }) {
   async function handleSave() {
     setError('');
     if (!form.fullName || !form.email || !form.position || !form.role)
-      return setError('All fields are required');
-    if (!isEdit && !form.password) return setError('Password is required for new staff');
+      return setError(t('staff.error.allRequired', language));
+    if (!isEdit && !form.password) return setError(t('staff.error.passwordRequired', language));
     if (isNaN(form.viewThreshold) || form.viewThreshold < 1)
-      return setError('View threshold must be a positive number');
+      return setError(t('staff.error.thresholdInvalid', language));
 
     // ── Counselor role guard ────────────────────────────────────
-    // Confirm before adding/removing someone to/from the aggregate.
     const prevRole = staff?.role || '';
     const nextRole = form.role;
     const toCounselor   = nextRole === 'Counselor' && prevRole !== 'Counselor';
     const fromCounselor = prevRole === 'Counselor' && nextRole !== 'Counselor';
+    const displayName = form.fullName || t('staff.confirm.toCounselor.person', language);
+
     if (toCounselor) {
-      const ok = window.confirm(
-        `Setting ${form.fullName || 'this person'}'s role to 'Counselor' will include them in the Manager dashboard aggregate target. Continue?`
-      );
-      if (!ok) return;
+      const msg = fmt(t('staff.confirm.toCounselor', language), { name: displayName });
+      if (!window.confirm(msg)) return;
     } else if (fromCounselor) {
-      const ok = window.confirm(
-        `Removing the 'Counselor' role from ${form.fullName || 'this person'} will exclude them from the Manager dashboard aggregate target. Continue?`
-      );
-      if (!ok) return;
+      const msg = fmt(t('staff.confirm.fromCounselor', language), { name: displayName });
+      if (!window.confirm(msg)) return;
     }
 
     setSaving(true);
@@ -88,49 +105,49 @@ function StaffModal({ staff, onClose, onSaved }) {
     <div className="modal-overlay">
       <div className="modal">
         <div className="modal-header">
-          <h2 className="modal-title">{isEdit ? 'Edit Staff Member' : 'Add Staff Member'}</h2>
+          <h2 className="modal-title">{isEdit ? t('staff.modal.editTitle', language) : t('staff.modal.addTitle', language)}</h2>
           <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX /></button>
         </div>
         <div className="modal-body">
           <div className="form-group">
-            <label className="form-label">Full Name</label>
+            <label className="form-label">{t('staff.form.fullName', language)}</label>
             <input className="form-input" value={form.fullName} onChange={e=>set('fullName',e.target.value)}/>
           </div>
           <div className="form-group">
-            <label className="form-label">Email</label>
+            <label className="form-label">{t('staff.form.email', language)}</label>
             <input className="form-input" type="email" value={form.email} onChange={e=>set('email',e.target.value)}/>
           </div>
           <div className="form-group">
-            <label className="form-label">Position</label>
+            <label className="form-label">{t('staff.form.position', language)}</label>
             <select className="form-select" value={form.position} onChange={e=>set('position',e.target.value)}>
-              <option value="">Select position...</option>
+              <option value="">{t('staff.form.positionPlaceholder', language)}</option>
               {POSITIONS.map(p=><option key={p} value={p}>{p}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Role</label>
+            <label className="form-label">{t('staff.form.role', language)}</label>
             <select className="form-select" value={form.role} onChange={e=>set('role',e.target.value)}>
-              <option value="">Select role...</option>
+              <option value="">{t('staff.form.rolePlaceholder', language)}</option>
               {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">View Threshold (records per session before alert)</label>
+            <label className="form-label">{t('staff.form.viewThreshold', language)}</label>
             <input className="form-input" type="number" min="1" max="500"
               value={form.viewThreshold} onChange={e=>set('viewThreshold',e.target.value)}/>
           </div>
           {!isEdit && (
             <div className="form-group">
-              <label className="form-label">Password</label>
+              <label className="form-label">{t('staff.form.password', language)}</label>
               <input className="form-input" type="password" value={form.password} onChange={e=>set('password',e.target.value)}/>
             </div>
           )}
           {error && <div className="alert alert--error">{error}</div>}
         </div>
         <div className="modal-footer">
-          <button className="btn btn--ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn--ghost" onClick={onClose}>{t('common.cancel', language)}</button>
           <button className="btn btn--primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? t('common.saving', language) : t('common.save', language)}
           </button>
         </div>
       </div>
@@ -139,12 +156,13 @@ function StaffModal({ staff, onClose, onSaved }) {
 }
 
 function PasswordModal({ staff, onClose, onSaved }) {
+  const { language } = useLanguage();
   const [password, setPassword] = useState('');
   const [error, setError]       = useState('');
   const [saving, setSaving]     = useState(false);
 
   async function handleSave() {
-    if (!password || password.length < 6) return setError('Password must be at least 6 characters');
+    if (!password || password.length < 6) return setError(t('staff.passwordModal.error', language));
     setSaving(true);
     try { await staffAPI.resetPassword(staff.id, password); onSaved(); }
     catch(e) { setError(e.message); }
@@ -155,21 +173,21 @@ function PasswordModal({ staff, onClose, onSaved }) {
     <div className="modal-overlay">
       <div className="modal">
         <div className="modal-header">
-          <h2 className="modal-title">Reset Password — {staff.fullName}</h2>
+          <h2 className="modal-title">{fmt(t('staff.passwordModal.title', language), { name: staff.fullName })}</h2>
           <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX /></button>
         </div>
         <div className="modal-body">
           <div className="form-group">
-            <label className="form-label">New Password</label>
+            <label className="form-label">{t('staff.passwordModal.newPassword', language)}</label>
             <input className="form-input" type="password" value={password}
               onChange={e=>setPassword(e.target.value)} autoFocus/>
           </div>
           {error && <div className="alert alert--error">{error}</div>}
         </div>
         <div className="modal-footer">
-          <button className="btn btn--ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn--ghost" onClick={onClose}>{t('common.cancel', language)}</button>
           <button className="btn btn--primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Reset Password'}
+            {saving ? t('common.saving', language) : t('staff.passwordModal.submit', language)}
           </button>
         </div>
       </div>
@@ -177,13 +195,14 @@ function PasswordModal({ staff, onClose, onSaved }) {
   );
 }
 
-function TargetModal({ member, onClose, onSaved, setterName }) {
+function TargetModal({ member, onClose, onSaved }) {
+  const { language } = useLanguage();
   const [target, setTarget] = useState(member?.target ?? 0);
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
-    if (isNaN(target) || target < 0) return setError('Target must be a positive number');
+    if (isNaN(target) || target < 0) return setError(t('staff.targetModal.error', language));
     setSaving(true);
     try {
       await staffAPI.setTarget(member.id, Number(target));
@@ -196,26 +215,29 @@ function TargetModal({ member, onClose, onSaved, setterName }) {
     <div className="modal-overlay">
       <div className="modal">
         <div className="modal-header">
-          <h2 className="modal-title">Set Target — {member.fullName}</h2>
+          <h2 className="modal-title">{fmt(t('staff.targetModal.title', language), { name: member.fullName })}</h2>
           <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX /></button>
         </div>
         <div className="modal-body">
           <div className="form-group">
-            <label className="form-label">Monthly Won Contracts Target</label>
+            <label className="form-label">{t('staff.targetModal.monthlyLabel', language)}</label>
             <input className="form-input" type="number" min="0" value={target}
               onChange={e=>setTarget(e.target.value)} autoFocus/>
           </div>
           {member.targetSetBy && (
             <div style={{ fontSize:'0.8125rem', color:'var(--text-secondary)', marginTop:'0.5rem' }}>
-              Last set by {member.targetSetBy} on {member.targetSetAt ? new Date(member.targetSetAt).toLocaleDateString() : '—'}
+              {fmt(t('staff.targetModal.lastSet', language), {
+                name: member.targetSetBy,
+                date: member.targetSetAt ? new Date(member.targetSetAt).toLocaleDateString() : '—',
+              })}
             </div>
           )}
           {error && <div className="alert alert--error">{error}</div>}
         </div>
         <div className="modal-footer">
-          <button className="btn btn--ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn--ghost" onClick={onClose}>{t('common.cancel', language)}</button>
           <button className="btn btn--primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Set Target'}
+            {saving ? t('common.saving', language) : t('staff.targetModal.submit', language)}
           </button>
         </div>
       </div>
@@ -231,6 +253,7 @@ export default function Staff() {
   const [pwdStaff, setPwdStaff]   = useState(null);
   const [targetMember, setTargetMember] = useState(null);
   const { isAdmin, isManager, staff }   = useAuth();
+  const { language }                    = useLanguage();
 
   useEffect(() => { loadStaff(); }, []);
 
@@ -242,52 +265,50 @@ export default function Staff() {
   }
 
   async function handleDeactivate(id, name, role) {
-    // Counselors contribute to the Manager dashboard aggregate. Warn
-    // explicitly so Admins don't silently alter the aggregate.
-    const prompt = role === 'Counselor'
-      ? `Deactivate ${name}? They'll be excluded from the Manager dashboard aggregate target.`
-      : `Deactivate ${name}?`;
-    if (!confirm(prompt)) return;
+    const msg = role === 'Counselor'
+      ? fmt(t('staff.confirm.deactivateCounselor', language), { name })
+      : fmt(t('staff.confirm.deactivate', language),          { name });
+    if (!confirm(msg)) return;
     try { await staffAPI.deactivate(id); await loadStaff(); }
     catch(e) { alert(e.message); }
   }
 
   if (!isAdmin && !isManager) return (
     <div className="page-body">
-      <div className="alert alert--error">Manager or Admin access required.</div>
+      <div className="alert alert--error">{t('staff.needsAccess', language)}</div>
     </div>
   );
 
   return (
     <div>
       <div className="page-header">
-        <span className="page-title">Staff Management</span>
+        <span className="page-title">{t('staff.title', language)}</span>
         {isAdmin && (
           <button className="btn btn--primary btn--sm"
             onClick={() => { setEditStaff(null); setShowModal(true); }}>
-            <FiPlus size={14}/> Add Staff
+            <FiPlus size={14}/> {t('staff.addBtn', language)}
           </button>
         )}
       </div>
 
       <div className="page-body">
         {loading ? (
-          <div className="loading-center">Loading staff...</div>
+          <div className="loading-center">{t('staff.loading', language)}</div>
         ) : (
           <div className="table-card">
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Position</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>View Threshold</th>
-                    <th>Target</th>
-                    <th>Target Set</th>
-                    <th>Actions</th>
+                    <th>{t('staff.col.name', language)}</th>
+                    <th>{t('staff.col.email', language)}</th>
+                    <th>{t('staff.col.position', language)}</th>
+                    <th>{t('staff.col.role', language)}</th>
+                    <th>{t('staff.col.status', language)}</th>
+                    <th>{t('staff.col.viewThreshold', language)}</th>
+                    <th>{t('staff.col.target', language)}</th>
+                    <th>{t('staff.col.targetSet', language)}</th>
+                    <th>{t('staff.col.actions', language)}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -299,7 +320,7 @@ export default function Staff() {
                       <td>{roleBadge(s.role)}</td>
                       <td>
                         <span className={`badge ${s.isActive ? 'badge--qualified' : 'badge--lost'}`}>
-                          {s.isActive ? 'Active' : 'Inactive'}
+                          {s.isActive ? t('common.active', language) : t('common.inactive', language)}
                         </span>
                       </td>
                       <td style={{ fontFamily:'DM Mono', fontSize:'0.875rem' }}>{s.viewThreshold ?? 20}</td>
@@ -317,26 +338,26 @@ export default function Staff() {
                       <td>
                         <div style={{ display:'flex', gap:'0.5rem' }}>
                           {isAdmin && (
-                            <button className="btn btn--ghost btn--icon" title="Edit"
+                            <button className="btn btn--ghost btn--icon" title={t('staff.action.edit', language)}
                               onClick={() => { setEditStaff(s); setShowModal(true); }}>
                               <FiEdit2 size={14}/>
                             </button>
                           )}
                           {isAdmin && (
-                            <button className="btn btn--ghost btn--icon" title="Reset Password"
+                            <button className="btn btn--ghost btn--icon" title={t('staff.action.resetPassword', language)}
                               onClick={() => setPwdStaff(s)}>
                               <FiKey size={14}/>
                             </button>
                           )}
                           {(isManager || isAdmin) && (
-                            <button className="btn btn--ghost btn--icon" title="Set Target"
+                            <button className="btn btn--ghost btn--icon" title={t('staff.action.setTarget', language)}
                               onClick={() => setTargetMember(s)}
                               style={{ color:'var(--primary)' }}>
                               <FiTarget size={14}/>
                             </button>
                           )}
                           {isAdmin && s.isActive && (
-                            <button className="btn btn--ghost btn--icon" title="Deactivate"
+                            <button className="btn btn--ghost btn--icon" title={t('staff.action.deactivate', language)}
                               onClick={() => handleDeactivate(s.id, s.fullName, s.role)}
                               style={{ color:'var(--danger)' }}>
                               <FiUserX size={14}/>
@@ -364,7 +385,7 @@ export default function Staff() {
         <PasswordModal
           staff={pwdStaff}
           onClose={() => setPwdStaff(null)}
-          onSaved={() => { setPwdStaff(null); alert('Password updated successfully'); }}
+          onSaved={() => { setPwdStaff(null); alert(t('staff.passwordModal.saved', language)); }}
         />
       )}
       {targetMember && (

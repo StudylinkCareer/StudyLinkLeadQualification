@@ -1,11 +1,20 @@
-// LeadManagement/src/pages/ColumnLayoutSettings.jsx
-// NEW FILE — Admin-only settings page
-// Accessible at /settings/columns
-// Allows Admin to configure which columns are visible and in what order for each role
+// src/pages/ColumnLayoutSettings.jsx
+// -----------------------------------------------------------------------------
+// CHANGES (i18n Phase 2b):
+//   - All UI chrome (headers, buttons, confirms, notes) uses t().
+//   - Role tab labels use t('columns.role.*').
+//   - Column labels in the editor and preview look up a t() key
+//     'leads.col.<key>' — matching the Leads page column translations.
+//     Any column without a matching translation key falls back to the
+//     MASTER_COLUMNS label (English).
+//   - Drag/drop behaviour and save logic unchanged.
+// -----------------------------------------------------------------------------
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { columnConfigAPI } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
+import { t, en as enStrings } from '../i18n';
 import { FiArrowLeft, FiEye, FiEyeOff, FiSave, FiCheck } from 'react-icons/fi';
 
 // ── Must stay in sync with MASTER_COLUMNS in Leads.jsx ────────
@@ -68,14 +77,31 @@ const MASTER_COLUMNS = [
   { key:'campaignEnd',            label:'Camp. End',              visible:false, width:120 },
 ];
 
+// Role meta — labels + notes come from translations by key.
 const ROLES = [
-  { key:'admin',     label:'Admin',    note:'All columns always visible — order only' },
-  { key:'manager',   label:'Manager',  note:'Drag to reorder • Toggle to show/hide' },
-  { key:'director',  label:'Director', note:'Drag to reorder • Toggle to show/hide' },
-  { key:'counselor', label:'Counselor',note:'Drag to reorder • Toggle to show/hide' },
+  { key:'admin',     labelKey:'columns.role.admin',     noteKey:'columns.role.admin.note' },
+  { key:'manager',   labelKey:'columns.role.manager',   noteKey:'columns.role.manager.note' },
+  { key:'director',  labelKey:'columns.role.director',  noteKey:'columns.role.director.note' },
+  { key:'counselor', labelKey:'columns.role.counselor', noteKey:'columns.role.counselor.note' },
 ];
 
-// Build default config for a role (admin = all visible, others = MASTER_COLUMNS defaults)
+// Return the translated label for a column key, or the master fallback.
+function colLabel(col, language) {
+  const key = `leads.col.${col.key}`;
+  // If the translation file has a key for this column, use it.
+  if (enStrings[key] !== undefined) return t(key, language);
+  return col.label;
+}
+
+// Simple {placeholder} templating.
+function fmt(str, params) {
+  if (!params) return str;
+  return Object.keys(params).reduce(
+    (acc, k) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), params[k]),
+    str
+  );
+}
+
 function buildDefault(roleKey) {
   return MASTER_COLUMNS.map(c => ({
     ...c,
@@ -83,7 +109,6 @@ function buildDefault(roleKey) {
   }));
 }
 
-// Merge saved config with master — ensures any new columns added to master appear
 function mergeWithMaster(saved, roleKey) {
   const savedKeys = new Set(saved.map(c => c.key));
   const merged = [
@@ -91,7 +116,6 @@ function mergeWithMaster(saved, roleKey) {
       ...c,
       visible: roleKey === 'admin' ? true : c.visible,
     })),
-    // New columns not yet in saved config go at end, hidden (except admin)
     ...MASTER_COLUMNS
       .filter(c => !savedKeys.has(c.key))
       .map(c => ({ ...c, visible: roleKey === 'admin' })),
@@ -101,22 +125,21 @@ function mergeWithMaster(saved, roleKey) {
 
 export default function ColumnLayoutSettings() {
   const navigate  = useNavigate();
+  const { language } = useLanguage();
   const dragIdx   = useRef(null);
   const dragRole  = useRef(null);
 
   const [activeRole, setActiveRole] = useState('admin');
-  const [saving, setSaving]         = useState(null);   // role key or 'all'
-  const [savedRole, setSavedRole]   = useState(null);   // for green tick feedback
+  const [saving, setSaving]         = useState(null);
+  const [savedRole, setSavedRole]   = useState(null);
   const [loadError, setLoadError]   = useState('');
 
-  // configs holds the column array for each role
   const [configs, setConfigs] = useState(() => {
     const c = {};
     ROLES.forEach(r => { c[r.key] = buildDefault(r.key); });
     return c;
   });
 
-  // ── Load all role configs on mount ─────────────────────────
   useEffect(() => {
     Promise.all(
       ROLES.map(r =>
@@ -136,19 +159,18 @@ export default function ColumnLayoutSettings() {
         });
         return next;
       });
-    }).catch(() => setLoadError('Failed to load some column configs.'));
+    }).catch(() => setLoadError(t('columns.loadFailed', language)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Toggle column visibility ───────────────────────────────
   function toggleVisible(role, colKey) {
-    if (role === 'admin') return; // Admin always sees all
+    if (role === 'admin') return;
     setConfigs(cfg => ({
       ...cfg,
       [role]: cfg[role].map(c => c.key === colKey ? { ...c, visible: !c.visible } : c),
     }));
   }
 
-  // ── Drag to reorder ────────────────────────────────────────
   function onDragStart(e, role, idx) {
     dragIdx.current  = idx;
     dragRole.current = role;
@@ -173,7 +195,6 @@ export default function ColumnLayoutSettings() {
     dragRole.current = null;
   }
 
-  // ── Save a single role ─────────────────────────────────────
   async function saveRole(role) {
     setSaving(role);
     try {
@@ -181,13 +202,12 @@ export default function ColumnLayoutSettings() {
       setSavedRole(role);
       setTimeout(() => setSavedRole(r => r === role ? null : r), 2500);
     } catch(e) {
-      alert(`Failed to save ${role} layout: ${e.message}`);
+      alert(fmt(t('columns.error.saveRole', language), { role, error: e.message }));
     } finally {
       setSaving(null);
     }
   }
 
-  // ── Save all roles at once ─────────────────────────────────
   async function saveAll() {
     setSaving('all');
     try {
@@ -197,21 +217,26 @@ export default function ColumnLayoutSettings() {
       setSavedRole('all');
       setTimeout(() => setSavedRole(null), 2500);
     } catch(e) {
-      alert(`Failed to save all layouts: ${e.message}`);
+      alert(fmt(t('columns.error.saveAll', language), { error: e.message }));
     } finally {
       setSaving(null);
     }
   }
 
-  // ── Reset a role to defaults ───────────────────────────────
   function resetRole(role) {
-    if (!confirm(`Reset ${role} layout to system defaults? This cannot be undone.`)) return;
+    const roleLbl = t(`columns.role.${role}`, language);
+    if (!confirm(fmt(t('columns.confirmReset', language), { role: roleLbl }))) return;
     setConfigs(cfg => ({ ...cfg, [role]: buildDefault(role) }));
   }
 
-  const currentCols  = configs[activeRole] || [];
-  const visibleCount = currentCols.filter(c => c.visible).length;
+  const currentCols    = configs[activeRole] || [];
+  const visibleCount   = currentCols.filter(c => c.visible).length;
   const activeRoleInfo = ROLES.find(r => r.key === activeRole);
+  const activeRoleLbl  = activeRoleInfo ? t(activeRoleInfo.labelKey, language) : '';
+  const activeRoleNote = activeRoleInfo ? t(activeRoleInfo.noteKey,  language) : '';
+
+  const hiddenCount = currentCols.filter(c => !c.visible).length;
+  const hiddenPlural = language === 'vi' ? '' : (hiddenCount !== 1 ? 's' : '');
 
   return (
     <div>
@@ -221,12 +246,12 @@ export default function ColumnLayoutSettings() {
           <button className="btn btn--ghost btn--icon" onClick={() => navigate('/leads')}>
             <FiArrowLeft size={16}/>
           </button>
-          <span className="page-title">Column Layout Settings</span>
+          <span className="page-title">{t('columns.title', language)}</span>
         </div>
         <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
           {savedRole === 'all' && (
             <span style={{ fontSize:'0.8125rem', color:'#16a34a', display:'flex', alignItems:'center', gap:'0.3rem' }}>
-              <FiCheck size={14}/> All saved
+              <FiCheck size={14}/> {t('columns.allSaved', language)}
             </span>
           )}
           <button
@@ -235,7 +260,7 @@ export default function ColumnLayoutSettings() {
             disabled={!!saving}
             style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
             <FiSave size={13}/>
-            {saving === 'all' ? 'Saving...' : 'Save All Roles'}
+            {saving === 'all' ? t('common.saving', language) : t('columns.saveAll', language)}
           </button>
         </div>
       </div>
@@ -246,9 +271,7 @@ export default function ColumnLayoutSettings() {
         )}
 
         <p style={{ margin:'0 0 1.25rem', fontSize:'0.875rem', color:'var(--text-secondary)' }}>
-          Configure which columns are visible in the Leads table for each role.
-          Changes take effect immediately when users next load the Leads page.
-          Drag rows to reorder. Admin always sees all columns.
+          {t('columns.description', language)}
         </p>
 
         {/* ── Role tabs ────────────────────────────────────── */}
@@ -266,7 +289,7 @@ export default function ColumnLayoutSettings() {
               fontSize:'0.9rem',
               transition:'all 0.15s',
             }}>
-              {r.label}
+              {t(r.labelKey, language)}
               {savedRole === r.key && (
                 <span style={{ marginLeft:'0.4rem', color:'#16a34a', fontSize:'0.75rem' }}>✓</span>
               )}
@@ -282,10 +305,10 @@ export default function ColumnLayoutSettings() {
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
               <div>
                 <span style={{ fontWeight:600, fontSize:'0.9375rem' }}>
-                  {activeRoleInfo?.label} Layout
+                  {fmt(t('columns.roleLayoutTitle', language), { role: activeRoleLbl })}
                 </span>
                 <span style={{ marginLeft:'0.75rem', fontSize:'0.8rem', color:'var(--text-secondary)' }}>
-                  {activeRoleInfo?.note}
+                  {activeRoleNote}
                 </span>
               </div>
               <div style={{ display:'flex', gap:'0.5rem' }}>
@@ -293,7 +316,7 @@ export default function ColumnLayoutSettings() {
                   className="btn btn--ghost btn--sm"
                   onClick={() => resetRole(activeRole)}
                   disabled={!!saving}>
-                  Reset defaults
+                  {t('columns.resetDefaults', language)}
                 </button>
                 <button
                   className="btn btn--secondary btn--sm"
@@ -301,10 +324,10 @@ export default function ColumnLayoutSettings() {
                   disabled={!!saving}
                   style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
                   {saving === activeRole
-                    ? 'Saving...'
+                    ? t('common.saving', language)
                     : savedRole === activeRole
-                      ? <><FiCheck size={12}/> Saved</>
-                      : <><FiSave size={12}/> Save this role</>}
+                      ? <><FiCheck size={12}/> {t('columns.saved', language)}</>
+                      : <><FiSave size={12}/> {t('columns.saveThisRole', language)}</>}
                 </button>
               </div>
             </div>
@@ -320,8 +343,8 @@ export default function ColumnLayoutSettings() {
                 fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)',
               }}>
                 <span></span>
-                <span>Column</span>
-                <span style={{ textAlign:'center' }}>Visible</span>
+                <span>{t('columns.header.column', language)}</span>
+                <span style={{ textAlign:'center' }}>{t('columns.header.visible', language)}</span>
               </div>
 
               {currentCols.map((col, idx) => (
@@ -342,17 +365,16 @@ export default function ColumnLayoutSettings() {
                     transition:'opacity 0.15s',
                   }}>
                   <span style={{ color:'var(--text-secondary)', fontSize:'0.875rem', cursor:'grab' }}>⠿</span>
-                  <span style={{ fontSize:'0.875rem' }}>{col.label}</span>
+                  <span style={{ fontSize:'0.875rem' }}>{colLabel(col, language)}</span>
                   <div style={{ display:'flex', justifyContent:'center' }}>
                     {activeRole === 'admin' ? (
-                      // Admin: always visible, show locked eye
-                      <span style={{ color:'var(--primary)', opacity:0.6 }} title="Always visible for Admin">
+                      <span style={{ color:'var(--primary)', opacity:0.6 }} title={t('columns.tooltip.alwaysVisible', language)}>
                         <FiEye size={16}/>
                       </span>
                     ) : (
                       <button
                         onClick={() => toggleVisible(activeRole, col.key)}
-                        title={col.visible ? 'Click to hide' : 'Click to show'}
+                        title={col.visible ? t('columns.tooltip.clickHide', language) : t('columns.tooltip.clickShow', language)}
                         style={{
                           background:'none', border:'none', cursor:'pointer', padding:'0.25rem',
                           color: col.visible ? 'var(--primary)' : 'var(--text-secondary)',
@@ -370,7 +392,7 @@ export default function ColumnLayoutSettings() {
           {/* Right: Preview panel */}
           <div style={{ position:'sticky', top:'72px' }}>
             <div style={{ fontWeight:600, fontSize:'0.875rem', marginBottom:'0.75rem' }}>
-              Preview — {visibleCount} visible
+              {fmt(t('columns.preview.title', language), { n: visibleCount })}
             </div>
             <div style={{ border:'1px solid var(--border)', borderRadius:'10px', overflow:'hidden' }}>
               <div style={{
@@ -378,7 +400,7 @@ export default function ColumnLayoutSettings() {
                 fontSize:'0.7rem', fontWeight:600, color:'var(--text-secondary)',
                 borderBottom:'1px solid var(--border)', textTransform:'uppercase', letterSpacing:'0.5px',
               }}>
-                Visible columns
+                {t('columns.preview.visibleCols', language)}
               </div>
               {currentCols.filter(c => c.visible).map((col, idx) => (
                 <div key={col.key} style={{
@@ -393,24 +415,24 @@ export default function ColumnLayoutSettings() {
                   }}>
                     {idx + 1}
                   </span>
-                  <span>{col.label}</span>
+                  <span>{colLabel(col, language)}</span>
                 </div>
               ))}
               {visibleCount === 0 && (
                 <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.875rem', textAlign:'center' }}>
-                  No columns visible
+                  {t('columns.preview.noneVisible', language)}
                 </div>
               )}
 
               {/* Hidden columns count */}
-              {currentCols.filter(c => !c.visible).length > 0 && (
+              {hiddenCount > 0 && (
                 <div style={{
                   padding:'0.5rem 0.875rem',
                   background:'var(--bg-secondary)',
                   fontSize:'0.75rem', color:'var(--text-secondary)',
                   borderTop:'1px solid var(--border)',
                 }}>
-                  + {currentCols.filter(c => !c.visible).length} hidden column{currentCols.filter(c => !c.visible).length !== 1 ? 's' : ''}
+                  {fmt(t('columns.preview.hidden', language), { n: hiddenCount, plural: hiddenPlural })}
                 </div>
               )}
             </div>
