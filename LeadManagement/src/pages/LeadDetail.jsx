@@ -33,6 +33,7 @@ import { optLabelBilingual } from '../utils/optionLabels';
 import Watermark from '../components/Watermark';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
+import { generateLocalizedNarrative } from '../utils/oceanNarrative';
 
 // ── Stone images ──────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
@@ -705,9 +706,9 @@ export default function LeadDetail() {
                     );
                   })()}
                 </div>
-                {oceanResult.narrative && (
+                {oceanResult.scores && (
                   <p style={{ fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-secondary)', borderTop:'1px solid var(--border)', paddingTop:'1rem' }}>
-                    {oceanResult.narrative}
+                    {generateLocalizedNarrative(oceanResult.scores, language)}
                   </p>
                 )}
               </div>
