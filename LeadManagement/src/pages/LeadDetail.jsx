@@ -30,6 +30,7 @@ import { t } from '../i18n';
 import { labelFor, LEAD_STATUSES as LEAD_STATUS_VALUES } from '../utils/leadStatusLabels';
 import { stoneLabel } from '../utils/stoneLabels';
 import { stoneMessage } from '../utils/stoneMessages';
+import { oceanQuestionList } from '../utils/oceanQuestions';
 import { optLabelBilingual } from '../utils/optionLabels';
 import Watermark from '../components/Watermark';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
@@ -82,24 +83,6 @@ const STUDY_PLAN_OPTS = ['Study Abroad','English Summer Camp','Study in Vietnam'
 const TIMELINE_OPTS   = ['Next 6 months','6-12 months','12-24 months','24-36 months','36+ months'];
 const INTERACTION_OPTS= ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
 const LEAD_SOURCE_OPTS= ['Databases','FB-Zalo-GG-TikTok ads','School outreach','Subagent referrals','Ex-client'];
-
-const OCEAN_QUESTIONS = [
-  { id:1,  text:'I am the life of the party and enjoy being the center of attention.' },
-  { id:2,  text:"I sympathize with others' feelings and feel for those less fortunate." },
-  { id:3,  text:'I am always prepared and keep my belongings organized.' },
-  { id:4,  text:'I have frequent mood swings and get stressed easily.' },
-  { id:5,  text:'I have a vivid imagination and enjoy thinking about abstract ideas.' },
-  { id:6,  text:"I don't talk a lot and tend to keep to myself." },
-  { id:7,  text:"I am not really interested in others' problems or feelings." },
-  { id:8,  text:'I often forget to put things back in their proper place.' },
-  { id:9,  text:"I am relaxed most of the time and don't worry much." },
-  { id:10, text:'I am not interested in theoretical or philosophical discussions.' },
-  { id:11, text:'I feel comfortable around people and start conversations easily.' },
-  { id:12, text:'I have a soft heart and try to make people feel at ease.' },
-  { id:13, text:'I pay attention to details and like to get chores done right away.' },
-  { id:14, text:'I get upset easily and often feel blue or anxious.' },
-  { id:15, text:'I enjoy hearing new ideas and looking at art or nature.' },
-];
 
 // Simple {placeholder} substitution.
 function fmt(str, params) {
@@ -719,7 +702,7 @@ export default function LeadDetail() {
 
               {showOceanQuestions && (
                 <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                  {OCEAN_QUESTIONS.map(({ id: qid, text }) => {
+                  {oceanQuestionList(language).map(({ id: qid, text }) => {
                     const val = editMode ? (editData[`oceanQ${qid}`] || null) : (lead[`oceanQ${qid}`] || null);
                     return (
                       <div key={qid} style={{
