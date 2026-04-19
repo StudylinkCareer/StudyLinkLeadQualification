@@ -814,3 +814,29 @@ tr:hover td {
 @media (max-width: 768px) {
   .nav-expand-btn { display: none; }
 }
+
+/* =============================================================================
+   LANGUAGE SELECTOR — Phase 1 i18n
+   -----------------------------------------------------------------------------
+   Append to src/index.css (or your main stylesheet).
+   Places the flag-button pair centered above the staff badge in the sidebar.
+   ============================================================================= */
+
+.language-selector {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-lang-row {
+  padding: 0.5rem 0 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+}
+
+.language-selector button:hover {
+  opacity: 1 !important;
+}

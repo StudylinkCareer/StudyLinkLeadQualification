@@ -6,11 +6,17 @@
 //   - ProtectedLayout and AdminRoute now:
 //       * apply 'nav-collapsed' class when collapsed
 //       * render a floating expand button (top-left of content) when collapsed
+//
+// CHANGES (i18n Phase 1):
+//   - Imports LanguageProvider from contexts/LanguageContext
+//   - Wraps route tree in <LanguageProvider> (outer-most)
+//     so every page has access to the current language and the t() helper.
 // -----------------------------------------------------------------------------
 
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { FiMenu } from 'react-icons/fi';
 import { useAuth } from './contexts/AuthContext';
+import { LanguageProvider } from './contexts/LanguageContext';
 import { NavCollapseProvider, useNavCollapse } from './contexts/NavCollapseContext';
 import Sidebar from './components/Sidebar';
 import Login from './pages/Login';
@@ -68,16 +74,18 @@ function AdminRoute({ children }) {
 
 export default function App() {
   return (
-    <NavCollapseProvider>
-      <Routes>
-        <Route path="/login"                element={<Login />} />
-        <Route path="/dashboard"            element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
-        <Route path="/leads"                element={<ProtectedLayout><Leads /></ProtectedLayout>} />
-        <Route path="/leads/:id"            element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
-        <Route path="/staff"                element={<ProtectedLayout><Staff /></ProtectedLayout>} />
-        <Route path="/settings/columns"     element={<AdminRoute><ColumnLayoutSettings /></AdminRoute>} />
-        <Route path="*"                     element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </NavCollapseProvider>
+    <LanguageProvider>
+      <NavCollapseProvider>
+        <Routes>
+          <Route path="/login"                element={<Login />} />
+          <Route path="/dashboard"            element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
+          <Route path="/leads"                element={<ProtectedLayout><Leads /></ProtectedLayout>} />
+          <Route path="/leads/:id"            element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
+          <Route path="/staff"                element={<ProtectedLayout><Staff /></ProtectedLayout>} />
+          <Route path="/settings/columns"     element={<AdminRoute><ColumnLayoutSettings /></AdminRoute>} />
+          <Route path="*"                     element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </NavCollapseProvider>
+    </LanguageProvider>
   );
 }

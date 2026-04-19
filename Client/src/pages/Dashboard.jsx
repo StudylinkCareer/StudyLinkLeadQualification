@@ -15,11 +15,21 @@
 //     stone/status (pre-filtered by uniqueId).
 //
 // CHANGES (Manager/Admin KPI layout):
-//   - Manager/Admin dashboard now mirrors the Counselor KPI layout:
-//     Leads by Stone + Leads by Status stacked on the left, Pipeline
-//     Statistics on the right spanning both.
-//   - 'Leads by Source' removed from Manager/Admin view.
-//   - Pipeline Statistics now shown to Manager/Admin (previously hidden).
+//   - Manager/Admin dashboard uses a two-level layout:
+//       Level 1: Leads by Stone + Leads by Status side-by-side (full width)
+//       Level 2:
+//         No counselor selected → 2 frames:
+//           Frame 1: Leads by Counselor
+//           Frame 2: Pipeline Statistics (Manager-only column)
+//         Counselor selected → 3 frames:
+//           Frame 1: Leads by Counselor (compressed)
+//           Frame 2: upper = Stone for counselor,
+//                    lower = Status for counselor (stacked)
+//           Frame 3: Pipeline Statistics (2 numeric columns —
+//                    Manager aggregate + selected counselor)
+//   - 'Leads by Source' removed from Manager/Admin view entirely.
+//   - Pipeline Statistics is now a table with common header and row names;
+//     the "counselor" column appears only when a counselor is selected.
 //   - Target row logic is role-dependent:
 //       * Counselor → own target (from /api/staff/me)
 //       * Manager   → aggregate of all active Counselors' targets
@@ -299,6 +309,31 @@ export default function Dashboard() {
     return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   }, [selectedCounselorLeads]);
 
+  // Pipeline buckets scoped to the selected counselor's leads.
+  // Mirrors the top-level `pipeline` computation but filtered.
+  const selectedPipeline = useMemo(() => {
+    if (!selectedCounselor) return null;
+    const weekEnd    = getWeekEnd();
+    const monthEnd   = getMonthEnd();
+    const quarterEnd = getQuarterEnd();
+    const rolling3m  = getRolling3m();
+    const active = selectedCounselorLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus));
+    const thisWeek    = active.filter(l => l.closeDate && new Date(l.closeDate) <= weekEnd);
+    const thisMonth   = active.filter(l => l.closeDate && new Date(l.closeDate) > weekEnd && new Date(l.closeDate) <= monthEnd);
+    const thisQuarter = active.filter(l => l.closeDate && new Date(l.closeDate) > monthEnd && new Date(l.closeDate) <= quarterEnd);
+    const rolling     = active.filter(l => l.closeDate && new Date(l.closeDate) > quarterEnd && new Date(l.closeDate) <= rolling3m);
+    const notProjected = active.filter(l => l.closeDate && new Date(l.closeDate) > rolling3m);
+    const noCloseDate = active.filter(l => !l.closeDate);
+    return { thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
+  }, [selectedCounselor, selectedCounselorLeads]);
+
+  // The selected counselor's own target + targetSetBy, if we have their
+  // staff record available (Manager pulled it via listActive).
+  const selectedCounselorStaff = useMemo(() => {
+    if (!selectedCounselor) return null;
+    return activeStaff.find(s => s.fullName === selectedCounselor) || null;
+  }, [activeStaff, selectedCounselor]);
+
   // If the selected counselor disappears (e.g. data refresh), drop the selection.
   useEffect(() => {
     if (selectedCounselor && !counselorData.some(c => c.counselor === selectedCounselor)) {
@@ -338,55 +373,120 @@ export default function Dashboard() {
   const isManagerOrAdmin = isManager || isAdmin;
   const maxCounselorTotal = Math.max(...counselorData.map(d => d.total), 1);
 
-  // ── Target row content by role ───────────────────────────────
-  // - Counselor: their own personal target (from /me)
-  // - Manager:   sum of targets across all active counselors
-  // - Admin:     hidden (Admins have no target concept)
-  let targetRowEl = null;
-  if (isManager) {
-    const counselorsWithTargets = activeStaff.filter(
-      s => s.role === 'Counselor' && s.target != null
-    );
-    const aggregateTarget = counselorsWithTargets.reduce(
-      (sum, s) => sum + Number(s.target || 0), 0
-    );
-    const n = counselorsWithTargets.length;
-    targetRowEl = (
-      <PipelineRow
-        label="Target (Contracted this month)"
-        count={n > 0 ? aggregateTarget : '—'}
-        isTarget
-        color="var(--primary)"
-        sub={n > 0 ? `Aggregated from ${n} counselor${n === 1 ? '' : 's'}` : 'No counselor targets set'}
-      />
-    );
-  } else if (!isAdmin) {
-    // Counselor / other non-admin roles — show their own target.
-    targetRowEl = (
-      <PipelineRow
-        label="Target (Contracted this month)"
-        count={myStaff?.target ?? '—'}
-        isTarget
-        color="var(--primary)"
-        sub={myStaff?.targetSetBy ? `Set by ${myStaff.targetSetBy}` : 'Not set'}
-      />
-    );
-  }
-  // Admin: targetRowEl stays null → row not rendered.
-
   // ── Shared: Pipeline Statistics card ─────────────────────────
-  // Rendered both for Counselors (inside the 3-col row) and for
-  // Manager/Admin (in the right column of the new 2-col KPI grid).
+  // Rendered as a table with one or two numeric columns:
+  //   - Counselor view: 1 column (their own numbers)
+  //   - Manager view, no selection: 1 column (Manager aggregate)
+  //   - Manager view, counselor selected: 2 columns (Manager + that counselor)
+  const showCounselorCol = isManagerOrAdmin && !!selectedCounselor;
+
+  // Rows are declared once; each row pulls both manager and counselor counts.
+  const pipelineRows = [
+    { key:'thisWeek',     label:'Close this week',    sub:`by Sunday ${getWeekEnd().toLocaleDateString()}`, color:'#10B981' },
+    { key:'thisMonth',    label:'Close this month',   sub:`by ${getMonthEnd().toLocaleDateString()}`,        color:'#2563EB' },
+    { key:'thisQuarter',  label:'Close this quarter', sub:`by ${getQuarterEnd().toLocaleDateString()}`,      color:'#8B5CF6' },
+    { key:'rolling',      label:'Rolling 3 months',   sub:'beyond quarter end',                               color:'#F59E0B' },
+    { key:'notProjected', label:'Beyond 3 months',    sub:null,                                               color:'#EF4444' },
+    { key:'noCloseDate',  label:'No close date',      sub:null,                                               color:'#9CA3AF' },
+  ];
+
+  // Resolve the target values displayed in the table header row.
+  const managerTargetCount = (() => {
+    if (isManager) {
+      const cw = activeStaff.filter(s => s.role === 'Counselor' && s.target != null);
+      return cw.length > 0 ? cw.reduce((sum, s) => sum + Number(s.target || 0), 0) : '—';
+    }
+    if (!isAdmin) return myStaff?.target ?? '—';
+    return null; // Admin: no target row
+  })();
+  const managerTargetSub = (() => {
+    if (isManager) {
+      const n = activeStaff.filter(s => s.role === 'Counselor' && s.target != null).length;
+      return n > 0 ? `Aggregated from ${n} counselor${n === 1 ? '' : 's'}` : 'No counselor targets set';
+    }
+    if (!isAdmin) return myStaff?.targetSetBy ? `Set by ${myStaff.targetSetBy}` : 'Not set';
+    return '';
+  })();
+  const counselorTargetCount = selectedCounselorStaff?.target ?? '—';
+  const showTargetRow = !isAdmin; // Admins get no target row at all.
+
   const pipelineCard = (
-    <div className="section-card" style={{ maxHeight:'480px', overflowY:'auto' }}>
+    <div className="section-card" style={{ height:'100%', overflowY:'auto', alignSelf:'stretch' }}>
       <div className="section-header"><span className="section-title">Pipeline Statistics</span></div>
-      {targetRowEl}
-      <PipelineRow label="Close this week"    count={pipeline.thisWeek.length}     color="#10B981" sub={`by Sunday ${getWeekEnd().toLocaleDateString()}`}     onClick={() => drillPipeline(pipeline.thisWeek)}/>
-      <PipelineRow label="Close this month"   count={pipeline.thisMonth.length}    color="#2563EB" sub={`by ${getMonthEnd().toLocaleDateString()}`}            onClick={() => drillPipeline(pipeline.thisMonth)}/>
-      <PipelineRow label="Close this quarter" count={pipeline.thisQuarter.length}  color="#8B5CF6" sub={`by ${getQuarterEnd().toLocaleDateString()}`}          onClick={() => drillPipeline(pipeline.thisQuarter)}/>
-      <PipelineRow label="Rolling 3 months"   count={pipeline.rolling.length}      color="#F59E0B" sub="beyond quarter end"                                    onClick={() => drillPipeline(pipeline.rolling)}/>
-      <PipelineRow label="Beyond 3 months"    count={pipeline.notProjected.length} color="#EF4444"                                                              onClick={() => drillPipeline(pipeline.notProjected)}/>
-      <PipelineRow label="No close date"      count={pipeline.noCloseDate.length}  color="#9CA3AF"                                                              onClick={() => drillPipeline(pipeline.noCloseDate)}/>
+      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.875rem' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign:'left', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)' }}></th>
+            <th style={{ textAlign:'right', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'var(--primary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)', width:'72px' }}>
+              {isManager ? 'Manager' : 'You'}
+            </th>
+            {showCounselorCol && (
+              <th style={{ textAlign:'right', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'#10B981', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)', width:'72px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                  title={selectedCounselor}>
+                {selectedCounselor}
+              </th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {showTargetRow && (
+            <tr>
+              <td style={{ padding:'0.625rem 0.25rem', fontWeight:600, borderBottom:'1px solid var(--border)' }}>
+                <div style={{ fontSize:'0.875rem' }}>Target (Contracted this month)</div>
+                {managerTargetSub && <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:400 }}>{managerTargetSub}</div>}
+              </td>
+              <td style={{ padding:'0.625rem 0.25rem', textAlign:'right', fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', borderBottom:'1px solid var(--border)' }}>
+                {managerTargetCount}
+              </td>
+              {showCounselorCol && (
+                <td style={{ padding:'0.625rem 0.25rem', textAlign:'right', fontSize:'1.25rem', fontWeight:600, color:'#10B981', borderBottom:'1px solid var(--border)' }}>
+                  {counselorTargetCount}
+                </td>
+              )}
+            </tr>
+          )}
+          {pipelineRows.map(row => {
+            const mgrLeads = pipeline[row.key] || [];
+            const cslLeads = selectedPipeline ? (selectedPipeline[row.key] || []) : [];
+            return (
+              <tr key={row.key}>
+                <td style={{ padding:'0.5rem 0.25rem', borderBottom:'1px solid var(--border)' }}>
+                  <div style={{ fontSize:'0.875rem' }}>{row.label}</div>
+                  {row.sub && <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{row.sub}</div>}
+                </td>
+                <td
+                  onClick={() => drillPipeline(mgrLeads)}
+                  style={{
+                    padding:'0.5rem 0.25rem', textAlign:'right',
+                    fontSize:'1rem', fontWeight:600, color: row.color,
+                    borderBottom:'1px solid var(--border)',
+                    cursor:'pointer',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background='var(--bg-secondary)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background='transparent'; }}
+                >
+                  {mgrLeads.length}
+                </td>
+                {showCounselorCol && (
+                  <td
+                    onClick={() => drillPipeline(cslLeads)}
+                    style={{
+                      padding:'0.5rem 0.25rem', textAlign:'right',
+                      fontSize:'1rem', fontWeight:600, color: row.color,
+                      borderBottom:'1px solid var(--border)',
+                      cursor:'pointer',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background='var(--bg-secondary)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background='transparent'; }}
+                  >
+                    {cslLeads.length}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 
@@ -412,24 +512,20 @@ export default function Dashboard() {
 
         {/* ── KPI charts + Pipeline row ────────────────────────── */}
         {isManagerOrAdmin ? (
-          // Manager/Admin view: Stone + Status stacked on left, Pipeline on right
+          // Manager/Admin — Level 1: Stone + Status side-by-side (full width).
+          // Pipeline moves down to Level 2 (Frame 3).
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
-
-            <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
-              <div className="section-card">
-                <div className="section-header"><span className="section-title">Leads by Stone</span></div>
-                <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
-                <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
-              </div>
-
-              <div className="section-card">
-                <div className="section-header"><span className="section-title">Leads by Status</span></div>
-                <HBarChart data={statusData} colorMap={STATUS_COLORS} onBarClick={name => drillDown('leadStatus', name)}/>
-                <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
-              </div>
+            <div className="section-card">
+              <div className="section-header"><span className="section-title">Leads by Stone</span></div>
+              <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
             </div>
 
-            {pipelineCard}
+            <div className="section-card">
+              <div className="section-header"><span className="section-title">Leads by Status</span></div>
+              <HBarChart data={statusData} colorMap={STATUS_COLORS} onBarClick={name => drillDown('leadStatus', name)}/>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+            </div>
           </div>
         ) : (
           // Counselor view (unchanged): Stone / Status / Source / Pipeline
@@ -457,16 +553,19 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Leads by Counselor + drill-down (Manager/Admin only) ── */}
+        {/* ── Leads by Counselor + drill-down + pipeline (Manager/Admin only) ── */}
         {isManagerOrAdmin && (
           <div style={{
             display:'grid',
-            gridTemplateColumns: selectedCounselor ? '1fr 1fr' : '1fr',
+            // Pipeline table is always visible in Level 2.
+            // No selection: 2 columns (Counselor chart + Pipeline-Manager only).
+            // With selection: 3 columns (chart + drill-down + Pipeline with 2 numeric cols).
+            gridTemplateColumns: selectedCounselor ? '1.3fr 1fr 1fr' : '2fr 1fr',
             gap:'1rem',
             transition:'grid-template-columns 0.3s ease',
           }}>
 
-            {/* ── Leads by Counselor chart (shrinks when a counselor is selected) ── */}
+            {/* ── Frame 1: Leads by Counselor chart ── */}
             <div className="section-card">
               <div className="section-header">
                 <span className="section-title">Leads by Counselor</span>
@@ -578,73 +677,77 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* ── Drill-down panel (only while a counselor is selected) ── */}
+            {/* ── Frame 2: drill-down charts (Stone upper, Status lower), stacked ── */}
             {selectedCounselor && (
-              <div className="section-card">
-                <div className="section-header" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.5rem' }}>
-                  <div style={{ display:'flex', flexDirection:'column', minWidth:0 }}>
-                    <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)', fontWeight:500, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                      Counselor
-                    </span>
-                    <span className="section-title" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                      {selectedCounselor}
-                    </span>
-                    <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.125rem' }}>
-                      {selectedCounselorLeads.length} lead{selectedCounselorLeads.length === 1 ? '' : 's'}
-                    </span>
+              <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
+
+                {/* Frame 2 — upper: Leads by Stone for selected counselor */}
+                <div className="section-card">
+                  <div className="section-header" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.5rem' }}>
+                    <div style={{ display:'flex', flexDirection:'column', minWidth:0 }}>
+                      <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)', fontWeight:500, textTransform:'uppercase', letterSpacing:'0.04em' }}>
+                        Counselor
+                      </span>
+                      <span className="section-title" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                        {selectedCounselor}
+                      </span>
+                      <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.125rem' }}>
+                        {selectedCounselorLeads.length} lead{selectedCounselorLeads.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setSelectedCounselor(null)}
+                      title="Close drill-down"
+                      aria-label="Close drill-down"
+                      style={{
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        width:'28px', height:'28px', padding:0, flexShrink:0,
+                        border:'1px solid var(--border)', borderRadius:'6px',
+                        background:'#fff', color:'var(--text-secondary)', cursor:'pointer',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background='var(--bg-secondary)'; e.currentTarget.style.color='var(--text-primary)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background='#fff'; e.currentTarget.style.color='var(--text-secondary)'; }}
+                    >
+                      <FiX size={15}/>
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setSelectedCounselor(null)}
-                    title="Close drill-down"
-                    aria-label="Close drill-down"
-                    style={{
-                      display:'flex', alignItems:'center', justifyContent:'center',
-                      width:'28px', height:'28px', padding:0, flexShrink:0,
-                      border:'1px solid var(--border)', borderRadius:'6px',
-                      background:'#fff', color:'var(--text-secondary)', cursor:'pointer',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background='var(--bg-secondary)'; e.currentTarget.style.color='var(--text-primary)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background='#fff'; e.currentTarget.style.color='var(--text-secondary)'; }}
-                  >
-                    <FiX size={15}/>
-                  </button>
+                  <div style={{ fontSize:'0.8125rem', fontWeight:600, marginBottom:'0.625rem', marginTop:'0.5rem' }}>Leads by Stone</div>
+                  {selectedStoneData.length === 0 ? (
+                    <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>No leads</div>
+                  ) : (
+                    <HBarChart
+                      data={selectedStoneData}
+                      colorMap={STONE_COLORS}
+                      onBarClick={name => drillCounselorStone(selectedCounselor, name)}
+                    />
+                  )}
+                  <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.625rem' }}>
+                    Click a bar to view those leads
+                  </div>
                 </div>
 
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginTop:'0.5rem' }}>
-
-                  <div>
-                    <div style={{ fontSize:'0.8125rem', fontWeight:600, marginBottom:'0.625rem' }}>Leads by Stone</div>
-                    {selectedStoneData.length === 0 ? (
-                      <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>No leads</div>
-                    ) : (
-                      <HBarChart
-                        data={selectedStoneData}
-                        colorMap={STONE_COLORS}
-                        onBarClick={name => drillCounselorStone(selectedCounselor, name)}
-                      />
-                    )}
+                {/* Frame 2 — lower: Leads by Status for selected counselor */}
+                <div className="section-card">
+                  <div className="section-header"><span className="section-title">Leads by Status</span></div>
+                  {selectedStatusData.length === 0 ? (
+                    <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>No leads</div>
+                  ) : (
+                    <HBarChart
+                      data={selectedStatusData}
+                      colorMap={STATUS_COLORS}
+                      onBarClick={name => drillCounselorStatus(selectedCounselor, name)}
+                    />
+                  )}
+                  <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.625rem' }}>
+                    Click a bar to view those leads
                   </div>
-
-                  <div>
-                    <div style={{ fontSize:'0.8125rem', fontWeight:600, marginBottom:'0.625rem' }}>Leads by Status</div>
-                    {selectedStatusData.length === 0 ? (
-                      <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>No leads</div>
-                    ) : (
-                      <HBarChart
-                        data={selectedStatusData}
-                        colorMap={STATUS_COLORS}
-                        onBarClick={name => drillCounselorStatus(selectedCounselor, name)}
-                      />
-                    )}
-                  </div>
-
                 </div>
 
-                <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.875rem' }}>
-                  Click a bar to view those leads
-                </div>
               </div>
             )}
+
+            {/* ── Frame 3: Pipeline Statistics (always visible in Level 2) ── */}
+            {pipelineCard}
           </div>
         )}
 
