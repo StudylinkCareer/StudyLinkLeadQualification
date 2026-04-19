@@ -1,10 +1,4 @@
 // src/services/api.js
-//
-// CHANGES:
-//   - Added staffAPI.me() helper for GET /api/staff/me, which returns the
-//     current logged-in user's own staff record (including target,
-//     targetSetBy, targetSetAt). Replaces the previous approach of calling
-//     staffAPI.list() which is Admin-only and fails for Counselors.
 
 import { objectToCamelCase } from '../utils/caseConvert';
 
@@ -41,7 +35,6 @@ export const authAPI = {
 export const staffAPI = {
   list:           ()                         => request('GET',  '/api/staff'),
   listActive:     ()                         => request('GET',  '/api/staff/active'),
-  me:             ()                         => request('GET',  '/api/staff/me'),
   create:         (data)                     => request('POST', '/api/staff', data),
   update:         (id, data)                 => request('PUT',  `/api/staff/${id}`, data),
   resetPassword:  (id, password)             => request('PUT',  `/api/staff/${id}/password`, { password }),

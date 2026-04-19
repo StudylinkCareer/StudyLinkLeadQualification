@@ -78,6 +78,19 @@ async function listActiveStaff(req, res, next) {
   } catch (err) { next(err); }
 }
 
+async function getMe(req, res, next) {
+  try {
+    if (!req.session || !req.session.staffId) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+    const me = await Staff.findById(req.session.staffId);
+    if (!me) {
+      return res.status(404).json({ success: false, error: 'Staff record not found' });
+    }
+    res.json({ success: true, data: me });
+  } catch (err) { next(err); }
+}
+
 async function createStaff(req, res, next) {
   try {
     const { fullName, email, position, role, password } = req.body;
@@ -414,7 +427,7 @@ async function deleteStudents(req, res, next) {
 }
 
 module.exports = {
-  login, logout, checkSession,
+  login, logout, checkSession, getMe,
   listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
   assignStaff, massAssign, searchStudents, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,

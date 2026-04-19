@@ -51,14 +51,15 @@ router.get('/column-config/:screen', requireStaffAuth,              staffCtrl.ge
 router.put('/column-config/:screen', requireStaffAuth, requireAdmin, staffCtrl.saveColumnConfig);
 
 // ── Staff management ──────────────────────────────────────────
-router.get('/',              requireStaffAuth, requireAdmin,           staffCtrl.listStaff);
-router.get('/active',        requireStaffAuth,                          staffCtrl.listActiveStaff);
-router.post('/',             requireStaffAuth, requireAdmin,           staffCtrl.createStaff);
+router.get('/',              requireStaffAuth, requireAdmin,              staffCtrl.listStaff);
+router.get('/active',        requireStaffAuth,                            staffCtrl.listActiveStaff);
+router.get('/me',            requireStaffAuth,                            staffCtrl.getMe);
+router.post('/',             requireStaffAuth, requireAdmin,              staffCtrl.createStaff);
 router.put('/assign/:studentId', requireStaffAuth, requireAdminOrManager, staffCtrl.assignStaff);
-router.put('/mass-assign',   requireStaffAuth, requireAdminOrManager,  staffCtrl.massAssign);
-router.put('/:id/target',    requireStaffAuth, requireAdminOrManager,  staffCtrl.setTarget);
-router.put('/:id/password',  requireStaffAuth, requireAdmin,           staffCtrl.resetPassword);
-router.put('/:id/deactivate',requireStaffAuth, requireAdmin,           staffCtrl.deactivateStaff);
-router.put('/:id',           requireStaffAuth, requireAdmin,           staffCtrl.updateStaff);
+router.put('/mass-assign',   requireStaffAuth, requireAdminOrManager,     staffCtrl.massAssign);
+router.put('/:id/target',    requireStaffAuth, requireAdminOrManager,     staffCtrl.setTarget);
+router.put('/:id/password',  requireStaffAuth, requireAdmin,              staffCtrl.resetPassword);
+router.put('/:id/deactivate',requireStaffAuth, requireAdmin,              staffCtrl.deactivateStaff);
+router.put('/:id',           requireStaffAuth, requireAdmin,              staffCtrl.updateStaff);
 
 module.exports = router;
