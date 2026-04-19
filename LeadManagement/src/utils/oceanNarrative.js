@@ -1,16 +1,11 @@
 // src/utils/oceanNarrative.js
 // -----------------------------------------------------------------------------
 // Generates a localized OCEAN narrative paragraph from the five trait scores.
-// The server's oceanCalculator.js generates an English narrative and stores it
-// in the DB, but we ignore that stored value and regenerate on-the-fly here
-// so the paragraph always matches the current UI language.
 //
-// TRANSLATION NOTE:
-//   The Vietnamese phrases below are a first pass and should be reviewed by a
-//   native Vietnamese speaker. Each phrase is a "predicate" that fits after
-//   the subject in the template sentence. If any phrase reads awkwardly, the
-//   fix is to adjust only the phrase — the template strings handle the
-//   sentence structure.
+// The authoritative source of these translations is the server file
+// Server/src/controllers/studentController.js (see NARRATIVE_PHRASES there).
+// These VN phrases were prepared by a native Vietnamese speaker.
+// If you ever edit the phrases on the server, update this file to match.
 // -----------------------------------------------------------------------------
 
 // Convert a 3-15 score into 'high' | 'average' | 'low'.
@@ -20,8 +15,8 @@ function getLevel(score) {
   return 'low';
 }
 
-// Trait phrases by language × trait × level.
-const TRAIT_PHRASES = {
+// ── Authoritative narrative phrases — copied verbatim from server ──
+const NARRATIVE_PHRASES = {
   en: {
     extraversion: {
       high:    'highly energetic and sociable, thriving in group settings and social interactions',
@@ -48,41 +43,38 @@ const TRAIT_PHRASES = {
       average: 'open to new experiences while also appreciating familiar and practical approaches',
       low:     'practical and grounded, preferring clear facts and proven methods over abstract theories',
     },
+    template: (e, a, c, n, o) =>
+      `This person is ${e}. They are ${a}. When it comes to organisation and reliability, they are ${c}. Emotionally, they are ${n}. In terms of intellectual curiosity, they are ${o}.`,
   },
   vi: {
     extraversion: {
-      high:    'rất năng động và hòa đồng, phát triển tốt trong môi trường tập thể và các tương tác xã hội',
-      average: 'thoải mái trong cả môi trường xã hội và riêng tư, thích nghi tốt với các hoàn cảnh khác nhau',
-      low:     'trầm tĩnh và tự lập, thích những cuộc trò chuyện sâu sắc một-một hơn là các nhóm đông',
+      high:    'rất năng động và hòa đồng, phát huy tốt nhất trong môi trường tập thể và giao tiếp xã hội',
+      average: 'thoải mái cả khi làm việc nhóm lẫn độc lập, dễ thích nghi với nhiều môi trường khác nhau',
+      low:     'sâu sắc và tự chủ, thích những cuộc trò chuyện có chiều sâu hơn là các nhóm đông người',
     },
     agreeableness: {
       high:    'ấm áp, đồng cảm và hợp tác, tự nhiên xây dựng được các mối quan hệ bền chặt với người khác',
-      average: 'cân bằng giữa hợp tác và quyết đoán, làm việc tốt trong nhóm đồng thời vẫn giữ được sự độc lập',
-      low:     'thẳng thắn và tập trung vào kết quả, mang đến tính cạnh tranh và tư duy phản biện trước các thách thức',
+      average: 'cân bằng giữa tinh thần hợp tác và tính quyết đoán, làm việc hiệu quả trong nhóm nhưng vẫn duy trì sự độc lập',
+      low:     'thẳng thắn và tập trung vào kết quả, mang lại tư duy cạnh tranh và phản biện trong công việc',
     },
     conscientiousness: {
-      high:    'có tính tổ chức và kỷ luật cao, với khả năng lên kế hoạch và thực hiện cam kết một cách vững vàng',
-      average: 'tương đối có tổ chức và đáng tin cậy, cân bằng giữa sự linh hoạt và ý thức trách nhiệm',
-      low:     'tự phát và dễ thích nghi, mang đến sự sáng tạo và linh hoạt trong các tình huống mới',
+      high:    'rất có tổ chức và kỷ luật, với khả năng lập kế hoạch và thực hiện cam kết một cách xuất sắc',
+      average: 'có cấu trúc và đáng tin cậy ở mức hợp lý, cân bằng giữa sự linh hoạt và tinh thần trách nhiệm',
+      low:     'tự phát và linh hoạt, mang lại sự sáng tạo và khả năng thích ứng trong các tình huống mới',
     },
     neuroticism: {
-      high:    'nhạy cảm về mặt cảm xúc và nhận thức sâu sắc về thế giới xung quanh, điều này thúc đẩy sự đồng cảm và chú ý đến chi tiết',
-      average: 'nhìn chung ổn định về mặt cảm xúc, đôi khi có phản ứng căng thẳng trong các tình huống khó khăn',
-      low:     'điềm tĩnh và kiên cường trước áp lực, duy trì sự ổn định cảm xúc ngay cả trong môi trường đòi hỏi cao',
+      high:    'nhạy cảm về mặt cảm xúc và ý thức sâu sắc về thế giới xung quanh, giúp phát triển sự đồng cảm và chú ý đến chi tiết',
+      average: 'nhìn chung ổn định về cảm xúc, với phản ứng căng thẳng nhất định trong những tình huống khó khăn',
+      low:     'bình tĩnh và kiên cường trước áp lực, duy trì sự ổn định cảm xúc ngay cả trong môi trường đòi hỏi cao',
     },
     openness: {
-      high:    'giàu trí tưởng tượng và ham học hỏi về mặt trí tuệ, đam mê những ý tưởng mới, các nền văn hóa và tư duy sáng tạo',
-      average: 'cởi mở với những trải nghiệm mới, đồng thời cũng trân trọng những cách tiếp cận quen thuộc và thực tế',
-      low:     'thực tế và vững vàng, thích những sự thật rõ ràng và các phương pháp đã được kiểm chứng hơn các lý thuyết trừu tượng',
+      high:    'giàu trí tưởng tượng và ham học hỏi, với niềm đam mê với các ý tưởng mới, văn hóa và tư duy sáng tạo',
+      average: 'cởi mở với những trải nghiệm mới trong khi vẫn trân trọng các phương pháp quen thuộc và thực tế',
+      low:     'thực tế và có căn cứ, ưu tiên các sự kiện rõ ràng và phương pháp đã được kiểm chứng hơn là lý thuyết trừu tượng',
     },
+    template: (e, a, c, n, o) =>
+      `Người này ${e}. Họ ${a}. Về mặt tổ chức và độ tin cậy, họ ${c}. Về mặt cảm xúc, họ ${n}. Về khả năng tư duy và sự tò mò trí tuệ, họ ${o}.`,
   },
-};
-
-// Sentence-structure template by language.
-// Placeholders {e}, {a}, {c}, {n}, {o} are replaced with the trait phrases.
-const TEMPLATES = {
-  en: 'This person is {e}. They are {a}. When it comes to organisation and reliability, they are {c}. Emotionally, they are {n}. In terms of intellectual curiosity, they are {o}.',
-  vi: 'Người này {e}. Họ {a}. Khi nói đến tính tổ chức và độ tin cậy, họ {c}. Về mặt cảm xúc, họ {n}. Về sự tò mò trí tuệ, họ {o}.',
 };
 
 /**
@@ -94,17 +86,12 @@ const TEMPLATES = {
  */
 export function generateLocalizedNarrative(scores, language = 'en') {
   if (!scores) return '';
-  const lang = TRAIT_PHRASES[language] ? language : 'en';
-  const phrases = TRAIT_PHRASES[lang];
-  const e = phrases.extraversion[getLevel(Number(scores.extraversion)      || 0)];
-  const a = phrases.agreeableness[getLevel(Number(scores.agreeableness)    || 0)];
-  const c = phrases.conscientiousness[getLevel(Number(scores.conscientiousness) || 0)];
-  const n = phrases.neuroticism[getLevel(Number(scores.neuroticism)        || 0)];
-  const o = phrases.openness[getLevel(Number(scores.openness)              || 0)];
-  return TEMPLATES[lang]
-    .replace('{e}', e)
-    .replace('{a}', a)
-    .replace('{c}', c)
-    .replace('{n}', n)
-    .replace('{o}', o);
+  const lang = NARRATIVE_PHRASES[language] ? language : 'en';
+  const p = NARRATIVE_PHRASES[lang];
+  const e = p.extraversion     [getLevel(Number(scores.extraversion)      || 0)];
+  const a = p.agreeableness    [getLevel(Number(scores.agreeableness)     || 0)];
+  const c = p.conscientiousness[getLevel(Number(scores.conscientiousness) || 0)];
+  const n = p.neuroticism      [getLevel(Number(scores.neuroticism)       || 0)];
+  const o = p.openness         [getLevel(Number(scores.openness)          || 0)];
+  return p.template(e, a, c, n, o);
 }
