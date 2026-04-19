@@ -3,7 +3,11 @@
 // Central source of truth for stone-tier values and translated labels.
 // Stone tiers (Diamond, Ruby, Sapphire, Agate, Quartz, Unscored) are canonical
 // English strings stored in the DB. This file maps them to translated display
-// labels, following the same pattern as leadStatusLabels.js.
+// labels.
+//
+// The Vietnamese translations below match the canonical names used in the
+// Lead Qualification app (client/src/i18n/vi.js, 'stone_*' keys). If the LQ
+// canonical names ever change, update this file to match.
 // -----------------------------------------------------------------------------
 
 export const STONE_TIERS = [
@@ -25,11 +29,11 @@ export const STONE_LABELS = {
     'Unscored': 'Unscored',
   },
   vi: {
-    'Diamond':  'Kim cương',
-    'Ruby':     'Hồng ngọc',
-    'Sapphire': 'Lam ngọc',
-    'Agate':    'Mã não',
-    'Quartz':   'Thạch anh',
+    'Diamond':  'Kim Cương',
+    'Ruby':     'Hồng Ngọc',
+    'Sapphire': 'Ngọc Bích',
+    'Agate':    'Mã Não',
+    'Quartz':   'Thạch Anh',
     'Unscored': 'Chưa chấm điểm',
   },
 };
@@ -37,10 +41,6 @@ export const STONE_LABELS = {
 /**
  * Return a translated label for a stone tier.
  * Falls back to the original value if no translation exists.
- *
- * @param {string} tier     - canonical English value (e.g. 'Diamond')
- * @param {string} language - 'en' or 'vi'
- * @returns {string} translated label
  */
 export function stoneLabel(tier, language = 'en') {
   if (!tier) return tier;

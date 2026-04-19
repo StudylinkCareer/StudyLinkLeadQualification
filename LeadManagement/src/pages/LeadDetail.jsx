@@ -29,6 +29,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import { labelFor, LEAD_STATUSES as LEAD_STATUS_VALUES } from '../utils/leadStatusLabels';
 import { stoneLabel } from '../utils/stoneLabels';
+import { stoneMessage } from '../utils/stoneMessages';
 import { optLabelBilingual } from '../utils/optionLabels';
 import Watermark from '../components/Watermark';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
@@ -48,17 +49,6 @@ const STONE_IMAGES = {
   Sapphire: sapphireImg,
   Ruby:     rubyImg,
   Diamond:  diamondImg,
-};
-
-// Stone motivational messages — shown in the Self Assessment hero card.
-// Kept as English-only for now (brand-voice marketing copy). If you want
-// these translated, add `leadDetail.stoneMessage.<tier>` keys to en.js/vi.js.
-const STONE_MESSAGES = {
-  Quartz:   'StudyLink will support you with International Programs locally with Scholarships — a smart decision to enjoy world-class education while staying close to your family.',
-  Agate:    'A journey to Asian and European cultures will help you broaden your mindset and develop excellent adaptability. StudyLink will be your Companion on this abroad journey, starting RIGHT NOW!',
-  Sapphire: 'You possess a practical vision, and Europe or Australasia is the perfect environment for you to maximize your potential. StudyLink will be your Companion on this abroad journey, starting RIGHT NOW!',
-  Ruby:     'You are ready to conquer great and beautiful challenges at leading educational powerhouses across 5 continents. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
-  Diamond:  'You can aim at the global "cathedrals" of knowledge, places reserved for the most excellent individuals. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
 };
 
 // ── Permissions config ────────────────────────────────────────
@@ -559,7 +549,7 @@ export default function LeadDetail() {
                 <img src={STONE_IMAGES[lead.stoneTier]} alt={stoneLabel(lead.stoneTier, language)}
                   style={{ width:'56px', height:'56px', objectFit:'contain', flexShrink:0 }}/>
                 <p style={{ margin:0, fontSize:'0.875rem', lineHeight:1.6, color:'var(--text-primary)' }}>
-                  <strong>{fmt(t('leadDetail.stone.congrats', language), { stone: stoneLabel(lead.stoneTier, language) })}</strong> — {STONE_MESSAGES[lead.stoneTier]}
+                  <strong>{fmt(t('leadDetail.stone.congrats', language), { stone: stoneLabel(lead.stoneTier, language) })}</strong> — {stoneMessage(lead.stoneTier, language)}
                 </p>
               </div>
             )}
