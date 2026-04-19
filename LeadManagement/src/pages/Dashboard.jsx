@@ -13,6 +13,22 @@
 //     switch counselors or close the drill-down.
 //   - Mini-chart bars navigate to /leads filtered by counselor +
 //     stone/status (pre-filtered by uniqueId).
+//
+// CHANGES (Manager/Admin KPI layout):
+//   - Manager/Admin dashboard now mirrors the Counselor KPI layout:
+//     Leads by Stone + Leads by Status stacked on the left, Pipeline
+//     Statistics on the right spanning both.
+//   - 'Leads by Source' removed from Manager/Admin view.
+//   - Pipeline Statistics now shown to Manager/Admin (previously hidden).
+//   - Target row logic is role-dependent:
+//       * Counselor → own target (from /api/staff/me)
+//       * Manager   → aggregate of all active Counselors' targets
+//                     (from /api/staff/active). Sub-text reads
+//                     "Aggregated from N counselors".
+//       * Admin     → Target row is hidden (Admins have no target).
+//   - /api/staff/me is the new secure endpoint so Counselors can fetch
+//     their own target (previously they saw '—' / 'Not set' because
+//     list() is Admin-only).
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -158,6 +174,8 @@ function HBarChart({ data, colorMap, defaultColor, onBarClick }) {
 export default function Dashboard() {
   const [leads, setLeads]       = useState([]);
   const [myStaff, setMyStaff]   = useState(null);
+  // Full active-staff list — used by Managers to aggregate counselor targets.
+  const [activeStaff, setActiveStaff] = useState([]);
   const [loading, setLoading]   = useState(true);
   // Currently selected counselor for drill-down; null = chart full-width.
   const [selectedCounselor, setSelectedCounselor] = useState(null);
@@ -168,14 +186,24 @@ export default function Dashboard() {
     const promises = [studentAPI.search('').then(d => setLeads(d.data || []))];
     if (staff?.id) {
       promises.push(
-        staffAPI.list().then(d => {
-          const me = (d.data || []).find(s => s.id === staff.id);
-          if (me) setMyStaff(me);
-        }).catch(() => {})
+        // Fetch the logged-in user's OWN record via the secure /me endpoint.
+        // Any role can call this; returns target, targetSetBy, targetSetAt.
+        staffAPI.me()
+          .then(d => { if (d.data) setMyStaff(d.data); })
+          .catch(() => {})
+      );
+    }
+    // Managers aggregate targets across all active counselors.
+    // Admins don't need this — they won't see a target row at all.
+    if (isManager) {
+      promises.push(
+        staffAPI.listActive()
+          .then(d => { if (d.data) setActiveStaff(d.data); })
+          .catch(() => {})
       );
     }
     Promise.all(promises).catch(console.error).finally(() => setLoading(false));
-  }, [staff?.id]);
+  }, [staff?.id, isManager]);
 
   const scopedLeads = useMemo(() => {
     if (isManager || isAdmin) return leads;
@@ -284,9 +312,6 @@ export default function Dashboard() {
   function drillPipeline(leads) {
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: leads.map(l => l.uniqueId) } } });
   }
-  function drillCounselor(leads) {
-    navigate('/leads', { state: { drillFilter: { key: '_ids', value: leads.map(l => l.uniqueId) } } });
-  }
   // Toggle the drill-down panel for a counselor.
   // Same name → close; different name → switch.
   function toggleCounselor(name) {
@@ -310,9 +335,60 @@ export default function Dashboard() {
 
   if (loading) return <div className="loading-center">Loading dashboard...</div>;
 
-  const showPipeline = !isManager && !isAdmin;
-  const showCounselor = isManager || isAdmin;
+  const isManagerOrAdmin = isManager || isAdmin;
   const maxCounselorTotal = Math.max(...counselorData.map(d => d.total), 1);
+
+  // ── Target row content by role ───────────────────────────────
+  // - Counselor: their own personal target (from /me)
+  // - Manager:   sum of targets across all active counselors
+  // - Admin:     hidden (Admins have no target concept)
+  let targetRowEl = null;
+  if (isManager) {
+    const counselorsWithTargets = activeStaff.filter(
+      s => s.role === 'Counselor' && s.target != null
+    );
+    const aggregateTarget = counselorsWithTargets.reduce(
+      (sum, s) => sum + Number(s.target || 0), 0
+    );
+    const n = counselorsWithTargets.length;
+    targetRowEl = (
+      <PipelineRow
+        label="Target (Contracted this month)"
+        count={n > 0 ? aggregateTarget : '—'}
+        isTarget
+        color="var(--primary)"
+        sub={n > 0 ? `Aggregated from ${n} counselor${n === 1 ? '' : 's'}` : 'No counselor targets set'}
+      />
+    );
+  } else if (!isAdmin) {
+    // Counselor / other non-admin roles — show their own target.
+    targetRowEl = (
+      <PipelineRow
+        label="Target (Contracted this month)"
+        count={myStaff?.target ?? '—'}
+        isTarget
+        color="var(--primary)"
+        sub={myStaff?.targetSetBy ? `Set by ${myStaff.targetSetBy}` : 'Not set'}
+      />
+    );
+  }
+  // Admin: targetRowEl stays null → row not rendered.
+
+  // ── Shared: Pipeline Statistics card ─────────────────────────
+  // Rendered both for Counselors (inside the 3-col row) and for
+  // Manager/Admin (in the right column of the new 2-col KPI grid).
+  const pipelineCard = (
+    <div className="section-card" style={{ maxHeight:'480px', overflowY:'auto' }}>
+      <div className="section-header"><span className="section-title">Pipeline Statistics</span></div>
+      {targetRowEl}
+      <PipelineRow label="Close this week"    count={pipeline.thisWeek.length}     color="#10B981" sub={`by Sunday ${getWeekEnd().toLocaleDateString()}`}     onClick={() => drillPipeline(pipeline.thisWeek)}/>
+      <PipelineRow label="Close this month"   count={pipeline.thisMonth.length}    color="#2563EB" sub={`by ${getMonthEnd().toLocaleDateString()}`}            onClick={() => drillPipeline(pipeline.thisMonth)}/>
+      <PipelineRow label="Close this quarter" count={pipeline.thisQuarter.length}  color="#8B5CF6" sub={`by ${getQuarterEnd().toLocaleDateString()}`}          onClick={() => drillPipeline(pipeline.thisQuarter)}/>
+      <PipelineRow label="Rolling 3 months"   count={pipeline.rolling.length}      color="#F59E0B" sub="beyond quarter end"                                    onClick={() => drillPipeline(pipeline.rolling)}/>
+      <PipelineRow label="Beyond 3 months"    count={pipeline.notProjected.length} color="#EF4444"                                                              onClick={() => drillPipeline(pipeline.notProjected)}/>
+      <PipelineRow label="No close date"      count={pipeline.noCloseDate.length}  color="#9CA3AF"                                                              onClick={() => drillPipeline(pipeline.noCloseDate)}/>
+    </div>
+  );
 
   return (
     <div>
@@ -320,12 +396,13 @@ export default function Dashboard() {
       <div className="page-header">
         <span className="page-title">Dashboard</span>
         <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>
-          {(isManager || isAdmin) ? 'All leads' : `${staff?.fullName} — your assigned leads`}
+          {isManagerOrAdmin ? 'All leads' : `${staff?.fullName} — your assigned leads`}
         </span>
       </div>
 
       <div className="page-body">
 
+        {/* ── Top stat cards row ───────────────────────────────── */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
           <StatCard label="Total Leads"     value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads')}/>
           <StatCard label="Active"          value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
@@ -333,41 +410,55 @@ export default function Dashboard() {
           <StatCard label="New This Month"  value={stats.thisMonth} color="#F59E0B" sub="created this month"/>
         </div>
 
-        <div style={{ display:'grid', gridTemplateColumns: showPipeline ? '1fr 1fr 1fr 300px' : '1fr 1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
+        {/* ── KPI charts + Pipeline row ────────────────────────── */}
+        {isManagerOrAdmin ? (
+          // Manager/Admin view: Stone + Status stacked on left, Pipeline on right
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
 
-          <div className="section-card">
-            <div className="section-header"><span className="section-title">Leads by Stone</span></div>
-            <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
-            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
-          </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
+              <div className="section-card">
+                <div className="section-header"><span className="section-title">Leads by Stone</span></div>
+                <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
+                <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+              </div>
 
-          <div className="section-card">
-            <div className="section-header"><span className="section-title">Leads by Status</span></div>
-            <HBarChart data={statusData} colorMap={STATUS_COLORS} onBarClick={name => drillDown('leadStatus', name)}/>
-            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
-          </div>
-
-          <div className="section-card">
-            <div className="section-header"><span className="section-title">Leads by Source</span></div>
-            <HBarChart data={sourceData} defaultColor={SOURCE_COLORS} onBarClick={name => drillDown('leadSource', name)}/>
-            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
-          </div>
-
-          {showPipeline && (
-            <div className="section-card" style={{ maxHeight:'480px', overflowY:'auto' }}>
-              <div className="section-header"><span className="section-title">Pipeline Statistics</span></div>
-              <PipelineRow label="Target (Contracted this month)" count={myStaff?.target ?? '—'} isTarget color="var(--primary)" sub={myStaff?.targetSetBy ? `Set by ${myStaff.targetSetBy}` : 'Not set'}/>
-              <PipelineRow label="Close this week"    count={pipeline.thisWeek.length}     color="#10B981" sub={`by Sunday ${getWeekEnd().toLocaleDateString()}`}     onClick={() => drillPipeline(pipeline.thisWeek)}/>
-              <PipelineRow label="Close this month"   count={pipeline.thisMonth.length}    color="#2563EB" sub={`by ${getMonthEnd().toLocaleDateString()}`}            onClick={() => drillPipeline(pipeline.thisMonth)}/>
-              <PipelineRow label="Close this quarter" count={pipeline.thisQuarter.length}  color="#8B5CF6" sub={`by ${getQuarterEnd().toLocaleDateString()}`}          onClick={() => drillPipeline(pipeline.thisQuarter)}/>
-              <PipelineRow label="Rolling 3 months"   count={pipeline.rolling.length}      color="#F59E0B" sub="beyond quarter end"                                    onClick={() => drillPipeline(pipeline.rolling)}/>
-              <PipelineRow label="Beyond 3 months"    count={pipeline.notProjected.length} color="#EF4444"                                                              onClick={() => drillPipeline(pipeline.notProjected)}/>
-              <PipelineRow label="No close date"      count={pipeline.noCloseDate.length}  color="#9CA3AF"                                                              onClick={() => drillPipeline(pipeline.noCloseDate)}/>
+              <div className="section-card">
+                <div className="section-header"><span className="section-title">Leads by Status</span></div>
+                <HBarChart data={statusData} colorMap={STATUS_COLORS} onBarClick={name => drillDown('leadStatus', name)}/>
+                <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+              </div>
             </div>
-          )}
-        </div>
 
-        {showCounselor && (
+            {pipelineCard}
+          </div>
+        ) : (
+          // Counselor view (unchanged): Stone / Status / Source / Pipeline
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 300px', gap:'1rem', marginBottom:'1.5rem' }}>
+
+            <div className="section-card">
+              <div className="section-header"><span className="section-title">Leads by Stone</span></div>
+              <HBarChart data={stoneData} colorMap={STONE_COLORS} onBarClick={name => drillDown('stoneTier', name)}/>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+            </div>
+
+            <div className="section-card">
+              <div className="section-header"><span className="section-title">Leads by Status</span></div>
+              <HBarChart data={statusData} colorMap={STATUS_COLORS} onBarClick={name => drillDown('leadStatus', name)}/>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+            </div>
+
+            <div className="section-card">
+              <div className="section-header"><span className="section-title">Leads by Source</span></div>
+              <HBarChart data={sourceData} defaultColor={SOURCE_COLORS} onBarClick={name => drillDown('leadSource', name)}/>
+              <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', textAlign:'center', marginTop:'0.75rem' }}>Click a bar to view those leads</div>
+            </div>
+
+            {pipelineCard}
+          </div>
+        )}
+
+        {/* ── Leads by Counselor + drill-down (Manager/Admin only) ── */}
+        {isManagerOrAdmin && (
           <div style={{
             display:'grid',
             gridTemplateColumns: selectedCounselor ? '1fr 1fr' : '1fr',
