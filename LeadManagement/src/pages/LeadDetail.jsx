@@ -466,12 +466,24 @@ export default function LeadDetail() {
           {/* Student Information */}
           <div className="section-card">
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
-              <div>
+              <div style={{ flex:1 }}>
                 <span className="section-title">{t('leadDetail.section.studentInfo', language)}</span>
-                <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
-                  {lead.fullName || '—'}
-                </div>
-              </div>
+                {editMode ? (
+                  <input
+                    className="form-input"
+                    name="fullName"
+                    value={d.fullName || ''}
+                    onChange={e => updateEdit('fullName', e.target.value)}
+                    style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem', width:'100%', maxWidth:'500px' }}
+                    placeholder={t('leadDetail.field.name', language) || 'Student name'}
+                  />
+                ) : (
+                  <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
+                    {lead.fullName || '—'}
+                  </div>
+                )}
+              </div>  
+
               <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
                 <PhotoThumb url={lead.headshotUrl}    label={t('leadDetail.photo.headshot', language)} isRound={true}/>
                 <PhotoThumb url={lead.qrCodeImageUrl} label={t('leadDetail.photo.qrCode', language)}   isRound={false}/>
