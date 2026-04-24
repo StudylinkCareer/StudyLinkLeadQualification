@@ -151,4 +151,4 @@ leadqualification-492506-b2fe43e9a264.json
 
 # Local environment files (contain secrets)
 .env
-.env.local
+.env.local  
