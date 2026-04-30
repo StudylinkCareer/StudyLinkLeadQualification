@@ -1,25 +1,10 @@
 // src/pages/LeadDetail.jsx
-// CHANGES:
-//   - Added campaignType, campaignName, campaignStart, campaignEnd to FIELD_LABELS
-//   - Added 4 read-only campaign fields to Student Information view section
-//   - Right-column Summary panel redesigned:
-//       * Replaces staff summary + OCEAN scores list
-//       * Now shows Stone image + Risk score, OCEAN archetype (group + name)
-//         in a color-coded card, and scrollable Last 5 Notes
-//   - Staff Assignment panel: labels and dropdowns now display inline
-//     (label left, dropdown right) instead of stacked
-//
-// CHANGES (i18n Phase 2b):
-//   - All UI chrome uses t(key, language).
-//   - Lead status dropdown / display uses labelFor(status, language).
-//   - Stone tier display (stone hero card, summary panel) uses stoneLabel().
-//   - Dropdown option values use optLabelBilingual() — Vietnamese label with
-//     English canonical value in parens. Form submissions still use the
-//     English value so filters and DB stay consistent.
-//   - OCEAN archetype is already bilingual via getArchetype(scores, language).
-//   - Likert labels (1..5) translate.
-//   - NOTE_TYPES still use en.js keys so the badge text translates.
-//   - Section titles, field labels, buttons, confirms, alerts all translated.
+// CHANGES (Apr 30, 2026 — Bug fixes Day 4):
+//   - Item #3: Mandatory Close Date + Confidence when status moves past 'New'
+//   - Item #4: Counselors can only pull Close Date earlier; Manager/Admin/Director
+//             can move it any direction (including later).
+//   - Item #2 (partial): Back button now uses navigate('/leads', { state: { fromLeadDetail: true } })
+//             so Leads.jsx can re-hydrate filters from sessionStorage.
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -37,22 +22,14 @@ import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiC
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
 import { generateLocalizedNarrative } from '../utils/oceanNarrative';
 
-// ── Stone images ──────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
 import agateImg    from '../Assets/Stones/agate.png';
 import sapphireImg from '../Assets/Stones/sapphire.png';
 import rubyImg     from '../Assets/Stones/ruby.png';
 import diamondImg  from '../Assets/Stones/diamond.png';
 
-const STONE_IMAGES = {
-  Quartz:   quartzImg,
-  Agate:    agateImg,
-  Sapphire: sapphireImg,
-  Ruby:     rubyImg,
-  Diamond:  diamondImg,
-};
+const STONE_IMAGES = { Quartz: quartzImg, Agate: agateImg, Sapphire: sapphireImg, Ruby: rubyImg, Diamond: diamondImg };
 
-// ── Permissions config ────────────────────────────────────────
 const PERMS = {
   canEdit:           ['Counselor', 'Manager', 'Admin', 'Director'],
   canEditAssignment: ['Manager', 'Admin'],
@@ -63,6 +40,9 @@ const PERMS = {
     management: ['Director',  'Manager', 'Admin'],
   },
 };
+
+// Item #4: Manager-level roles can override counselor restrictions
+const MANAGER_ROLES = ['Manager', 'Admin', 'Director'];
 
 const CONFIDENCE_OPTS = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
 const NOTE_TYPE_KEYS  = {
@@ -84,29 +64,31 @@ const TIMELINE_OPTS   = ['Next 6 months','6-12 months','12-24 months','24-36 mon
 const INTERACTION_OPTS= ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
 const LEAD_SOURCE_OPTS= ['Databases','FB-Zalo-GG-TikTok ads','School outreach','Subagent referrals','Ex-client'];
 
-// Simple {placeholder} substitution.
 function fmt(str, params) {
   if (!params) return str;
   return Object.keys(params).reduce(
-    (acc, k) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), params[k]),
-    str
+    (acc, k) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), params[k]), str
   );
 }
-
 function canDo(perm, role) { return Array.isArray(perm) ? perm.includes(role) : false; }
-
 function formatDate(dt) {
   if (!dt) return '';
   return new Date(dt).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
 }
-
 function formatShortDate(dt) {
   if (!dt) return null;
   return String(dt).slice(0, 10);
 }
+// Item #4 helper: compare two date strings as date-only
+function compareDateOnly(a, b) {
+  const da = a ? String(a).slice(0,10) : '';
+  const db = b ? String(b).slice(0,10) : '';
+  if (da === db) return 0;
+  if (!da) return -1;
+  if (!db) return 1;
+  return da < db ? -1 : 1;
+}
 
-// Displays a read-only value with translated display text.
-// optionGroup is passed through to optLabelBilingual when provided.
 function Field({ label, value, group, language }) {
   let display = value;
   if (value && group && language) {
@@ -122,17 +104,19 @@ function Field({ label, value, group, language }) {
   );
 }
 
-// Edit-mode <input>/<select>. When `group` is passed, each <option> shows
-// the bilingual label while keeping the English value in the `value` attr.
-function EditField({ label, name, value, onChange, type='text', options, group, language }) {
+// Item #3: added `required` prop - renders red asterisk
+function EditField({ label, name, value, onChange, type='text', options, group, language, required }) {
   const renderOption = (opt) => {
-    if (name === 'leadStatus')      return labelFor(opt, language);
-    if (group)                       return optLabelBilingual(opt, group, language);
+    if (name === 'leadStatus') return labelFor(opt, language);
+    if (group)                  return optLabelBilingual(opt, group, language);
     return opt;
   };
   return (
     <div className="form-group" style={{ margin:0 }}>
-      <label className="form-label">{label}</label>
+      <label className="form-label">
+        {label}
+        {required && <span style={{ color:'var(--danger)', marginLeft:'4px' }}>*</span>}
+      </label>
       {options ? (
         <select className="form-select" value={value||''} onChange={e=>onChange(name,e.target.value)}>
           <option value="">—</option>
@@ -145,7 +129,6 @@ function EditField({ label, name, value, onChange, type='text', options, group, 
   );
 }
 
-// ── Photo placeholder ─────────────────────────────────────────
 function PhotoThumb({ url, label, isRound }) {
   return (
     <div style={{ textAlign:'center' }}>
@@ -178,6 +161,7 @@ export default function LeadDetail() {
   const { staff } = useAuth();
   const { language } = useLanguage();
   const role      = staff?.role || '';
+  const isManagerLevel = MANAGER_ROLES.includes(role);
 
   const [lead, setLead]         = useState(null);
   const [notes, setNotes]       = useState([]);
@@ -197,40 +181,37 @@ export default function LeadDetail() {
   const [recalcOcean, setRecalcOcean]     = useState(false);
   const [oceanResult, setOceanResult]     = useState(null);
 
-  // Translated field labels used in the Change History section.
-  // Each entry maps a DB fieldName to a translated human-readable label.
   const FIELD_LABELS = {
-    leadStatus:          t('leadDetail.field.status',             language),
-    closeDate:           t('leadDetail.field.closeDate',          language),
-    confidence:          t('leadDetail.field.confidence',         language),
-    studyPlans:          t('leadDetail.field.studyPlans',         language),
-    leadSource:          t('leadDetail.field.leadSource',         language),
-    interaction:         t('leadDetail.field.interaction',        language),
-    destinationCountry:  t('leadDetail.field.destination',        language),
-    timeline:            t('leadDetail.field.timeline',           language),
-    schoolEvent:         t('leadDetail.field.schoolEvent',        language),
-    budget:              t('leadDetail.field.budget',             language),
-    scholarshipDemand:   t('leadDetail.field.scholarshipDemand',  language),
-    englishLevel:        t('leadDetail.field.englishLevel',       language),
-    gpa:                 t('leadDetail.field.gpa',                language),
-    immigrationHistory:  t('leadDetail.field.immigrationHistory', language),
-    sponsorIncome:       t('leadDetail.field.sponsorIncome',      language),
-    incomeEvidence:      t('leadDetail.field.incomeEvidence',     language),
-    studyPlanGap:        t('leadDetail.field.studyPlanGap',       language),
-    ultimateObjective:   t('leadDetail.field.ultimateObjective',  language),
-    counselor:           t('leadDetail.field.counselor',          language),
-    seniorCounselor:     t('leadDetail.field.seniorCounselor',    language),
-    presales:            t('leadDetail.field.presales',           language),
-    marketingStaff:      t('leadDetail.field.marketingStaff',     language),
-    riskScore:           t('leadDetail.field.riskScore',          language),
-    stoneTier:           t('leadDetail.field.stoneTier',          language),
-    campaignType:        t('leadDetail.field.campaignType',       language),
-    campaignName:        t('leadDetail.field.campaignName',       language),
-    campaignStart:       t('leadDetail.field.eventStart',         language),
-    campaignEnd:         t('leadDetail.field.eventEnd',           language),
+    leadStatus: t('leadDetail.field.status', language),
+    closeDate: t('leadDetail.field.closeDate', language),
+    confidence: t('leadDetail.field.confidence', language),
+    studyPlans: t('leadDetail.field.studyPlans', language),
+    leadSource: t('leadDetail.field.leadSource', language),
+    interaction: t('leadDetail.field.interaction', language),
+    destinationCountry: t('leadDetail.field.destination', language),
+    timeline: t('leadDetail.field.timeline', language),
+    schoolEvent: t('leadDetail.field.schoolEvent', language),
+    budget: t('leadDetail.field.budget', language),
+    scholarshipDemand: t('leadDetail.field.scholarshipDemand', language),
+    englishLevel: t('leadDetail.field.englishLevel', language),
+    gpa: t('leadDetail.field.gpa', language),
+    immigrationHistory: t('leadDetail.field.immigrationHistory', language),
+    sponsorIncome: t('leadDetail.field.sponsorIncome', language),
+    incomeEvidence: t('leadDetail.field.incomeEvidence', language),
+    studyPlanGap: t('leadDetail.field.studyPlanGap', language),
+    ultimateObjective: t('leadDetail.field.ultimateObjective', language),
+    counselor: t('leadDetail.field.counselor', language),
+    seniorCounselor: t('leadDetail.field.seniorCounselor', language),
+    presales: t('leadDetail.field.presales', language),
+    marketingStaff: t('leadDetail.field.marketingStaff', language),
+    riskScore: t('leadDetail.field.riskScore', language),
+    stoneTier: t('leadDetail.field.stoneTier', language),
+    campaignType: t('leadDetail.field.campaignType', language),
+    campaignName: t('leadDetail.field.campaignName', language),
+    campaignStart: t('leadDetail.field.eventStart', language),
+    campaignEnd: t('leadDetail.field.eventEnd', language),
   };
 
-  // Likert labels (1..5) come from translation.
   const LIKERT_LABELS = ['',
     t('leadDetail.likert.1', language),
     t('leadDetail.likert.2', language),
@@ -276,8 +257,6 @@ export default function LeadDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // When language changes, refresh the archetype so its name/careers
-  // re-render in the new language (they come from oceanArchetypes.js).
   useEffect(() => {
     if (oceanResult && lead?.oceanExtraversion) {
       const scores = oceanResult.scores;
@@ -293,11 +272,38 @@ export default function LeadDetail() {
   function cancelEdit() { setEditData({}); setEditMode(false); }
   function updateEdit(name, value) { setEditData(d=>({...d,[name]:value})); }
 
+  // Item #2 partial: back button signals Leads.jsx to restore filters
+  function goBack() {
+    navigate('/leads', { state: { fromLeadDetail: true } });
+  }
+
   async function saveAll() {
+    // ── Item #3: Mandatory Close Date + Confidence when status != 'New' ──
+    if (editMode) {
+      const status = editData.leadStatus || 'New';
+      if (status !== 'New') {
+        const missing = [];
+        if (!editData.closeDate)  missing.push(t('leadDetail.field.closeDate', language));
+        if (!editData.confidence) missing.push(t('leadDetail.field.confidence', language));
+        if (missing.length > 0) {
+          alert(t('leadDetail.validation.requiredFields', language) + '\n\n• ' + missing.join('\n• '));
+          return;
+        }
+      }
+      // ── Item #4: Counselors can only pull Close Date EARLIER ──
+      if (!isManagerLevel && lead?.closeDate && editData.closeDate) {
+        if (compareDateOnly(editData.closeDate, lead.closeDate) > 0) {
+          alert(t('leadDetail.validation.closeDateLater', language));
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     try {
       if (editMode) {
         await studentAPI.update(id, {
+          fullName:           editData.fullName,
           leadStatus:         editData.leadStatus,
           closeDate:          editData.closeDate || null,
           confidence:         editData.confidence,
@@ -404,16 +410,20 @@ export default function LeadDetail() {
   const canRecalc = canDo(PERMS.canRecalculate, role);
   const d         = editMode ? editData : lead;
 
+  // Item #3: required indicator for Close Date and Confidence
+  const currentStatus = (d.leadStatus || 'New');
+  const closeDateRequired = currentStatus !== 'New';
+  const confidenceRequired = currentStatus !== 'New';
+
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
 
   return (
     <div>
       <Watermark />
 
-      {/* Header */}
       <div className="page-header">
         <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-          <button className="btn btn--ghost btn--icon" onClick={()=>navigate('/leads')}>
+          <button className="btn btn--ghost btn--icon" onClick={goBack}>
             <FiArrowLeft size={16}/>
           </button>
           <span className="page-title">{lead.fullName || t('leadDetail.defaultTitle', language)}</span>
@@ -442,7 +452,6 @@ export default function LeadDetail() {
 
       <div className="page-body" style={{ display:'grid', gridTemplateColumns:'1fr 380px', gap:'1rem', alignItems:'start' }}>
 
-        {/* ── Left column ── */}
         <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
 
           {/* Lead Status */}
@@ -451,8 +460,8 @@ export default function LeadDetail() {
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
                 <EditField label={t('leadDetail.field.status', language)}     name="leadStatus" value={d.leadStatus} onChange={updateEdit} options={LEAD_STATUS_VALUES} language={language}/>
-                <EditField label={t('leadDetail.field.closeDate', language)}  name="closeDate"  value={d.closeDate?d.closeDate.split('T')[0]:''} onChange={updateEdit} type="date"/>
-                <EditField label={t('leadDetail.field.confidence', language)} name="confidence" value={d.confidence} onChange={updateEdit} options={CONFIDENCE_OPTS} group="confidence" language={language}/>
+                <EditField label={t('leadDetail.field.closeDate', language)}  name="closeDate"  value={d.closeDate?d.closeDate.split('T')[0]:''} onChange={updateEdit} type="date" required={closeDateRequired}/>
+                <EditField label={t('leadDetail.field.confidence', language)} name="confidence" value={d.confidence} onChange={updateEdit} options={CONFIDENCE_OPTS} group="confidence" language={language} required={confidenceRequired}/>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
@@ -482,8 +491,7 @@ export default function LeadDetail() {
                     {lead.fullName || '—'}
                   </div>
                 )}
-              </div>  
-
+              </div>
               <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
                 <PhotoThumb url={lead.headshotUrl}    label={t('leadDetail.photo.headshot', language)} isRound={true}/>
                 <PhotoThumb url={lead.qrCodeImageUrl} label={t('leadDetail.photo.qrCode', language)}   isRound={false}/>
@@ -595,7 +603,6 @@ export default function LeadDetail() {
               <div style={{ marginBottom:'1rem' }}>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3rem', alignItems:'start', marginBottom:'1rem' }}>
 
-                  {/* LEFT: radar chart + trait bars */}
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'12px' }}>
                     <svg width="200" height="195" viewBox="-15 0 230 195" style={{ overflow:'visible' }}>
                       {(() => {
@@ -608,7 +615,6 @@ export default function LeadDetail() {
                           const v = Math.max(0, Math.min(15, Number(oceanResult.scores[k])||0));
                           return pt(angles[i], (v/15)*r);
                         });
-                        // SVG labels stay English abbreviations (short, fit in chart)
                         const labels = ['Extraversion','Agree.','Conscient.','Neurotic.','Open.'];
                         const offsets = [{dx:0,dy:-14},{dx:14,dy:0},{dx:8,dy:14},{dx:-8,dy:14},{dx:-18,dy:0}];
                         const anchors = ['middle','start','middle','middle','end'];
@@ -648,7 +654,6 @@ export default function LeadDetail() {
                     </div>
                   </div>
 
-                  {/* RIGHT: archetype */}
                   {oceanResult.archetype && (() => {
                     const arch   = oceanResult.archetype;
                     const colors = oceanResult.colors || GROUP_COLORS[arch.group] || { badge:'#4F46E5' };
@@ -889,10 +894,9 @@ export default function LeadDetail() {
           </div>
         </div>
 
-        {/* ── Right column ── */}
+        {/* Right column */}
         <div style={{ display:'flex', flexDirection:'column', gap:'1rem', position:'sticky', top:'72px' }}>
 
-          {/* Summary */}
           <div className="section-card">
             <div className="section-header"><span className="section-title">{t('leadDetail.section.summary', language)}</span></div>
 
@@ -987,7 +991,6 @@ export default function LeadDetail() {
             </div>
           </div>
 
-          {/* Staff Assignment */}
           {canAssign && (
             <div className="section-card">
               <div className="section-header"><span className="section-title">{t('leadDetail.section.staffAssignment', language)}</span></div>
@@ -998,9 +1001,7 @@ export default function LeadDetail() {
                   { key:'presales',        labelKey:'leadDetail.field.presales' },
                   { key:'marketingStaff',  labelKey:'leadDetail.field.marketingStaff' },
                 ].map(({ key, labelKey }) => (
-                  <div key={key} style={{
-                    display:'flex', alignItems:'center', gap:'0.75rem',
-                  }}>
+                  <div key={key} style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
                     <label style={{
                       flex:'0 0 115px', fontSize:'0.8125rem',
                       color:'var(--text-secondary)', fontWeight:500,

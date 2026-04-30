@@ -107,6 +107,8 @@ const vi = {
   'dashboard.pipeline.rolling3Months.sub':'sau khi kết thúc quý',
   'dashboard.pipeline.beyond3Months':    'Sau 3 tháng',
   'dashboard.pipeline.noCloseDate':      'Không có ngày chốt',
+  'dashboard.pipeline.backlog':          'Quá hạn',
+  'dashboard.pipeline.backlog.sub':      'đã qua ngày chốt',
 
   // ── Leads page ──────────────────────────────────────────────
   'leads.title':                    'Khách hàng tiềm năng',
@@ -233,6 +235,10 @@ const vi = {
   'leadDetail.defaultTitle':        'Chi tiết khách hàng',
   'leadDetail.saved':               'Đã lưu thành công',
   'leadDetail.confirmDeleteNote':   'Xóa ghi chú này?',
+
+  // Validation messages (Apr 30 — items #3 and #4)
+  'leadDetail.validation.requiredFields': 'Các trường sau bắt buộc khi trạng thái không phải "Mới":',
+  'leadDetail.validation.closeDateLater': 'Tư vấn viên không thể dời Ngày chốt sang ngày muộn hơn. Việc này phải do quản lý cập nhật.',
 
   'leadDetail.section.leadStatus':    'Trạng thái khách hàng',
   'leadDetail.section.studentInfo':   'Thông tin học sinh',

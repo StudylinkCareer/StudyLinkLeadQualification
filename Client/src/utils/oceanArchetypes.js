@@ -1,7 +1,19 @@
 // client/src/utils/oceanArchetypes.js
-// Also copy to: LeadManagement/src/utils/oceanArchetypes.js
-//
 // Bilingual (EN/VI) OCEAN archetype engine
+//
+// CHANGES (April 30, 2026 — Big_5_adjustments_17_April_2026):
+//   - Group 4 Quiet Supporter (EN):  "Customer Service Specialist" → "Customer Service"
+//   - Group 4 Minimalist (EN):       "Quality Assurance Tester, Data Entry Specialist, Night Auditor"
+//                                    → "Quality Assurance, Data Entry, Auditor"
+//   - Group 4 Minimalist (VI):       "Người kiểm thử chất lượng" → "Người kiểm tra chất lượng (QA)";
+//                                    "Kiểm toán viên ca đêm" → "Kiểm toán viên"
+//   - Group 4 Emotional Connector (VI): "Khai vấn cuộc sống" → "Khai vấn cuộc sống (Life Coach)"
+//   - Group 4 Solitary Watchman (EN): "Security Analyst, Remote Monitor, Independent Researcher"
+//                                     → "Security Guard, Remote Monitor, Fire Lookout"
+//
+// NOTE: This file is duplicated in BOTH apps and must stay in sync:
+//   - client/src/utils/oceanArchetypes.js          (LQ student app)
+//   - LeadManagement/src/utils/oceanArchetypes.js  (LM console)
 
 const ARCHETYPES = {
   // ── Group 1: Proactive Leaders (High C, High E) ──────────────
@@ -116,16 +128,16 @@ const ARCHETYPES = {
     vi: { name: 'Người nắm bắt Cơ hội',   group: 'Những người thích nghi xã hội', careers: ['Đại lý quảng bá', 'Đại sứ thương hiệu', 'Người săn tìm tài năng'] },
   },
   '-_-_-_+_-': {
-    en: { name: 'The Quiet Supporter',     group: 'Social Adaptables',  careers: ['Administrative Assistant', 'Customer Service Specialist', 'Clergy'] },
+    en: { name: 'The Quiet Supporter',     group: 'Social Adaptables',  careers: ['Administrative Assistant', 'Customer Service', 'Clergy'] },
     vi: { name: 'Người hỗ trợ Thầm lặng', group: 'Những người thích nghi xã hội', careers: ['Trợ lý hành chính', 'Chăm sóc khách hàng', 'Giáo sĩ'] },
   },
   '-_-_-_-_-': {
-    en: { name: 'The Minimalist',          group: 'Social Adaptables',  careers: ['Quality Assurance Tester', 'Data Entry Specialist', 'Night Auditor'] },
-    vi: { name: 'Người tối giản',          group: 'Những người thích nghi xã hội', careers: ['Người kiểm thử chất lượng', 'Nhập liệu', 'Kiểm toán viên ca đêm'] },
+    en: { name: 'The Minimalist',          group: 'Social Adaptables',  careers: ['Quality Assurance', 'Data Entry', 'Auditor'] },
+    vi: { name: 'Người tối giản',          group: 'Những người thích nghi xã hội', careers: ['Người kiểm tra chất lượng (QA)', 'Nhập liệu', 'Kiểm toán viên'] },
   },
   '-_-_+_+_+': {
     en: { name: 'The Emotional Connector', group: 'Social Adaptables',  careers: ['Social Worker', 'Life Coach', 'Youth Counselor'] },
-    vi: { name: 'Người kết nối Cảm xúc',  group: 'Những người thích nghi xã hội', careers: ['Nhân viên công tác xã hội', 'Khai vấn cuộc sống', 'Cố vấn thanh niên'] },
+    vi: { name: 'Người kết nối Cảm xúc',  group: 'Những người thích nghi xã hội', careers: ['Nhân viên công tác xã hội', 'Khai vấn cuộc sống (Life Coach)', 'Cố vấn thanh niên'] },
   },
   '-_-_+_-_+': {
     en: { name: 'The Dynamic Performer',   group: 'Social Adaptables',  careers: ['Actor', 'Professional Speaker', 'Fitness Instructor'] },
@@ -136,7 +148,7 @@ const ARCHETYPES = {
     vi: { name: 'Người quan sát Nhẹ nhàng', group: 'Những người thích nghi xã hội', careers: ['Người chăm sóc động vật', 'Thợ cắm hoa', 'Người điều phối nhóm hỗ trợ'] },
   },
   '-_-_-_-_+': {
-    en: { name: 'The Solitary Watchman',   group: 'Social Adaptables',  careers: ['Security Analyst', 'Remote Monitor', 'Independent Researcher'] },
+    en: { name: 'The Solitary Watchman',   group: 'Social Adaptables',  careers: ['Security Guard', 'Remote Monitor', 'Fire Lookout'] },
     vi: { name: 'Người canh gác Đơn độc', group: 'Những người thích nghi xã hội', careers: ['Nhân viên bảo vệ', 'Người giám sát từ xa', 'Người canh gác cháy rừng'] },
   },
 };

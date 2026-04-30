@@ -23,6 +23,17 @@
 //   - Stone tier names use stoneLabel(tier, language) from stoneLabels.js —
 //     the DB still stores canonical English values.
 //   - Counselor names are user data and are not translated.
+//
+// CHANGES (Apr 30, 2026 — Item #5 Backlog row):
+//   - New 'backlog' pipeline bucket: active leads with closeDate before this
+//     week's Monday (i.e. anything from last week or earlier that is still open).
+//   - 'thisWeek' is now "Mon..Sun of current week" — leads whose close date is
+//     earlier in the same week (e.g. Tuesday when today is Friday) still count
+//     as "Close this week", not Backlog.
+//   - Added getWeekStart() and getStartOfToday() helpers.
+//   - Backlog row appears first in the pipeline table, rendered red,
+//     drill-clickable like the other rows.
+//   - i18n keys: dashboard.pipeline.backlog, dashboard.pipeline.backlog.sub.
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -36,6 +47,20 @@ import { stoneLabel } from '../utils/stoneLabels';
 import Watermark from '../components/Watermark';
 
 // ── Date helpers ──────────────────────────────────────────────
+function getStartOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function getWeekStart() {
+  // Monday of the current week, at 00:00:00.000
+  const d = new Date();
+  const day = d.getDay();                    // 0=Sun, 1=Mon, ..., 6=Sat
+  const offset = day === 0 ? -6 : 1 - day;   // distance back to Monday
+  d.setDate(d.getDate() + offset);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
 function getWeekEnd() {
   const d = new Date();
   d.setDate(d.getDate() + (7 - d.getDay()));
@@ -206,19 +231,24 @@ export default function Dashboard() {
   }, [scopedLeads]);
 
   const pipeline = useMemo(() => {
+    const weekStart  = getWeekStart();
     const weekEnd    = getWeekEnd();
     const monthEnd   = getMonthEnd();
     const quarterEnd = getQuarterEnd();
     const rolling3m  = getRolling3m();
 
     const active = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus));
-    const thisWeek    = active.filter(l => l.closeDate && new Date(l.closeDate) <= weekEnd);
-    const thisMonth   = active.filter(l => l.closeDate && new Date(l.closeDate) > weekEnd && new Date(l.closeDate) <= monthEnd);
-    const thisQuarter = active.filter(l => l.closeDate && new Date(l.closeDate) > monthEnd && new Date(l.closeDate) <= quarterEnd);
-    const rolling     = active.filter(l => l.closeDate && new Date(l.closeDate) > quarterEnd && new Date(l.closeDate) <= rolling3m);
+
+    // Item #5: Backlog = anything BEFORE this week's Monday.
+    // thisWeek = Mon..Sun of the current week (any leads in the current week, even past days).
+    const backlog     = active.filter(l => l.closeDate && new Date(l.closeDate) <  weekStart);
+    const thisWeek    = active.filter(l => l.closeDate && new Date(l.closeDate) >= weekStart && new Date(l.closeDate) <= weekEnd);
+    const thisMonth   = active.filter(l => l.closeDate && new Date(l.closeDate) >  weekEnd  && new Date(l.closeDate) <= monthEnd);
+    const thisQuarter = active.filter(l => l.closeDate && new Date(l.closeDate) >  monthEnd && new Date(l.closeDate) <= quarterEnd);
+    const rolling     = active.filter(l => l.closeDate && new Date(l.closeDate) >  quarterEnd && new Date(l.closeDate) <= rolling3m);
     const notProjected = active.filter(l => l.closeDate && new Date(l.closeDate) > rolling3m);
     const noCloseDate = active.filter(l => !l.closeDate);
-    return { thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
+    return { backlog, thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
   }, [scopedLeads]);
 
   const stoneData = useMemo(() => {
@@ -278,18 +308,21 @@ export default function Dashboard() {
 
   const selectedPipeline = useMemo(() => {
     if (!selectedCounselor) return null;
+    const weekStart  = getWeekStart();
     const weekEnd    = getWeekEnd();
     const monthEnd   = getMonthEnd();
     const quarterEnd = getQuarterEnd();
     const rolling3m  = getRolling3m();
     const active = selectedCounselorLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus));
-    const thisWeek    = active.filter(l => l.closeDate && new Date(l.closeDate) <= weekEnd);
-    const thisMonth   = active.filter(l => l.closeDate && new Date(l.closeDate) > weekEnd && new Date(l.closeDate) <= monthEnd);
-    const thisQuarter = active.filter(l => l.closeDate && new Date(l.closeDate) > monthEnd && new Date(l.closeDate) <= quarterEnd);
-    const rolling     = active.filter(l => l.closeDate && new Date(l.closeDate) > quarterEnd && new Date(l.closeDate) <= rolling3m);
+    // Same backlog/thisWeek split as the global pipeline.
+    const backlog     = active.filter(l => l.closeDate && new Date(l.closeDate) <  weekStart);
+    const thisWeek    = active.filter(l => l.closeDate && new Date(l.closeDate) >= weekStart && new Date(l.closeDate) <= weekEnd);
+    const thisMonth   = active.filter(l => l.closeDate && new Date(l.closeDate) >  weekEnd  && new Date(l.closeDate) <= monthEnd);
+    const thisQuarter = active.filter(l => l.closeDate && new Date(l.closeDate) >  monthEnd && new Date(l.closeDate) <= quarterEnd);
+    const rolling     = active.filter(l => l.closeDate && new Date(l.closeDate) >  quarterEnd && new Date(l.closeDate) <= rolling3m);
     const notProjected = active.filter(l => l.closeDate && new Date(l.closeDate) > rolling3m);
     const noCloseDate = active.filter(l => !l.closeDate);
-    return { thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
+    return { backlog, thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
   }, [selectedCounselor, selectedCounselorLeads]);
 
   const selectedCounselorStaff = useMemo(() => {
@@ -335,7 +368,9 @@ export default function Dashboard() {
   // ── Pipeline Statistics: bilingual table ─────────────────────
   const showCounselorCol = isManagerOrAdmin && !!selectedCounselor;
 
+  // Item #5: Backlog row goes first (highest urgency).
   const pipelineRows = [
+    { key:'backlog',      labelKey:'dashboard.pipeline.backlog',          subKey:'dashboard.pipeline.backlog.sub',          subParams:null,                                            color:'#DC2626' },
     { key:'thisWeek',     labelKey:'dashboard.pipeline.closeThisWeek',    subKey:'dashboard.pipeline.closeThisWeek.sub',    subParams:{ date: getWeekEnd().toLocaleDateString()    }, color:'#10B981' },
     { key:'thisMonth',    labelKey:'dashboard.pipeline.closeThisMonth',   subKey:'dashboard.pipeline.closeThisMonth.sub',   subParams:{ date: getMonthEnd().toLocaleDateString()   }, color:'#2563EB' },
     { key:'thisQuarter',  labelKey:'dashboard.pipeline.closeThisQuarter', subKey:'dashboard.pipeline.closeThisQuarter.sub', subParams:{ date: getQuarterEnd().toLocaleDateString() }, color:'#8B5CF6' },

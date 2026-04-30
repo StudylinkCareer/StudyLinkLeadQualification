@@ -96,6 +96,8 @@ const en = {
   'dashboard.pipeline.rolling3Months.sub':'beyond quarter end',
   'dashboard.pipeline.beyond3Months':    'Beyond 3 months',
   'dashboard.pipeline.noCloseDate':      'No close date',
+  'dashboard.pipeline.backlog':          'Backlog',
+  'dashboard.pipeline.backlog.sub':      'past close date',
 
   // ── Leads page ──────────────────────────────────────────────
   'leads.title':                    'Leads',
@@ -222,6 +224,10 @@ const en = {
   'leadDetail.defaultTitle':        'Lead Detail',
   'leadDetail.saved':               'Saved successfully',
   'leadDetail.confirmDeleteNote':   'Delete this note?',
+
+  // Validation messages (Apr 30 — items #3 and #4)
+  'leadDetail.validation.requiredFields': 'These fields are required when the status is not "New":',
+  'leadDetail.validation.closeDateLater': 'Counselors cannot move Close Date to a later date. This must be updated by a manager.',
 
   'leadDetail.section.leadStatus':    'Lead Status',
   'leadDetail.section.studentInfo':   'Student Information',

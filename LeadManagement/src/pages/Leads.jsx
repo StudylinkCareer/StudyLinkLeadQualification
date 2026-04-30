@@ -17,6 +17,12 @@
 //   - Lead source options translate via optLabelBilingual('leadSource', ...).
 //   - DB values (the English canonical strings) are never translated —
 //     filters, sorts, and searches all continue to work in English.
+//
+// CHANGES (Apr 30, 2026 — Item #2 filter persistence):
+//   - On row click → save filters/page/sort/showFilters/drillIds to sessionStorage
+//     before navigating to LeadDetail.
+//   - On mount → if location.state.fromLeadDetail, hydrate state from sessionStorage.
+//   - Direct visits (sidebar nav, fresh URL) get a clean slate as before.
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -89,6 +95,9 @@ const MASTER_COLUMNS = [
   { key:'campaignStart',          label:'Camp. Start',            visible:false, width:120 },
   { key:'campaignEnd',            label:'Camp. End',              visible:false, width:120 },
 ];
+
+// sessionStorage key for filter persistence on back-nav from LeadDetail
+const FILTERS_STORAGE_KEY = 'studylink_lm_leads_filter_state';
 
 const ROLE_KEY_MAP = {
   Admin:     'admin',
@@ -267,27 +276,40 @@ function MultiFilter({ label, selected, onChange, options, optionLabelFn, noValu
 
 // ── Main component ────────────────────────────────────────────
 export default function Leads() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Item #2: when arriving via Back button from LeadDetail, read saved state once.
+  // This runs every render but the state initialisers below only use it on mount.
+  const restored = (() => {
+    if (location.state?.fromLeadDetail) {
+      try {
+        const raw = sessionStorage.getItem(FILTERS_STORAGE_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch (e) { /* ignore parse errors, fall through to defaults */ }
+    }
+    return null;
+  })();
+
   const [leads, setLeads]             = useState([]);
   const [loading, setLoading]         = useState(true);
-  const [filters, setFilters]         = useState(EMPTY_FILTERS);
-  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters]         = useState(restored?.filters     ?? EMPTY_FILTERS);
+  const [showFilters, setShowFilters] = useState(restored?.showFilters ?? false);
   const [columns, setColumns]         = useState(MASTER_COLUMNS);
-  const [sortField, setSortField]     = useState('createdAt');
-  const [sortDir, setSortDir]         = useState('desc');
+  const [sortField, setSortField]     = useState(restored?.sortField   ?? 'createdAt');
+  const [sortDir, setSortDir]         = useState(restored?.sortDir     ?? 'desc');
   const [selected, setSelected]       = useState([]);
   const [staffList, setStaffList]     = useState([]);
   const [massField, setMassField]     = useState('counselor');
   const [massValue, setMassValue]     = useState('');
-  const [page, setPage]               = useState(1);
+  const [page, setPage]               = useState(restored?.page        ?? 1);
+  const [drillIds, setDrillIds]       = useState(restored?.drillIds    ?? []);
   const colWidths = useRef({});
   const resizing  = useRef(null);
   const PER_PAGE  = 25;
 
   const { isManager, isAdmin, staff } = useAuth();
   const { language }                  = useLanguage();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [drillIds, setDrillIds] = useState([]);
 
   const roleKey = useMemo(() => {
     const r = staff?.role || 'Counselor';
@@ -339,6 +361,7 @@ export default function Leads() {
     }).catch(() => {});
   }, [roleKey, isAdmin]);
 
+  // ── Apply drill-down filter from Dashboard ─────────────────
   useEffect(() => {
     const drill = location.state?.drillFilter;
     if (!drill) return;
@@ -771,7 +794,15 @@ export default function Leads() {
               <tbody>
                 {paginated.map(lead => (
                   <tr key={lead.uniqueId} style={{ cursor:'pointer' }}
-                    onClick={() => navigate(`/leads/${lead.uniqueId}`)}>
+                    onClick={() => {
+                      // Item #2: persist filter state so Back from LeadDetail restores it
+                      try {
+                        sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify({
+                          filters, page, sortField, sortDir, showFilters, drillIds,
+                        }));
+                      } catch (e) { /* sessionStorage unavailable — non-fatal */ }
+                      navigate(`/leads/${lead.uniqueId}`);
+                    }}>
                     {isManager && (
                       <td onClick={e => { e.stopPropagation(); toggleSelect(lead.uniqueId); }}>
                         <input type="checkbox" checked={selected.includes(lead.uniqueId)} onChange={() => {}}/>
