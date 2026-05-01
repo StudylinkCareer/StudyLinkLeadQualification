@@ -11,7 +11,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { studentAPI, staffAPI, columnConfigAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
-import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX } from 'react-icons/fi';
+import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiPrinter } from 'react-icons/fi';
 
 // ── All possible columns (master list) ────────────────────────
 // Grouped by section for Admin column settings readability
@@ -82,7 +82,23 @@ const ROLE_KEY_MAP = {
   Counselor: 'counselor',
 };
 
-const LEAD_STATUSES = ['New','Contacted','Qualified','Proposal','Negotiation','Won','Lost','On Hold'];
+// Sentinel for the "(none)" filter option — matches leads with empty/null value
+// for that field. Stored as this string in the selected[] array; rendered as "(none)".
+const NONE_VALUE = '__NONE__';
+
+const LEAD_STATUSES = [
+  'New',
+  'Not contactable',
+  'Engaged',
+  'Vetted',
+  'Met with customer and family',
+  'Proposal',
+  'Family negotiation/review',
+  'Contracted',
+  'Lost',
+  'Nurturing',
+  'Archived',
+];
 
 const MULTI_KEYS = [
   // Lead management
@@ -236,6 +252,17 @@ function MultiFilter({ label, selected, onChange, options }) {
               No values
             </div>
           )}
+          {/* (none) — match leads where this field is empty */}
+          <label style={{
+            display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.3rem 0.6rem',
+            cursor:'pointer', fontSize:'0.775rem',
+            background: selected.includes(NONE_VALUE) ? 'var(--bg-secondary)' : 'transparent',
+            borderBottom:'1px solid var(--border)',
+            fontStyle:'italic', color:'var(--text-secondary)',
+          }}>
+            <input type="checkbox" checked={selected.includes(NONE_VALUE)} onChange={() => toggle(NONE_VALUE)} style={{ cursor:'pointer' }}/>
+            <span>(none)</span>
+          </label>
           {options.map(opt => (
             <label key={opt} style={{
               display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.3rem 0.6rem',
@@ -266,6 +293,7 @@ export default function Leads() {
   const [massField, setMassField]     = useState('counselor');
   const [massValue, setMassValue]     = useState('');
   const [page, setPage]               = useState(1);
+  const [printMode, setPrintMode]     = useState(false);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const colWidths = useRef({});
   const resizing  = useRef(null);
@@ -342,15 +370,53 @@ export default function Leads() {
     } else if (key === 'leadStatus' && value === 'active') {
       setFilters(f => ({
         ...f,
-        leadStatus: ['New','Contacted','Qualified','Proposal','Negotiation','On Hold'],
+        leadStatus: ['New','Not contactable','Engaged','Vetted','Met with customer and family','Proposal','Family negotiation/review','Nurturing'],
       }));
     } else if (MULTI_KEYS.includes(key)) {
-      setFilters(f => ({ ...f, [key]: [value] }));
+      // Dashboard treats empty-stoneTier leads as the literal string 'Unscored';
+      // map that to our NONE_VALUE sentinel so the filter actually matches them.
+      const filterValue = (key === 'stoneTier' && value === 'Unscored') ? NONE_VALUE : value;
+      setFilters(f => ({ ...f, [key]: [filterValue] }));
     }
     setShowFilters(true);
     setPage(1);
     window.history.replaceState({}, '');
   }, [location.state]);
+
+  // ── Restore filter/sort/page state on mount ──
+  // Only fires when arriving with the restoreFilters flag (back-arrow from a Lead detail).
+  // Clicking "Leads" in the sidebar navigates without this flag, so filters reset.
+  useEffect(() => {
+    if (location.state?.drillFilter) return;
+    if (!location.state?.restoreFilters) return;
+    const saved = sessionStorage.getItem('leadsListState');
+    if (!saved) return;
+    try {
+      const s = JSON.parse(saved);
+      if (s.filters)              setFilters(s.filters);
+      if (s.sortField)            setSortField(s.sortField);
+      if (s.sortDir)              setSortDir(s.sortDir);
+      if (typeof s.page === 'number') setPage(s.page);
+      if (s.showFilters)          setShowFilters(true);
+    } catch (e) {
+      console.error('Failed to restore leads list state:', e);
+    }
+    window.history.replaceState({}, '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Persist filter/sort/page state on change ──
+  // Skip the first render so we don't overwrite saved state with empty initial values.
+  const isFirstRenderRef = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    sessionStorage.setItem('leadsListState', JSON.stringify({
+      filters, sortField, sortDir, page, showFilters,
+    }));
+  }, [filters, sortField, sortDir, page, showFilters]);
 
   async function loadLeads() {
     setLoading(true);
@@ -460,7 +526,14 @@ export default function Leads() {
       matchesSearch(l.uniqueId,  filters.search)
     );
 
-    const mf = (arr, val) => !arr?.length || arr.includes(val);
+    // Multi-select match. Supports the (none) sentinel: a lead matches if its value
+    // is empty AND the filter has the sentinel selected, OR its value is in the
+    // selected list. Empty filter array = no constraint.
+    const mf = (arr, val) => {
+      if (!arr?.length) return true;
+      if (!val && arr.includes(NONE_VALUE)) return true;
+      return arr.includes(val);
+    };
     if (filters.leadStatus?.length)          r = r.filter(l => mf(filters.leadStatus,          l.leadStatus  || 'New'));
     if (filters.stoneTier?.length)           r = r.filter(l => mf(filters.stoneTier,           l.stoneTier));
     if (filters.leadSource?.length)          r = r.filter(l => mf(filters.leadSource,          l.leadSource));
@@ -533,6 +606,19 @@ export default function Leads() {
     setSelected(allSel ? selected.filter(id => !pageIds.includes(id)) : [...new Set([...selected, ...pageIds])]);
   }
 
+  // ── Print to PDF ─────────────────────────────────────────────
+  // Renders all filtered rows (no pagination) for the duration of the print dialog,
+  // then reverts. The user can choose "Save as PDF" in the browser print dialog.
+  function handlePrint() {
+    setPrintMode(true);
+    // Wait for React to render all rows, then trigger the print dialog
+    setTimeout(() => {
+      window.print();
+      // Revert after the dialog closes (sync in most browsers)
+      setPrintMode(false);
+    }, 100);
+  }
+
   async function handleMassAssign() {
     if (!massValue || selected.length === 0) return;
     try {
@@ -544,9 +630,16 @@ export default function Leads() {
 
   async function handleMassDelete() {
     if (selected.length === 0) return;
-    if (!confirm(`Permanently delete ${selected.length} record${selected.length !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    const msg = `Permanently delete ${selected.length} lead${selected.length !== 1 ? 's' : ''}?\n\n` +
+                `Any notes attached will be archived to the lead's Google Drive folder before deletion.\n\n` +
+                `This action cannot be undone.`;
+    if (!confirm(msg)) return;
     try {
-      await studentAPI.deleteRecords(selected);
+      const result = await studentAPI.deleteRecords(selected);
+      const archived = (result.data?.archives || []).filter(a => a.status === 'archived').length;
+      if (archived > 0) {
+        alert(`Deleted ${selected.length} lead${selected.length !== 1 ? 's' : ''}. ${archived} notes archive${archived !== 1 ? 's' : ''} saved to Google Drive.`);
+      }
       await loadLeads();
       setSelected([]);
     } catch(e) { alert(e.message); }
@@ -620,7 +713,27 @@ export default function Leads() {
   return (
     <div>
       <Watermark />
-      <div className="page-header">
+
+      {/* ── Print stylesheet — hides chrome, shows only the table for clean PDF output ── */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          .print-area, .print-area * { visibility: visible; }
+          .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          /* Print table tweaks */
+          .print-area table { width: 100% !important; font-size: 9pt; table-layout: auto !important; }
+          .print-area th, .print-area td { padding: 4px 6px !important; border: 1px solid #999; white-space: normal !important; }
+          .print-area tr { page-break-inside: avoid; }
+          .print-area thead { display: table-header-group; }
+          /* Hide scroll wrappers — let it just flow */
+          .print-area .table-wrap { overflow: visible !important; }
+          @page { margin: 12mm; }
+        }
+        .print-only { display: none; }
+      `}</style>
+      <div className="page-header no-print">
         <span className="page-title">Leads ({filtered.length})</span>
         <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
           {!isManager && (
@@ -633,7 +746,7 @@ export default function Leads() {
 
       <div className="page-body">
         {/* Toolbar */}
-        <div className="table-toolbar">
+        <div className="table-toolbar no-print">
           <button
             className={`btn btn--sm ${showFilters ? 'btn--primary' : 'btn--secondary'}`}
             onClick={() => setShowFilters(f => !f)}
@@ -667,11 +780,20 @@ export default function Leads() {
               </button>
             )}
           </div>
+          {isAdmin && (
+            <button
+              className="btn btn--secondary btn--sm"
+              onClick={handlePrint}
+              style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}
+              title="Print the current filtered list (use 'Save as PDF' in the print dialog)">
+              <FiPrinter size={13}/> Print
+            </button>
+          )}
         </div>
 
         {/* ── Dynamic filter panel ─────────────────────────────── */}
         {showFilters && (
-          <div style={{
+          <div className="no-print" style={{
             background:'var(--bg-secondary)', border:'1px solid var(--border)',
             borderRadius:'10px', padding:'0.75rem', marginBottom:'1rem',
           }}>
@@ -717,7 +839,15 @@ export default function Leads() {
         )}
 
         {/* ── Table ───────────────────────────────────────────── */}
-        <div className="table-card">
+        <div className="table-card print-area">
+          {/* ── Print-only header (visible only when printing) ── */}
+          <div className="print-only" style={{ marginBottom:'12px', borderBottom:'2px solid #333', paddingBottom:'8px' }}>
+            <div style={{ fontSize:'14pt', fontWeight:700 }}>StudyLink — Leads Report</div>
+            <div style={{ fontSize:'9pt', color:'#555', marginTop:'4px' }}>
+              Generated: {new Date().toLocaleString()} • {filtered.length} record{filtered.length !== 1 ? 's' : ''}
+              {activeFilterCount > 0 && ` • ${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} applied`}
+            </div>
+          </div>
           <div
             className="table-wrap"
             id="leads-table-wrap"
@@ -774,7 +904,7 @@ export default function Leads() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map(lead => (
+                {(printMode ? filtered : paginated).map(lead => (
                   <tr key={lead.uniqueId} style={{ cursor:'pointer' }}
                     onClick={() => navigate(`/leads/${lead.uniqueId}`)}>
                     {isManager && (
@@ -785,7 +915,7 @@ export default function Leads() {
                     {visibleCols.map(col => renderCell(col, lead))}
                   </tr>
                 ))}
-                {paginated.length === 0 && (
+                {(printMode ? filtered : paginated).length === 0 && (
                   <tr>
                     <td
                       colSpan={visibleCols.length + (isManager ? 1 : 0)}
@@ -801,6 +931,7 @@ export default function Leads() {
           {/* Synced bottom horizontal scrollbar — mirrors the table-wrap above */}
           <div
             id="leads-bottom-scroll"
+            className="no-print"
             style={{ overflowX:'auto', padding:'2px 0' }}
             onScroll={(e) => {
               const top = document.getElementById('leads-table-wrap');
@@ -814,7 +945,7 @@ export default function Leads() {
               style={{ height:'10px', width: `${tableScrollWidth}px` }}
             />
           </div>
-          <div className="table-pagination">
+          <div className="table-pagination no-print">
             <span>{filtered.length} leads</span>
             <div className="pagination-controls">
               <button className="btn btn--ghost btn--sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>← Prev</button>
@@ -827,7 +958,7 @@ export default function Leads() {
 
       {/* ── Mass assign / delete bar ────────────────────────── */}
       {isManager && selected.length > 0 && (
-        <div className="mass-assign-bar">
+        <div className="mass-assign-bar no-print">
           <span>{selected.length} selected</span>
           <select value={massField} onChange={e => setMassField(e.target.value)}>
             {Object.entries(FIELD_LABELS).map(([k, v]) => (

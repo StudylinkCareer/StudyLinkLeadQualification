@@ -39,6 +39,7 @@ const PERMS = {
   canEdit:           ['Counselor', 'Manager', 'Admin', 'Director'],
   canEditAssignment: ['Manager', 'Admin'],
   canRecalculate:    ['Manager', 'Admin', 'Counselor'],
+  canDelayCloseDate: ['Manager', 'Admin', 'Director'],  // Counselors cannot push Close Date later
   canWriteNote: {
     counselor:  ['Counselor', 'Manager', 'Admin'],
     presales:   ['Counselor', 'Manager', 'Admin'],
@@ -46,7 +47,19 @@ const PERMS = {
   },
 };
 
-const LEAD_STATUSES   = ['New','Contacted','Qualified','Proposal','Negotiation','Won','Lost','On Hold'];
+const LEAD_STATUSES   = [
+  'New',
+  'Not contactable',
+  'Engaged',
+  'Vetted',
+  'Met with customer and family',
+  'Proposal',
+  'Family negotiation/review',
+  'Contracted',
+  'Lost',
+  'Nurturing',
+  'Archived',
+];
 const CONFIDENCE_OPTS = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
 const NOTE_TYPES      = { counselor:'Counselor Note', presales:'PreSales Note', management:'Management Note' };
 const ENGLISH_LEVELS  = ['Beginner','IELTS 4-4.5','IELTS 5-5.5','IELTS 6-6.5','IELTS 7+'];
@@ -227,14 +240,42 @@ export default function LeadDetail() {
   function updateEdit(name, value) { setEditData(d=>({...d,[name]:value})); }
 
   async function saveAll() {
-    // ── Mandatory fields before save (when in edit mode) ──
-    if (editMode) {
+    // ── Mandatory fields before save ──
+    // Rule: when status is "New", users can save freely.
+    // When status is changed to anything other than "New" (or already non-New),
+    // these 4 fields must be filled before save.
+    if (editMode && editData.leadStatus && editData.leadStatus !== 'New') {
       const missing = [];
+      if (!editData.closeDate)   missing.push('Close Date');
+      if (!editData.confidence)  missing.push('Confidence');
       if (!editData.leadSource)  missing.push('Lead Source');
       if (!editData.interaction) missing.push('Interaction');
       if (missing.length) {
-        alert(`Please complete the following before saving:\n\n• ${missing.join('\n• ')}`);
+        alert(`These fields are required when the status is not "New":\n\n• ${missing.join('\n• ')}`);
         return;
+      }
+    }
+
+    // ── Close Date direction rule ──
+    // Counselors can move the Close Date earlier but not later.
+    // Managers / Admins / Directors can do both.
+    // Skip if status is "New" — all field-update rules are relaxed at that stage.
+    // Skip if the date wasn't touched in this edit session.
+    if (
+      editMode &&
+      editData.leadStatus && editData.leadStatus !== 'New' &&
+      !PERMS.canDelayCloseDate.includes(role)
+    ) {
+      const originalIso = lead.closeDate     ? String(lead.closeDate).slice(0, 10)     : '';
+      const newIso      = editData.closeDate ? String(editData.closeDate).slice(0, 10) : '';
+      // Only block if the date was actually changed AND moved forward
+      if (originalIso && newIso && newIso !== originalIso) {
+        const originalDate = new Date(originalIso + 'T00:00:00');
+        const newDate      = new Date(newIso      + 'T00:00:00');
+        if (newDate.getTime() > originalDate.getTime()) {
+          alert('Counselors cannot move the Close Date to a later date.\n\nThis must be updated by a Manager.');
+          return;
+        }
       }
     }
 
@@ -242,6 +283,7 @@ export default function LeadDetail() {
     try {
       if (editMode) {
         await studentAPI.update(id, {
+          fullName:           editData.fullName,
           leadStatus:         editData.leadStatus,
           closeDate:          editData.closeDate || null,
           confidence:         editData.confidence,
@@ -348,9 +390,10 @@ export default function LeadDetail() {
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
 
   // ── Notes are blocked until these 4 fields are set on the lead ──
+  // ── Notes are blocked until these 2 fields are set on the lead ──
+  // Counselors must capture the source and interaction context before
+  // any notes can be added, regardless of lead status.
   const notesRequired = {
-    'Close Date':   lead.closeDate,
-    'Confidence':   lead.confidence,
     'Lead Source':  lead.leadSource,
     'Interaction':  lead.interaction,
   };
@@ -366,7 +409,7 @@ export default function LeadDetail() {
       {/* Header */}
       <div className="page-header">
         <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-          <button className="btn btn--ghost btn--icon" onClick={()=>navigate('/leads')}>
+          <button className="btn btn--ghost btn--icon" onClick={()=>navigate('/leads', { state: { restoreFilters: true } })}>
             <FiArrowLeft size={16}/>
           </button>
           <span className="page-title">{lead.fullName || 'Lead Detail'}</span>
@@ -421,9 +464,15 @@ export default function LeadDetail() {
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
               <div>
                 <span className="section-title">Student Information</span>
-                <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
-                  {lead.fullName || '—'}
-                </div>
+                {editMode ? (
+                  <div style={{ marginTop:'0.4rem', maxWidth:'420px' }}>
+                    <EditField label="Full Name" name="fullName" value={d.fullName} onChange={updateEdit}/>
+                  </div>
+                ) : (
+                  <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
+                    {lead.fullName || '—'}
+                  </div>
+                )}
               </div>
               <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
                 <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>

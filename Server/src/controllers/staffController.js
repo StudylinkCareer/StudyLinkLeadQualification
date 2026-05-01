@@ -1,9 +1,18 @@
 // server/src/controllers/staffController.js
 
 const Staff = require('../models/Staff');
+const { Pool } = require('pg');
+const driveService = require('../services/driveService');
 const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
 const { logChanges } = require('./auditController');
 const { assessOcean } = require('../utils/oceanCalculator');
+
+// Local pool — matches the pattern used elsewhere in this codebase.
+// Used only by deleteStudents for the archive query + transactional delete.
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+});
 
 // ── Auth ──────────────────────────────────────────────────────
 async function login(req, res, next) {
@@ -78,16 +87,19 @@ async function listActiveStaff(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// Returns the currently logged-in staff member's full profile.
+// Reads ID from the session and looks up the latest record from the DB
+// so any role/permission updates take effect on next request.
 async function getMe(req, res, next) {
   try {
     if (!req.session || !req.session.staffId) {
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
-    const me = await Staff.findById(req.session.staffId);
-    if (!me) {
+    const staff = await Staff.findById(req.session.staffId);
+    if (!staff) {
       return res.status(404).json({ success: false, error: 'Staff record not found' });
     }
-    res.json({ success: true, data: me });
+    res.json({ success: true, data: staff });
   } catch (err) { next(err); }
 }
 
@@ -407,28 +419,125 @@ async function saveColumnConfig(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Build a plain-text archive of a lead's notes ──────────────
+// Used at deletion time to preserve a record in the student's Google Drive folder.
+function buildNotesArchive(student, notes, deletedBy) {
+  const sep = '═'.repeat(60);
+  const sub = '─'.repeat(60);
+  const noteTypeLabels = {
+    counselor:  'Counselor Note',
+    presales:   'PreSales Note',
+    management: 'Management Note',
+  };
+  const lines = [];
+  lines.push(sep);
+  lines.push('LEAD NOTES ARCHIVE');
+  lines.push(sep);
+  lines.push(`Lead:               ${student.full_name || '(no name)'}`);
+  lines.push(`Lead ID:            ${student.unique_id}`);
+  if (student.email) lines.push(`Email:              ${student.email}`);
+  if (student.phone) lines.push(`Phone:              ${student.phone}`);
+  lines.push(`Status at deletion: ${student.lead_status || 'New'}`);
+  lines.push(`Counselor:          ${student.counselor || '(unassigned)'}`);
+  lines.push(`Deleted by:         ${deletedBy}`);
+  lines.push(`Deleted at:         ${new Date().toISOString().replace('T',' ').slice(0,19)} UTC`);
+  lines.push(`Total notes:        ${notes.length}`);
+  lines.push('');
+  notes.forEach((n) => {
+    const label = noteTypeLabels[n.note_type] || n.note_type;
+    const ts    = n.created_at ? new Date(n.created_at).toISOString().replace('T',' ').slice(0,16) : '(no date)';
+    lines.push(sub);
+    lines.push(`[${label}]  ${ts}  —  by ${n.author_name || '(unknown)'}`);
+    lines.push(sub);
+    lines.push(n.content || '');
+    lines.push('');
+  });
+  return lines.join('\n');
+}
+
 async function deleteStudents(req, res, next) {
-  try {
-    const { uniqueIds } = req.body;
-    if (!uniqueIds || !Array.isArray(uniqueIds) || uniqueIds.length === 0) {
-      return res.status(400).json({ success: false, error: 'uniqueIds array is required' });
+  const { uniqueIds } = req.body;
+  if (!uniqueIds || !Array.isArray(uniqueIds) || uniqueIds.length === 0) {
+    return res.status(400).json({ success: false, error: 'uniqueIds array is required' });
+  }
+
+  const deletedBy = req.session?.staffName || req.session?.staffEmail || 'Unknown';
+  const archiveResults = [];   // { studentId, status: 'archived' | 'skipped' | 'failed', viewUrl?, error? }
+
+  // ── PHASE 1: Archive notes to Google Drive (per student) ──
+  // Done before the DB delete so we never lose notes if upload succeeds and delete fails.
+  for (const studentId of uniqueIds) {
+    try {
+      const sRes = await pool.query(`SELECT * FROM students      WHERE unique_id = $1`, [studentId]);
+      const nRes = await pool.query(`SELECT * FROM student_notes WHERE student_id = $1 ORDER BY created_at`, [studentId]);
+      const student = sRes.rows[0];
+      const notes   = nRes.rows;
+
+      if (!student) {
+        archiveResults.push({ studentId, status: 'skipped', reason: 'lead not found' });
+        continue;
+      }
+      if (notes.length === 0) {
+        archiveResults.push({ studentId, status: 'skipped', reason: 'no notes' });
+        continue;
+      }
+
+      const content   = buildNotesArchive(student, notes, deletedBy);
+      const fileData  = Buffer.from(content, 'utf-8').toString('base64');
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const fileName  = `notes-archive-${studentId}-${dateStamp}.txt`;
+
+      const upload = await driveService.uploadDocument(studentId, {
+        fileName,
+        type:        'Archived Notes',
+        description: `Notes archive — lead deleted by ${deletedBy} on ${dateStamp}`,
+        fileData:    `data:text/plain;base64,${fileData}`,
+      });
+
+      archiveResults.push({ studentId, status: 'archived', viewUrl: upload.viewUrl });
+    } catch (e) {
+      console.error(`[deleteStudents] Archive failed for ${studentId}:`, e.message);
+      archiveResults.push({ studentId, status: 'failed', error: e.message });
     }
-    const { Pool } = require('pg');
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  }
+
+  // ── If ANY archive failed, abort the deletion ──
+  // Keeps notes safe — the user can retry once Drive is healthy.
+  const failed = archiveResults.filter(r => r.status === 'failed');
+  if (failed.length > 0) {
+    return res.status(500).json({
+      success: false,
+      error:   'Notes archive failed for one or more leads — deletion aborted to prevent data loss.',
+      details: failed,
     });
-    await pool.query(`DELETE FROM audit_log WHERE student_id = ANY($1)`, [uniqueIds]);
-    await pool.query(`DELETE FROM student_notes WHERE student_id = ANY($1)`, [uniqueIds]);
-    await pool.query(`DELETE FROM students WHERE unique_id = ANY($1)`, [uniqueIds]);
-    await pool.end();
-    res.json({ success: true, deleted: uniqueIds.length });
-  } catch (err) { next(err); }
+  }
+
+  // ── PHASE 2: Delete in a transaction ──
+  // All-or-nothing — if any DELETE fails, the others roll back.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM audit_log     WHERE student_id = ANY($1)`, [uniqueIds]);
+    await client.query(`DELETE FROM student_notes WHERE student_id = ANY($1)`, [uniqueIds]);
+    await client.query(`DELETE FROM students      WHERE unique_id = ANY($1)`, [uniqueIds]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    client.release();
+    return next(err);
+  }
+  client.release();
+
+  res.json({
+    success:  true,
+    deleted:  uniqueIds.length,
+    archives: archiveResults,
+  });
 }
 
 module.exports = {
-  login, logout, checkSession, getMe,
-  listStaff, listActiveStaff, createStaff, updateStaff, resetPassword, deactivateStaff,
+  login, logout, checkSession,
+  listStaff, listActiveStaff, getMe, createStaff, updateStaff, resetPassword, deactivateStaff,
   assignStaff, massAssign, searchStudents, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,
