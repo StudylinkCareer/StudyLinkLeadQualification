@@ -242,6 +242,7 @@ export default function LeadDetail() {
     try {
       if (editMode) {
         await studentAPI.update(id, {
+          fullName:           editData.fullName,
           leadStatus:         editData.leadStatus,
           closeDate:          editData.closeDate || null,
           confidence:         editData.confidence,
@@ -419,12 +420,19 @@ export default function LeadDetail() {
           {/* Student Information */}
           <div className="section-card">
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
-              <div>
-                <span className="section-title">Student Information</span>
-                <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
-                  {lead.fullName || '—'}
+                <div style={{ flex: 1 }}>
+                  <span className="section-title">Student Information</span>
+                  {editMode ? (
+                    <div style={{ marginTop:'0.5rem', maxWidth:'400px' }}>
+                      <EditField label="Full Name" name="fullName" value={d.fullName} onChange={updateEdit}/>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
+                      {lead.fullName || '—'}
+                    </div>
+                  )}
                 </div>
-              </div>
+
               <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
                 <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>
                 <PhotoThumb url={lead.qrCodeImageUrl} label="QR Code"  isRound={false}/>
