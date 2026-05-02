@@ -419,8 +419,10 @@ async function saveColumnConfig(req, res, next) {
   } catch (err) { next(err); }
 }
 
-// ── Build a plain-text archive of a lead's notes ──────────────
-// Used at deletion time to preserve a record in the student's Google Drive folder.
+// ── Build a plain-text archive for a deleted lead ──────────────
+// Always written at deletion, regardless of whether the lead had notes.
+// The header is the forensic record of the deletion event; if notes existed,
+// they're appended below.
 function buildNotesArchive(student, notes, deletedBy) {
   const sep = '═'.repeat(60);
   const sub = '─'.repeat(60);
@@ -431,7 +433,7 @@ function buildNotesArchive(student, notes, deletedBy) {
   };
   const lines = [];
   lines.push(sep);
-  lines.push('LEAD NOTES ARCHIVE');
+  lines.push('LEAD DELETION ARCHIVE');
   lines.push(sep);
   lines.push(`Lead:               ${student.full_name || '(no name)'}`);
   lines.push(`Lead ID:            ${student.unique_id}`);
@@ -439,19 +441,26 @@ function buildNotesArchive(student, notes, deletedBy) {
   if (student.phone) lines.push(`Phone:              ${student.phone}`);
   lines.push(`Status at deletion: ${student.lead_status || 'New'}`);
   lines.push(`Counselor:          ${student.counselor || '(unassigned)'}`);
+  lines.push(`Stone tier:         ${student.stone_tier || '(unscored)'}`);
+  lines.push(`Created:            ${student.created_at ? new Date(student.created_at).toISOString().replace('T',' ').slice(0,19) : '(unknown)'} UTC`);
   lines.push(`Deleted by:         ${deletedBy}`);
   lines.push(`Deleted at:         ${new Date().toISOString().replace('T',' ').slice(0,19)} UTC`);
   lines.push(`Total notes:        ${notes.length}`);
   lines.push('');
-  notes.forEach((n) => {
-    const label = noteTypeLabels[n.note_type] || n.note_type;
-    const ts    = n.created_at ? new Date(n.created_at).toISOString().replace('T',' ').slice(0,16) : '(no date)';
-    lines.push(sub);
-    lines.push(`[${label}]  ${ts}  —  by ${n.author_name || '(unknown)'}`);
-    lines.push(sub);
-    lines.push(n.content || '');
+  if (notes.length === 0) {
+    lines.push('(No notes were recorded for this lead.)');
     lines.push('');
-  });
+  } else {
+    notes.forEach((n) => {
+      const label = noteTypeLabels[n.note_type] || n.note_type;
+      const ts    = n.created_at ? new Date(n.created_at).toISOString().replace('T',' ').slice(0,16) : '(no date)';
+      lines.push(sub);
+      lines.push(`[${label}]  ${ts}  —  by ${n.author_name || '(unknown)'}`);
+      lines.push(sub);
+      lines.push(n.content || '');
+      lines.push('');
+    });
+  }
   return lines.join('\n');
 }
 
@@ -464,8 +473,11 @@ async function deleteStudents(req, res, next) {
   const deletedBy = req.session?.staffName || req.session?.staffEmail || 'Unknown';
   const archiveResults = [];   // { studentId, status: 'archived' | 'skipped' | 'failed', viewUrl?, error? }
 
-  // ── PHASE 1: Archive notes to Google Drive (per student) ──
-  // Done before the DB delete so we never lose notes if upload succeeds and delete fails.
+  // ── PHASE 1: Archive every deletion to Google Drive (per student) ──
+  // Every deletion creates a forensic record, regardless of whether the lead
+  // had notes attached. The archive content adapts: with notes, it includes
+  // them; without, it's just lead metadata + deletion event details.
+  // Done before the DB delete so we never lose data if upload succeeds and delete fails.
   for (const studentId of uniqueIds) {
     try {
       const sRes = await pool.query(`SELECT * FROM students      WHERE unique_id = $1`, [studentId]);
@@ -477,26 +489,22 @@ async function deleteStudents(req, res, next) {
         archiveResults.push({ studentId, status: 'skipped', reason: 'lead not found' });
         continue;
       }
-      if (notes.length === 0) {
-        archiveResults.push({ studentId, status: 'skipped', reason: 'no notes' });
-        continue;
-      }
 
       const content   = buildNotesArchive(student, notes, deletedBy);
       const fileData  = Buffer.from(content, 'utf-8').toString('base64');
       const dateStamp = new Date().toISOString().slice(0, 10);
-      const fileName  = `notes-archive-${studentId}-${dateStamp}.txt`;
+      const fileName  = `lead-deletion-${studentId}-${dateStamp}.txt`;
 
       const upload = await driveService.uploadDocument(studentId, {
         fileName,
-        type:        'Archived Notes',
-        description: `Notes archive — lead deleted by ${deletedBy} on ${dateStamp}`,
+        type:        'Lead Deletion Archive',
+        description: `Lead deleted by ${deletedBy} on ${dateStamp} (${notes.length} note${notes.length !== 1 ? 's' : ''})`,
         fileData:    `data:text/plain;base64,${fileData}`,
       });
 
-      archiveResults.push({ studentId, status: 'archived', viewUrl: upload.viewUrl });
+      archiveResults.push({ studentId, status: 'archived', notesCount: notes.length, viewUrl: upload.viewUrl });
     } catch (e) {
-      console.error(`[deleteStudents] Archive failed for ${studentId}:`, e.message);
+      console.error(`[deleteStudents] Archive failed for ${studentId}:`, e.message, e.stack);
       archiveResults.push({ studentId, status: 'failed', error: e.message });
     }
   }

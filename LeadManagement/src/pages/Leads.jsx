@@ -1,5 +1,5 @@
 // LeadManagement/src/pages/Leads.jsx
-// CHANGES:
+// CHANGES::
 //   - MASTER_COLUMNS replaces DEFAULT_COLUMNS — includes 4 campaign fields
 //   - Column config loaded per role: leads_admin / leads_manager / leads_director / leads_counselor
 //   - Admin always sees all columns
