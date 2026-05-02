@@ -1,5 +1,5 @@
 // LeadManagement/src/pages/Leads.jsx
-// CHANGES::
+// CHANGES:
 //   - MASTER_COLUMNS replaces DEFAULT_COLUMNS — includes 4 campaign fields
 //   - Column config loaded per role: leads_admin / leads_manager / leads_director / leads_counselor
 //   - Admin always sees all columns
@@ -631,15 +631,21 @@ export default function Leads() {
   async function handleMassDelete() {
     if (selected.length === 0) return;
     const msg = `Permanently delete ${selected.length} lead${selected.length !== 1 ? 's' : ''}?\n\n` +
-                `Any notes attached will be archived to the lead's Google Drive folder before deletion.\n\n` +
+                `Each deletion will be archived to Google Drive (lead metadata + any notes) for forensic record.\n\n` +
                 `This action cannot be undone.`;
     if (!confirm(msg)) return;
     try {
       const result = await studentAPI.deleteRecords(selected);
-      const archived = (result.data?.archives || []).filter(a => a.status === 'archived').length;
-      if (archived > 0) {
-        alert(`Deleted ${selected.length} lead${selected.length !== 1 ? 's' : ''}. ${archived} notes archive${archived !== 1 ? 's' : ''} saved to Google Drive.`);
-      }
+      // result has shape { success, deleted, archives: [{ studentId, status, ... }] }
+      const archives = result?.archives || [];
+      const archived = archives.filter(a => a.status === 'archived').length;
+      const failed   = archives.filter(a => a.status === 'failed').length;
+      const skipped  = archives.filter(a => a.status === 'skipped').length;
+      let summary = `Deleted ${selected.length} lead${selected.length !== 1 ? 's' : ''}.`;
+      if (archived > 0) summary += `\n${archived} archive${archived !== 1 ? 's' : ''} saved to Google Drive.`;
+      if (skipped > 0)  summary += `\n${skipped} skipped (lead not found).`;
+      if (failed > 0)   summary += `\n${failed} archive failure${failed !== 1 ? 's' : ''} — check server logs.`;
+      alert(summary);
       await loadLeads();
       setSelected([]);
     } catch(e) { alert(e.message); }
