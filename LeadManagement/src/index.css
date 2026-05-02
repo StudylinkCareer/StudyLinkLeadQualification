@@ -943,12 +943,15 @@ tr:hover td {
      the banner Menu button replaces it */
   .nav-expand-btn { display: none !important; }
 
-  /* Banner nav cluster — fixed at top-right of viewport */
+  /* Banner nav cluster — fixed at top-LEFT of viewport.
+     The page-header has padding-left below to leave room for it
+     so the title doesn't get covered. */
   .mobile-page-nav {
     display: flex;
     position: fixed;
     top: 8px;
-    right: 8px;
+    left: 8px;
+    right: auto;
     z-index: 60;
     gap: 4px;
     background: #fff;
@@ -977,17 +980,26 @@ tr:hover td {
   .mobile-page-nav__btn:active     { background: var(--bg-secondary); }
   .mobile-page-nav__btn.is-active  { background: var(--primary-light); color: var(--primary); }
 
-  /* Page header — leave room on the right for the floating banner nav,
-     wrap to a second row if title + action buttons can't fit on one line */
+  /* Page header — leave room on the LEFT for the floating banner nav,
+     wrap to a second row if title + action buttons can't fit on one line.
+     (Action buttons like Edit/Save in LeadDetail will wrap below the title.) */
   .page-header {
     flex-wrap: wrap;
     height: auto;
     min-height: var(--header-height);
     padding: 8px 12px;
-    padding-right: 130px;
+    padding-left: 130px;
     gap: 8px;
     align-items: center;
   }
+
+  /* Sidebar (drawer) on mobile — reorder children so the language toggle
+     and sign-out button (in .sidebar-footer) appear right after the header
+     instead of at the bottom. iOS Safari's bottom toolbar can otherwise
+     hide them below the visible area of the drawer. */
+  .sidebar-header { order: 0; }
+  .sidebar-footer { order: 1; border-top: none; border-bottom: 1px solid var(--border); }
+  .sidebar-nav    { order: 2; }
 
   /* Dashboard mobile stacking — Pipeline Statistics gets its own row */
   .dashboard-stat-grid    { grid-template-columns: repeat(2, 1fr) !important; }

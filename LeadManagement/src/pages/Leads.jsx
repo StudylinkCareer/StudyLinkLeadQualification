@@ -23,6 +23,8 @@ const MASTER_COLUMNS = [
   { key:'yearOfBirth',            label:'Year of Birth',          visible:false, width:110 },
   { key:'residency',              label:'Residency',              visible:false, width:140 },
   { key:'schoolEvent',            label:'School / Event',         visible:false, width:150 },
+  { key:'referralSource',         label:'Referral Source',        visible:false, width:140 },
+  { key:'facebookProfile',        label:'Facebook Profile',       visible:false, width:160 },
   { key:'preferredSocial',        label:'Social Platform',        visible:false, width:130 },
   { key:'socialConsent',          label:'Connect With Us',        visible:false, width:120 },
   // ── Lead Management ──
@@ -69,9 +71,9 @@ const MASTER_COLUMNS = [
   { key:'oceanOpenness',          label:'OCEAN: Openness',        visible:false, width:140 },
   // ── Campaign / Event ──
   { key:'campaignType',           label:'Campaign Type',          visible:false, width:140 },
-  { key:'campaignName',           label:'Campaign Name',          visible:false, width:160 },
-  { key:'campaignStart',          label:'Camp. Start',            visible:false, width:120 },
-  { key:'campaignEnd',            label:'Camp. End',              visible:false, width:120 },
+  { key:'campaignName',           label:'Event Name',             visible:false, width:160 },
+  { key:'campaignStart',          label:'Event Start',            visible:false, width:120 },
+  { key:'campaignEnd',            label:'Event End',              visible:false, width:120 },
 ];
 
 // Maps staff role → config key suffix
@@ -395,11 +397,11 @@ export default function Leads() {
   //   - Sidebar "Leads" click       → navigate('/leads', { state: { reset: true } })
   //   - MobilePageNav "Leads" tap   → navigate('/leads', { state: { reset: true } })
   //   - Stat card "Total Leads"     → navigate('/leads', { state: { reset: true } })
-  // Without this useEffect, React Router doesn't remount the Leads component
-  // when you navigate to /leads while already on /leads, so previously-applied
-  // drill-down filters would persist.
-  // We also call loadLeads() to fetch fresh data — otherwise the table
-  // shows stale state (e.g. a lead deleted from another tab still appears).
+  //
+  // Dependency is location.key (not location.state) because React Router
+  // gives every navigation a unique key, even same-path navigations. Using
+  // location.state alone wasn't reliably catching same-path re-navigation
+  // from the sidebar drawer.
   useEffect(() => {
     if (!location.state?.reset) return;
     setFilters(EMPTY_FILTERS);
@@ -409,7 +411,7 @@ export default function Leads() {
     loadLeads();
     window.history.replaceState({}, '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state]);
+  }, [location.key]);
 
   // ── Restore filter/sort/page state on mount ──
   // Only fires when arriving with the restoreFilters flag (back-arrow from a Lead detail).

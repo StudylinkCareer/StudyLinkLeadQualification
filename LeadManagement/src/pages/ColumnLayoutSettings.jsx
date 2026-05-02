@@ -1,13 +1,28 @@
 // src/pages/ColumnLayoutSettings.jsx
 // -----------------------------------------------------------------------------
-// CHANGES (i18n Phase 2b):
+// CHANGES (Phase 2c — dual-page field configuration):
+//   - Side-by-side editor: Leads list columns (left) + Lead Detail fields (right).
+//   - New MASTER_DETAIL_FIELDS array describing fields shown on Lead Detail.
+//   - Each role has TWO saved configs:
+//       leads_<role>        — column visibility/order for the Leads table
+//       lead_detail_<role>  — field visibility for the Lead Detail page
+//   - Save / Save All / Reset operate on BOTH panels for the active role.
+//   - Drag-and-drop reorder is kept for Leads columns only (table column
+//     order matters). Lead Detail fields are show/hide only because their
+//     section order is fixed in LeadDetail.jsx.
+//
+// IMPORTANT — for the Lead Detail visibility flags to actually take effect,
+// LeadDetail.jsx needs corresponding `if (visible)` guards around each field.
+// That work is intentionally separate (it touches a large file) — until then,
+// LeadDetail will continue showing all fields regardless of what's saved here,
+// but the configs ARE persisted, so once the LeadDetail wiring is in place
+// the saved settings activate immediately.
+//
+// CHANGES (i18n Phase 2b — preserved):
 //   - All UI chrome (headers, buttons, confirms, notes) uses t().
 //   - Role tab labels use t('columns.role.*').
-//   - Column labels in the editor and preview look up a t() key
-//     'leads.col.<key>' — matching the Leads page column translations.
-//     Any column without a matching translation key falls back to the
-//     MASTER_COLUMNS label (English).
-//   - Drag/drop behaviour and save logic unchanged.
+//   - Column labels in the editor look up t('leads.col.<key>') with
+//     MASTER_COLUMNS / MASTER_DETAIL_FIELDS labels as English fallback.
 // -----------------------------------------------------------------------------
 
 import { useState, useEffect, useRef } from 'react';
@@ -17,7 +32,12 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { t, en as enStrings } from '../i18n';
 import { FiArrowLeft, FiEye, FiEyeOff, FiSave, FiCheck } from 'react-icons/fi';
 
-// ── Must stay in sync with MASTER_COLUMNS in Leads.jsx ────────
+// =============================================================================
+// MASTER LISTS
+// =============================================================================
+
+// ── Leads list columns ─────────────────────────────────────────
+// Must stay in sync with MASTER_COLUMNS in Leads.jsx.
 const MASTER_COLUMNS = [
   // ── Personal Details ──
   { key:'fullName',               label:'Name',                   visible:true,  width:160 },
@@ -26,6 +46,8 @@ const MASTER_COLUMNS = [
   { key:'yearOfBirth',            label:'Year of Birth',          visible:false, width:110 },
   { key:'residency',              label:'Residency',              visible:false, width:140 },
   { key:'schoolEvent',            label:'School / Event',         visible:false, width:150 },
+  { key:'referralSource',         label:'Referral Source',        visible:false, width:140 },
+  { key:'facebookProfile',        label:'Facebook Profile',       visible:false, width:160 },
   { key:'preferredSocial',        label:'Social Platform',        visible:false, width:130 },
   { key:'socialConsent',          label:'Connect With Us',        visible:false, width:120 },
   // ── Lead Management ──
@@ -72,12 +94,98 @@ const MASTER_COLUMNS = [
   { key:'oceanOpenness',          label:'OCEAN: Openness',        visible:false, width:140 },
   // ── Campaign / Event ──
   { key:'campaignType',           label:'Campaign Type',          visible:false, width:140 },
-  { key:'campaignName',           label:'Campaign Name',          visible:false, width:160 },
-  { key:'campaignStart',          label:'Camp. Start',            visible:false, width:120 },
-  { key:'campaignEnd',            label:'Camp. End',              visible:false, width:120 },
+  { key:'campaignName',           label:'Event Name',             visible:false, width:160 },
+  { key:'campaignStart',          label:'Event Start',            visible:false, width:120 },
+  { key:'campaignEnd',            label:'Event End',              visible:false, width:120 },
 ];
 
-// Role meta — labels + notes come from translations by key.
+// ── Lead Detail page fields ────────────────────────────────────
+// Order is informational only — actual layout in LeadDetail.jsx is fixed.
+// `visible: true` means default-shown for non-admin roles. Admin always sees.
+// `isSection: true` flags rows that toggle a whole UI section (e.g. all 15
+// OCEAN questions, the radar chart, or one of the three Notes panels) rather
+// than a single labelled field.
+const MASTER_DETAIL_FIELDS = [
+  // ── Personal Details ──
+  { key:'fullName',         label:'Full Name',          section:'Personal Details', visible:true  },
+  { key:'email',            label:'Email',              section:'Personal Details', visible:true  },
+  { key:'phone',            label:'Phone',              section:'Personal Details', visible:true  },
+  { key:'yearOfBirth',      label:'Year of Birth',      section:'Personal Details', visible:true  },
+  { key:'residency',        label:'Residency',          section:'Personal Details', visible:true  },
+  { key:'schoolEvent',      label:'School / Event',     section:'Personal Details', visible:true  },
+  { key:'referralSource',   label:'Referral Source',    section:'Personal Details', visible:true  },
+  { key:'facebookProfile',  label:'Facebook Profile',   section:'Personal Details', visible:true  },
+  { key:'headshotUrl',      label:'Lead Photo',         section:'Personal Details', visible:true  },
+  { key:'qrCodeImageUrl',   label:'QR Code Image',      section:'Personal Details', visible:true  },
+  { key:'uniqueId',         label:'Lead ID',            section:'Personal Details', visible:true  },
+  { key:'createdAt',        label:'Created Date',       section:'Personal Details', visible:true  },
+  { key:'updatedAt',        label:'Last Updated',       section:'Personal Details', visible:true  },
+
+  // ── Lead Management ──
+  { key:'leadStatus',       label:'Status',             section:'Lead Management',  visible:true  },
+  { key:'leadSource',       label:'Lead Source',        section:'Lead Management',  visible:true  },
+  { key:'interaction',      label:'Interaction',        section:'Lead Management',  visible:true  },
+  { key:'studyPlans',       label:'Study Plans',        section:'Lead Management',  visible:true  },
+  { key:'destinationCountry',label:'Destination',       section:'Lead Management',  visible:true  },
+  { key:'timeline',         label:'Timeline',           section:'Lead Management',  visible:true  },
+  { key:'stoneTier',        label:'Stone Tier',         section:'Lead Management',  visible:true  },
+  { key:'riskScore',        label:'Risk Score',         section:'Lead Management',  visible:true  },
+  { key:'closeDate',        label:'Close Date',         section:'Lead Management',  visible:true  },
+  { key:'confidence',       label:'Confidence',         section:'Lead Management',  visible:true  },
+
+  // ── Staff Assignment ──
+  { key:'counselor',        label:'Counselor',          section:'Staff Assignment', visible:true  },
+  { key:'seniorCounselor',  label:'Senior Counselor',   section:'Staff Assignment', visible:true  },
+  { key:'presales',         label:'Pre-Sales',          section:'Staff Assignment', visible:true  },
+  { key:'marketingStaff',   label:'Marketing',          section:'Staff Assignment', visible:true  },
+
+  // ── Self Assessment ──
+  { key:'budget',           label:'Budget',             section:'Self Assessment',  visible:true  },
+  { key:'scholarshipDemand',label:'Scholarship',        section:'Self Assessment',  visible:true  },
+  { key:'englishLevel',     label:'English Level',      section:'Self Assessment',  visible:true  },
+  { key:'gpa',              label:'GPA',                section:'Self Assessment',  visible:true  },
+  { key:'immigrationHistory',label:'Immigration History',section:'Self Assessment', visible:true  },
+  { key:'sponsorIncome',    label:'Sponsor Income',     section:'Self Assessment',  visible:false }, // sensitive
+  { key:'incomeEvidence',   label:'Income Evidence',    section:'Self Assessment',  visible:false }, // sensitive
+  { key:'studyPlanGap',     label:'Study Plan Gap',     section:'Self Assessment',  visible:true  },
+  { key:'ultimateObjective',label:'Ultimate Objective', section:'Self Assessment',  visible:true  },
+
+  // ── Family Contacts ──
+  { key:'motherFullName',     label:'Mother Name',           section:'Family Contacts', visible:true },
+  { key:'motherEmail',        label:'Mother Email',          section:'Family Contacts', visible:true },
+  { key:'motherPhone',        label:'Mother Phone',          section:'Family Contacts', visible:true },
+  { key:'motherContactMedium',label:'Mother Contact Medium', section:'Family Contacts', visible:true },
+  { key:'motherContactDetail',label:'Mother Contact Detail', section:'Family Contacts', visible:true },
+  { key:'fatherFullName',     label:'Father Name',           section:'Family Contacts', visible:true },
+  { key:'fatherEmail',        label:'Father Email',          section:'Family Contacts', visible:true },
+  { key:'fatherPhone',        label:'Father Phone',          section:'Family Contacts', visible:true },
+  { key:'fatherContactMedium',label:'Father Contact Medium', section:'Family Contacts', visible:true },
+  { key:'fatherContactDetail',label:'Father Contact Detail', section:'Family Contacts', visible:true },
+
+  // ── OCEAN Profile ──
+  { key:'oceanExtraversion',     label:'Extraversion (score)',     section:'OCEAN Profile', visible:true },
+  { key:'oceanAgreeableness',    label:'Agreeableness (score)',    section:'OCEAN Profile', visible:true },
+  { key:'oceanConscientiousness',label:'Conscientiousness (score)',section:'OCEAN Profile', visible:true },
+  { key:'oceanNeuroticism',      label:'Neuroticism (score)',      section:'OCEAN Profile', visible:true },
+  { key:'oceanOpenness',         label:'Openness (score)',         section:'OCEAN Profile', visible:true },
+  { key:'oceanNarrative',        label:'OCEAN Narrative (text summary)', section:'OCEAN Profile', visible:true },
+  { key:'oceanQuestionnaire',    label:'15 OCEAN Questions',       section:'OCEAN Profile', visible:true, isSection:true },
+  { key:'oceanRadarChart',       label:'OCEAN Radar Chart',        section:'OCEAN Profile', visible:true, isSection:true },
+
+  // ── Campaign / Event ──
+  { key:'campaignType',     label:'Campaign Type',     section:'Campaign / Event', visible:true },
+  { key:'campaignName',     label:'Event Name',        section:'Campaign / Event', visible:true },
+  { key:'campaignStart',    label:'Event Start Date',  section:'Campaign / Event', visible:true },
+  { key:'campaignEnd',      label:'Event End Date',    section:'Campaign / Event', visible:true },
+
+  // ── Notes & History (always section toggles) ──
+  { key:'notesCounselor',   label:'Counselor Notes section',     section:'Notes & History', visible:true,  isSection:true },
+  { key:'notesPresales',    label:'Pre-Sales Notes section',     section:'Notes & History', visible:true,  isSection:true },
+  { key:'notesManagement',  label:'Management Notes section',    section:'Notes & History', visible:false, isSection:true }, // Director/Manager/Admin only
+  { key:'changeHistory',    label:'Change History / Audit Log',  section:'Notes & History', visible:true,  isSection:true },
+];
+
+// ── Roles ──────────────────────────────────────────────────────
 const ROLES = [
   { key:'admin',     labelKey:'columns.role.admin',     noteKey:'columns.role.admin.note' },
   { key:'manager',   labelKey:'columns.role.manager',   noteKey:'columns.role.manager.note' },
@@ -85,10 +193,13 @@ const ROLES = [
   { key:'counselor', labelKey:'columns.role.counselor', noteKey:'columns.role.counselor.note' },
 ];
 
-// Return the translated label for a column key, or the master fallback.
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+// Translated column label or master fallback.
 function colLabel(col, language) {
   const key = `leads.col.${col.key}`;
-  // If the translation file has a key for this column, use it.
   if (enStrings[key] !== undefined) return t(key, language);
   return col.label;
 }
@@ -102,16 +213,17 @@ function fmt(str, params) {
   );
 }
 
-function buildDefault(roleKey) {
+// ── Defaults / merge for Leads list config ─────────────────────
+function buildLeadsDefault(roleKey) {
   return MASTER_COLUMNS.map(c => ({
     ...c,
     visible: roleKey === 'admin' ? true : c.visible,
   }));
 }
 
-function mergeWithMaster(saved, roleKey) {
+function mergeLeadsWithMaster(saved, roleKey) {
   const savedKeys = new Set(saved.map(c => c.key));
-  const merged = [
+  return [
     ...saved.map(c => ({
       ...c,
       visible: roleKey === 'admin' ? true : c.visible,
@@ -120,42 +232,93 @@ function mergeWithMaster(saved, roleKey) {
       .filter(c => !savedKeys.has(c.key))
       .map(c => ({ ...c, visible: roleKey === 'admin' })),
   ];
-  return merged;
 }
 
+// ── Defaults / merge for Lead Detail config ────────────────────
+function buildDetailDefault(roleKey) {
+  return MASTER_DETAIL_FIELDS.map(f => ({
+    ...f,
+    visible: roleKey === 'admin' ? true : f.visible,
+  }));
+}
+
+function mergeDetailWithMaster(saved, roleKey) {
+  const savedKeys = new Set(saved.map(f => f.key));
+  return [
+    // First: keep any master field with its saved visibility, in master order
+    ...MASTER_DETAIL_FIELDS.map(master => {
+      const found = saved.find(s => s.key === master.key);
+      if (!found) {
+        return { ...master, visible: roleKey === 'admin' ? true : master.visible };
+      }
+      return {
+        ...master,
+        visible: roleKey === 'admin' ? true : !!found.visible,
+      };
+    }),
+    // Anything saved that's not in master (legacy keys) — drop it
+  ];
+  // (Detail has no reorder, so we always present in master order.)
+}
+
+// =============================================================================
+// COMPONENT
+// =============================================================================
 export default function ColumnLayoutSettings() {
-  const navigate  = useNavigate();
+  const navigate     = useNavigate();
   const { language } = useLanguage();
-  const dragIdx   = useRef(null);
-  const dragRole  = useRef(null);
+  const dragIdx      = useRef(null);
+  const dragRole     = useRef(null);
 
   const [activeRole, setActiveRole] = useState('admin');
-  const [saving, setSaving]         = useState(null);
-  const [savedRole, setSavedRole]   = useState(null);
-  const [loadError, setLoadError]   = useState('');
+  const [saving,     setSaving]     = useState(null);     // null | role key | 'all'
+  const [savedRole,  setSavedRole]  = useState(null);     // null | role key | 'all'
+  const [loadError,  setLoadError]  = useState('');
 
-  const [configs, setConfigs] = useState(() => {
+  // Two configs per role — leads list and lead detail.
+  const [leadsCfg,  setLeadsCfg]  = useState(() => {
     const c = {};
-    ROLES.forEach(r => { c[r.key] = buildDefault(r.key); });
+    ROLES.forEach(r => { c[r.key] = buildLeadsDefault(r.key); });
+    return c;
+  });
+  const [detailCfg, setDetailCfg] = useState(() => {
+    const c = {};
+    ROLES.forEach(r => { c[r.key] = buildDetailDefault(r.key); });
     return c;
   });
 
+  // ── Initial load: fetch both config types for every role ──
   useEffect(() => {
-    Promise.all(
-      ROLES.map(r =>
-        columnConfigAPI.get(`leads_${r.key}`)
-          .then(d => ({ key: r.key, data: d?.data || null }))
-          .catch(() => ({ key: r.key, data: null }))
-      )
-    ).then(results => {
-      setConfigs(prev => {
+    const leadsLoads = ROLES.map(r =>
+      columnConfigAPI.get(`leads_${r.key}`)
+        .then(d => ({ key: r.key, data: d?.data || null }))
+        .catch(() => ({ key: r.key, data: null }))
+    );
+    const detailLoads = ROLES.map(r =>
+      columnConfigAPI.get(`lead_detail_${r.key}`)
+        .then(d => ({ key: r.key, data: d?.data || null }))
+        .catch(() => ({ key: r.key, data: null }))
+    );
+
+    Promise.all(leadsLoads).then(results => {
+      setLeadsCfg(prev => {
         const next = { ...prev };
         results.forEach(({ key, data }) => {
-          if (data && data.length > 0) {
-            next[key] = mergeWithMaster(data, key);
-          } else {
-            next[key] = buildDefault(key);
-          }
+          next[key] = (data && data.length > 0)
+            ? mergeLeadsWithMaster(data, key)
+            : buildLeadsDefault(key);
+        });
+        return next;
+      });
+    });
+
+    Promise.all(detailLoads).then(results => {
+      setDetailCfg(prev => {
+        const next = { ...prev };
+        results.forEach(({ key, data }) => {
+          next[key] = (data && data.length > 0)
+            ? mergeDetailWithMaster(data, key)
+            : buildDetailDefault(key);
         });
         return next;
       });
@@ -163,14 +326,24 @@ export default function ColumnLayoutSettings() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function toggleVisible(role, colKey) {
+  // ── Toggle visibility ──
+  function toggleLeadsVisible(role, colKey) {
     if (role === 'admin') return;
-    setConfigs(cfg => ({
+    setLeadsCfg(cfg => ({
       ...cfg,
       [role]: cfg[role].map(c => c.key === colKey ? { ...c, visible: !c.visible } : c),
     }));
   }
 
+  function toggleDetailVisible(role, fieldKey) {
+    if (role === 'admin') return;
+    setDetailCfg(cfg => ({
+      ...cfg,
+      [role]: cfg[role].map(f => f.key === fieldKey ? { ...f, visible: !f.visible } : f),
+    }));
+  }
+
+  // ── Drag-and-drop reorder (Leads list only) ──
   function onDragStart(e, role, idx) {
     dragIdx.current  = idx;
     dragRole.current = role;
@@ -181,7 +354,7 @@ export default function ColumnLayoutSettings() {
     e.preventDefault();
     if (dragRole.current !== role) return;
     if (dragIdx.current === null || dragIdx.current === idx) return;
-    setConfigs(cfg => {
+    setLeadsCfg(cfg => {
       const cols = [...cfg[role]];
       const [moved] = cols.splice(dragIdx.current, 1);
       cols.splice(idx, 0, moved);
@@ -195,10 +368,14 @@ export default function ColumnLayoutSettings() {
     dragRole.current = null;
   }
 
+  // ── Save / Reset ──
   async function saveRole(role) {
     setSaving(role);
     try {
-      await columnConfigAPI.save(`leads_${role}`, configs[role]);
+      await Promise.all([
+        columnConfigAPI.save(`leads_${role}`,        leadsCfg[role]),
+        columnConfigAPI.save(`lead_detail_${role}`,  detailCfg[role]),
+      ]);
       setSavedRole(role);
       setTimeout(() => setSavedRole(r => r === role ? null : r), 2500);
     } catch(e) {
@@ -211,9 +388,12 @@ export default function ColumnLayoutSettings() {
   async function saveAll() {
     setSaving('all');
     try {
-      await Promise.all(
-        ROLES.map(r => columnConfigAPI.save(`leads_${r.key}`, configs[r.key]))
-      );
+      const ops = [];
+      ROLES.forEach(r => {
+        ops.push(columnConfigAPI.save(`leads_${r.key}`,       leadsCfg[r.key]));
+        ops.push(columnConfigAPI.save(`lead_detail_${r.key}`, detailCfg[r.key]));
+      });
+      await Promise.all(ops);
       setSavedRole('all');
       setTimeout(() => setSavedRole(null), 2500);
     } catch(e) {
@@ -226,17 +406,27 @@ export default function ColumnLayoutSettings() {
   function resetRole(role) {
     const roleLbl = t(`columns.role.${role}`, language);
     if (!confirm(fmt(t('columns.confirmReset', language), { role: roleLbl }))) return;
-    setConfigs(cfg => ({ ...cfg, [role]: buildDefault(role) }));
+    setLeadsCfg(cfg  => ({ ...cfg,  [role]: buildLeadsDefault(role)  }));
+    setDetailCfg(cfg => ({ ...cfg,  [role]: buildDetailDefault(role) }));
   }
 
-  const currentCols    = configs[activeRole] || [];
-  const visibleCount   = currentCols.filter(c => c.visible).length;
+  // ── Derived for the active role ──
+  const currentLeadsCols  = leadsCfg[activeRole]  || [];
+  const currentDetailFlds = detailCfg[activeRole] || [];
+  const leadsVisibleCount  = currentLeadsCols.filter(c => c.visible).length;
+  const detailVisibleCount = currentDetailFlds.filter(f => f.visible).length;
+  const detailTotalCount   = currentDetailFlds.length;
   const activeRoleInfo = ROLES.find(r => r.key === activeRole);
   const activeRoleLbl  = activeRoleInfo ? t(activeRoleInfo.labelKey, language) : '';
   const activeRoleNote = activeRoleInfo ? t(activeRoleInfo.noteKey,  language) : '';
 
-  const hiddenCount = currentCols.filter(c => !c.visible).length;
-  const hiddenPlural = language === 'vi' ? '' : (hiddenCount !== 1 ? 's' : '');
+  // Group detail fields by section for rendering.
+  const detailBySection = currentDetailFlds.reduce((acc, f) => {
+    if (!acc[f.section]) acc[f.section] = [];
+    acc[f.section].push(f);
+    return acc;
+  }, {});
+  const detailSectionOrder = [...new Set(currentDetailFlds.map(f => f.section))];
 
   return (
     <div>
@@ -275,7 +465,7 @@ export default function ColumnLayoutSettings() {
         </p>
 
         {/* ── Role tabs ────────────────────────────────────── */}
-        <div style={{ display:'flex', borderBottom:'2px solid var(--border)', marginBottom:'1.5rem' }}>
+        <div style={{ display:'flex', borderBottom:'2px solid var(--border)', marginBottom:'1.5rem', flexWrap:'wrap' }}>
           {ROLES.map(r => (
             <button key={r.key} onClick={() => setActiveRole(r.key)} style={{
               padding:'0.625rem 1.5rem',
@@ -297,42 +487,52 @@ export default function ColumnLayoutSettings() {
           ))}
         </div>
 
-        {/* ── Two-column layout: editor left, preview right ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 280px', gap:'1.5rem', alignItems:'start' }}>
-
-          {/* Left: Column editor */}
+        {/* ── Active role context strip ─────────────────────── */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', gap:'0.75rem', flexWrap:'wrap' }}>
           <div>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
-              <div>
-                <span style={{ fontWeight:600, fontSize:'0.9375rem' }}>
-                  {fmt(t('columns.roleLayoutTitle', language), { role: activeRoleLbl })}
-                </span>
-                <span style={{ marginLeft:'0.75rem', fontSize:'0.8rem', color:'var(--text-secondary)' }}>
-                  {activeRoleNote}
-                </span>
-              </div>
-              <div style={{ display:'flex', gap:'0.5rem' }}>
-                <button
-                  className="btn btn--ghost btn--sm"
-                  onClick={() => resetRole(activeRole)}
-                  disabled={!!saving}>
-                  {t('columns.resetDefaults', language)}
-                </button>
-                <button
-                  className="btn btn--secondary btn--sm"
-                  onClick={() => saveRole(activeRole)}
-                  disabled={!!saving}
-                  style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                  {saving === activeRole
-                    ? t('common.saving', language)
-                    : savedRole === activeRole
-                      ? <><FiCheck size={12}/> {t('columns.saved', language)}</>
-                      : <><FiSave size={12}/> {t('columns.saveThisRole', language)}</>}
-                </button>
-              </div>
+            <span style={{ fontWeight:600, fontSize:'0.9375rem' }}>
+              {fmt(t('columns.roleLayoutTitle', language), { role: activeRoleLbl })}
+            </span>
+            <span style={{ marginLeft:'0.75rem', fontSize:'0.8rem', color:'var(--text-secondary)' }}>
+              {activeRoleNote}
+            </span>
+          </div>
+          <div style={{ display:'flex', gap:'0.5rem' }}>
+            <button
+              className="btn btn--ghost btn--sm"
+              onClick={() => resetRole(activeRole)}
+              disabled={!!saving}>
+              {t('columns.resetDefaults', language)}
+            </button>
+            <button
+              className="btn btn--secondary btn--sm"
+              onClick={() => saveRole(activeRole)}
+              disabled={!!saving}
+              style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
+              {saving === activeRole
+                ? t('common.saving', language)
+                : savedRole === activeRole
+                  ? <><FiCheck size={12}/> {t('columns.saved', language)}</>
+                  : <><FiSave size={12}/> {t('columns.saveThisRole', language)}</>}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Side-by-side: Leads list editor (left) | Lead Detail editor (right) ── */}
+        <div className="column-settings-grid">
+
+          {/* ── LEFT: Leads list columns editor ──────────── */}
+          <div>
+            <div className="column-settings-panel-header">
+              <span className="column-settings-panel-title">Leads List Page</span>
+              <span className="column-settings-panel-count">
+                {leadsVisibleCount} / {currentLeadsCols.length} visible
+              </span>
+            </div>
+            <div className="column-settings-panel-hint">
+              Drag rows to reorder. Click the eye to show/hide.
             </div>
 
-            {/* Column list */}
             <div style={{ border:'1px solid var(--border)', borderRadius:'10px', overflow:'hidden' }}>
               {/* Header row */}
               <div style={{
@@ -347,7 +547,7 @@ export default function ColumnLayoutSettings() {
                 <span style={{ textAlign:'center' }}>{t('columns.header.visible', language)}</span>
               </div>
 
-              {currentCols.map((col, idx) => (
+              {currentLeadsCols.map((col, idx) => (
                 <div
                   key={col.key}
                   draggable
@@ -357,8 +557,8 @@ export default function ColumnLayoutSettings() {
                   style={{
                     display:'grid', gridTemplateColumns:'28px 1fr 60px',
                     alignItems:'center',
-                    padding:'0.625rem 1rem',
-                    borderBottom: idx < currentCols.length - 1 ? '1px solid var(--border)' : 'none',
+                    padding:'0.5rem 1rem',
+                    borderBottom: idx < currentLeadsCols.length - 1 ? '1px solid var(--border)' : 'none',
                     cursor:'grab',
                     background: col.visible ? 'var(--bg-primary)' : 'var(--bg-secondary)',
                     opacity: col.visible ? 1 : 0.55,
@@ -373,7 +573,7 @@ export default function ColumnLayoutSettings() {
                       </span>
                     ) : (
                       <button
-                        onClick={() => toggleVisible(activeRole, col.key)}
+                        onClick={() => toggleLeadsVisible(activeRole, col.key)}
                         title={col.visible ? t('columns.tooltip.clickHide', language) : t('columns.tooltip.clickShow', language)}
                         style={{
                           background:'none', border:'none', cursor:'pointer', padding:'0.25rem',
@@ -389,55 +589,89 @@ export default function ColumnLayoutSettings() {
             </div>
           </div>
 
-          {/* Right: Preview panel */}
-          <div style={{ position:'sticky', top:'72px' }}>
-            <div style={{ fontWeight:600, fontSize:'0.875rem', marginBottom:'0.75rem' }}>
-              {fmt(t('columns.preview.title', language), { n: visibleCount })}
+          {/* ── RIGHT: Lead Detail fields editor ─────────── */}
+          <div>
+            <div className="column-settings-panel-header">
+              <span className="column-settings-panel-title">Lead Detail Page</span>
+              <span className="column-settings-panel-count">
+                {detailVisibleCount} / {detailTotalCount} visible
+              </span>
             </div>
+            <div className="column-settings-panel-hint">
+              Click the eye to show/hide on the Lead Detail page.
+              Items marked <em>(section)</em> toggle a whole UI section, not just one field.
+            </div>
+
             <div style={{ border:'1px solid var(--border)', borderRadius:'10px', overflow:'hidden' }}>
-              <div style={{
-                background:'var(--bg-secondary)', padding:'0.5rem 0.875rem',
-                fontSize:'0.7rem', fontWeight:600, color:'var(--text-secondary)',
-                borderBottom:'1px solid var(--border)', textTransform:'uppercase', letterSpacing:'0.5px',
-              }}>
-                {t('columns.preview.visibleCols', language)}
-              </div>
-              {currentCols.filter(c => c.visible).map((col, idx) => (
-                <div key={col.key} style={{
-                  display:'flex', alignItems:'center', gap:'0.5rem',
-                  padding:'0.4rem 0.875rem',
-                  borderBottom:'1px solid var(--border)',
-                  fontSize:'0.8125rem',
-                }}>
-                  <span style={{
-                    color:'var(--text-secondary)', fontSize:'0.7rem',
-                    fontFamily:'DM Mono', minWidth:'18px',
+              {detailSectionOrder.map(section => (
+                <div key={section}>
+                  {/* Section header row */}
+                  <div style={{
+                    padding:'0.5rem 1rem',
+                    background:'var(--bg-secondary)',
+                    borderBottom:'1px solid var(--border)',
+                    borderTop: section === detailSectionOrder[0] ? 'none' : '1px solid var(--border)',
+                    fontSize:'0.7rem', fontWeight:600, color:'var(--text-secondary)',
+                    textTransform:'uppercase', letterSpacing:'0.04em',
                   }}>
-                    {idx + 1}
-                  </span>
-                  <span>{colLabel(col, language)}</span>
+                    {section}
+                  </div>
+
+                  {detailBySection[section].map((f, idx, arr) => (
+                    <div key={f.key}
+                      style={{
+                        display:'grid', gridTemplateColumns:'1fr 60px',
+                        alignItems:'center',
+                        padding:'0.5rem 1rem',
+                        borderBottom: idx < arr.length - 1 ? '1px solid var(--border)' : 'none',
+                        background: f.visible ? 'var(--bg-primary)' : 'var(--bg-secondary)',
+                        opacity: f.visible ? 1 : 0.55,
+                        transition:'opacity 0.15s',
+                      }}>
+                      <div style={{ fontSize:'0.875rem', display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                        <span>{f.label}</span>
+                        {f.isSection && (
+                          <span style={{
+                            fontSize:'0.65rem', fontStyle:'italic', color:'var(--text-secondary)',
+                            background:'#FEF3C7', padding:'1px 5px', borderRadius:'3px',
+                          }}>
+                            section
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'center' }}>
+                        {activeRole === 'admin' ? (
+                          <span style={{ color:'var(--primary)', opacity:0.6 }} title={t('columns.tooltip.alwaysVisible', language)}>
+                            <FiEye size={16}/>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => toggleDetailVisible(activeRole, f.key)}
+                            title={f.visible ? t('columns.tooltip.clickHide', language) : t('columns.tooltip.clickShow', language)}
+                            style={{
+                              background:'none', border:'none', cursor:'pointer', padding:'0.25rem',
+                              color: f.visible ? 'var(--primary)' : 'var(--text-secondary)',
+                              borderRadius:'4px',
+                            }}>
+                            {f.visible ? <FiEye size={16}/> : <FiEyeOff size={16}/>}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ))}
-              {visibleCount === 0 && (
-                <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.875rem', textAlign:'center' }}>
-                  {t('columns.preview.noneVisible', language)}
-                </div>
-              )}
-
-              {/* Hidden columns count */}
-              {hiddenCount > 0 && (
-                <div style={{
-                  padding:'0.5rem 0.875rem',
-                  background:'var(--bg-secondary)',
-                  fontSize:'0.75rem', color:'var(--text-secondary)',
-                  borderTop:'1px solid var(--border)',
-                }}>
-                  {fmt(t('columns.preview.hidden', language), { n: hiddenCount, plural: hiddenPlural })}
-                </div>
-              )}
             </div>
           </div>
+
         </div>
+
+        {/* ── Footer note about LeadDetail wiring ─────────── */}
+        <p style={{ marginTop:'1.5rem', fontSize:'0.75rem', color:'var(--text-secondary)', fontStyle:'italic' }}>
+          Note: Lead Detail field permissions are saved per role, but the Lead Detail page does not yet
+          read these settings — every field still shows. The page-level wiring is a follow-up change;
+          your settings here will activate once that&apos;s in place.
+        </p>
       </div>
     </div>
   );
