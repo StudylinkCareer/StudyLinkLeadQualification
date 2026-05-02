@@ -398,6 +398,7 @@ export default function Leads() {
       if (s.sortDir)              setSortDir(s.sortDir);
       if (typeof s.page === 'number') setPage(s.page);
       if (s.showFilters)          setShowFilters(true);
+      if (Array.isArray(s.drillIds)) setDrillIds(s.drillIds);
     } catch (e) {
       console.error('Failed to restore leads list state:', e);
     }
@@ -407,6 +408,8 @@ export default function Leads() {
 
   // ── Persist filter/sort/page state on change ──
   // Skip the first render so we don't overwrite saved state with empty initial values.
+  // drillIds is included so chained drill-downs (e.g., Dashboard counselor → stone → lead)
+  // restore correctly when the user back-arrows out of a lead detail.
   const isFirstRenderRef = useRef(true);
   useEffect(() => {
     if (isFirstRenderRef.current) {
@@ -414,9 +417,9 @@ export default function Leads() {
       return;
     }
     sessionStorage.setItem('leadsListState', JSON.stringify({
-      filters, sortField, sortDir, page, showFilters,
+      filters, sortField, sortDir, page, showFilters, drillIds,
     }));
-  }, [filters, sortField, sortDir, page, showFilters]);
+  }, [filters, sortField, sortDir, page, showFilters, drillIds]);
 
   async function loadLeads() {
     setLoading(true);
