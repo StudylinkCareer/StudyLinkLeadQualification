@@ -2,13 +2,16 @@
 // -----------------------------------------------------------------------------
 // CHANGES:
 //   - Added collapse button (<) in the sidebar header, top-right.
-//   - All visible strings go through t(key, language).
-//   - LanguageSelector added to the sidebar footer above the staff badge.
+//     Clicking it calls toggle() from NavCollapseContext which sets
+//     `collapsed = true`; the .nav-collapsed class on .app-layout then
+//     hides the sidebar via CSS.
 //
-// CHANGES (mobile drawer):
-//   - On mobile (<=768px), tapping a nav item now also closes the drawer
-//     via setCollapsed(true), so the user lands on the page with a clear
-//     view instead of an open overlay.
+// CHANGES (i18n Phase 1):
+//   - All visible strings (labels, section headers, tooltips) now go
+//     through t(key, language) from the i18n module.
+//   - LanguageSelector added to the sidebar footer, above the staff badge.
+//   - Subtitle text uses translation so Vietnamese users see a Vietnamese
+//     product descriptor. "StudyLink" is a brand — not translated.
 // -----------------------------------------------------------------------------
 
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -21,24 +24,14 @@ import {
   FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft,
 } from 'react-icons/fi';
 
-const MOBILE_BREAKPOINT = 768;
-
 export default function Sidebar() {
-  const { staff, logout, isAdmin }  = useAuth();
-  const { toggle, setCollapsed }    = useNavCollapse();
-  const { language }                = useLanguage();
-  const navigate                    = useNavigate();
-  const location                    = useLocation();
+  const { staff, logout, isAdmin } = useAuth();
+  const { toggle }                 = useNavCollapse();
+  const { language }               = useLanguage();
+  const navigate                   = useNavigate();
+  const location                   = useLocation();
 
   const isActive = (path) => location.pathname.startsWith(path);
-
-  // Navigate, and on narrow screens close the drawer behind us.
-  function navAndMaybeClose(path) {
-    navigate(path);
-    if (typeof window !== 'undefined' && window.innerWidth <= MOBILE_BREAKPOINT) {
-      setCollapsed(true);
-    }
-  }
 
   async function handleLogout() {
     await logout();
@@ -69,14 +62,14 @@ export default function Sidebar() {
 
         <button
           className={`nav-item ${isActive('/dashboard') ? 'active' : ''}`}
-          onClick={() => navAndMaybeClose('/dashboard')}
+          onClick={() => navigate('/dashboard')}
         >
           <FiGrid size={16} /> {t('sidebar.dashboard', language)}
         </button>
 
         <button
           className={`nav-item ${isActive('/leads') ? 'active' : ''}`}
-          onClick={() => navAndMaybeClose('/leads')}
+          onClick={() => navigate('/leads')}
         >
           <FiUsers size={16} /> {t('sidebar.leads', language)}
         </button>
@@ -86,13 +79,13 @@ export default function Sidebar() {
             <span className="nav-section">{t('sidebar.section.admin', language)}</span>
             <button
               className={`nav-item ${isActive('/staff') ? 'active' : ''}`}
-              onClick={() => navAndMaybeClose('/staff')}
+              onClick={() => navigate('/staff')}
             >
               <FiUserCheck size={16} /> {t('sidebar.staff', language)}
             </button>
             <button
               className={`nav-item ${isActive('/settings/columns') ? 'active' : ''}`}
-              onClick={() => navAndMaybeClose('/settings/columns')}
+              onClick={() => navigate('/settings/columns')}
             >
               <FiLayout size={16} /> {t('sidebar.columnSettings', language)}
             </button>

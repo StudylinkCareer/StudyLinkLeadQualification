@@ -1,44 +1,41 @@
 // src/contexts/NavCollapseContext.jsx
 // -----------------------------------------------------------------------------
-// Tracks whether the left-hand navigation sidebar is collapsed.
-// Persists across the current browser session via sessionStorage.
+// Context that tracks whether the left-hand Navigation sidebar is collapsed.
+// State persists for the current browser session only (sessionStorage).
 //
-// CHANGES (mobile nav):
-//   - On first visit (no saved value), default to collapsed=true on mobile
-//     (<=768px) so the sidebar starts as a closed drawer instead of auto-
-//     opening on small screens.
-//   - Desktop default is unchanged (sidebar visible).
+// Consumers:
+//   - Sidebar.jsx                 — renders a collapse button, hides itself
+//                                   when `collapsed === true`
+//   - App.jsx (ProtectedLayout)   — applies `.nav-collapsed` class to the
+//                                   layout wrapper and renders the floating
+//                                   expand button
+//
+// Usage:
+//   import { useNavCollapse } from '../contexts/NavCollapseContext';
+//   const { collapsed, toggle } = useNavCollapse();
 // -----------------------------------------------------------------------------
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
-const STORAGE_KEY       = 'studylink.navCollapsed';
-const MOBILE_BREAKPOINT = 768;
-
-function isMobileViewport() {
-  if (typeof window === 'undefined') return false;
-  return window.innerWidth <= MOBILE_BREAKPOINT;
-}
+const STORAGE_KEY = 'studylink.navCollapsed';
 
 const NavCollapseContext = createContext({
-  collapsed:    false,
-  toggle:       () => {},
+  collapsed: false,
+  toggle:    () => {},
   setCollapsed: () => {},
 });
 
 export function NavCollapseProvider({ children }) {
+  // Initialise from sessionStorage (per-session persistence, not permanent).
   const [collapsed, setCollapsed] = useState(() => {
     try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved === 'true')  return true;
-      if (saved === 'false') return false;
-      // No saved value yet — default to collapsed on mobile, expanded on desktop.
-      return isMobileViewport();
+      return sessionStorage.getItem(STORAGE_KEY) === 'true';
     } catch {
       return false;
     }
   });
 
+  // Write-through to sessionStorage on every change.
   useEffect(() => {
     try {
       sessionStorage.setItem(STORAGE_KEY, String(collapsed));

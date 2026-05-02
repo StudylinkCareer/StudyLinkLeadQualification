@@ -219,21 +219,15 @@ export default function Dashboard() {
   }, [leads, isManager, isAdmin, staff]);
 
   const stats = useMemo(() => {
-    const total  = scopedLeads.length;
-    const won    = scopedLeads.filter(l => l.leadStatus === 'Contracted').length;
-    const active = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus)).length;
-    const thisMonthLeads = scopedLeads.filter(l => {
+    const total     = scopedLeads.length;
+    const won       = scopedLeads.filter(l => l.leadStatus === 'Contracted').length;
+    const active    = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus)).length;
+    const thisMonth = scopedLeads.filter(l => {
       if (!l.createdAt) return false;
       const d = new Date(l.createdAt), now = new Date();
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
-    return {
-      total,
-      won,
-      active,
-      thisMonth:    thisMonthLeads.length,
-      thisMonthIds: thisMonthLeads.map(l => l.uniqueId),
-    };
+    }).length;
+    return { total, won, active, thisMonth };
   }, [scopedLeads]);
 
   const pipeline = useMemo(() => {
@@ -517,13 +511,7 @@ export default function Dashboard() {
           <StatCard label={t('dashboard.stat.totalLeads', language)}    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads')}/>
           <StatCard label={t('dashboard.stat.active', language)}        value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
           <StatCard label={t('dashboard.stat.contracted', language)}    value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
-          <StatCard
-            label={t('dashboard.stat.newThisMonth', language)}
-            value={stats.thisMonth}
-            color="#F59E0B"
-            sub={t('dashboard.stat.newThisMonth.sub', language)}
-            onClick={() => drillDown('_ids', stats.thisMonthIds)}
-          />
+          <StatCard label={t('dashboard.stat.newThisMonth', language)}  value={stats.thisMonth} color="#F59E0B" sub={t('dashboard.stat.newThisMonth.sub', language)}/>
         </div>
 
         {/* ── Level 1 / counselor mixed ───────────────────────── */}

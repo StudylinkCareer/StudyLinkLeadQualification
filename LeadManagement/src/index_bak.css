@@ -811,11 +811,9 @@ tr:hover td {
 /* Mobile: sidebar was already hidden by the existing @media rule, so the
    expand button should also hide on mobile (since there's nothing to expand
    back to in the current mobile layout). Adjust if mobile nav is added. */
-
-/* Code commented out if requirement to restore it later */
-/* @media (max-width: 768px) {
+@media (max-width: 768px) {
   .nav-expand-btn { display: none; }
-} *?
+}
 
 /* =============================================================================
    LANGUAGE SELECTOR — Phase 1 i18n
