@@ -3,11 +3,11 @@
 // Tracks whether the left-hand navigation sidebar is collapsed.
 // Persists across the current browser session via sessionStorage.
 //
-// CHANGES (mobile nav):
-//   - On first visit (no saved value), default to collapsed=true on mobile
-//     (<=768px) so the sidebar starts as a closed drawer instead of auto-
-//     opening on small screens.
-//   - Desktop default is unchanged (sidebar visible).
+// Semantics:
+//   - Desktop: collapsed=false means sidebar visible. Collapsed=true means
+//              sidebar hidden, FloatingExpandButton visible to bring it back.
+//   - Mobile:  collapsed=true is the default. Setting collapsed=false slides
+//              the sidebar in as a drawer overlay.
 // -----------------------------------------------------------------------------
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';

@@ -1,14 +1,16 @@
 // src/components/Sidebar.jsx
 // -----------------------------------------------------------------------------
 // CHANGES:
-//   - Added collapse button (<) in the sidebar header, top-right.
-//   - All visible strings go through t(key, language).
-//   - LanguageSelector added to the sidebar footer above the staff badge.
+//   - Collapse button (<) in sidebar header.
+//   - All visible strings via t(key, language).
+//   - LanguageSelector in sidebar footer above the staff badge.
 //
-// CHANGES (mobile drawer):
-//   - On mobile (<=768px), tapping a nav item now also closes the drawer
-//     via setCollapsed(true), so the user lands on the page with a clear
-//     view instead of an open overlay.
+// CHANGES (mobile drawer + reset on Leads):
+//   - On mobile (<=768px), tapping a nav item also closes the drawer.
+//   - The Leads link passes state.reset=true so Leads.jsx clears any
+//     drill-down filters/state and shows the full list. (Without this,
+//     navigating to /leads while already on /leads doesn't remount the
+//     component, so previously-applied filters would persist.)
 // -----------------------------------------------------------------------------
 
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -24,17 +26,17 @@ import {
 const MOBILE_BREAKPOINT = 768;
 
 export default function Sidebar() {
-  const { staff, logout, isAdmin }  = useAuth();
-  const { toggle, setCollapsed }    = useNavCollapse();
-  const { language }                = useLanguage();
-  const navigate                    = useNavigate();
-  const location                    = useLocation();
+  const { staff, logout, isAdmin } = useAuth();
+  const { toggle, setCollapsed }   = useNavCollapse();
+  const { language }               = useLanguage();
+  const navigate                   = useNavigate();
+  const location                   = useLocation();
 
   const isActive = (path) => location.pathname.startsWith(path);
 
-  // Navigate, and on narrow screens close the drawer behind us.
-  function navAndMaybeClose(path) {
-    navigate(path);
+  // Navigate; close mobile drawer; optionally pass router state.
+  function go(path, state) {
+    navigate(path, state ? { state } : undefined);
     if (typeof window !== 'undefined' && window.innerWidth <= MOBILE_BREAKPOINT) {
       setCollapsed(true);
     }
@@ -69,14 +71,14 @@ export default function Sidebar() {
 
         <button
           className={`nav-item ${isActive('/dashboard') ? 'active' : ''}`}
-          onClick={() => navAndMaybeClose('/dashboard')}
+          onClick={() => go('/dashboard')}
         >
           <FiGrid size={16} /> {t('sidebar.dashboard', language)}
         </button>
 
         <button
           className={`nav-item ${isActive('/leads') ? 'active' : ''}`}
-          onClick={() => navAndMaybeClose('/leads')}
+          onClick={() => go('/leads', { reset: true })}
         >
           <FiUsers size={16} /> {t('sidebar.leads', language)}
         </button>
@@ -86,13 +88,13 @@ export default function Sidebar() {
             <span className="nav-section">{t('sidebar.section.admin', language)}</span>
             <button
               className={`nav-item ${isActive('/staff') ? 'active' : ''}`}
-              onClick={() => navAndMaybeClose('/staff')}
+              onClick={() => go('/staff')}
             >
               <FiUserCheck size={16} /> {t('sidebar.staff', language)}
             </button>
             <button
               className={`nav-item ${isActive('/settings/columns') ? 'active' : ''}`}
-              onClick={() => navAndMaybeClose('/settings/columns')}
+              onClick={() => go('/settings/columns')}
             >
               <FiLayout size={16} /> {t('sidebar.columnSettings', language)}
             </button>
@@ -101,7 +103,6 @@ export default function Sidebar() {
       </nav>
 
       <div className="sidebar-footer">
-        {/* Language toggle — Vietnam/UK flag buttons */}
         <div className="sidebar-lang-row">
           <LanguageSelector />
         </div>

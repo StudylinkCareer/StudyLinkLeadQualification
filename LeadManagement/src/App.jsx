@@ -1,15 +1,11 @@
 // src/App.jsx
 // -----------------------------------------------------------------------------
-// CHANGES (mobile nav):
-//   - Renders <MobileBottomNav /> inside ConsoleShell (CSS hides it on desktop).
-//   - Renders <SidebarBackdrop /> so tapping outside the open mobile drawer
-//     closes it.
-//
-// CHANGES (existing):
-//   - NavCollapseProvider wraps the route tree; ProtectedLayout/AdminRoute
-//     apply 'nav-collapsed' class when collapsed, render a floating expand
-//     button.
-//   - LanguageProvider is the outermost provider.
+// CHANGES (mobile banner nav):
+//   - Replaced <MobileBottomNav /> with <MobilePageNav /> (top-right banner).
+//   - Kept <FloatingExpandButton /> — used on DESKTOP when sidebar is
+//     collapsed. Hidden on mobile via CSS (banner Menu button replaces it).
+//   - Kept <SidebarBackdrop /> — dims content when the mobile drawer is open
+//     and tap-to-close.
 // -----------------------------------------------------------------------------
 
 import { Routes, Route, Navigate } from 'react-router-dom';
@@ -18,7 +14,7 @@ import { useAuth } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { NavCollapseProvider, useNavCollapse } from './contexts/NavCollapseContext';
 import Sidebar from './components/Sidebar';
-import MobileBottomNav from './components/MobileBottomNav';
+import MobilePageNav from './components/MobilePageNav';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
@@ -26,8 +22,8 @@ import LeadDetail from './pages/LeadDetail';
 import Staff from './pages/Staff';
 import ColumnLayoutSettings from './pages/ColumnLayoutSettings';
 
-// Floating "expand" button shown when the sidebar is collapsed.
-// On desktop: top-left of content. On mobile: it acts as the hamburger.
+// Floating "expand" button shown when the sidebar is collapsed on DESKTOP only.
+// Hidden on mobile via CSS — the banner Menu button is the mobile equivalent.
 function FloatingExpandButton() {
   const { collapsed, toggle } = useNavCollapse();
   if (!collapsed) return null;
@@ -65,8 +61,8 @@ function ConsoleShell({ children }) {
       <Sidebar />
       <SidebarBackdrop />
       <FloatingExpandButton />
+      <MobilePageNav />
       <main className="main-content">{children}</main>
-      <MobileBottomNav />
     </div>
   );
 }

@@ -383,6 +383,24 @@ export default function Leads() {
     window.history.replaceState({}, '');
   }, [location.state]);
 
+  // ── Reset filter state when navigation explicitly requests it ─────────
+  // Triggered by:
+  //   - Sidebar "Leads" click       → navigate('/leads', { state: { reset: true } })
+  //   - MobilePageNav "Leads" tap   → navigate('/leads', { state: { reset: true } })
+  //   - Stat card "Total Leads"     → navigate('/leads', { state: { reset: true } })
+  // Without this useEffect, React Router doesn't remount the Leads component
+  // when you navigate to /leads while already on /leads, so previously-applied
+  // drill-down filters would persist.
+  useEffect(() => {
+    if (!location.state?.reset) return;
+    setFilters(EMPTY_FILTERS);
+    setDrillIds(null);
+    setShowFilters(false);
+    setPage(1);
+    window.history.replaceState({}, '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
   // ── Restore filter/sort/page state on mount ──
   // Only fires when arriving with the restoreFilters flag (back-arrow from a Lead detail).
   // Clicking "Leads" in the sidebar navigates without this flag, so filters reset.

@@ -734,24 +734,20 @@ tr:hover td {
 
 /* =============================================================================
    NAV COLLAPSE / EXPAND
-   Append to end of src/index.css
    -----------------------------------------------------------------------------
    - `.nav-collapsed` class is added to `.app-layout` when the sidebar is hidden
    - Sidebar is removed from flow; main content takes full width
    - Floating expand button sits top-left of content when collapsed
    ========================================================================== */
 
-/* Hide the sidebar entirely when collapsed */
 .app-layout.nav-collapsed .sidebar {
   display: none;
 }
 
-/* Drop the reserved left space so main content uses full width */
 .app-layout.nav-collapsed .main-content {
   margin-left: 0;
 }
 
-/* ── Collapse button inside the sidebar header ── */
 .sidebar-header-row {
   display: flex;
   align-items: flex-start;
@@ -781,7 +777,6 @@ tr:hover td {
   border-color: var(--text-secondary);
 }
 
-/* ── Floating expand button (shown only when collapsed) ── */
 .nav-expand-btn {
   position: fixed;
   top: 16px;
@@ -808,20 +803,8 @@ tr:hover td {
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
 }
 
-/* Mobile: sidebar was already hidden by the existing @media rule, so the
-   expand button should also hide on mobile (since there's nothing to expand
-   back to in the current mobile layout). Adjust if mobile nav is added. */
-
-/* Code commented out if requirement to restore it later */
-/* @media (max-width: 768px) {
-  .nav-expand-btn { display: none; }
-} *?
-
 /* =============================================================================
    LANGUAGE SELECTOR — Phase 1 i18n
-   -----------------------------------------------------------------------------
-   Append to src/index.css (or your main stylesheet).
-   Places the flag-button pair centered above the staff badge in the sidebar.
    ============================================================================= */
 
 .language-selector {
@@ -841,4 +824,119 @@ tr:hover td {
 
 .language-selector button:hover {
   opacity: 1 !important;
+}
+
+/* =============================================================================
+   MOBILE BANNER NAV + DRAWER + DASHBOARD MOBILE STACKING + TABLE FIX
+   -----------------------------------------------------------------------------
+   Implements the proposed mobile nav: title left, three icon buttons right
+   (Dashboard / Leads / Menu). Menu opens the sidebar as a drawer overlay.
+   Dashboard sections stack vertically so Pipeline Statistics gets its own
+   full-width row.
+   ============================================================================= */
+
+.sidebar-backdrop      { display: none; }
+.mobile-page-nav       { display: none; }
+
+@media (max-width: 768px) {
+
+  /* Drawer OPEN: render sidebar as a fixed overlay over the content */
+  .app-layout:not(.nav-collapsed) .sidebar {
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: var(--sidebar-width);
+    max-width: 85vw;
+    z-index: 1100;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.18);
+    transform: translateX(0);
+    transition: transform 0.2s ease;
+  }
+
+  /* Backdrop visible only when drawer is open */
+  .app-layout:not(.nav-collapsed) .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1050;
+  }
+
+  /* Hide the desktop floating expand button on mobile —
+     the banner Menu button replaces it */
+  .nav-expand-btn { display: none !important; }
+
+  /* Banner nav cluster — fixed at top-right of viewport */
+  .mobile-page-nav {
+    display: flex;
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    z-index: 60;
+    gap: 4px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 3px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .mobile-page-nav__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 7px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .mobile-page-nav__btn:active     { background: var(--bg-secondary); }
+  .mobile-page-nav__btn.is-active  { background: var(--primary-light); color: var(--primary); }
+
+  /* Page header — leave room on the right for the floating banner nav,
+     wrap to a second row if title + action buttons can't fit on one line */
+  .page-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--header-height);
+    padding: 8px 12px;
+    padding-right: 130px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* Dashboard mobile stacking — Pipeline Statistics gets its own row */
+  .dashboard-stat-grid    { grid-template-columns: repeat(2, 1fr) !important; }
+  .dashboard-charts-grid  { grid-template-columns: 1fr            !important; }
+  .dashboard-level2-grid  { grid-template-columns: 1fr            !important; }
+}
+
+/* =============================================================================
+   LEADS TABLE — iOS Safari paint fix attempt for column overlap
+   -----------------------------------------------------------------------------
+   Pushes the scrolling element to its own paint layer so each cell paints
+   cleanly inside its bounds.
+   ============================================================================= */
+.table-wrap {
+  -webkit-overflow-scrolling: touch;
+  transform: translateZ(0);
+  will-change: scroll-position;
+  isolation: isolate;
+}
+
+.table-wrap table { background: #fff; }
+
+.table-wrap td,
+.table-wrap th {
+  background: #fff;
+  background-clip: padding-box;
 }

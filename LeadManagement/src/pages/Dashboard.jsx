@@ -513,8 +513,8 @@ export default function Dashboard() {
       <div className="page-body">
 
         {/* ── Top stat cards ──────────────────────────────────── */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
-          <StatCard label={t('dashboard.stat.totalLeads', language)}    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads')}/>
+        <div className="dashboard-stat-grid" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
+          <StatCard label={t('dashboard.stat.totalLeads', language)}    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads', { state: { reset: true } })}/>
           <StatCard label={t('dashboard.stat.active', language)}        value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
           <StatCard label={t('dashboard.stat.contracted', language)}    value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
           <StatCard
@@ -528,7 +528,7 @@ export default function Dashboard() {
 
         {/* ── Level 1 / counselor mixed ───────────────────────── */}
         {isManagerOrAdmin ? (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
+          <div className="dashboard-charts-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
             <div className="section-card">
               <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStone', language)}</span></div>
               <HBarChart data={stoneData} colorMap={STONE_COLORS}
@@ -546,7 +546,7 @@ export default function Dashboard() {
             </div>
           </div>
         ) : (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 300px', gap:'1rem', marginBottom:'1.5rem' }}>
+          <div className="dashboard-charts-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 300px', gap:'1rem', marginBottom:'1.5rem' }}>
 
             <div className="section-card">
               <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStone', language)}</span></div>
@@ -576,7 +576,7 @@ export default function Dashboard() {
 
         {/* ── Level 2 (Manager/Admin only) ────────────────────── */}
         {isManagerOrAdmin && (
-          <div style={{
+          <div className="dashboard-level2-grid" style={{
             display:'grid',
             gridTemplateColumns: selectedCounselor ? '1.3fr 1fr 1fr' : '2fr 1fr',
             gap:'1rem',
