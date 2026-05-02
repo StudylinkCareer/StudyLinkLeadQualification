@@ -39,6 +39,7 @@ const PERMS = {
   canEdit:           ['Counselor', 'Manager', 'Admin', 'Director'],
   canEditAssignment: ['Manager', 'Admin'],
   canRecalculate:    ['Manager', 'Admin', 'Counselor'],
+  canDelayCloseDate: ['Manager', 'Admin', 'Director'],   // only these roles can push Close Date later
   canWriteNote: {
     counselor:  ['Counselor', 'Manager', 'Admin'],
     presales:   ['Counselor', 'Manager', 'Admin'],
@@ -46,7 +47,19 @@ const PERMS = {
   },
 };
 
-const LEAD_STATUSES   = ['New','Contacted','Qualified','Proposal','Negotiation','Won','Lost','On Hold'];
+const LEAD_STATUSES = [
+  'New',
+  'Not contactable',
+  'Engaged',
+  'Vetted',
+  'Met with customer and family',
+  'Proposal',
+  'Family negotiation/review',
+  'Contracted',
+  'Lost',
+  'Nurturing',
+  'Archived',
+];
 const CONFIDENCE_OPTS = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
 const NOTE_TYPES      = { counselor:'Counselor Note', presales:'PreSales Note', management:'Management Note' };
 const ENGLISH_LEVELS  = ['Beginner','IELTS 4-4.5','IELTS 5-5.5','IELTS 6-6.5','IELTS 7+'];
@@ -230,11 +243,35 @@ export default function LeadDetail() {
     // ── Mandatory fields before save (when in edit mode) ──
     if (editMode) {
       const missing = [];
+      // Always required
       if (!editData.leadSource)  missing.push('Lead Source');
       if (!editData.interaction) missing.push('Interaction');
+      // Required only when status is not 'New'
+      const status = editData.leadStatus || 'New';
+      if (status !== 'New') {
+        if (!editData.closeDate)  missing.push('Close Date');
+        if (!editData.confidence) missing.push('Confidence');
+      }
       if (missing.length) {
         alert(`Please complete the following before saving:\n\n• ${missing.join('\n• ')}`);
         return;
+      }
+
+      // ── Close Date direction rule ──
+      // Counselors (and other non-privileged roles) cannot push the Close Date later
+      // once the lead has moved past 'New'. Manager/Admin/Director are allowed to delay.
+      if (status !== 'New' && editData.closeDate && lead.closeDate) {
+        const oldDate = new Date(lead.closeDate);
+        const newDate = new Date(editData.closeDate);
+        const dateChanged = oldDate.getTime() !== newDate.getTime();
+        const isLater     = newDate > oldDate;
+        if (dateChanged && isLater && !canDo(PERMS.canDelayCloseDate, role)) {
+          alert(
+            'You cannot push the Close Date later once the lead has progressed past "New".\n\n' +
+            'Only Managers, Admins, or Directors can delay a Close Date.'
+          );
+          return;
+        }
       }
     }
 
@@ -348,10 +385,10 @@ export default function LeadDetail() {
 
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
 
-  // ── Notes are blocked until these 4 fields are set on the lead ──
+  // ── Notes are blocked until these 2 fields are set on the lead ──
+  // Close Date and Confidence are required for SAVE (when status != 'New')
+  // but should NOT block note-taking. Notes only need Lead Source + Interaction.
   const notesRequired = {
-    'Close Date':   lead.closeDate,
-    'Confidence':   lead.confidence,
     'Lead Source':  lead.leadSource,
     'Interaction':  lead.interaction,
   };
@@ -420,19 +457,18 @@ export default function LeadDetail() {
           {/* Student Information */}
           <div className="section-card">
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
-                <div style={{ flex: 1 }}>
-                  <span className="section-title">Student Information</span>
-                  {editMode ? (
-                    <div style={{ marginTop:'0.5rem', maxWidth:'400px' }}>
-                      <EditField label="Full Name" name="fullName" value={d.fullName} onChange={updateEdit}/>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
-                      {lead.fullName || '—'}
-                    </div>
-                  )}
-                </div>
-
+              <div style={{ flex: 1 }}>
+                <span className="section-title">Student Information</span>
+                {editMode ? (
+                  <div style={{ marginTop:'0.5rem', maxWidth:'400px' }}>
+                    <EditField label="Full Name" name="fullName" value={d.fullName} onChange={updateEdit}/>
+                  </div>
+                ) : (
+                  <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
+                    {lead.fullName || '—'}
+                  </div>
+                )}
+              </div>
               <div style={{ display:'flex', gap:'0.75rem', flexShrink:0 }}>
                 <PhotoThumb url={lead.headshotUrl}    label="Headshot" isRound={true}/>
                 <PhotoThumb url={lead.qrCodeImageUrl} label="QR Code"  isRound={false}/>
