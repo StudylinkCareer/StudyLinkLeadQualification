@@ -827,6 +827,81 @@ tr:hover td {
 }
 
 /* =============================================================================
+   ACTION BANNER (mass-assign / mass-delete status notifications)
+   -----------------------------------------------------------------------------
+   Replaces alert() popups for long-running mass actions. Browsers may suppress
+   alert() when triggered more than ~5 seconds after the click that fired it,
+   so a 12-second delete-with-Drive-archive never showed the success message.
+   This in-page banner is rendered by Leads.jsx based on busy/actionResult
+   state and is always visible.
+   ============================================================================= */
+.action-banner {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  max-width: calc(100vw - 24px);
+}
+
+.action-banner--busy    { background: #1f2937; }
+.action-banner--success { background: #059669; }
+.action-banner--error   { background: #dc2626; }
+
+.action-banner__close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.action-banner__close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.action-banner__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: action-banner-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes action-banner-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+  .action-banner {
+    top: 60px;
+    left: 8px;
+    right: 8px;
+    transform: none;
+    max-width: none;
+  }
+}
+
+/* =============================================================================
    MOBILE BANNER NAV + DRAWER + DASHBOARD MOBILE STACKING + TABLE FIX
    -----------------------------------------------------------------------------
    Implements the proposed mobile nav: title left, three icon buttons right
@@ -918,6 +993,25 @@ tr:hover td {
   .dashboard-stat-grid    { grid-template-columns: repeat(2, 1fr) !important; }
   .dashboard-charts-grid  { grid-template-columns: 1fr            !important; }
   .dashboard-level2-grid  { grid-template-columns: 1fr            !important; }
+
+  /* Mass-assign / delete bar — wrap onto multiple rows on mobile so the
+     Delete button is always visible without horizontal scrolling. */
+  .mass-assign-bar {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 10px 12px;
+    gap: 8px;
+    font-size: 0.875rem;
+  }
+
+  .mass-assign-bar select {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+  }
 }
 
 /* =============================================================================

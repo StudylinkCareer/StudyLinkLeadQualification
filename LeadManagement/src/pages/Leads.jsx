@@ -289,6 +289,13 @@ export default function Leads() {
   const [sortField, setSortField]     = useState('createdAt');
   const [sortDir, setSortDir]         = useState('desc');
   const [selected, setSelected]       = useState([]);
+  // Mass-action UX state — shown as in-page banners instead of alert() popups.
+  // alert() gets suppressed by modern browsers when triggered after a long delay
+  // (e.g. our delete takes ~12s due to the Drive archive step), so the user
+  // never saw the success message. These two pieces of state replace it with
+  // a fixed banner at the top of the page that always renders.
+  const [busy, setBusy]                 = useState(null);    // null | 'deleting' | 'assigning'
+  const [actionResult, setActionResult] = useState(null);    // null | { type:'success'|'error', message:string }
   const [staffList, setStaffList]     = useState([]);
   const [massField, setMassField]     = useState('counselor');
   const [massValue, setMassValue]     = useState('');
@@ -391,12 +398,15 @@ export default function Leads() {
   // Without this useEffect, React Router doesn't remount the Leads component
   // when you navigate to /leads while already on /leads, so previously-applied
   // drill-down filters would persist.
+  // We also call loadLeads() to fetch fresh data — otherwise the table
+  // shows stale state (e.g. a lead deleted from another tab still appears).
   useEffect(() => {
     if (!location.state?.reset) return;
     setFilters(EMPTY_FILTERS);
     setDrillIds(null);
     setShowFilters(false);
     setPage(1);
+    loadLeads();
     window.history.replaceState({}, '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
@@ -642,11 +652,21 @@ export default function Leads() {
 
   async function handleMassAssign() {
     if (!massValue || selected.length === 0) return;
+    setBusy('assigning');
+    setActionResult(null);
     try {
       await staffAPI.massAssign(selected, massField, massValue);
       await loadLeads();
+      setActionResult({
+        type: 'success',
+        message: `Assigned ${selected.length} lead${selected.length !== 1 ? 's' : ''} to ${massValue}.`,
+      });
       setSelected([]);
-    } catch(e) { alert(e.message); }
+    } catch(e) {
+      setActionResult({ type: 'error', message: e.message || 'Assignment failed.' });
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function handleMassDelete() {
@@ -655,6 +675,8 @@ export default function Leads() {
                 `Each deletion will be archived to Google Drive (lead metadata + any notes) for forensic record.\n\n` +
                 `This action cannot be undone.`;
     if (!confirm(msg)) return;
+    setBusy('deleting');
+    setActionResult(null);
     try {
       const result = await studentAPI.deleteRecords(selected);
       // result has shape { success, deleted, archives: [{ studentId, status, ... }] }
@@ -663,14 +685,30 @@ export default function Leads() {
       const failed   = archives.filter(a => a.status === 'failed').length;
       const skipped  = archives.filter(a => a.status === 'skipped').length;
       let summary = `Deleted ${selected.length} lead${selected.length !== 1 ? 's' : ''}.`;
-      if (archived > 0) summary += `\n${archived} archive${archived !== 1 ? 's' : ''} saved to Google Drive.`;
-      if (skipped > 0)  summary += `\n${skipped} skipped (lead not found).`;
-      if (failed > 0)   summary += `\n${failed} archive failure${failed !== 1 ? 's' : ''} — check server logs.`;
-      alert(summary);
+      if (archived > 0) summary += ` ${archived} archive${archived !== 1 ? 's' : ''} saved to Google Drive.`;
+      if (skipped > 0)  summary += ` ${skipped} skipped (lead not found).`;
+      if (failed > 0)   summary += ` ${failed} archive failure${failed !== 1 ? 's' : ''} — check server logs.`;
       await loadLeads();
+      setActionResult({
+        type: failed > 0 ? 'error' : 'success',
+        message: summary,
+      });
       setSelected([]);
-    } catch(e) { alert(e.message); }
+    } catch(e) {
+      setActionResult({ type: 'error', message: e.message || 'Delete failed.' });
+    } finally {
+      setBusy(null);
+    }
   }
+
+  // Auto-dismiss successful action banners after 6 seconds.
+  // Errors stay until the user clicks the Dismiss button (so they can read them).
+  useEffect(() => {
+    if (actionResult?.type === 'success') {
+      const t = setTimeout(() => setActionResult(null), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [actionResult]);
 
   // ── Column resize ──────────────────────────────────────────
   function startResize(e, key) {
@@ -740,6 +778,35 @@ export default function Leads() {
   return (
     <div>
       <Watermark />
+
+      {/* ── Mass-action status banners ────────────────────────────
+          Replaces alert() popups, which Chrome / Safari can suppress when
+          fired more than ~5 seconds after the click that triggered them.
+          A delete with Drive archive takes ~12 seconds, so the success
+          alert was never reaching the user. */}
+      {busy && (
+        <div className="action-banner action-banner--busy no-print">
+          <div className="action-banner__spinner" aria-hidden="true" />
+          <span>
+            {busy === 'deleting'
+              ? 'Deleting and archiving to Google Drive… please wait.'
+              : 'Saving…'}
+          </span>
+        </div>
+      )}
+      {actionResult && (
+        <div className={`action-banner action-banner--${actionResult.type} no-print`} role="status">
+          <span style={{ flex: 1 }}>{actionResult.message}</span>
+          <button
+            type="button"
+            className="action-banner__close"
+            onClick={() => setActionResult(null)}
+            aria-label="Dismiss notification"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ── Print stylesheet — hides chrome, shows only the table for clean PDF output ── */}
       <style>{`
