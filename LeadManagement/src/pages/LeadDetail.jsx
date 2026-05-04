@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
+import { CONTACT_MEDIUMS } from '../utils/formFields';
 
 // ── Stone images ──────────────────────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
@@ -298,6 +299,17 @@ export default function LeadDetail() {
           incomeEvidence:     editData.incomeEvidence,
           studyPlanGap:       editData.studyPlanGap,
           ultimateObjective:  editData.ultimateObjective,
+          // ── Family contacts ──
+          motherFullName:      editData.motherFullName,
+          motherEmail:         editData.motherEmail,
+          motherPhone:         editData.motherPhone,
+          motherContactMedium: editData.motherContactMedium,
+          motherContactDetail: editData.motherContactDetail,
+          fatherFullName:      editData.fatherFullName,
+          fatherEmail:         editData.fatherEmail,
+          fatherPhone:         editData.fatherPhone,
+          fatherContactMedium: editData.fatherContactMedium,
+          fatherContactDetail: editData.fatherContactDetail,
           ...Object.fromEntries(
             Array.from({length:15}, (_,i) => [`oceanQ${i+1}`, editData[`oceanQ${i+1}`] || null])
           ),
@@ -747,23 +759,43 @@ export default function LeadDetail() {
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
               <div>
                 <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Mother</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                  <Field label="Name"           value={lead.motherFullName}/>
-                  <Field label="Email"          value={lead.motherEmail}/>
-                  <Field label="Phone"          value={lead.motherPhone}/>
-                  <Field label="Contact Medium" value={lead.motherContactMedium}/>
-                  <Field label="Contact Detail" value={lead.motherContactDetail}/>
-                </div>
+                {editMode ? (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+                    <EditField label="Name"           name="motherFullName"      value={d.motherFullName}      onChange={updateEdit}/>
+                    <EditField label="Email"          name="motherEmail"         value={d.motherEmail}         onChange={updateEdit} type="email"/>
+                    <EditField label="Phone"          name="motherPhone"         value={d.motherPhone}         onChange={updateEdit} type="tel"/>
+                    <EditField label="Contact Medium" name="motherContactMedium" value={d.motherContactMedium} onChange={updateEdit} options={CONTACT_MEDIUMS}/>
+                    <EditField label="Contact Detail" name="motherContactDetail" value={d.motherContactDetail} onChange={updateEdit}/>
+                  </div>
+                ) : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                    <Field label="Name"           value={lead.motherFullName}/>
+                    <Field label="Email"          value={lead.motherEmail}/>
+                    <Field label="Phone"          value={lead.motherPhone}/>
+                    <Field label="Contact Medium" value={lead.motherContactMedium}/>
+                    <Field label="Contact Detail" value={lead.motherContactDetail}/>
+                  </div>
+                )}
               </div>
               <div>
                 <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Father</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                  <Field label="Name"           value={lead.fatherFullName}/>
-                  <Field label="Email"          value={lead.fatherEmail}/>
-                  <Field label="Phone"          value={lead.fatherPhone}/>
-                  <Field label="Contact Medium" value={lead.fatherContactMedium}/>
-                  <Field label="Contact Detail" value={lead.fatherContactDetail}/>
-                </div>
+                {editMode ? (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+                    <EditField label="Name"           name="fatherFullName"      value={d.fatherFullName}      onChange={updateEdit}/>
+                    <EditField label="Email"          name="fatherEmail"         value={d.fatherEmail}         onChange={updateEdit} type="email"/>
+                    <EditField label="Phone"          name="fatherPhone"         value={d.fatherPhone}         onChange={updateEdit} type="tel"/>
+                    <EditField label="Contact Medium" name="fatherContactMedium" value={d.fatherContactMedium} onChange={updateEdit} options={CONTACT_MEDIUMS}/>
+                    <EditField label="Contact Detail" name="fatherContactDetail" value={d.fatherContactDetail} onChange={updateEdit}/>
+                  </div>
+                ) : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                    <Field label="Name"           value={lead.fatherFullName}/>
+                    <Field label="Email"          value={lead.fatherEmail}/>
+                    <Field label="Phone"          value={lead.fatherPhone}/>
+                    <Field label="Contact Medium" value={lead.fatherContactMedium}/>
+                    <Field label="Contact Detail" value={lead.fatherContactDetail}/>
+                  </div>
+                )}
               </div>
             </div>
           </div>
