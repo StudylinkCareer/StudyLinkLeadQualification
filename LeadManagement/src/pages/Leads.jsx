@@ -23,8 +23,6 @@ const MASTER_COLUMNS = [
   { key:'yearOfBirth',            label:'Year of Birth',          visible:false, width:110 },
   { key:'residency',              label:'Residency',              visible:false, width:140 },
   { key:'schoolEvent',            label:'School / Event',         visible:false, width:150 },
-  { key:'referralSource',         label:'Referral Source',        visible:false, width:140 },
-  { key:'facebookProfile',        label:'Facebook Profile',       visible:false, width:160 },
   { key:'preferredSocial',        label:'Social Platform',        visible:false, width:130 },
   { key:'socialConsent',          label:'Connect With Us',        visible:false, width:120 },
   // ── Lead Management ──
@@ -71,9 +69,9 @@ const MASTER_COLUMNS = [
   { key:'oceanOpenness',          label:'OCEAN: Openness',        visible:false, width:140 },
   // ── Campaign / Event ──
   { key:'campaignType',           label:'Campaign Type',          visible:false, width:140 },
-  { key:'campaignName',           label:'Event Name',             visible:false, width:160 },
-  { key:'campaignStart',          label:'Event Start',            visible:false, width:120 },
-  { key:'campaignEnd',            label:'Event End',              visible:false, width:120 },
+  { key:'campaignName',           label:'Campaign Name',          visible:false, width:160 },
+  { key:'campaignStart',          label:'Camp. Start',            visible:false, width:120 },
+  { key:'campaignEnd',            label:'Camp. End',              visible:false, width:120 },
 ];
 
 // Maps staff role → config key suffix
@@ -291,13 +289,6 @@ export default function Leads() {
   const [sortField, setSortField]     = useState('createdAt');
   const [sortDir, setSortDir]         = useState('desc');
   const [selected, setSelected]       = useState([]);
-  // Mass-action UX state — shown as in-page banners instead of alert() popups.
-  // alert() gets suppressed by modern browsers when triggered after a long delay
-  // (e.g. our delete takes ~12s due to the Drive archive step), so the user
-  // never saw the success message. These two pieces of state replace it with
-  // a fixed banner at the top of the page that always renders.
-  const [busy, setBusy]                 = useState(null);    // null | 'deleting' | 'assigning'
-  const [actionResult, setActionResult] = useState(null);    // null | { type:'success'|'error', message:string }
   const [staffList, setStaffList]     = useState([]);
   const [massField, setMassField]     = useState('counselor');
   const [massValue, setMassValue]     = useState('');
@@ -392,27 +383,6 @@ export default function Leads() {
     window.history.replaceState({}, '');
   }, [location.state]);
 
-  // ── Reset filter state when navigation explicitly requests it ─────────
-  // Triggered by:
-  //   - Sidebar "Leads" click       → navigate('/leads', { state: { reset: true } })
-  //   - MobilePageNav "Leads" tap   → navigate('/leads', { state: { reset: true } })
-  //   - Stat card "Total Leads"     → navigate('/leads', { state: { reset: true } })
-  //
-  // Dependency is location.key (not location.state) because React Router
-  // gives every navigation a unique key, even same-path navigations. Using
-  // location.state alone wasn't reliably catching same-path re-navigation
-  // from the sidebar drawer.
-  useEffect(() => {
-    if (!location.state?.reset) return;
-    setFilters(EMPTY_FILTERS);
-    setDrillIds(null);
-    setShowFilters(false);
-    setPage(1);
-    loadLeads();
-    window.history.replaceState({}, '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.key]);
-
   // ── Restore filter/sort/page state on mount ──
   // Only fires when arriving with the restoreFilters flag (back-arrow from a Lead detail).
   // Clicking "Leads" in the sidebar navigates without this flag, so filters reset.
@@ -450,6 +420,22 @@ export default function Leads() {
       filters, sortField, sortDir, page, showFilters, drillIds,
     }));
   }, [filters, sortField, sortDir, page, showFilters, drillIds]);
+
+  // ── Reload when the sidebar "Leads" button is clicked while already on /leads ──
+  // The Sidebar attaches a fresh `refresh` timestamp in location.state on every click,
+  // so this effect refires even when the URL doesn't change. We skip the very first
+  // render so we don't double-fetch on initial mount (the effect on line 314 handles that).
+  const refreshSkipFirstRef = useRef(true);
+  useEffect(() => {
+    if (refreshSkipFirstRef.current) {
+      refreshSkipFirstRef.current = false;
+      return;
+    }
+    if (location.state?.refresh) {
+      loadLeads();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.refresh]);
 
   async function loadLeads() {
     setLoading(true);
@@ -654,21 +640,11 @@ export default function Leads() {
 
   async function handleMassAssign() {
     if (!massValue || selected.length === 0) return;
-    setBusy('assigning');
-    setActionResult(null);
     try {
       await staffAPI.massAssign(selected, massField, massValue);
       await loadLeads();
-      setActionResult({
-        type: 'success',
-        message: `Assigned ${selected.length} lead${selected.length !== 1 ? 's' : ''} to ${massValue}.`,
-      });
       setSelected([]);
-    } catch(e) {
-      setActionResult({ type: 'error', message: e.message || 'Assignment failed.' });
-    } finally {
-      setBusy(null);
-    }
+    } catch(e) { alert(e.message); }
   }
 
   async function handleMassDelete() {
@@ -677,8 +653,6 @@ export default function Leads() {
                 `Each deletion will be archived to Google Drive (lead metadata + any notes) for forensic record.\n\n` +
                 `This action cannot be undone.`;
     if (!confirm(msg)) return;
-    setBusy('deleting');
-    setActionResult(null);
     try {
       const result = await studentAPI.deleteRecords(selected);
       // result has shape { success, deleted, archives: [{ studentId, status, ... }] }
@@ -687,30 +661,14 @@ export default function Leads() {
       const failed   = archives.filter(a => a.status === 'failed').length;
       const skipped  = archives.filter(a => a.status === 'skipped').length;
       let summary = `Deleted ${selected.length} lead${selected.length !== 1 ? 's' : ''}.`;
-      if (archived > 0) summary += ` ${archived} archive${archived !== 1 ? 's' : ''} saved to Google Drive.`;
-      if (skipped > 0)  summary += ` ${skipped} skipped (lead not found).`;
-      if (failed > 0)   summary += ` ${failed} archive failure${failed !== 1 ? 's' : ''} — check server logs.`;
+      if (archived > 0) summary += `\n${archived} archive${archived !== 1 ? 's' : ''} saved to Google Drive.`;
+      if (skipped > 0)  summary += `\n${skipped} skipped (lead not found).`;
+      if (failed > 0)   summary += `\n${failed} archive failure${failed !== 1 ? 's' : ''} — check server logs.`;
+      alert(summary);
       await loadLeads();
-      setActionResult({
-        type: failed > 0 ? 'error' : 'success',
-        message: summary,
-      });
       setSelected([]);
-    } catch(e) {
-      setActionResult({ type: 'error', message: e.message || 'Delete failed.' });
-    } finally {
-      setBusy(null);
-    }
+    } catch(e) { alert(e.message); }
   }
-
-  // Auto-dismiss successful action banners after 6 seconds.
-  // Errors stay until the user clicks the Dismiss button (so they can read them).
-  useEffect(() => {
-    if (actionResult?.type === 'success') {
-      const t = setTimeout(() => setActionResult(null), 6000);
-      return () => clearTimeout(t);
-    }
-  }, [actionResult]);
 
   // ── Column resize ──────────────────────────────────────────
   function startResize(e, key) {
@@ -780,35 +738,6 @@ export default function Leads() {
   return (
     <div>
       <Watermark />
-
-      {/* ── Mass-action status banners ────────────────────────────
-          Replaces alert() popups, which Chrome / Safari can suppress when
-          fired more than ~5 seconds after the click that triggered them.
-          A delete with Drive archive takes ~12 seconds, so the success
-          alert was never reaching the user. */}
-      {busy && (
-        <div className="action-banner action-banner--busy no-print">
-          <div className="action-banner__spinner" aria-hidden="true" />
-          <span>
-            {busy === 'deleting'
-              ? 'Deleting and archiving to Google Drive… please wait.'
-              : 'Saving…'}
-          </span>
-        </div>
-      )}
-      {actionResult && (
-        <div className={`action-banner action-banner--${actionResult.type} no-print`} role="status">
-          <span style={{ flex: 1 }}>{actionResult.message}</span>
-          <button
-            type="button"
-            className="action-banner__close"
-            onClick={() => setActionResult(null)}
-            aria-label="Dismiss notification"
-          >
-            ✕
-          </button>
-        </div>
-      )}
 
       {/* ── Print stylesheet — hides chrome, shows only the table for clean PDF output ── */}
       <style>{`
