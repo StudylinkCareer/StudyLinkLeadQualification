@@ -10,7 +10,6 @@ import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
-import { CONTACT_MEDIUMS } from '../utils/formFields';
 
 // ── Stone images ──────────────────────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
@@ -76,6 +75,7 @@ const STUDY_PLAN_OPTS = ['Study Abroad','English Summer Camp','Study in Vietnam'
 const TIMELINE_OPTS   = ['Next 6 months','6-12 months','12-24 months','24-36 months','36+ months'];
 const INTERACTION_OPTS= ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
 const LEAD_SOURCE_OPTS= ['Databases','FB-Zalo-GG-TikTok ads','School outreach','Subagent referrals','Ex-client'];
+const CONTACT_MEDIUMS = ['Phone','Zalo','Facebook','Messenger','WhatsApp','Email','Instagram','Threads','TikTok','Line','Telegram','Viber','YouTube','Skype'];
 
 const LIKERT_LABELS = ['','Strongly Disagree','Disagree','Neutral','Agree','Strongly Agree'];
 
