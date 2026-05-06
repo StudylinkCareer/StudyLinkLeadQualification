@@ -131,6 +131,11 @@ export default function ExportLeadsModal({
   const [exporting, setExporting] = useState(false);
   const [error,     setError]     = useState('');
 
+  const dateLabel = useMemo(
+    () => DATE_FIELD_OPTIONS.find(o => o.value === dateField)?.label || dateField,
+    [dateField]
+  );
+
   if (!open) return null;
 
   const toggle = key => {
@@ -158,10 +163,6 @@ export default function ExportLeadsModal({
   };
 
   const totalSelected = selected.size;
-  const dateLabel     = useMemo(
-    () => DATE_FIELD_OPTIONS.find(o => o.value === dateField)?.label || dateField,
-    [dateField]
-  );
 
   async function handleExport() {
     setError('');
