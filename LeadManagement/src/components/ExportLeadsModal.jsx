@@ -130,6 +130,7 @@ export default function ExportLeadsModal({
   const [selected,  setSelected]  = useState(new Set(DEFAULT_FIELDS));
   const [exporting, setExporting] = useState(false);
   const [error,     setError]     = useState('');
+  const [includeNotes, setIncludeNotes] = useState(false);
 
   const dateLabel = useMemo(
     () => DATE_FIELD_OPTIONS.find(o => o.value === dateField)?.label || dateField,
@@ -182,6 +183,7 @@ export default function ExportLeadsModal({
         endDate:   endDate   || null,
         dateField,
         fields: [...selected],
+        includeNotes,
       });
       onClose();
     } catch (e) {
@@ -228,6 +230,18 @@ export default function ExportLeadsModal({
             <p className="export-modal__hint">
               Including leads where <strong>{dateLabel}</strong> falls in this range. Leave a date blank for "no limit".
             </p>
+          </section>
+
+          {/* ── Notes inclusion ──────────────────────── */}
+          <section className="export-modal__section">
+            <label className="export-modal__check" style={{ fontSize: '0.85rem' }}>
+              <input
+                type="checkbox"
+                checked={includeNotes}
+                onChange={e => setIncludeNotes(e.target.checked)}
+              />
+              <span><strong>Include all notes</strong> for these leads (added as a second sheet)</span>
+            </label>
           </section>
 
           {/* ── Field selection ──────────────────────── */}

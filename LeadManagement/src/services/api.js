@@ -65,12 +65,12 @@ export const studentAPI = {
 
   // ── Excel export ──────────────────────────────────────────  // ← NEW
   // Returns the binary .xlsx file; we trigger a browser download here.
-  exportExcel: async ({ startDate, endDate, dateField, fields }) => {
+  exportExcel: async ({ startDate, endDate, dateField, fields, includeNotes }) => {
     const res = await fetch(`${BASE_URL}/api/staff/students/export-excel`, {
       method:      'POST',
       credentials: 'include',
       headers:     { 'Content-Type': 'application/json' },
-      body:        JSON.stringify({ startDate, endDate, dateField, fields }),
+      body:        JSON.stringify({ startDate, endDate, dateField, fields, includeNotes }),
     });
     if (!res.ok) {
       let msg = `Export failed (${res.status})`;

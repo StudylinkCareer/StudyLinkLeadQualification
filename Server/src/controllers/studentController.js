@@ -410,8 +410,9 @@ async function exportExcel(req, res, next) {
     const {
       startDate,
       endDate,
-      dateField = 'createdAt',
-      fields    = [],
+      dateField    = 'createdAt',
+      fields       = [],
+      includeNotes = false,                                        // ← NEW
     } = req.body;
 
     // ── Validate inputs ──
@@ -454,6 +455,22 @@ async function exportExcel(req, res, next) {
     `;
 
     const { rows } = await pool.query(sql, params);
+
+    // ── Fetch notes for these leads (if requested) ──            // ← NEW
+    let noteRows = [];                                              // ← NEW
+    if (includeNotes && rows.length > 0) {                          // ← NEW
+      const uniqueIds = rows.map(r => r.unique_id);                 // ← NEW
+      const noteResult = await pool.query(
+        `SELECT n.student_id, s.full_name, n.note_type, n.content,
+                n.author_name, n.created_at
+         FROM student_notes n
+         JOIN students s ON s.unique_id = n.student_id
+         WHERE n.student_id = ANY($1::varchar[])
+         ORDER BY s.full_name, n.created_at DESC`,
+        [uniqueIds]
+      );
+      noteRows = noteResult.rows;                                   // ← NEW
+    }                                                               // ← NEW
 
     // ── Build workbook ──
     const wb = new ExcelJS.Workbook();
@@ -504,6 +521,45 @@ async function exportExcel(req, res, next) {
       to:   { row: 1, column: selectCols.length },
     };
 
+    // ── Build Notes sheet (if requested) ──                       // ← NEW
+    if (includeNotes) {                                             // ← NEW
+      const notesWs = wb.addWorksheet('Notes');                     // ← NEW
+      notesWs.columns = [                                           // ← NEW
+        { header: 'Lead ID',    key: 'student_id',  width: 14 },    // ← NEW
+        { header: 'Lead Name',  key: 'full_name',   width: 24 },    // ← NEW
+        { header: 'Note Type',  key: 'note_type',   width: 12 },    // ← NEW
+        { header: 'Author',     key: 'author_name', width: 20 },    // ← NEW
+        { header: 'Created',    key: 'created_at',  width: 12 },    // ← NEW
+        { header: 'Content',    key: 'content',     width: 80 },    // ← NEW
+      ];                                                            // ← NEW
+      for (const n of noteRows) {                                   // ← NEW
+        notesWs.addRow({                                            // ← NEW
+          student_id:  n.student_id,                                // ← NEW
+          full_name:   n.full_name,                                 // ← NEW
+          note_type:   n.note_type,                                 // ← NEW
+          author_name: n.author_name,                               // ← NEW
+          created_at:  n.created_at instanceof Date                 // ← NEW
+                         ? n.created_at                             // ← NEW
+                         : new Date(n.created_at),                  // ← NEW
+          content:     n.content,                                   // ← NEW
+        });                                                         // ← NEW
+      }                                                             // ← NEW
+      // Style notes header                                         // ← NEW
+      const nHeader = notesWs.getRow(1);                            // ← NEW
+      nHeader.font      = { bold: true, color: { argb: 'FFFFFFFF' } }; // ← NEW
+      nHeader.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E4A6B' } }; // ← NEW
+      nHeader.alignment = { vertical: 'middle', horizontal: 'left' };  // ← NEW
+      nHeader.height    = 22;                                       // ← NEW
+      notesWs.getColumn(5).numFmt = 'yyyy-mm-dd';                   // ← NEW
+      // Wrap long content in the Content column                    // ← NEW
+      notesWs.getColumn(6).alignment = { wrapText: true, vertical: 'top' }; // ← NEW
+      notesWs.views = [{ state: 'frozen', ySplit: 1 }];             // ← NEW
+      notesWs.autoFilter = {                                        // ← NEW
+        from: { row: 1, column: 1 },                                // ← NEW
+        to:   { row: 1, column: 6 },                                // ← NEW
+      };                                                            // ← NEW
+    }                                                               // ← NEW
+
     // Send response
     const stamp    = new Date().toISOString().slice(0, 10);
     const filename = `leads-export-${stamp}.xlsx`;
@@ -513,6 +569,7 @@ async function exportExcel(req, res, next) {
     res.setHeader('Content-Disposition',
       `attachment; filename="${filename}"`);
     res.setHeader('X-Export-Row-Count', rows.length);
+    res.setHeader('X-Export-Note-Count', noteRows.length);          // ← NEW
 
     await wb.xlsx.write(res);
     res.end();
