@@ -11,6 +11,7 @@ router.post('/deactivate', requireAuth, studentController.deactivateRecords);
 router.get('/search', requireAuth, requireCounselor, studentController.searchStudents);
 router.get('/check-duplicate', requireAuth, studentController.checkDuplicate);
 router.get('/by-email', requireAuth, studentController.getByEmail);
+router.post('/export-excel', requireAuth, studentController.exportExcel);
 router.get('/:id', requireAuth, studentController.getStudent);
 router.put('/:id', requireAuth, studentController.updateStudent);
 router.post('/:id/calculate-risk', requireAuth, studentController.calculateRisk);

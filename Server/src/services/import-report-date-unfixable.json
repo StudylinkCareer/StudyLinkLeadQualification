@@ -1,0 +1,17 @@
+[
+  {
+    "unique_id": "20260421-172",
+    "date": "2026-09-13",
+    "reason": "day 13 > 12, cannot swap"
+  },
+  {
+    "unique_id": "20260421-262",
+    "date": "2026-11-18",
+    "reason": "day 18 > 12, cannot swap"
+  },
+  {
+    "unique_id": "20260421-313",
+    "date": "2026-06-15",
+    "reason": "day 15 > 12, cannot swap"
+  }
+]

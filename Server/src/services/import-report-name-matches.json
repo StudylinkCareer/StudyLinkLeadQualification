@@ -1,0 +1,43 @@
+[
+  {
+    "new_unique_id": "20260320-067",
+    "new_full_name": "Trần Nguyễn khôi nguyên",
+    "existing_unique_ids": [
+      "20260420-353"
+    ],
+    "action": "WILL CREATE (review later if these turn out to be duplicates)"
+  },
+  {
+    "new_unique_id": "20260323-027",
+    "new_full_name": "Phạm Tiến Hưng",
+    "existing_unique_ids": [
+      "20260323-026"
+    ],
+    "action": "WILL CREATE (review later if these turn out to be duplicates)"
+  },
+  {
+    "new_unique_id": "20260420-354",
+    "new_full_name": "Từ Hiếu Nhân",
+    "existing_unique_ids": [
+      "20260320-028",
+      "20260320-027"
+    ],
+    "action": "WILL CREATE (review later if these turn out to be duplicates)"
+  },
+  {
+    "new_unique_id": "20260420-169",
+    "new_full_name": "Cao Trần Nhật Vy",
+    "existing_unique_ids": [
+      "20260418-047"
+    ],
+    "action": "WILL CREATE (review later if these turn out to be duplicates)"
+  },
+  {
+    "new_unique_id": "20260420-260",
+    "new_full_name": "Minh Thy",
+    "existing_unique_ids": [
+      "20260406-005"
+    ],
+    "action": "WILL CREATE (review later if these turn out to be duplicates)"
+  }
+]

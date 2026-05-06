@@ -2,6 +2,14 @@
 
 const Student = require('../models/Student');
 const { calculateRiskScore } = require('../utils/riskCalculator');
+const ExcelJS = require('exceljs');                                 // ← NEW
+const { Pool } = require('pg');                                     // ← NEW
+
+// ── Direct DB pool for the Excel export query ─────────────────  // ← NEW
+const pool = new Pool({                                             // ← NEW
+  connectionString: process.env.DATABASE_URL,                       // ← NEW
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false, // ← NEW
+});                                                                 // ← NEW
 
 async function register(req, res, next) {
   try {
@@ -272,7 +280,250 @@ async function searchStudents(req, res, next) {
   } catch (err) { next(err); }
 }
 
+
+// ═════════════════════════════════════════════════════════════════
+// Excel export                                                  ← NEW
+// ═════════════════════════════════════════════════════════════════
+
+// Pretty header labels for the .xlsx output. Keys must be DB snake_case.
+const FIELD_LABELS = {
+  unique_id:                'Unique ID',
+  full_name:                'Name',
+  email:                    'Email',
+  phone:                    'Phone',
+  year_of_birth:            'Year of Birth',
+  residency:                'Residency',
+  school_event:             'School / Event',
+  preferred_social:         'Social Platform',
+  social_consent:           'Connect With Us',
+  lead_status:              'Status',
+  created_at:               'Created',
+  updated_at:               'Updated',
+  lead_source:              'Lead Source',
+  interaction:              'Interaction',
+  study_plans:              'Study Plans',
+  destination_country:      'Destination',
+  timeline:                 'Timeline',
+  stone_tier:               'Stone',
+  risk_score:               'Score',
+  counselor:                'Counselor',
+  senior_counselor:         'Sr. Counselor',
+  presales:                 'Pre-Sales',
+  marketing_staff:          'Marketing',
+  close_date:               'Close Date',
+  confidence:               'Confidence',
+  budget:                   'Budget',
+  scholarship_demand:       'Scholarship',
+  english_level:            'English',
+  gpa:                      'GPA',
+  immigration_history:      'Immigration',
+  sponsor_income:           'Sponsor Income',
+  income_evidence:          'Income Evidence',
+  study_plan_gap:           'Study Plan Gap',
+  ultimate_objective:       'Objective',
+  mother_full_name:         'Mother Name',
+  mother_email:             'Mother Email',
+  mother_phone:             'Mother Phone',
+  mother_contact_medium:    'Mother Medium',
+  father_full_name:         'Father Name',
+  father_email:             'Father Email',
+  father_phone:             'Father Phone',
+  father_contact_medium:    'Father Medium',
+  ocean_extraversion:       'OCEAN: Extraversion',
+  ocean_agreeableness:      'OCEAN: Agreeableness',
+  ocean_conscientiousness:  'OCEAN: Conscientiousness',
+  ocean_neuroticism:        'OCEAN: Neuroticism',
+  ocean_openness:           'OCEAN: Openness',
+  campaign_type:            'Campaign Type',
+  campaign_name:            'Campaign Name',
+  campaign_start:           'Campaign Start',
+  campaign_end:             'Campaign End',
+  referral_source:          'Referral Source',
+  status:                   'Active/Inactive',
+};
+
+const ALLOWED_DATE_FIELDS = new Set([
+  'created_at', 'updated_at', 'close_date', 'campaign_start', 'campaign_end',
+]);
+
+const ALLOWED_FIELDS = new Set(Object.keys(FIELD_LABELS));
+
+// camelCase (frontend) → snake_case (DB column)
+const JS_TO_DB = {
+  uniqueId:               'unique_id',
+  fullName:               'full_name',
+  email:                  'email',
+  phone:                  'phone',
+  yearOfBirth:            'year_of_birth',
+  residency:              'residency',
+  schoolEvent:            'school_event',
+  preferredSocial:        'preferred_social',
+  socialConsent:          'social_consent',
+  leadStatus:             'lead_status',
+  createdAt:              'created_at',
+  updatedAt:              'updated_at',
+  leadSource:             'lead_source',
+  interaction:            'interaction',
+  studyPlans:             'study_plans',
+  destinationCountry:     'destination_country',
+  timeline:               'timeline',
+  stoneTier:              'stone_tier',
+  riskScore:              'risk_score',
+  counselor:              'counselor',
+  seniorCounselor:        'senior_counselor',
+  presales:               'presales',
+  marketingStaff:         'marketing_staff',
+  closeDate:              'close_date',
+  confidence:             'confidence',
+  budget:                 'budget',
+  scholarshipDemand:      'scholarship_demand',
+  englishLevel:           'english_level',
+  gpa:                    'gpa',
+  immigrationHistory:     'immigration_history',
+  sponsorIncome:          'sponsor_income',
+  incomeEvidence:         'income_evidence',
+  studyPlanGap:           'study_plan_gap',
+  ultimateObjective:      'ultimate_objective',
+  motherFullName:         'mother_full_name',
+  motherEmail:            'mother_email',
+  motherPhone:            'mother_phone',
+  motherContactMedium:    'mother_contact_medium',
+  fatherFullName:         'father_full_name',
+  fatherEmail:            'father_email',
+  fatherPhone:            'father_phone',
+  fatherContactMedium:    'father_contact_medium',
+  oceanExtraversion:      'ocean_extraversion',
+  oceanAgreeableness:     'ocean_agreeableness',
+  oceanConscientiousness: 'ocean_conscientiousness',
+  oceanNeuroticism:       'ocean_neuroticism',
+  oceanOpenness:          'ocean_openness',
+  campaignType:           'campaign_type',
+  campaignName:           'campaign_name',
+  campaignStart:          'campaign_start',
+  campaignEnd:            'campaign_end',
+  referralSource:         'referral_source',
+  status:                 'status',
+};
+
+async function exportExcel(req, res, next) {
+  try {
+    const {
+      startDate,
+      endDate,
+      dateField = 'createdAt',
+      fields    = [],
+    } = req.body;
+
+    // ── Validate inputs ──
+    const dateCol = JS_TO_DB[dateField] || dateField;
+    if (!ALLOWED_DATE_FIELDS.has(dateCol)) {
+      return res.status(400).json({ success: false, error: `Invalid dateField: ${dateField}` });
+    }
+    if (!Array.isArray(fields) || fields.length === 0) {
+      return res.status(400).json({ success: false, error: 'No fields selected' });
+    }
+
+    const dbFields = [...new Set(
+      fields.map(f => JS_TO_DB[f] || f).filter(c => ALLOWED_FIELDS.has(c))
+    )];
+    if (dbFields.length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid fields after filtering' });
+    }
+
+    // Always lead with unique_id
+    const selectCols = ['unique_id', ...dbFields.filter(c => c !== 'unique_id')];
+
+    // ── Build WHERE clause ──
+    const where  = [];
+    const params = [];
+    if (startDate) {
+      params.push(startDate);
+      where.push(`${dateCol} >= $${params.length}`);
+    }
+    if (endDate) {
+      params.push(endDate);
+      where.push(`${dateCol} < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const sql = `
+      SELECT ${selectCols.join(', ')}
+      FROM students
+      ${whereSql}
+      ORDER BY ${dateCol} DESC NULLS LAST
+    `;
+
+    const { rows } = await pool.query(sql, params);
+
+    // ── Build workbook ──
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'StudyLink LM Console';
+    wb.created = new Date();
+    const ws   = wb.addWorksheet('Leads');
+
+    ws.columns = selectCols.map(col => ({
+      header: FIELD_LABELS[col] || col,
+      key:    col,
+      width:  Math.max((FIELD_LABELS[col] || col).length + 2, 14),
+    }));
+
+    const dateColumns = new Set(['created_at', 'updated_at', 'close_date', 'campaign_start', 'campaign_end']);
+
+    for (const row of rows) {
+      const formatted = {};
+      for (const col of selectCols) {
+        let val = row[col];
+        if (val instanceof Date) {
+          formatted[col] = val;
+        } else if (val !== null && val !== undefined && dateColumns.has(col)) {
+          const d = new Date(val);
+          formatted[col] = isNaN(d) ? val : d;
+        } else {
+          formatted[col] = val;
+        }
+      }
+      ws.addRow(formatted);
+    }
+
+    // Styling
+    const headerRow = ws.getRow(1);
+    headerRow.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E4A6B' } };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'left' };
+    headerRow.height    = 22;
+
+    selectCols.forEach((col, idx) => {
+      if (dateColumns.has(col)) {
+        ws.getColumn(idx + 1).numFmt = 'yyyy-mm-dd';
+      }
+    });
+
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = {
+      from: { row: 1, column: 1 },
+      to:   { row: 1, column: selectCols.length },
+    };
+
+    // Send response
+    const stamp    = new Date().toISOString().slice(0, 10);
+    const filename = `leads-export-${stamp}.xlsx`;
+
+    res.setHeader('Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="${filename}"`);
+    res.setHeader('X-Export-Row-Count', rows.length);
+
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+
 module.exports = {
   register, getStudent, getByEmail, updateStudent, checkDuplicate,
   deactivateRecords, calculateRisk, calculateOcean, uploadPhotos, searchStudents,
+  exportExcel,                                                      // ← NEW
 };
