@@ -5,6 +5,9 @@
 //     current logged-in user's own staff record (including target,
 //     targetSetBy, targetSetAt). Replaces the previous approach of calling
 //     staffAPI.list() which is Admin-only and fails for Counselors.
+//   - Added studentAPI.exportExcel() helper which calls
+//     POST /api/staff/students/export-excel and triggers a browser download
+//     of the resulting .xlsx file.
 
 import { objectToCamelCase } from '../utils/caseConvert';
 
@@ -59,6 +62,34 @@ export const studentAPI = {
   calculateRisk:  (id)       => request('POST', `/api/staff/students/${id}/calculate-risk`),
   calculateOcean: (id)       => request('POST', `/api/staff/students/${id}/calculate-ocean`),
   deleteRecords:  (ids)      => request('DELETE', '/api/staff/students', { uniqueIds: ids }),
+
+  // ── Excel export ──────────────────────────────────────────  // ← NEW
+  // Returns the binary .xlsx file; we trigger a browser download here.
+  exportExcel: async ({ startDate, endDate, dateField, fields }) => {
+    const res = await fetch(`${BASE_URL}/api/staff/students/export-excel`, {
+      method:      'POST',
+      credentials: 'include',
+      headers:     { 'Content-Type': 'application/json' },
+      body:        JSON.stringify({ startDate, endDate, dateField, fields }),
+    });
+    if (!res.ok) {
+      let msg = `Export failed (${res.status})`;
+      try { const j = await res.json(); if (j.error) msg = j.error; } catch { /* binary, no JSON */ }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    const cd   = res.headers.get('Content-Disposition') || '';
+    const m    = /filename="([^"]+)"/.exec(cd);
+    a.download = m ? m[1] : `leads-export-${Date.now()}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { rowCount: Number(res.headers.get('X-Export-Row-Count') || 0) };
+  },
 };
 
 // ── Notes ─────────────────────────────────────────────────────

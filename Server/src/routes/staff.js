@@ -1,9 +1,10 @@
 // server/src/routes/staff.js
 
-const express    = require('express');
-const router     = express.Router();
-const staffCtrl  = require('../controllers/staffController');
-const auditCtrl  = require('../controllers/auditController');
+const express      = require('express');
+const router       = express.Router();
+const staffCtrl    = require('../controllers/staffController');
+const auditCtrl    = require('../controllers/auditController');
+const studentCtrl  = require('../controllers/studentController');   // ← NEW
 
 // ── Middleware ────────────────────────────────────────────────
 function requireStaffAuth(req, res, next) {
@@ -33,6 +34,9 @@ router.post('/logout',  requireStaffAuth, staffCtrl.logout);
 router.get('/session',  staffCtrl.checkSession);
 
 // ── Student routes ────────────────────────────────────────────
+// NOTE: /students/export-excel must come BEFORE /students/:id
+//       otherwise :id will match the literal string "export-excel"
+router.post('/students/export-excel',       requireStaffAuth, requireAdmin, studentCtrl.exportExcel); // ← NEW
 router.get('/students/search',              requireStaffAuth,                        staffCtrl.searchStudents);
 router.get('/students/:id',                 requireStaffAuth,                        staffCtrl.getStudent);
 router.put('/students/:id',                 requireStaffAuth,                        staffCtrl.updateStudent);

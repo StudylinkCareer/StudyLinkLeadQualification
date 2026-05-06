@@ -11,7 +11,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { studentAPI, staffAPI, columnConfigAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import Watermark from '../components/Watermark';
-import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiPrinter } from 'react-icons/fi';
+import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiPrinter, FiDownload } from 'react-icons/fi';
+import ExportLeadsModal from '../components/ExportLeadsModal';
 
 // ── All possible columns (master list) ────────────────────────
 // Grouped by section for Admin column settings readability
@@ -300,6 +301,7 @@ export default function Leads() {
   const PER_PAGE  = 25;
 
   const { isManager, isAdmin, staff } = useAuth();
+  const [showExport, setShowExport] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const [drillIds, setDrillIds] = useState([]);
@@ -814,6 +816,15 @@ export default function Leads() {
               <FiPrinter size={13}/> Print
             </button>
           )}
+          {isAdmin && (
+            <button
+              className="btn btn--secondary btn--sm"
+              onClick={() => setShowExport(true)}
+              style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}
+              title="Export leads to Excel with a date range and selectable fields">
+              <FiDownload size={13}/> Export Excel
+            </button>
+          )}
         </div>
 
         {/* ── Dynamic filter panel ─────────────────────────────── */}
@@ -1008,6 +1019,11 @@ export default function Leads() {
           <button className="btn btn--ghost btn--sm" onClick={() => setSelected([])} style={{ color:'#fff' }}>Clear</button>
         </div>
       )}
+      <ExportLeadsModal
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        initiallyVisibleFields={[...visibleColKeys]}
+      />
     </div>
   );
 }

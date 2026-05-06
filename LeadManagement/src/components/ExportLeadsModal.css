@@ -1,0 +1,204 @@
+/* LeadManagement/src/components/ExportLeadsModal.css */
+
+.export-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.export-modal {
+  background: var(--bg-primary, #fff);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 720px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.export-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border, #e0e0e0);
+}
+
+.export-modal__header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.export-modal__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  color: var(--text-secondary, #666);
+  display: flex;
+  align-items: center;
+}
+
+.export-modal__close:hover { color: var(--text-primary, #000); }
+
+.export-modal__body {
+  padding: 1.25rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.export-modal__section { margin-bottom: 1.25rem; }
+
+.export-modal__section h3 {
+  margin: 0 0 0.6rem 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary, #222);
+}
+
+.export-modal__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.export-modal__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.export-modal__row label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.export-modal__row input[type="date"],
+.export-modal__row select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--bg-primary, #fff);
+}
+
+.export-modal__hint {
+  margin: 0.25rem 0 0 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #777);
+}
+
+.export-modal__presets {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.export-modal__presets button {
+  background: var(--bg-secondary, #f0f0f0);
+  border: 1px solid var(--border, #ddd);
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: var(--text-primary, #222);
+}
+
+.export-modal__presets button:hover {
+  background: var(--bg-tertiary, #e5e5e5);
+}
+
+.export-modal__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.export-modal__group {
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-secondary, #fafafa);
+}
+
+.export-modal__group-head { margin-bottom: 0.4rem; }
+
+.export-modal__group-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary, #222);
+  text-align: left;
+  width: 100%;
+}
+
+.export-modal__group-toggle span {
+  font-weight: 400;
+  color: var(--text-secondary, #888);
+  font-size: 0.72rem;
+  margin-left: 0.25rem;
+}
+
+.export-modal__group-toggle:hover { color: var(--accent, #2563eb); }
+
+.export-modal__group-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+
+.export-modal__check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+
+.export-modal__check input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent, #2563eb);
+}
+
+.export-modal__error {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #c33;
+}
+
+.export-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border, #e0e0e0);
+}
+
+.export-modal__footer .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
