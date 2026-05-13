@@ -6,6 +6,7 @@ const driveService = require('../services/driveService');
 const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
 const { logChanges } = require('./auditController');
 const { assessOcean } = require('../utils/oceanCalculator');
+const permissionService = require('../services/permissionService');
 
 // Local pool — matches the pattern used elsewhere in this codebase.
 // Used only by deleteStudents for the archive query + transactional delete.
@@ -77,6 +78,44 @@ async function listStaff(req, res, next) {
   try {
     const staff = await Staff.findAll();
     res.json({ success: true, data: staff });
+  } catch (err) { next(err); }
+}
+
+// Returns the distinct list of role names configured in role_permissions.
+// This replaces the hardcoded ROLES = [...] arrays that used to live in
+// the frontend, ensuring the role dropdown reflects whatever the RBAC
+// tables actually define. Order alphabetical.
+async function listRoles(req, res, next) {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT role FROM role_permissions ORDER BY role`
+    );
+    res.json({ success: true, data: result.rows.map(r => r.role) });
+  } catch (err) { next(err); }
+}
+
+// Returns the full field catalog with column metadata for the Leads list.
+// Reads from permission_fields where column_width IS NOT NULL — these are
+// the fields that act as columns in the Leads table. Per-role visibility
+// is then applied client-side by PermissionsContext.fieldList().
+async function listColumns(req, res, next) {
+  try {
+    const result = await pool.query(
+      `SELECT field_name, label, column_width, column_order, category
+       FROM permission_fields
+       WHERE column_width IS NOT NULL
+       ORDER BY column_order ASC, field_name ASC`
+    );
+    res.json({
+      success: true,
+      data: result.rows.map(r => ({
+        fieldName: r.field_name,
+        label:     r.label,
+        width:     r.column_width,
+        order:     r.column_order,
+        category:  r.category,
+      })),
+    });
   } catch (err) { next(err); }
 }
 
@@ -173,6 +212,35 @@ async function assignStaff(req, res, next) {
     });
     const { studentId } = req.params;
     const { counselor, seniorCounselor, presales, marketingStaff } = req.body;
+
+    // ─── Phase 2c: Resource-level assign check ──────────────
+    // Replaces the old route-level requireAdminOrManager middleware.
+    // For Counselor with scope='own', this allows handing off their
+    // own leads but blocks reassigning anyone else's.
+    const assignStaffCtx = {
+      role: req.session.staffRole,
+      fullName: req.session.staffName,
+    };
+    const targetLead = await pool.query(
+      `SELECT counselor, senior_counselor, presales, marketing_staff
+       FROM students WHERE unique_id = $1`, [studentId]
+    );
+    if (targetLead.rows.length === 0) {
+      await pool.end();
+      return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+    const canAssign = await permissionService.canAccessLead(
+      assignStaffCtx, objectToCamelCase(targetLead.rows[0]), 'assign'
+    );
+    if (!canAssign) {
+      await pool.end();
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to reassign this lead.',
+      });
+    }
+    // ─── End Phase 2c assign check ──────────────────────────
+
     const result = await pool.query(
       `UPDATE students
        SET counselor        = COALESCE($1, counselor),
@@ -193,6 +261,22 @@ async function assignStaff(req, res, next) {
 
 async function massAssign(req, res, next) {
   try {
+    // ─── Phase 2c: Mass-assign requires scope='all' ──────────
+    // Replaces the old route-level requireAdminOrManager middleware.
+    // Counselors with scope='own' must use single-assign on each
+    // lead — bulk operations on partial-permission roles get
+    // unpredictable semantics and we'd rather force the explicit path.
+    const massAssignScope = await permissionService.getResourceScope(
+      req.session.staffRole, 'leads', 'assign'
+    );
+    if (massAssignScope !== 'all') {
+      return res.status(403).json({
+        success: false,
+        error: 'Mass-assign requires unrestricted assign permission. Use single-assign for individual leads.',
+      });
+    }
+    // ─── End Phase 2c mass-assign check ──────────────────────
+
     const { Pool } = require('pg');
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -217,6 +301,10 @@ async function massAssign(req, res, next) {
 }
 
 // ── Student Search ────────────────────────────────────────────
+// PHASE 2b: enforces resource-level view_list permission and applies
+// field-level masking ('[hidden]' / omitted) according to the user's
+// list_permission rules. If a role's view_list scope is 'own', we
+// additionally filter to leads the user is assigned to.
 async function searchStudents(req, res, next) {
   try {
     const { Pool } = require('pg');
@@ -241,11 +329,44 @@ async function searchStudents(req, res, next) {
     }
     const result = await pool.query(query, params);
     await pool.end();
-    res.json({ success: true, data: result.rows.map(objectToCamelCase) });
+
+    // Build staff context from session for permission checks.
+    const staff = {
+      role:     req.session.staffRole,
+      fullName: req.session.staffName,
+    };
+
+    // Resource-level view_list check. Currently 'all' for every role in
+    // the seed, but this honours future changes via the admin UI.
+    const scope = await permissionService.getResourceScope(
+      staff.role, 'leads', 'view_list'
+    );
+    if (scope === 'none') {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to view leads.',
+      });
+    }
+
+    let leads = result.rows.map(objectToCamelCase);
+
+    // If view_list is 'own', filter to only assigned leads. (Not used by
+    // any current role, but the seed could be changed via admin UI.)
+    if (scope === 'own') {
+      leads = leads.filter(l => permissionService.isLeadAssignedTo(staff, l));
+    }
+
+    // Apply per-field masking using each field's list_permission rule.
+    const masked = await permissionService.applyFieldPermissionsToList(staff, leads);
+
+    res.json({ success: true, data: masked });
   } catch (err) { next(err); }
 }
 
 // ── Student Detail ────────────────────────────────────────────
+// PHASE 2b: enforces canAccessLead for view_detail (returns 403 if a
+// Counselor tries to open a lead they're not assigned to), then masks
+// fields the user can't see in detail-context.
 async function getStudent(req, res, next) {
   try {
     const { Pool } = require('pg');
@@ -262,18 +383,67 @@ async function getStudent(req, res, next) {
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Lead not found' });
     }
+
+    const lead = objectToCamelCase(result.rows[0]);
+
+    // Build staff context from session.
+    const staff = {
+      role:     req.session.staffRole,
+      fullName: req.session.staffName,
+    };
+
+    // Access check — for Counselor with scope='own', this is where
+    // unassigned leads get blocked. Admin/Manager/Director have
+    // scope='all' so they pass through.
+    const canAccess = await permissionService.canAccessLead(
+      staff, lead, 'view_detail'
+    );
+    if (!canAccess) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied — this lead is assigned to another staff member.',
+      });
+    }
+
+    // Log the view AFTER the access check passes — no audit trail for
+    // blocked attempts (they didn't see anything).
     await logView({
       studentId: id,
       viewedBy:  req.session.staffName || req.session.staffEmail || 'unknown',
       req,
     });
-    res.json({ success: true, data: objectToCamelCase(result.rows[0]) });
+
+    // Apply field-level masking before sending to client.
+    const masked = await permissionService.applyFieldPermissions(staff, lead, 'detail');
+
+    res.json({ success: true, data: masked });
   } catch (err) { next(err); }
 }
 
 // ── Student Update ────────────────────────────────────────────
+// PHASE 2b (defensive): strip any field the user doesn't have edit
+// permission for BEFORE the existing update logic runs. Prevents
+// '[hidden]' masked values from being saved back to the DB, and stops
+// any client-side bypass of field-level edit restrictions.
+//
+// Phase 2c will add the resource-level access check (can this user
+// even edit this lead?) on top of this field-level filter.
 async function updateStudent(req, res, next) {
   try {
+    // ─── Phase 2b defensive filter ────────────────────────────
+    const role = req.session.staffRole;
+    if (role) {
+      const filteredBody = {};
+      for (const key of Object.keys(req.body)) {
+        const canEdit = await permissionService.canEditField(role, 'leads', key);
+        if (canEdit) {
+          filteredBody[key] = req.body[key];
+        }
+      }
+      req.body = filteredBody;
+    }
+    // ─── End Phase 2b filter — existing logic continues below ──
+
     const { Pool } = require('pg');
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -284,7 +454,27 @@ async function updateStudent(req, res, next) {
     const existing = await pool.query(
       `SELECT * FROM students WHERE unique_id = $1`, [id]
     );
-    const oldData = existing.rows.length > 0 ? objectToCamelCase(existing.rows[0]) : {};
+    
+    // ─── Phase 2c: Resource-level edit access check ──────────
+    // For scope='own' (Counselor), this blocks edits on leads they
+    // aren't assigned to. For scope='all' (Admin/Manager/Director),
+    // passes through.
+    if (existing.rows.length === 0) {
+      await pool.end();
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+    const oldData = objectToCamelCase(existing.rows[0]);
+    const editStaff = { role: req.session.staffRole, fullName: req.session.staffName };
+    const canEditLead = await permissionService.canAccessLead(editStaff, oldData, 'edit');
+    if (!canEditLead) {
+      await pool.end();
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to edit this lead.',
+      });
+    }
+
+    // ─── End Phase 2c access check ───────────────────────────
     const fields = [], values = [];
     let i = 1;
     const seen = new Set();
@@ -323,9 +513,23 @@ async function calculateRisk(req, res, next) {
     const Student = require('../models/Student');
     const { calculateRiskScore } = require('../utils/riskCalculator');
     const { id } = req.params;
+
     const result = await Student.findById(id);
     if (!result) return res.status(404).json({ success: false, error: 'Lead not found' });
+
+    // ─── Phase 2c: Resource-level edit access check ──────────
+    const editStaff = { role: req.session.staffRole, fullName: req.session.staffName };
+    const canEditRisk = await permissionService.canAccessLead(editStaff, result.data, 'edit');
+    if (!canEditRisk) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to recalculate risk for this lead.',
+      });
+    }
+
+    // ─── End Phase 2c access check ───────────────────────────
     const riskResult = calculateRiskScore(result.data);
+
     await Student.update(id, {
       riskScore: String(riskResult.totalScore),
       stoneTier: riskResult.stoneTier,
@@ -350,8 +554,23 @@ async function calculateOceanStudent(req, res, next) {
       await pool.end();
       return res.status(404).json({ success: false, error: 'Lead not found' });
     }
+    
     const data = objectToCamelCase(existing.rows[0]);
+
+    // ─── Phase 2c: Resource-level edit access check ──────────
+    const editStaff = { role: req.session.staffRole, fullName: req.session.staffName };
+    const canEditOcean = await permissionService.canAccessLead(editStaff, data, 'edit');
+    if (!canEditOcean) {
+      await pool.end();
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to recalculate OCEAN for this lead.',
+      });
+    }
+    // ─── End Phase 2c access check ───────────────────────────
+
     const responses = {};
+    
     for (let i = 1; i <= 15; i++) {
       responses[i] = Number(data[`oceanQ${i}`]) || 0;
     }
@@ -470,7 +689,22 @@ async function deleteStudents(req, res, next) {
     return res.status(400).json({ success: false, error: 'uniqueIds array is required' });
   }
 
-  const deletedBy = req.session?.staffName || req.session?.staffEmail || 'Unknown';
+  // ─── Phase 2c: Resource-level delete check ──────────────
+  // Replaces the old route-level requireAdmin middleware. Per the
+  // role_permissions seed, Admin and Director both have scope='all'
+  // for delete; everyone else is 'none'.
+  const deleteScope = await permissionService.getResourceScope(
+    req.session.staffRole, 'leads', 'delete'
+  );
+  if (deleteScope !== 'all') {
+    return res.status(403).json({
+      success: false,
+      error: 'You do not have permission to delete leads.',
+    });
+  }
+  // ─── End Phase 2c delete check ──────────────────────────
+
+  const deletedBy = req.session?.staffName || req.session?.staffEmail || 'Unknown';  
   const archiveResults = [];   // { studentId, status: 'archived' | 'skipped' | 'failed', viewUrl?, error? }
 
   // ── PHASE 1: Archive every deletion to Google Drive (per student) ──
@@ -543,11 +777,27 @@ async function deleteStudents(req, res, next) {
   });
 }
 
+// ── Permissions for current user ──────────────────────────────
+// PHASE 2b: returns the full permission set for the logged-in user's
+// role. Frontend uses this on login to shape its UI — disable edit
+// controls on view-only fields, hide rows for unassigned leads, etc.
+async function getPermissions(req, res, next) {
+  try {
+    const role = req.session.staffRole;
+    if (!role) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+    const perms = await permissionService.getAllPermissions(role);
+    res.json({ success: true, data: perms });
+  } catch (err) { next(err); }
+}
+
 module.exports = {
   login, logout, checkSession,
-  listStaff, listActiveStaff, getMe, createStaff, updateStaff, resetPassword, deactivateStaff,
+  listStaff, listActiveStaff, listRoles, listColumns, getMe, createStaff, updateStaff, resetPassword, deactivateStaff,
   assignStaff, massAssign, searchStudents, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,
   setTarget, deleteStudents,
+  getPermissions,
 };

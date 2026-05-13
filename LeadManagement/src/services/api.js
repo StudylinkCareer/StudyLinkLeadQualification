@@ -8,6 +8,9 @@
 //   - Added studentAPI.exportExcel() helper which calls
 //     POST /api/staff/students/export-excel and triggers a browser download
 //     of the resulting .xlsx file.
+//   - Added staffAPI.getPermissions() for GET /api/staff/permissions,
+//     returning the full RBAC permission set for the logged-in user's role.
+//     Used by PermissionsContext on mount to drive all UI affordances.
 
 import { objectToCamelCase } from '../utils/caseConvert';
 
@@ -42,16 +45,19 @@ export const authAPI = {
 
 // ── Staff ─────────────────────────────────────────────────────
 export const staffAPI = {
-  list:           ()                         => request('GET',  '/api/staff'),
-  listActive:     ()                         => request('GET',  '/api/staff/active'),
-  me:             ()                         => request('GET',  '/api/staff/me'),
-  create:         (data)                     => request('POST', '/api/staff', data),
-  update:         (id, data)                 => request('PUT',  `/api/staff/${id}`, data),
-  resetPassword:  (id, password)             => request('PUT',  `/api/staff/${id}/password`, { password }),
-  deactivate:     (id)                       => request('PUT',  `/api/staff/${id}/deactivate`),
-  assign:         (studentId, data)          => request('PUT',  `/api/staff/assign/${studentId}`, data),
-  massAssign:     (studentIds, field, value) => request('PUT',  '/api/staff/mass-assign', { studentIds, field, value }),
-  setTarget:      (id, target)               => request('PUT',  `/api/staff/${id}/target`, { target }),
+  list:            ()                         => request('GET',  '/api/staff'),
+  listActive:      ()                         => request('GET',  '/api/staff/active'),
+  listRoles:       ()                         => request('GET',  '/api/staff/roles'),
+  listColumns:     ()                         => request('GET',  '/api/staff/columns'),
+  me:              ()                         => request('GET',  '/api/staff/me'),
+  getPermissions:  ()                         => request('GET',  '/api/staff/permissions'),
+  create:          (data)                     => request('POST', '/api/staff', data),
+  update:          (id, data)                 => request('PUT',  `/api/staff/${id}`, data),
+  resetPassword:   (id, password)             => request('PUT',  `/api/staff/${id}/password`, { password }),
+  deactivate:      (id)                       => request('PUT',  `/api/staff/${id}/deactivate`),
+  assign:          (studentId, data)          => request('PUT',  `/api/staff/assign/${studentId}`, data),
+  massAssign:      (studentIds, field, value) => request('PUT',  '/api/staff/mass-assign', { studentIds, field, value }),
+  setTarget:       (id, target)               => request('PUT',  `/api/staff/${id}/target`, { target }),
 };
 
 // ── Students ──────────────────────────────────────────────────
@@ -63,7 +69,7 @@ export const studentAPI = {
   calculateOcean: (id)       => request('POST', `/api/staff/students/${id}/calculate-ocean`),
   deleteRecords:  (ids)      => request('DELETE', '/api/staff/students', { uniqueIds: ids }),
 
-  // ── Excel export ──────────────────────────────────────────  // ← NEW
+  // ── Excel export ──────────────────────────────────────────
   // Returns the binary .xlsx file; we trigger a browser download here.
   exportExcel: async ({ startDate, endDate, dateField, fields, includeNotes }) => {
     const res = await fetch(`${BASE_URL}/api/staff/students/export-excel`, {

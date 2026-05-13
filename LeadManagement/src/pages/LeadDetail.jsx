@@ -2,11 +2,22 @@
 // CHANGES:
 //   - Added campaignType, campaignName, campaignStart, campaignEnd to FIELD_LABELS
 //   - Added 4 read-only campaign fields to Student Information view section
+//   - Event/Campaign block now renders unconditionally; <Field> shows '—' for empty values.
+//   - Permissions are now fully table-driven via usePermissions(). The
+//     previous PERMS object (hardcoded role-name arrays) and canDo() helper
+//     have been removed. Each check now reads role_permissions through
+//     the RBAC tables. Mapping from the old PERMS rules to the new helpers:
+//       canEdit              → canDoOnLead('leads', 'edit', lead)
+//       canEditAssignment    → canDoOnLead('leads', 'assign', lead)
+//       canRecalculate       → canDoOnLead('leads', 'recalculate', lead)
+//       canDelayCloseDate    → canDoOnLead('leads', 'delay_close_date', lead)
+//       canWriteNote.<kind>  → canDo('notes', 'write_<kind>')
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import Watermark from '../components/Watermark';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
@@ -34,18 +45,8 @@ const STONE_MESSAGES = {
   Diamond:  'You can aim at the global "cathedrals" of knowledge, places reserved for the most excellent individuals. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
 };
 
-// ── Permissions config ────────────────────────────────────────────────────────
-const PERMS = {
-  canEdit:           ['Counselor', 'Manager', 'Admin', 'Director'],
-  canEditAssignment: ['Manager', 'Admin'],
-  canRecalculate:    ['Manager', 'Admin', 'Counselor'],
-  canDelayCloseDate: ['Manager', 'Admin', 'Director'],   // only these roles can push Close Date later
-  canWriteNote: {
-    counselor:  ['Counselor', 'Manager', 'Admin'],
-    presales:   ['Counselor', 'Manager', 'Admin'],
-    management: ['Director',  'Manager', 'Admin'],
-  },
-};
+// (Hardcoded PERMS object removed — all permission checks now go through
+//  usePermissions(). See header comment above for the mapping.)
 
 const LEAD_STATUSES = [
   'New',
@@ -75,7 +76,6 @@ const STUDY_PLAN_OPTS = ['Study Abroad','English Summer Camp','Study in Vietnam'
 const TIMELINE_OPTS   = ['Next 6 months','6-12 months','12-24 months','24-36 months','36+ months'];
 const INTERACTION_OPTS= ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
 const LEAD_SOURCE_OPTS= ['Databases','FB-Zalo-GG-TikTok ads','School outreach','Subagent referrals','Ex-client'];
-const CONTACT_MEDIUMS = ['Phone','Zalo','Facebook','Messenger','WhatsApp','Email','Instagram','Threads','TikTok','Line','Telegram','Viber','YouTube','Skype'];
 
 const LIKERT_LABELS = ['','Strongly Disagree','Disagree','Neutral','Agree','Strongly Agree'];
 
@@ -112,7 +112,7 @@ const FIELD_LABELS = {
   campaignStart:'Campaign Start', campaignEnd:'Campaign End',
 };
 
-function canDo(perm, role) { return Array.isArray(perm) ? perm.includes(role) : false; }
+// (canDo helper removed — permissions come from usePermissions().)
 
 function formatDate(dt) {
   if (!dt) return '';
@@ -180,7 +180,7 @@ export default function LeadDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
   const { staff } = useAuth();
-  const role      = staff?.role || '';
+  const { canDo, canDoOnLead, scope } = usePermissions();
 
   const [lead, setLead]         = useState(null);
   const [notes, setNotes]       = useState([]);
@@ -199,6 +199,7 @@ export default function LeadDetail() {
   const [recalculating, setRecalculating] = useState(false);
   const [recalcOcean, setRecalcOcean]     = useState(false);
   const [oceanResult, setOceanResult]     = useState(null);
+  const [accessDenied, setAccessDenied]   = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -232,8 +233,15 @@ export default function LeadDetail() {
           ...getArchetype(scores),
         });
       }
-    }).catch(e=>console.error(e))
-      .finally(()=>setLoading(false));
+    }).catch(e => {
+      // Backend's getStudent returns 403 with this exact phrasing when a
+      // Counselor tries to open a lead they're not assigned to.
+      if (e?.message && /access denied|do not have permission|assigned to another/i.test(e.message)) {
+        setAccessDenied(true);
+      } else {
+        console.error(e);
+      }
+    }).finally(() => setLoading(false));
   }, [id]);
 
   function enterEdit() { setEditData({...lead}); setEditMode(true); }
@@ -266,7 +274,7 @@ export default function LeadDetail() {
         const newDate = new Date(editData.closeDate);
         const dateChanged = oldDate.getTime() !== newDate.getTime();
         const isLater     = newDate > oldDate;
-        if (dateChanged && isLater && !canDo(PERMS.canDelayCloseDate, role)) {
+        if (dateChanged && isLater && !canDoOnLead('leads', 'delay_close_date', lead)) {
           alert(
             'You cannot push the Close Date later once the lead has progressed past "New".\n\n' +
             'Only Managers, Admins, or Directors can delay a Close Date.'
@@ -299,17 +307,6 @@ export default function LeadDetail() {
           incomeEvidence:     editData.incomeEvidence,
           studyPlanGap:       editData.studyPlanGap,
           ultimateObjective:  editData.ultimateObjective,
-          // ── Family contacts ──
-          motherFullName:      editData.motherFullName,
-          motherEmail:         editData.motherEmail,
-          motherPhone:         editData.motherPhone,
-          motherContactMedium: editData.motherContactMedium,
-          motherContactDetail: editData.motherContactDetail,
-          fatherFullName:      editData.fatherFullName,
-          fatherEmail:         editData.fatherEmail,
-          fatherPhone:         editData.fatherPhone,
-          fatherContactMedium: editData.fatherContactMedium,
-          fatherContactDetail: editData.fatherContactDetail,
           ...Object.fromEntries(
             Array.from({length:15}, (_,i) => [`oceanQ${i+1}`, editData[`oceanQ${i+1}`] || null])
           ),
@@ -318,7 +315,7 @@ export default function LeadDetail() {
         setEditMode(false);
         setEditData({});
       }
-      if (canDo(PERMS.canEditAssignment, role)) {
+      if (canDoOnLead('leads', 'assign', lead)) {
         await staffAPI.assign(id, {
           counselor:       assign.counselor,
           seniorCounselor: assign.seniorCounselor,
@@ -388,11 +385,52 @@ export default function LeadDetail() {
   }
 
   if (loading) return <div className="loading-center">Loading...</div>;
-  if (!lead)   return <div className="page-body"><div className="alert alert--error">Lead not found</div></div>;
 
-  const canEdit   = canDo(PERMS.canEdit, role);
-  const canAssign = canDo(PERMS.canEditAssignment, role);
-  const canRecalc = canDo(PERMS.canRecalculate, role);
+  if (accessDenied) return (
+    <div>
+      <div className="page-header">
+        <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+          <button className="btn btn--ghost btn--icon" onClick={() => navigate('/leads')}>
+            <FiArrowLeft size={16}/>
+          </button>
+          <span className="page-title">Access denied</span>
+        </div>
+      </div>
+      <div className="page-body">
+        <div className="alert alert--error" style={{ marginBottom:'1rem' }}>
+          You don't have permission to view this lead. It's assigned to another staff member.
+        </div>
+        <button className="btn btn--secondary btn--sm" onClick={() => navigate('/leads')}>
+          ← Back to Leads
+        </button>
+      </div>
+    </div>
+  );
+
+  if (!lead) return (
+    <div>
+      <div className="page-header">
+        <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+          <button className="btn btn--ghost btn--icon" onClick={() => navigate('/leads')}>
+            <FiArrowLeft size={16}/>
+          </button>
+          <span className="page-title">Lead not found</span>
+        </div>
+      </div>
+      <div className="page-body">
+        <div className="alert alert--error" style={{ marginBottom:'1rem' }}>
+          This lead doesn't exist or may have been deleted.
+        </div>
+        <button className="btn btn--secondary btn--sm" onClick={() => navigate('/leads')}>
+          ← Back to Leads
+        </button>
+      </div>
+    </div>
+  );
+
+  const canEdit   = canDoOnLead('leads', 'edit',        lead);
+  const canAssign = canDoOnLead('leads', 'assign',      lead);
+  const canRecalc = canDoOnLead('leads', 'recalculate', lead);
   const d         = editMode ? editData : lead;
 
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
@@ -507,16 +545,14 @@ export default function LeadDetail() {
                 <Field label="Residency"     value={lead.residency}/>
                 <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
-                {/* ── Campaign / Event fields (read-only) ── */}
-                {(lead.campaignType || lead.campaignName || lead.campaignStart) && (<>
-                  <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
-                    <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
-                  </div>
-                  <Field label="Campaign Type"  value={lead.campaignType}/>
-                  <Field label="Campaign Name"  value={lead.campaignName}/>
-                  <Field label="Event Start"    value={formatShortDate(lead.campaignStart)}/>
-                  <Field label="Event End"      value={formatShortDate(lead.campaignEnd)}/>
-                </>)}
+                {/* ── Campaign / Event fields (read-only) — always rendered ── */}
+                <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
+                  <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
+                </div>
+                <Field label="Campaign Type"  value={lead.campaignType}/>
+                <Field label="Campaign Name"  value={lead.campaignName}/>
+                <Field label="Event Start"    value={formatShortDate(lead.campaignStart)}/>
+                <Field label="Event End"      value={formatShortDate(lead.campaignEnd)}/>
               </div>
             )}
           </div>
@@ -759,43 +795,23 @@ export default function LeadDetail() {
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
               <div>
                 <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Mother</div>
-                {editMode ? (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
-                    <EditField label="Name"           name="motherFullName"      value={d.motherFullName}      onChange={updateEdit}/>
-                    <EditField label="Email"          name="motherEmail"         value={d.motherEmail}         onChange={updateEdit} type="email"/>
-                    <EditField label="Phone"          name="motherPhone"         value={d.motherPhone}         onChange={updateEdit} type="tel"/>
-                    <EditField label="Contact Medium" name="motherContactMedium" value={d.motherContactMedium} onChange={updateEdit} options={CONTACT_MEDIUMS}/>
-                    <EditField label="Contact Detail" name="motherContactDetail" value={d.motherContactDetail} onChange={updateEdit}/>
-                  </div>
-                ) : (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                    <Field label="Name"           value={lead.motherFullName}/>
-                    <Field label="Email"          value={lead.motherEmail}/>
-                    <Field label="Phone"          value={lead.motherPhone}/>
-                    <Field label="Contact Medium" value={lead.motherContactMedium}/>
-                    <Field label="Contact Detail" value={lead.motherContactDetail}/>
-                  </div>
-                )}
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                  <Field label="Name"           value={lead.motherFullName}/>
+                  <Field label="Email"          value={lead.motherEmail}/>
+                  <Field label="Phone"          value={lead.motherPhone}/>
+                  <Field label="Contact Medium" value={lead.motherContactMedium}/>
+                  <Field label="Contact Detail" value={lead.motherContactDetail}/>
+                </div>
               </div>
               <div>
                 <div style={{ fontWeight:600, fontSize:'0.8125rem', marginBottom:'0.5rem', color:'var(--text-secondary)' }}>Father</div>
-                {editMode ? (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
-                    <EditField label="Name"           name="fatherFullName"      value={d.fatherFullName}      onChange={updateEdit}/>
-                    <EditField label="Email"          name="fatherEmail"         value={d.fatherEmail}         onChange={updateEdit} type="email"/>
-                    <EditField label="Phone"          name="fatherPhone"         value={d.fatherPhone}         onChange={updateEdit} type="tel"/>
-                    <EditField label="Contact Medium" name="fatherContactMedium" value={d.fatherContactMedium} onChange={updateEdit} options={CONTACT_MEDIUMS}/>
-                    <EditField label="Contact Detail" name="fatherContactDetail" value={d.fatherContactDetail} onChange={updateEdit}/>
-                  </div>
-                ) : (
-                  <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                    <Field label="Name"           value={lead.fatherFullName}/>
-                    <Field label="Email"          value={lead.fatherEmail}/>
-                    <Field label="Phone"          value={lead.fatherPhone}/>
-                    <Field label="Contact Medium" value={lead.fatherContactMedium}/>
-                    <Field label="Contact Detail" value={lead.fatherContactDetail}/>
-                  </div>
-                )}
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                  <Field label="Name"           value={lead.fatherFullName}/>
+                  <Field label="Email"          value={lead.fatherEmail}/>
+                  <Field label="Phone"          value={lead.fatherPhone}/>
+                  <Field label="Contact Medium" value={lead.fatherContactMedium}/>
+                  <Field label="Contact Detail" value={lead.fatherContactDetail}/>
+                </div>
               </div>
             </div>
           </div>
@@ -806,7 +822,7 @@ export default function LeadDetail() {
             <div style={{ marginBottom:'1.25rem' }}>
               <div style={{ display:'flex', gap:'0.75rem', marginBottom:'0.75rem' }}>
                 {Object.entries(NOTE_TYPES).map(([type, label]) => (
-                  PERMS.canWriteNote[type]?.includes(role) && (
+                  canDo('notes', `write_${type}`) && (
                     <button key={type}
                       className={`btn btn--sm ${noteType===type?'btn--primary':'btn--secondary'}`}
                       onClick={()=>setNoteType(type)}>
@@ -815,7 +831,7 @@ export default function LeadDetail() {
                   )
                 ))}
               </div>
-              {PERMS.canWriteNote[noteType]?.includes(role) && (
+              {canDo('notes', `write_${noteType}`) && (
                 <>
                   {!canAddNotes && (
                     <div style={{

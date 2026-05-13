@@ -6,13 +6,28 @@
 //     collapsed. Hidden on mobile via CSS (banner Menu button replaces it).
 //   - Kept <SidebarBackdrop /> — dims content when the mobile drawer is open
 //     and tap-to-close.
+//
+// CHANGES (table-driven RBAC):
+//   - Added <PermissionsProvider> inside <AuthProvider>'s tree (here it's
+//     inside LanguageProvider / NavCollapseProvider, but the AuthProvider
+//     wrapping happens further up in main.jsx — see note below).
+//   - AdminRoute no longer reads isAdmin from useAuth(). It reads
+//     canDo('column_config', 'manage') from usePermissions(). The only route
+//     using AdminRoute today is /settings/columns; if you add more admin
+//     routes that need different permissions, wrap them in their own gate.
 // -----------------------------------------------------------------------------
+//
+// NOTE on provider order: if main.jsx already wraps <App /> in
+// <AuthProvider>, then PermissionsProvider needs to live INSIDE that wrap
+// (because it reads useAuth() to know when staff is logged in). The
+// simplest place is here, inside App's tree.
 
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { FiMenu } from 'react-icons/fi';
 import { useAuth } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { NavCollapseProvider, useNavCollapse } from './contexts/NavCollapseContext';
+import { PermissionsProvider, usePermissions } from './contexts/PermissionsContext';
 import Sidebar from './components/Sidebar';
 import MobilePageNav from './components/MobilePageNav';
 import Login from './pages/Login';
@@ -74,11 +89,16 @@ function ProtectedLayout({ children }) {
   return <ConsoleShell>{children}</ConsoleShell>;
 }
 
+// Admin route: gated on the column_config.manage permission rather than the
+// old isAdmin boolean. Permissions are fetched once /api/staff/permissions
+// returns — we wait for that to finish before deciding.
 function AdminRoute({ children }) {
-  const { staff, isAdmin, loading } = useAuth();
-  if (loading) return null;
-  if (!staff)   return <Navigate to="/login" replace />;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  const { staff, loading: authLoading } = useAuth();
+  const { canDo, loading: permsLoading } = usePermissions();
+
+  if (authLoading || permsLoading) return null;
+  if (!staff)                       return <Navigate to="/login" replace />;
+  if (!canDo('column_config', 'manage')) return <Navigate to="/dashboard" replace />;
   return <ConsoleShell>{children}</ConsoleShell>;
 }
 
@@ -86,15 +106,17 @@ export default function App() {
   return (
     <LanguageProvider>
       <NavCollapseProvider>
-        <Routes>
-          <Route path="/login"            element={<Login />} />
-          <Route path="/dashboard"        element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
-          <Route path="/leads"            element={<ProtectedLayout><Leads /></ProtectedLayout>} />
-          <Route path="/leads/:id"        element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
-          <Route path="/staff"            element={<ProtectedLayout><Staff /></ProtectedLayout>} />
-          <Route path="/settings/columns" element={<AdminRoute><ColumnLayoutSettings /></AdminRoute>} />
-          <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+        <PermissionsProvider>
+          <Routes>
+            <Route path="/login"            element={<Login />} />
+            <Route path="/dashboard"        element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
+            <Route path="/leads"            element={<ProtectedLayout><Leads /></ProtectedLayout>} />
+            <Route path="/leads/:id"        element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
+            <Route path="/staff"            element={<ProtectedLayout><Staff /></ProtectedLayout>} />
+            <Route path="/settings/columns" element={<AdminRoute><ColumnLayoutSettings /></AdminRoute>} />
+            <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </PermissionsProvider>
       </NavCollapseProvider>
     </LanguageProvider>
   );

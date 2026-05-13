@@ -342,11 +342,45 @@ export default function Dashboard() {
     }
   }, [counselorData, selectedCounselor]);
 
+  // Counselor restriction: when a Counselor user drills from the dashboard,
+  // the resulting Leads view should only contain THEIR leads (not the whole
+  // company's). We implement this by pre-filtering leads to ownership and
+  // passing the matching IDs through the existing `_ids` drill mechanism.
+  // Non-Counselors fall through to the original behavior.
+  const isCounselor = staff?.role === 'Counselor';
+  function ownsLead(l) {
+    if (!staff?.fullName) return false;
+    return (
+      l.counselor       === staff.fullName ||
+      l.seniorCounselor === staff.fullName ||
+      l.presales        === staff.fullName ||
+      l.marketingStaff  === staff.fullName
+    );
+  }
+
   function drillDown(filterKey, filterValue) {
+    if (isCounselor) {
+      const ids = leads
+        .filter(ownsLead)
+        .filter(l => {
+          if (filterKey === 'stoneTier') {
+            return (l.stoneTier || 'Unscored') === filterValue;
+          }
+          if (filterKey === 'leadStatus' && filterValue === 'active') {
+            const active = ['New','Not contactable','Engaged','Vetted','Met with customer and family','Proposal','Family negotiation/review','Nurturing'];
+            return active.includes(l.leadStatus || 'New');
+          }
+          return l[filterKey] === filterValue;
+        })
+        .map(l => l.uniqueId);
+      navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
+      return;
+    }
     navigate('/leads', { state: { drillFilter: { key: filterKey, value: filterValue } } });
   }
   function drillPipeline(leads) {
-    navigate('/leads', { state: { drillFilter: { key: '_ids', value: leads.map(l => l.uniqueId) } } });
+    const list = isCounselor ? leads.filter(ownsLead) : leads;
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: list.map(l => l.uniqueId) } } });
   }
   function toggleCounselor(name) {
     setSelectedCounselor(prev => prev === name ? null : name);

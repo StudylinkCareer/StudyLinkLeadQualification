@@ -1,21 +1,15 @@
 // src/components/Sidebar.jsx
 // -----------------------------------------------------------------------------
 // CHANGES:
-//   - Added collapse button (<) in the sidebar header, top-right.
-//     Clicking it calls toggle() from NavCollapseContext which sets
-//     `collapsed = true`; the .nav-collapsed class on .app-layout then
-//     hides the sidebar via CSS.
-//
-// CHANGES (i18n Phase 1):
-//   - All visible strings (labels, section headers, tooltips) now go
-//     through t(key, language) from the i18n module.
-//   - LanguageSelector added to the sidebar footer, above the staff badge.
-//   - Subtitle text uses translation so Vietnamese users see a Vietnamese
-//     product descriptor. "StudyLink" is a brand — not translated.
+//   - Removed isAdmin hardcoded check.
+//   - Staff nav item now driven by `staff.manage` RBAC permission.
+//   - Column Settings nav item now driven by `column_config.manage` RBAC permission.
+//   - Admin section header only renders if at least one admin nav item is visible.
 // -----------------------------------------------------------------------------
 
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { useNavCollapse } from '../contexts/NavCollapseContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
@@ -25,13 +19,18 @@ import {
 } from 'react-icons/fi';
 
 export default function Sidebar() {
-  const { staff, logout, isAdmin } = useAuth();
-  const { toggle }                 = useNavCollapse();
-  const { language }               = useLanguage();
-  const navigate                   = useNavigate();
-  const location                   = useLocation();
+  const { staff, logout }    = useAuth();
+  const { canDo }            = usePermissions();
+  const { toggle }           = useNavCollapse();
+  const { language }         = useLanguage();
+  const navigate             = useNavigate();
+  const location             = useLocation();
 
   const isActive = (path) => location.pathname.startsWith(path);
+
+  const canManageStaff   = canDo('staff', 'manage');
+  const canManageColumns = canDo('column_config', 'manage');
+  const showAdminSection = canManageStaff || canManageColumns;
 
   async function handleLogout() {
     await logout();
@@ -69,26 +68,30 @@ export default function Sidebar() {
 
         <button
           className={`nav-item ${isActive('/leads') ? 'active' : ''}`}
-          onClick={() => navigate('/leads', { state: { refresh: Date.now() } })}
+          onClick={() => navigate('/leads')}
         >
           <FiUsers size={16} /> {t('sidebar.leads', language)}
         </button>
 
-        {isAdmin && (
+        {showAdminSection && (
           <>
             <span className="nav-section">{t('sidebar.section.admin', language)}</span>
-            <button
-              className={`nav-item ${isActive('/staff') ? 'active' : ''}`}
-              onClick={() => navigate('/staff')}
-            >
-              <FiUserCheck size={16} /> {t('sidebar.staff', language)}
-            </button>
-            <button
-              className={`nav-item ${isActive('/settings/columns') ? 'active' : ''}`}
-              onClick={() => navigate('/settings/columns')}
-            >
-              <FiLayout size={16} /> {t('sidebar.columnSettings', language)}
-            </button>
+            {canManageStaff && (
+              <button
+                className={`nav-item ${isActive('/staff') ? 'active' : ''}`}
+                onClick={() => navigate('/staff')}
+              >
+                <FiUserCheck size={16} /> {t('sidebar.staff', language)}
+              </button>
+            )}
+            {canManageColumns && (
+              <button
+                className={`nav-item ${isActive('/settings/columns') ? 'active' : ''}`}
+                onClick={() => navigate('/settings/columns')}
+              >
+                <FiLayout size={16} /> {t('sidebar.columnSettings', language)}
+              </button>
+            )}
           </>
         )}
       </nav>

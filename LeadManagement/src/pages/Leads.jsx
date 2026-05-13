@@ -1,79 +1,25 @@
 // LeadManagement/src/pages/Leads.jsx
-// CHANGES:
-//   - MASTER_COLUMNS replaces DEFAULT_COLUMNS — includes 4 campaign fields
-//   - Column config loaded per role: leads_admin / leads_manager / leads_director / leads_counselor
-//   - Admin always sees all columns
-//   - FILTER_CONFIG drives dynamic filter pills — only shown for visible columns
-//   - Inline ColumnSettings panel removed (now a separate Admin-only settings page)
+// CHANGES (table-driven RBAC + column catalog):
+//   - Column catalog (labels, widths, order) no longer hardcoded in this
+//     file. Fetched on mount from GET /api/staff/columns, which reads from
+//     the permission_fields table. Single source of truth.
+//   - Column visibility per role driven by RBAC via fieldList(); no
+//     hardcoded role checks remain in this file.
+//   - Row click checks canDoOnLead('leads', 'view_detail', lead) before
+//     navigating; unauthorized clicks show a toast on the list, no nav.
+//   - Bulk-select column, action bar, delete button, print button all
+//     gated on permissions from usePermissions().
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { studentAPI, staffAPI, columnConfigAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import Watermark from '../components/Watermark';
 import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiPrinter, FiDownload } from 'react-icons/fi';
-import ExportLeadsModal from '../components/ExportLeadsModal';
 
-// ── All possible columns (master list) ────────────────────────
-// Grouped by section for Admin column settings readability
-const MASTER_COLUMNS = [
-  // ── Personal Details ──
-  { key:'fullName',               label:'Name',                   visible:true,  width:160 },
-  { key:'email',                  label:'Email',                  visible:false, width:190 },
-  { key:'phone',                  label:'Phone',                  visible:false, width:130 },
-  { key:'yearOfBirth',            label:'Year of Birth',          visible:false, width:110 },
-  { key:'residency',              label:'Residency',              visible:false, width:140 },
-  { key:'schoolEvent',            label:'School / Event',         visible:false, width:150 },
-  { key:'preferredSocial',        label:'Social Platform',        visible:false, width:130 },
-  { key:'socialConsent',          label:'Connect With Us',        visible:false, width:120 },
-  // ── Lead Management ──
-  { key:'leadStatus',             label:'Status',                 visible:true,  width:110 },
-  { key:'createdAt',              label:'Created',                visible:true,  width:100 },
-  { key:'age',                    label:'Age',                    visible:true,  width:55  },
-  { key:'leadSource',             label:'Lead Source',            visible:true,  width:120 },
-  { key:'interaction',            label:'Interaction',            visible:true,  width:110 },
-  { key:'studyPlans',             label:'Study Plans',            visible:true,  width:120 },
-  { key:'destinationCountry',     label:'Destination',            visible:true,  width:130 },
-  { key:'timeline',               label:'Timeline',               visible:true,  width:110 },
-  { key:'stoneTier',              label:'Stone',                  visible:true,  width:90  },
-  { key:'riskScore',              label:'Score',                  visible:true,  width:70  },
-  { key:'counselor',              label:'Counselor',              visible:true,  width:130 },
-  { key:'seniorCounselor',        label:'Sr. Counselor',          visible:false, width:130 },
-  { key:'presales',               label:'Pre-Sales',              visible:false, width:120 },
-  { key:'marketingStaff',         label:'Marketing',              visible:false, width:120 },
-  { key:'closeDate',              label:'Close Date',             visible:true,  width:100 },
-  { key:'confidence',             label:'Confidence',             visible:false, width:130 },
-  // ── Self Assessment ──
-  { key:'budget',                 label:'Budget',                 visible:true,  width:130 },
-  { key:'scholarshipDemand',      label:'Scholarship',            visible:false, width:130 },
-  { key:'englishLevel',           label:'English',                visible:true,  width:100 },
-  { key:'gpa',                    label:'GPA',                    visible:true,  width:70  },
-  { key:'immigrationHistory',     label:'Immigration',            visible:false, width:160 },
-  { key:'sponsorIncome',          label:'Sponsor Income',         visible:false, width:130 },
-  { key:'incomeEvidence',         label:'Income Evidence',        visible:false, width:130 },
-  { key:'studyPlanGap',           label:'Study Plan Gap',         visible:false, width:150 },
-  { key:'ultimateObjective',      label:'Objective',              visible:false, width:150 },
-  // ── Family Contacts ──
-  { key:'motherFullName',         label:'Mother Name',            visible:false, width:140 },
-  { key:'motherEmail',            label:'Mother Email',           visible:false, width:180 },
-  { key:'motherPhone',            label:'Mother Phone',           visible:false, width:130 },
-  { key:'motherContactMedium',    label:'Mother Medium',          visible:false, width:130 },
-  { key:'fatherFullName',         label:'Father Name',            visible:false, width:140 },
-  { key:'fatherEmail',            label:'Father Email',           visible:false, width:180 },
-  { key:'fatherPhone',            label:'Father Phone',           visible:false, width:130 },
-  { key:'fatherContactMedium',    label:'Father Medium',          visible:false, width:130 },
-  // ── OCEAN Profile ──
-  { key:'oceanExtraversion',      label:'OCEAN: Extraversion',    visible:false, width:150 },
-  { key:'oceanAgreeableness',     label:'OCEAN: Agreeableness',   visible:false, width:155 },
-  { key:'oceanConscientiousness', label:'OCEAN: Conscientious.',  visible:false, width:165 },
-  { key:'oceanNeuroticism',       label:'OCEAN: Neuroticism',     visible:false, width:150 },
-  { key:'oceanOpenness',          label:'OCEAN: Openness',        visible:false, width:140 },
-  // ── Campaign / Event ──
-  { key:'campaignType',           label:'Campaign Type',          visible:false, width:140 },
-  { key:'campaignName',           label:'Campaign Name',          visible:false, width:160 },
-  { key:'campaignStart',          label:'Camp. Start',            visible:false, width:120 },
-  { key:'campaignEnd',            label:'Camp. End',              visible:false, width:120 },
-];
+// Column catalog (label, width, order) comes from the DB. See the
+// staffAPI.listColumns() call in the useEffect below.
 
 // Maps staff role → config key suffix
 const ROLE_KEY_MAP = {
@@ -286,7 +232,7 @@ export default function Leads() {
   const [loading, setLoading]         = useState(true);
   const [filters, setFilters]         = useState(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
-  const [columns, setColumns]         = useState(MASTER_COLUMNS);
+  const [columns, setColumns]         = useState([]);
   const [sortField, setSortField]     = useState('createdAt');
   const [sortDir, setSortDir]         = useState('desc');
   const [selected, setSelected]       = useState([]);
@@ -300,8 +246,23 @@ export default function Leads() {
   const resizing  = useRef(null);
   const PER_PAGE  = 25;
 
-  const { isManager, isAdmin, staff } = useAuth();
-  const [showExport, setShowExport] = useState(false);
+  const { staff }            = useAuth();
+  const { canDo, canDoOnLead, scope, fieldList } = usePermissions();
+  // Derived booleans, table-driven. Replaces the old isManager/isAdmin checks.
+  const canManageColumns = canDo('column_config', 'manage');         // admin-only column config persistence
+  const canMassAssign    = scope('leads', 'assign') === 'all';        // mass-assign / bulk-select column
+  const canDeleteLeads   = canDo('leads', 'delete');                  // delete button
+  const canPrintList     = canDo('leads', 'export');                   // print/export — Director only via DB
+
+  // Toast for "Access not authorised" feedback when a Counselor clicks an
+  // unassigned lead. Auto-dismisses after 3 seconds.
+  const [accessToast, setAccessToast] = useState(null);
+  useEffect(() => {
+    if (!accessToast) return;
+    const t = setTimeout(() => setAccessToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [accessToast]);
+
   const navigate = useNavigate();
   const location = useLocation();
   const [drillIds, setDrillIds] = useState([]);
@@ -312,59 +273,55 @@ export default function Leads() {
     return ROLE_KEY_MAP[r] || 'counselor';
   }, [staff]);
 
-  // ── Load leads + staff + role-based column config ──────────
+  // ── Load leads + staff + columns (from API) ────────────────
   useEffect(() => {
     loadLeads();
+    // Assignment dropdown: show all active staff. Previously this was
+    // filtered by hardcoded role/position strings, which conflicted with
+    // the goal of table-driven RBAC. The backend doesn't enforce a "who
+    // can be assigned" rule based on role, so the dropdown is unrestricted.
     staffAPI.listActive()
-      .then(d => setStaffList(
-        (d.data || []).filter(s =>
-          s.role === 'Counselor' && ['Quality','PreSales','Counselor'].includes(s.position)
-        )
-      ))
+      .then(d => setStaffList(d.data || []))
       .catch(() => {});
 
-    columnConfigAPI.get(`leads_${roleKey}`).then(d => {
-      if (d.data && d.data.length > 0) {
-        if (isAdmin) {
-          // Admin: merge saved config with master to ensure any new columns appear
-          const savedKeys = new Set(d.data.map(c => c.key));
-          const merged = [
-            ...d.data.map(c => ({ ...c, visible: true })),     // admin always sees all
-            ...MASTER_COLUMNS.filter(c => !savedKeys.has(c.key)).map(c => ({ ...c, visible: true })),
-          ];
-          setColumns(merged);
-          const widths = {};
-          merged.forEach(c => { widths[c.key] = c.width; });
-          colWidths.current = widths;
-        } else {
-          // Non-admin: use saved config, merge in any new master columns at the end (hidden by default)
-          const savedKeys = new Set(d.data.map(c => c.key));
-          const merged = [
-            ...d.data,
-            ...MASTER_COLUMNS.filter(c => !savedKeys.has(c.key)).map(c => ({ ...c, visible: false })),
-          ];
-          setColumns(merged);
-          const widths = {};
-          merged.forEach(c => { widths[c.key] = c.width; });
-          colWidths.current = widths;
-        }
-      } else {
-        // No saved config — use defaults. Admin gets all visible.
-        if (isAdmin) {
-          const allVisible = MASTER_COLUMNS.map(c => ({ ...c, visible: true }));
-          setColumns(allVisible);
-          const widths = {};
-          allVisible.forEach(c => { widths[c.key] = c.width; });
-          colWidths.current = widths;
-        }
-        // Non-admin: keep MASTER_COLUMNS defaults (defined above with default visibility)
+    // Column catalog comes from permission_fields table via the API.
+    // Each item: { fieldName, label, width, order, category }
+    // Visibility filtering by user permission happens at render time via
+    // fieldList() — the catalog itself is identical for everyone.
+    // column_config (per-role saved overrides) is still loaded so admin
+    // resize-widths can persist across sessions, but no longer drives
+    // visibility — RBAC owns that.
+    Promise.all([
+      staffAPI.listColumns(),
+      columnConfigAPI.get(`leads_${roleKey}`).catch(() => ({ data: null })),
+    ]).then(([catalogRes, configRes]) => {
+      // listColumns returns rows with shape: { fieldName, label, width, order, category }
+      const catalog = (catalogRes.data || []).map(c => ({
+        key:     c.fieldName,
+        label:   c.label,
+        width:   c.width,
+        visible: true,         // visibility now comes from fieldList() at render time
+      }));
+      // Apply saved widths from column_config if present (resize persistence)
+      const savedWidths = {};
+      if (configRes.data && Array.isArray(configRes.data)) {
+        configRes.data.forEach(c => { if (c.key && c.width) savedWidths[c.key] = c.width; });
       }
-    }).catch(() => {});
-  }, [roleKey, isAdmin]);
+      const merged = catalog.map(c => ({ ...c, width: savedWidths[c.key] || c.width }));
+      setColumns(merged);
+      const widths = {};
+      merged.forEach(c => { widths[c.key] = c.width; });
+      colWidths.current = widths;
+    }).catch(err => {
+      console.error('Failed to load column catalog:', err);
+      setColumns([]);  // fail-safe: no columns rather than wrong columns
+    });
+  }, [roleKey, canManageColumns]);
 
   // ── Apply drill-down filter from Dashboard ─────────────────
   useEffect(() => {
     const drill = location.state?.drillFilter;
+    console.log('[Leads drill effect]', { state: location.state, drill });
     if (!drill) return;
     const { key, value } = drill;
     if (key === '_ids' && Array.isArray(value)) {
@@ -422,22 +379,6 @@ export default function Leads() {
       filters, sortField, sortDir, page, showFilters, drillIds,
     }));
   }, [filters, sortField, sortDir, page, showFilters, drillIds]);
-
-  // ── Reload when the sidebar "Leads" button is clicked while already on /leads ──
-  // The Sidebar attaches a fresh `refresh` timestamp in location.state on every click,
-  // so this effect refires even when the URL doesn't change. We skip the very first
-  // render so we don't double-fetch on initial mount (the effect on line 314 handles that).
-  const refreshSkipFirstRef = useRef(true);
-  useEffect(() => {
-    if (refreshSkipFirstRef.current) {
-      refreshSkipFirstRef.current = false;
-      return;
-    }
-    if (location.state?.refresh) {
-      loadLeads();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state?.refresh]);
 
   async function loadLeads() {
     setLoading(true);
@@ -531,14 +472,8 @@ export default function Leads() {
       r = r.filter(l => drillIds.includes(l.uniqueId));
     }
 
-    if (!isManager) {
-      r = r.filter(l =>
-        l.counselor       === staff?.fullName ||
-        l.seniorCounselor === staff?.fullName ||
-        l.presales        === staff?.fullName ||
-        l.marketingStaff  === staff?.fullName
-      );
-    }
+    // Backend's role_permissions.view_list controls whether each role
+    // gets all leads or only their own. No second-layer filtering by role here.
 
     if (filters.search) r = r.filter(l =>
       matchesSearch(l.fullName,  filters.search) ||
@@ -603,7 +538,7 @@ export default function Leads() {
       const av = a[sortField] || '', bv = b[sortField] || '';
       return sortDir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
     });
-  }, [leads, filters, sortField, sortDir, isManager, staff, drillIds]);
+  }, [leads, filters, sortField, sortDir, drillIds]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paginated  = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
@@ -638,6 +573,26 @@ export default function Leads() {
       // Revert after the dialog closes (sync in most browsers)
       setPrintMode(false);
     }, 100);
+  }
+
+  // ── Export to Excel ──────────────────────────────────────────
+  // Calls the backend export endpoint with the current visible columns and
+  // any date filters in effect. The API helper triggers a browser download
+  // of the .xlsx file.
+  async function handleExportExcel() {
+    try {
+      const fields = visibleCols.map(c => c.key);
+      const result = await staffAPI.exportExcel({
+        startDate:    filters.dateFrom    || null,
+        endDate:      filters.dateTo      || null,
+        dateField:    'createdAt',
+        fields,
+        includeNotes: false,
+      });
+      console.log(`Exported ${result.rowCount} rows to Excel`);
+    } catch (e) {
+      alert(`Export failed: ${e.message}`);
+    }
   }
 
   async function handleMassAssign() {
@@ -695,8 +650,8 @@ export default function Leads() {
       resizing.current = null;
       setColumns(cols => {
         const updated = cols.map(c => c.key === key ? { ...c, width: newW } : c);
-        // Save resize for Admin only — non-admin resizes are session-only
-        if (isAdmin) {
+        // Save resize only for users with column_config.manage — others' resizes are session-only
+        if (canManageColumns) {
           columnConfigAPI.save(`leads_${roleKey}`, updated).catch(() => {});
         }
         return updated;
@@ -729,7 +684,17 @@ export default function Leads() {
     }
   }
 
-  const visibleCols = columns.filter(c => c.visible);
+  // ── Column visibility is driven by field-level RBAC, not column_config ──
+  // If the user's `list_permission` for a field is 'view', 'view_masked',
+  // or 'edit', the column shows. If it's 'none', the column is hidden.
+  // Fields not in the permission catalog (createdAt, updatedAt, age, etc.)
+  // default to 'view' and therefore show.
+  //
+  // Note: column_config is still loaded and can REORDER columns, but it
+  // can no longer hide a column the role is RBAC-allowed to see, nor show
+  // a column the role is RBAC-forbidden to see. This removes the duplicate
+  // configuration surface — RBAC tables are the single source of truth.
+  const visibleCols = columns.filter(c => fieldList(c.key) !== 'none');
   const FIELD_LABELS = {
     counselor:'Counselor', seniorCounselor:'Senior Counselor',
     presales:'Pre-Sales', marketingStaff:'Marketing Staff',
@@ -763,11 +728,8 @@ export default function Leads() {
       <div className="page-header no-print">
         <span className="page-title">Leads ({filtered.length})</span>
         <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
-          {!isManager && (
-            <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>
-              Your assigned leads
-            </span>
-          )}
+          {/* "Your assigned leads" label removed — all roles now see all leads in the list.
+              Counselor still gets a 403 on detail for unassigned leads (Phase 2c). */}
         </div>
       </div>
 
@@ -807,7 +769,7 @@ export default function Leads() {
               </button>
             )}
           </div>
-          {isAdmin && (
+          {canPrintList && (
             <button
               className="btn btn--secondary btn--sm"
               onClick={handlePrint}
@@ -816,12 +778,12 @@ export default function Leads() {
               <FiPrinter size={13}/> Print
             </button>
           )}
-          {isAdmin && (
+          {canPrintList && (
             <button
               className="btn btn--secondary btn--sm"
-              onClick={() => setShowExport(true)}
+              onClick={handleExportExcel}
               style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}
-              title="Export leads to Excel with a date range and selectable fields">
+              title="Export the current filtered list to Excel">
               <FiDownload size={13}/> Export Excel
             </button>
           )}
@@ -897,14 +859,14 @@ export default function Leads() {
           >
             <table style={{ tableLayout:'fixed' }}>
               <colgroup>
-                {isManager && <col style={{ width:'40px' }}/>}
+                {canMassAssign && <col style={{ width:'40px' }}/>}
                 {visibleCols.map(c => (
                   <col key={c.key} style={{ width:(colWidths.current[c.key] || c.width) + 'px' }}/>
                 ))}
               </colgroup>
               <thead>
                 <tr>
-                  {isManager && (
+                  {canMassAssign && (
                     <th className="checkbox-col">
                       <input
                         type="checkbox"
@@ -940,21 +902,39 @@ export default function Leads() {
                 </tr>
               </thead>
               <tbody>
-                {(printMode ? filtered : paginated).map(lead => (
-                  <tr key={lead.uniqueId} style={{ cursor:'pointer' }}
-                    onClick={() => navigate(`/leads/${lead.uniqueId}`)}>
-                    {isManager && (
-                      <td onClick={e => { e.stopPropagation(); toggleSelect(lead.uniqueId); }}>
-                        <input type="checkbox" checked={selected.includes(lead.uniqueId)} onChange={() => {}}/>
-                      </td>
-                    )}
-                    {visibleCols.map(col => renderCell(col, lead))}
-                  </tr>
-                ))}
+                {(printMode ? filtered : paginated).map(lead => {
+                  // Ownership-aware view permission. Counselor with scope='own'
+                  // on view_detail will return false for unassigned leads; in
+                  // that case we show a toast on click instead of navigating
+                  // (and the row visually indicates it's not actionable).
+                  const canViewThisLead = canDoOnLead('leads', 'view_detail', lead);
+                  return (
+                    <tr
+                      key={lead.uniqueId}
+                      style={{
+                        cursor: canViewThisLead ? 'pointer' : 'not-allowed',
+                        opacity: canViewThisLead ? 1 : 0.55,
+                      }}
+                      onClick={() => {
+                        if (!canViewThisLead) {
+                          setAccessToast(`Access not authorised — ${lead.fullName || 'this lead'} is not assigned to you.`);
+                          return;
+                        }
+                        navigate(`/leads/${lead.uniqueId}`);
+                      }}>
+                      {canMassAssign && (
+                        <td onClick={e => { e.stopPropagation(); toggleSelect(lead.uniqueId); }}>
+                          <input type="checkbox" checked={selected.includes(lead.uniqueId)} onChange={() => {}}/>
+                        </td>
+                      )}
+                      {visibleCols.map(col => renderCell(col, lead))}
+                    </tr>
+                  );
+                })}
                 {(printMode ? filtered : paginated).length === 0 && (
                   <tr>
                     <td
-                      colSpan={visibleCols.length + (isManager ? 1 : 0)}
+                      colSpan={visibleCols.length + (canMassAssign ? 1 : 0)}
                       style={{ textAlign:'center', color:'var(--text-secondary)', padding:'2rem' }}>
                       No leads found
                     </td>
@@ -993,7 +973,7 @@ export default function Leads() {
       </div>
 
       {/* ── Mass assign / delete bar ────────────────────────── */}
-      {isManager && selected.length > 0 && (
+      {canMassAssign && selected.length > 0 && (
         <div className="mass-assign-bar no-print">
           <span>{selected.length} selected</span>
           <select value={massField} onChange={e => setMassField(e.target.value)}>
@@ -1008,7 +988,7 @@ export default function Leads() {
             ))}
           </select>
           <button className="btn btn--primary btn--sm" onClick={handleMassAssign} disabled={!massValue}>Assign</button>
-          {isAdmin && (
+          {canDeleteLeads && (
             <button
               className="btn btn--sm"
               onClick={handleMassDelete}
@@ -1019,11 +999,42 @@ export default function Leads() {
           <button className="btn btn--ghost btn--sm" onClick={() => setSelected([])} style={{ color:'#fff' }}>Clear</button>
         </div>
       )}
-      <ExportLeadsModal
-        open={showExport}
-        onClose={() => setShowExport(false)}
-        initiallyVisibleFields={[...visibleColKeys]}
-      />
+
+      {/* ── Access-denied toast ─────────────────────────────────
+          Shown when a Counselor clicks an unassigned lead. Auto-dismisses
+          after 3 seconds. No navigation happens — the user stays on the list.
+          aria-live tells screen readers to announce the message. */}
+      {accessToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="no-print"
+          style={{
+            position:     'fixed',
+            bottom:       '24px',
+            left:         '50%',
+            transform:    'translateX(-50%)',
+            background:   'var(--danger, #dc2626)',
+            color:        '#fff',
+            padding:      '0.75rem 1.25rem',
+            borderRadius: '8px',
+            boxShadow:    '0 6px 20px rgba(0,0,0,0.18)',
+            fontSize:     '0.875rem',
+            maxWidth:     '420px',
+            zIndex:       1000,
+            display:      'flex',
+            alignItems:   'center',
+            gap:          '0.75rem',
+          }}>
+          <span>{accessToast}</span>
+          <button
+            onClick={() => setAccessToast(null)}
+            style={{ background:'transparent', border:'none', color:'#fff', cursor:'pointer', fontSize:'1.1rem', padding:0, lineHeight:1 }}
+            aria-label="Dismiss">
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }

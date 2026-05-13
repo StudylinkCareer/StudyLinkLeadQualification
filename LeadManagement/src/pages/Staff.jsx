@@ -1,27 +1,22 @@
 // src/pages/Staff.jsx
 //
-// CHANGES (Counselor aggregate safeguards):
-//   - Admin is asked to confirm when changing someone's role TO 'Counselor'
-//     (they'll start contributing to the Manager dashboard aggregate target).
-//   - Admin is asked to confirm when changing someone's role AWAY from
-//     'Counselor' (they'll be removed from the aggregate).
-//   - Admin is asked to confirm when deactivating an active Counselor
-//     (same aggregate impact).
-//   - Creating a new staff member with role = Counselor also prompts.
-//
-// CHANGES (i18n Phase 2b):
-//   - All UI chrome (headers, column labels, modal titles, buttons,
-//     form labels, confirms) uses t(key, language).
-//   - Role badges still show the English role value (since that's the
-//     DB-stored canonical string). The badge color class still uses
-//     the English value (role.toLowerCase()).
-//   - Position & Role dropdown values stay English (they're DB values).
-//   - Confirm prompts use {name} placeholder substitution.
+// CHANGES (table-driven RBAC migration — final pass):
+//   - Removed the hardcoded ROLES array. Valid role values are now fetched
+//     from GET /api/staff/roles which queries DISTINCT role from the
+//     role_permissions table. Single source of truth.
+//   - Removed the toCounselor/fromCounselor role-transition confirmations
+//     and the deactivateCounselor message variant. Role-change and
+//     deactivation now use a single generic confirmation. If you want
+//     transition-specific warnings back, add them as a config row, not as
+//     hardcoded role-name comparisons.
+//   - Page access + action gating unchanged: driven by canDo('staff','manage')
+//     and canDo('staff','set_target') from PermissionsContext.
 // -----------------------------------------------------------------------------
 
 import { useState, useEffect } from 'react';
 import { staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import { FiPlus, FiEdit2, FiUserX, FiKey, FiX, FiTarget } from 'react-icons/fi';
@@ -31,7 +26,8 @@ const POSITIONS = [
   'Sales Manager', 'Quality', 'Senior Counselor', 'Counselor',
   'PreSales', 'Marketing Staff',
 ];
-const ROLES = ['Director', 'Manager', 'Admin', 'Counselor'];
+// ROLES list removed — now fetched from GET /api/staff/roles which reads
+// DISTINCT role from the role_permissions table. See StaffModal below.
 
 // Simple {placeholder} templating.
 function fmt(str, params) {
@@ -59,6 +55,15 @@ function StaffModal({ staff, onClose, onSaved }) {
   });
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
+  const [roles, setRoles]   = useState([]);
+
+  // Fetch valid roles from the RBAC table (DISTINCT role FROM role_permissions).
+  // Replaces the previous hardcoded ROLES = [...] array.
+  useEffect(() => {
+    staffAPI.listRoles()
+      .then(d => setRoles(d.data || []))
+      .catch(() => setRoles([]));
+  }, []);
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
@@ -70,18 +75,12 @@ function StaffModal({ staff, onClose, onSaved }) {
     if (isNaN(form.viewThreshold) || form.viewThreshold < 1)
       return setError(t('staff.error.thresholdInvalid', language));
 
-    // ── Counselor role guard ────────────────────────────────────
-    const prevRole = staff?.role || '';
-    const nextRole = form.role;
-    const toCounselor   = nextRole === 'Counselor' && prevRole !== 'Counselor';
-    const fromCounselor = prevRole === 'Counselor' && nextRole !== 'Counselor';
-    const displayName = form.fullName || t('staff.confirm.toCounselor.person', language);
-
-    if (toCounselor) {
-      const msg = fmt(t('staff.confirm.toCounselor', language), { name: displayName });
-      if (!window.confirm(msg)) return;
-    } else if (fromCounselor) {
-      const msg = fmt(t('staff.confirm.fromCounselor', language), { name: displayName });
+    // Role-change confirmation: a single generic message regardless of which
+    // role is changing to which. Previous behavior was role-name-specific
+    // (special prompts for to/from 'Counselor') and has been removed.
+    if (isEdit && form.role !== (staff?.role || '')) {
+      const displayName = form.fullName || 'this person';
+      const msg = `Change ${displayName}'s role from "${staff?.role || '(none)'}" to "${form.role}"?\n\nThis may affect dashboards, aggregates, and permissions immediately.`;
       if (!window.confirm(msg)) return;
     }
 
@@ -128,7 +127,7 @@ function StaffModal({ staff, onClose, onSaved }) {
             <label className="form-label">{t('staff.form.role', language)}</label>
             <select className="form-select" value={form.role} onChange={e=>set('role',e.target.value)}>
               <option value="">{t('staff.form.rolePlaceholder', language)}</option>
-              {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+              {roles.map(r=><option key={r} value={r}>{r}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -252,8 +251,13 @@ export default function Staff() {
   const [editStaff, setEditStaff] = useState(null);
   const [pwdStaff, setPwdStaff]   = useState(null);
   const [targetMember, setTargetMember] = useState(null);
-  const { isAdmin, isManager, staff }   = useAuth();
+  const { staff }                       = useAuth();
+  const { canDo }                       = usePermissions();
   const { language }                    = useLanguage();
+
+  const canManage   = canDo('staff', 'manage');
+  const canSetTgt   = canDo('staff', 'set_target');
+  const canViewPage = canManage || canSetTgt;
 
   useEffect(() => { loadStaff(); }, []);
 
@@ -264,16 +268,14 @@ export default function Staff() {
     finally { setLoading(false); }
   }
 
-  async function handleDeactivate(id, name, role) {
-    const msg = role === 'Counselor'
-      ? fmt(t('staff.confirm.deactivateCounselor', language), { name })
-      : fmt(t('staff.confirm.deactivate', language),          { name });
+  async function handleDeactivate(id, name /* role param removed */) {
+    const msg = fmt(t('staff.confirm.deactivate', language), { name });
     if (!confirm(msg)) return;
     try { await staffAPI.deactivate(id); await loadStaff(); }
     catch(e) { alert(e.message); }
   }
 
-  if (!isAdmin && !isManager) return (
+  if (!canViewPage) return (
     <div className="page-body">
       <div className="alert alert--error">{t('staff.needsAccess', language)}</div>
     </div>
@@ -283,7 +285,7 @@ export default function Staff() {
     <div>
       <div className="page-header">
         <span className="page-title">{t('staff.title', language)}</span>
-        {isAdmin && (
+        {canManage && (
           <button className="btn btn--primary btn--sm"
             onClick={() => { setEditStaff(null); setShowModal(true); }}>
             <FiPlus size={14}/> {t('staff.addBtn', language)}
@@ -337,28 +339,28 @@ export default function Staff() {
                       </td>
                       <td>
                         <div style={{ display:'flex', gap:'0.5rem' }}>
-                          {isAdmin && (
+                          {canManage && (
                             <button className="btn btn--ghost btn--icon" title={t('staff.action.edit', language)}
                               onClick={() => { setEditStaff(s); setShowModal(true); }}>
                               <FiEdit2 size={14}/>
                             </button>
                           )}
-                          {isAdmin && (
+                          {canManage && (
                             <button className="btn btn--ghost btn--icon" title={t('staff.action.resetPassword', language)}
                               onClick={() => setPwdStaff(s)}>
                               <FiKey size={14}/>
                             </button>
                           )}
-                          {(isManager || isAdmin) && (
+                          {canSetTgt && (
                             <button className="btn btn--ghost btn--icon" title={t('staff.action.setTarget', language)}
                               onClick={() => setTargetMember(s)}
                               style={{ color:'var(--primary)' }}>
                               <FiTarget size={14}/>
                             </button>
                           )}
-                          {isAdmin && s.isActive && (
+                          {canManage && s.isActive && (
                             <button className="btn btn--ghost btn--icon" title={t('staff.action.deactivate', language)}
-                              onClick={() => handleDeactivate(s.id, s.fullName, s.role)}
+                              onClick={() => handleDeactivate(s.id, s.fullName)}
                               style={{ color:'var(--danger)' }}>
                               <FiUserX size={14}/>
                             </button>
