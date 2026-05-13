@@ -7,7 +7,7 @@
 //     permissionService.getResourceScope(role, 'notes', `write_${noteType}`).
 //   - For scope='own', we additionally verify that the lead is assigned to
 //     the calling staff member (mirrors how leads.edit with scope='own'
-//     works elsewhere).
+//     works elsewhere)
 
 const { Pool } = require('pg');
 const StudentNote = require('../models/StudentNote');

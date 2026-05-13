@@ -12,7 +12,7 @@
 //     now uses requirePermission(...) with an entry from the role_permissions
 //     table. The role-permissions matrix is the single source of truth.
 //   - Added the GET /permissions route used by the frontend
-//     PermissionsContext to populate its UI rules on login.
+//     PermissionsContext to populate its UI rules on login
 
 const express    = require('express');
 const router     = express.Router();

@@ -1,4 +1,4 @@
-// server/src/controllers/staffController.js
+// server/src/controllers/staffController.js.
 
 const Staff = require('../models/Staff');
 const { Pool } = require('pg');
