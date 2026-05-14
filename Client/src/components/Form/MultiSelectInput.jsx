@@ -1,3 +1,11 @@
+// client/src/components/Form/MultiSelectInput.jsx
+//
+// CHANGES:
+//   - groups[].countries items can now be either plain strings (legacy)
+//     OR {value, label} objects (new, used for language-aware display).
+//     The stored selection always uses the `value` field, never the label,
+//     so the DB sees canonical English codes regardless of UI language.
+
 import './Form.css';
 
 export default function MultiSelectInput({ label, name, value = [], onChange, options, groups, max, mandatory, error, disabled }) {
@@ -42,7 +50,12 @@ export default function MultiSelectInput({ label, name, value = [], onChange, op
             <div key={group.region} className="form-checkbox-group-section">
               <div className="form-checkbox-group-heading">{group.region}</div>
               <div className="form-checkbox-group">
-                {group.countries.map((country) => renderCheckbox(country, country))}
+                {group.countries.map((country) => {
+                  // Backwards-compat: support plain strings AND {value,label} objects.
+                  const optValue = typeof country === 'object' ? country.value : country;
+                  const optLabel = typeof country === 'object' ? country.label : country;
+                  return renderCheckbox(optValue, optLabel);
+                })}
               </div>
             </div>
           ))}

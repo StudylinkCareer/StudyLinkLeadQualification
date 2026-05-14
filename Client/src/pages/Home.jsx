@@ -49,6 +49,27 @@ function Home() {
   const [campaignStart] = useState(() => new URLSearchParams(window.location.search).get('sd')  || '');
   const [campaignEnd]   = useState(() => new URLSearchParams(window.location.search).get('ed')  || '');
 
+  // Pre-login lookup lists, fetched from /api/lookups/public/:category.
+  // - referral_source: drop-down options (sorted by sort_order ASC = "earliest to latest")
+  // - vietnam_province: residency dropdown with language-aware labels
+  const [referralSourceOptions, setReferralSourceOptions] = useState([]);
+  const [provinceOptions, setProvinceOptions] = useState([]);
+
+  useEffect(() => {
+    // Both fetches are independent and best-effort. Failure falls back to
+    // an empty list (will show only the placeholder). Errors are logged but
+    // do not block the login form.
+    fetch('/api/lookups/public/referral_source')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(j => setReferralSourceOptions(j.data || []))
+      .catch(e => console.warn('referral_source fetch failed:', e));
+
+    fetch('/api/lookups/public/vietnam_province')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(j => setProvinceOptions(j.data || []))
+      .catch(e => console.warn('vietnam_province fetch failed:', e));
+  }, []);
+
   useEffect(() => {
     const stored = localStorage.getItem('studylink_lockout');
     if (stored) {
@@ -127,6 +148,15 @@ function Home() {
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return setError(t('loginFieldsRequired', language));
+    }
+
+    // Year-of-birth range validation: must be an integer between 1980 and 2018.
+    // Together with type="number" + min/max + onChange digit-stripping, this
+    // catches the cases where the browser still let something invalid through.
+    const yobNum = parseInt(yearOfBirth, 10);
+    if (isNaN(yobNum) || yobNum < 1980 || yobNum > 2018) {
+      setFieldErrors({ yearOfBirth: true });
+      return setError(t('invalidYearOfBirth', language) || 'Year of birth must be between 1980 and 2018.');
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -308,18 +338,40 @@ function Home() {
             <label className="home-row-label" htmlFor="yearOfBirth">
               {t('yearOfBirth', language)}<span className="home-mandatory">*</span>
             </label>
-            <input id="yearOfBirth" className={`home-row-input${fieldErrors.yearOfBirth ? ' home-input--error' : ''}`} type="text"
-              value={yearOfBirth} onChange={(e) => { setYearOfBirth(e.target.value); setFieldErrors((p) => ({ ...p, yearOfBirth: false })); }}
-              placeholder={t('yearOfBirthPlaceholder', language)} disabled={loading || isLockedOut} />
+            <input id="yearOfBirth" className={`home-row-input${fieldErrors.yearOfBirth ? ' home-input--error' : ''}`}
+              type="number"
+              inputMode="numeric"
+              min="1980"
+              max="2018"
+              step="1"
+              value={yearOfBirth}
+              onChange={(e) => {
+                // Strip anything that isn't a digit so the field can NEVER hold "chưa biết"
+                // or other free text. type="number" already enforces this on most browsers
+                // but iOS Safari historically lets non-numerics through.
+                const cleaned = e.target.value.replace(/\D/g, '').slice(0, 4);
+                setYearOfBirth(cleaned);
+                setFieldErrors((p) => ({ ...p, yearOfBirth: false }));
+              }}
+              placeholder={t('yearOfBirthPlaceholder', language)}
+              disabled={loading || isLockedOut} />
           </div>
 
           <div className="home-row">
             <label className="home-row-label" htmlFor="referralSource">
               {t('referralSource', language)}<span className="home-mandatory">*</span>
             </label>
-            <input id="referralSource" className={`home-row-input${fieldErrors.referralSource ? ' home-input--error' : ''}`} type="text"
-              value={referralSource} onChange={(e) => { setReferralSource(e.target.value); setFieldErrors((p) => ({ ...p, referralSource: false })); }}
-              placeholder={t('referralSourcePlaceholder', language)} disabled={loading || isLockedOut} />
+            <select id="referralSource" className={`home-row-input${fieldErrors.referralSource ? ' home-input--error' : ''}`}
+              value={referralSource}
+              onChange={(e) => { setReferralSource(e.target.value); setFieldErrors((p) => ({ ...p, referralSource: false })); }}
+              disabled={loading || isLockedOut}>
+              <option value="">{t('selectDefault', language)}</option>
+              {referralSourceOptions.map((opt) => (
+                <option key={opt.code} value={opt.code}>
+                  {language === 'vi' ? (opt.labelVi || opt.code) : (opt.labelEn || opt.code)}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="home-row">
@@ -330,7 +382,16 @@ function Home() {
               value={placeOfResidence} onChange={(e) => { setPlaceOfResidence(e.target.value); setFieldErrors((p) => ({ ...p, placeOfResidence: false })); }}
               disabled={loading || isLockedOut}>
               <option value="">{t('selectDefault', language)}</option>
-              {VIETNAM_PROVINCES.map((p) => <option key={p} value={p}>{p}</option>)}
+              {provinceOptions.length > 0
+                // Migrated: language-aware labels, ASCII canonical as the stored value.
+                ? provinceOptions.map((opt) => (
+                    <option key={opt.code} value={opt.code}>
+                      {language === 'vi' ? (opt.labelVi || opt.code) : (opt.labelEn || opt.code)}
+                    </option>
+                  ))
+                // Fallback while the public lookup is still loading.
+                : VIETNAM_PROVINCES.map((p) => <option key={p} value={p}>{p}</option>)
+              }
             </select>
           </div>
 

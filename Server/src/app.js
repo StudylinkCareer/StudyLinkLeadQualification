@@ -14,6 +14,7 @@ const errorHandler = require('./middleware/errorHandler');
 const staffRoutes = require('./routes/staff');
 const notesRoutes = require('./routes/notes');
 const lookupRoutes = require('./routes/lookups');
+const marketingEventsRoutes = require('./routes/marketingEvents');
 
 const app = express();
 
@@ -70,6 +71,7 @@ app.use('/api/qr', qrRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/notes', notesRoutes);
 app.use('/api/lookups', lookupRoutes);
+app.use('/api/marketing-events', marketingEventsRoutes);
 
 // Error handling
 app.use(errorHandler);

@@ -15,7 +15,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -72,6 +72,15 @@ export default function Sidebar() {
         >
           <FiUsers size={16} /> {t('sidebar.leads', language)}
         </button>
+
+        {['Admin', 'Manager', 'Director'].includes(staff?.role) && (
+        <button
+          className={`nav-item ${isActive('/marketing-events') ? 'active' : ''}`}
+          onClick={() => navigate('/marketing-events')}
+        >
+          <FiCalendar size={16} /> {language === 'vi' ? 'Sự kiện Marketing' : 'Marketing Events'}
+        </button>
+      )}
 
         {/* Layout variants — every user manages their own */}
         <button

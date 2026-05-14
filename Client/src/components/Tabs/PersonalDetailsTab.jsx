@@ -9,6 +9,7 @@ import { parseQrContent, isFacebookUrl } from '../../utils/qrCodeParser';
 import { CONTACT_MEDIUMS, PHONE_MEDIUMS, EMAIL_MEDIUMS, DUAL_MEDIUMS } from '../../utils/formFields';
 import { getTranslatedOptions } from '../../utils/formFields';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useLookup } from '../../contexts/LookupContext';
 import { t } from '../../i18n';
 
 const MAX_CONTACTS = 2;
@@ -28,6 +29,7 @@ export default function PersonalDetailsTab({
   onOpenQrScanner,
 }) {
   const { language } = useLanguage();
+  const studyPlanLookups = useLookup('study_plan');
   const [scanningForSlot, setScanningForSlot] = useState(null);
   const [scanningFamily, setScanningFamily] = useState(false);
   const [selectedParent, setSelectedParent] = useState('mother');
@@ -443,7 +445,20 @@ export default function PersonalDetailsTab({
           name="studyPlans"
           value={formData.studyPlans}
           onChange={updateField}
-          options={getTranslatedOptions('studyPlan', language)}
+          options={
+            // MIGRATED: was getTranslatedOptions('studyPlan', language) reading
+            // hardcoded STUDY_PLANS constant. Now reads from lookup_values
+            // (category='study_plan') — same source LM uses, so any edit via the
+            // admin UI flows through immediately.
+            studyPlanLookups.length > 0
+              ? studyPlanLookups.map(item => ({
+                  value: item.code,
+                  label: language === 'vi'
+                    ? (item.labelVi || item.code)
+                    : (item.labelEn || item.code),
+                }))
+              : getTranslatedOptions('studyPlan', language)  // fallback while lookups load
+          }
           mandatory
           error={personalErrors.studyPlans}
         />

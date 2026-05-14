@@ -69,4 +69,9 @@ export const documentAPI = {
   upload: (studentId, data) => api.post(`/documents/${encodeURIComponent(studentId)}/upload`, data),
 };
 
+export const lookupAPI = {
+  getAll:         ()        => api.get('/lookups'),
+  getByCategory:  (cat)     => api.get(`/lookups/${cat}`),
+};
+
 export default api;
