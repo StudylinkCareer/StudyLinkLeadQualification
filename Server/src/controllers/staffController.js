@@ -1,4 +1,4 @@
-// server/src/controllers/staffController.js.
+// server/src/controllers/staffController.js
 
 const Staff = require('../models/Staff');
 const { Pool } = require('pg');
@@ -119,10 +119,215 @@ async function listColumns(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Layout variants ─────────────────────────────────────────────
+// Per-user named saved layouts. Each variant holds columns, filters, and
+// sort state. A user can have multiple variants and pick one as their
+// default (auto-loads on page open).
+
+async function listVariants(req, res, next) {
+  try {
+    const userId = req.session.staffId;
+    const page = req.query.page || 'leads';
+    const result = await pool.query(
+      `SELECT id, name, is_default, config, created_at, updated_at
+       FROM layout_variants
+       WHERE user_id = $1 AND page = $2
+       ORDER BY is_default DESC, name ASC`,
+      [userId, page]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { next(err); }
+}
+
+async function createVariant(req, res, next) {
+  try {
+    const userId = req.session.staffId;
+    const { page = 'leads', name, config, isDefault } = req.body;
+    if (!name || !config) {
+      return res.status(400).json({ success: false, error: 'name and config required' });
+    }
+    if (isDefault) {
+      await pool.query(
+        `UPDATE layout_variants SET is_default = FALSE
+         WHERE user_id = $1 AND page = $2`,
+        [userId, page]
+      );
+    }
+    const result = await pool.query(
+      `INSERT INTO layout_variants (user_id, page, name, config, is_default)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, is_default, config`,
+      [userId, page, name, config, !!isDefault]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ success: false, error: 'A variant with that name already exists' });
+    }
+    next(err);
+  }
+}
+
+async function updateVariant(req, res, next) {
+  try {
+    const userId = req.session.staffId;
+    const { id } = req.params;
+    const { name, config, isDefault } = req.body;
+    const own = await pool.query(
+      `SELECT page FROM layout_variants WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+    if (own.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Variant not found' });
+    }
+    if (isDefault === true) {
+      await pool.query(
+        `UPDATE layout_variants SET is_default = FALSE
+         WHERE user_id = $1 AND page = $2 AND id <> $3`,
+        [userId, own.rows[0].page, id]
+      );
+    }
+    await pool.query(
+      `UPDATE layout_variants
+       SET name       = COALESCE($1, name),
+           config     = COALESCE($2, config),
+           is_default = COALESCE($3, is_default),
+           updated_at = NOW()
+       WHERE id = $4 AND user_id = $5`,
+      [name || null, config || null, isDefault === undefined ? null : !!isDefault, id, userId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ success: false, error: 'A variant with that name already exists' });
+    }
+    next(err);
+  }
+}
+
+async function deleteVariant(req, res, next) {
+  try {
+    const userId = req.session.staffId;
+    const { id } = req.params;
+    await pool.query(
+      `DELETE FROM layout_variants WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
 async function listActiveStaff(req, res, next) {
   try {
     const staff = await Staff.findAllActive();
     res.json({ success: true, data: staff });
+  } catch (err) { next(err); }
+}
+
+// ── User Layout Variants ─────────────────────────────────────
+// Each user can save multiple named "variants" of a page layout:
+//   { columns: [{key, width, visible}], filters: {...}, sort: {field, dir} }
+// They can switch between them via the UI on the Leads list.
+
+async function listVariants(req, res, next) {
+  try {
+    const page = req.query.page || 'leads';
+    const r = await pool.query(
+      `SELECT id, name, config, is_default, created_at, updated_at
+       FROM user_variants
+       WHERE staff_id = $1 AND page = $2
+       ORDER BY name`,
+      [req.session.staffId, page]
+    );
+    res.json({ success: true, data: r.rows });
+  } catch (err) { next(err); }
+}
+
+async function createVariant(req, res, next) {
+  const client = await pool.connect();
+  try {
+    const { page, name, config, is_default } = req.body;
+    if (!page || !name || !config) return res.status(400).json({ success: false, error: 'page, name, config required' });
+    await client.query('BEGIN');
+    if (is_default) {
+      // Unset any existing default for this user+page
+      await client.query(
+        `UPDATE user_variants SET is_default = FALSE WHERE staff_id = $1 AND page = $2`,
+        [req.session.staffId, page]
+      );
+    }
+    const r = await client.query(
+      `INSERT INTO user_variants (staff_id, page, name, config, is_default)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, config, is_default, created_at, updated_at`,
+      [req.session.staffId, page, name, config, !!is_default]
+    );
+    await client.query('COMMIT');
+    res.json({ success: true, data: r.rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') return res.status(409).json({ success: false, error: 'A variant with this name already exists' });
+    next(err);
+  } finally {
+    client.release();
+  }
+}
+
+async function updateVariant(req, res, next) {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { name, config, is_default } = req.body;
+    await client.query('BEGIN');
+    // If marking this as default, first get its page and unset others on the same page
+    if (is_default === true) {
+      const pg = await client.query(
+        `SELECT page FROM user_variants WHERE id = $1 AND staff_id = $2`,
+        [id, req.session.staffId]
+      );
+      if (pg.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, error: 'Variant not found' });
+      }
+      await client.query(
+        `UPDATE user_variants SET is_default = FALSE WHERE staff_id = $1 AND page = $2 AND id <> $3`,
+        [req.session.staffId, pg.rows[0].page, id]
+      );
+    }
+    const r = await client.query(
+      `UPDATE user_variants
+       SET name = COALESCE($1, name),
+           config = COALESCE($2, config),
+           is_default = COALESCE($3, is_default),
+           updated_at = NOW()
+       WHERE id = $4 AND staff_id = $5
+       RETURNING id, name, config, is_default, created_at, updated_at`,
+      [name || null, config || null, typeof is_default === 'boolean' ? is_default : null, id, req.session.staffId]
+    );
+    if (r.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Variant not found' });
+    }
+    await client.query('COMMIT');
+    res.json({ success: true, data: r.rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') return res.status(409).json({ success: false, error: 'A variant with this name already exists' });
+    next(err);
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteVariant(req, res, next) {
+  try {
+    const { id } = req.params;
+    const r = await pool.query(
+      `DELETE FROM user_variants WHERE id = $1 AND staff_id = $2`,
+      [id, req.session.staffId]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Variant not found' });
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
@@ -794,7 +999,9 @@ async function getPermissions(req, res, next) {
 
 module.exports = {
   login, logout, checkSession,
-  listStaff, listActiveStaff, listRoles, listColumns, getMe, createStaff, updateStaff, resetPassword, deactivateStaff,
+  listStaff, listActiveStaff, listRoles, listColumns,
+  listVariants, createVariant, updateVariant, deleteVariant,
+  getMe, createStaff, updateStaff, resetPassword, deactivateStaff,
   assignStaff, massAssign, searchStudents, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,

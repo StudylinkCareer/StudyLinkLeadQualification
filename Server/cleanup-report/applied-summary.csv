@@ -1,0 +1,13 @@
+﻿stage,field,action,count
+orphan-user-decision,destination_country,clear,151
+auto-resolved,destination_country,update,137
+orphan-user-decision,destination_country,update,14
+orphan-user-decision,english_level,clear,55
+orphan-user-decision,english_level,update,489
+orphan-user-decision,gpa,clear,26
+orphan-user-decision,gpa,update,443
+orphan-user-decision,lead_source,update,15
+auto-resolved,residency,update,356
+orphan-user-decision,residency,update,787
+orphan-user-decision,study_plans,update,2
+orphan-user-decision,timeline,update,431

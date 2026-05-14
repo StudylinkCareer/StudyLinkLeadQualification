@@ -12,7 +12,7 @@
 //     now uses requirePermission(...) with an entry from the role_permissions
 //     table. The role-permissions matrix is the single source of truth.
 //   - Added the GET /permissions route used by the frontend
-//     PermissionsContext to populate its UI rules on login
+//     PermissionsContext to populate its UI rules on login.
 
 const express    = require('express');
 const router     = express.Router();
@@ -72,6 +72,22 @@ router.get('/roles', requireStaffAuth, staffCtrl.listRoles);
 // column_width IS NOT NULL, sorted by column_order. The frontend filters
 // by per-role permissions via PermissionsContext.fieldList().
 router.get('/columns', requireStaffAuth, staffCtrl.listColumns);
+
+// ── User Layout Variants ──────────────────────────────────────
+// Each user can save multiple named layouts (columns + filters + sort)
+// per page. CRUD is per-user — every authenticated user can manage
+// their own variants regardless of role.
+router.get   ('/variants',     requireStaffAuth, staffCtrl.listVariants);
+router.post  ('/variants',     requireStaffAuth, staffCtrl.createVariant);
+router.put   ('/variants/:id', requireStaffAuth, staffCtrl.updateVariant);
+router.delete('/variants/:id', requireStaffAuth, staffCtrl.deleteVariant);
+
+// ── Layout variants — per-user, named, multi-variant saved layouts ──
+// Each variant holds { columns, filters, sortField, sortDir }.
+router.get   ('/variants',     requireStaffAuth, staffCtrl.listVariants);
+router.post  ('/variants',     requireStaffAuth, staffCtrl.createVariant);
+router.put   ('/variants/:id', requireStaffAuth, staffCtrl.updateVariant);
+router.delete('/variants/:id', requireStaffAuth, staffCtrl.deleteVariant);
 
 // ── Student routes ────────────────────────────────────────────
 // Student-level operations: list/detail/edit access is enforced inside

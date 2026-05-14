@@ -28,6 +28,7 @@ import { useAuth } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { NavCollapseProvider, useNavCollapse } from './contexts/NavCollapseContext';
 import { PermissionsProvider, usePermissions } from './contexts/PermissionsContext';
+import { LookupProvider } from './contexts/LookupContext';
 import Sidebar from './components/Sidebar';
 import MobilePageNav from './components/MobilePageNav';
 import Login from './pages/Login';
@@ -107,15 +108,17 @@ export default function App() {
     <LanguageProvider>
       <NavCollapseProvider>
         <PermissionsProvider>
-          <Routes>
-            <Route path="/login"            element={<Login />} />
-            <Route path="/dashboard"        element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
-            <Route path="/leads"            element={<ProtectedLayout><Leads /></ProtectedLayout>} />
-            <Route path="/leads/:id"        element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
-            <Route path="/staff"            element={<ProtectedLayout><Staff /></ProtectedLayout>} />
-            <Route path="/settings/columns" element={<AdminRoute><ColumnLayoutSettings /></AdminRoute>} />
-            <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+          <LookupProvider>
+              <Routes>
+              <Route path="/login"            element={<Login />} />
+              <Route path="/dashboard"        element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
+              <Route path="/leads"            element={<ProtectedLayout><Leads /></ProtectedLayout>} />
+              <Route path="/leads/:id"        element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
+              <Route path="/staff"            element={<ProtectedLayout><Staff /></ProtectedLayout>} />
+              <Route path="/settings/columns" element={<ProtectedLayout><ColumnLayoutSettings /></ProtectedLayout>} />
+              <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </LookupProvider>
         </PermissionsProvider>
       </NavCollapseProvider>
     </LanguageProvider>

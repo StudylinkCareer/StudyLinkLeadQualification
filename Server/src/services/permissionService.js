@@ -8,70 +8,25 @@
 //   - permission_fields      (field catalog with categories)
 //   - role_field_permissions (per-role × per-field × list/detail permissions)
 //
-// This is a PURE ADDITION — nothing else in the codebase imports it yet.
-// Phase 2b/2c will wire it into the controllers and routes.
-//
-// USAGE:
-//   const perms = require('./services/permissionService');
-//
-//   // Resource-level check
-//   const scope = await perms.getResourceScope('Counselor', 'leads', 'view_detail');
-//   // → 'own'
-//
-//   // Per-lead access check (combines scope + ownership)
-//   const canSee = await perms.canAccessLead(staff, lead, 'view_detail');
-//
-//   // Apply field-level masking before sending lead in API response
-//   const masked = await perms.applyFieldPermissions(staff, lead, 'detail');
-//
-//   // For a single field
-//   const canEdit = await perms.canEditField('Manager', 'leads', 'budget');
-//
-//   // Bulk permission set for the frontend
-//   const allPerms = await perms.getAllPermissions('Director');
-//
-// HOW TO QUICK-TEST:
-//   Run this file directly to see a self-test dump:
-//       node permissionService.js
-//   It prints the permission summary for each role so you can sanity-check
-//   that the seeded data flows through correctly.
+// Phase 2.1 UPDATE: Replaced literal '[hidden]' masking with partial masking
+// (e.g. 't...p@gmail.com', '+84... ...23'). The mask reveals enough for a
+// staff member to recognise a record but not enough to read the full value.
 // ---------------------------------------------------------------------------
 
-// ─── Load .env regardless of where the script is invoked from ────────────
-// When this file is `require()`d by app.js/server.js, dotenv was already
-// loaded by the entry point — calling it again is harmless (idempotent;
-// won't overwrite already-set vars).
-//
-// When this file is run DIRECTLY (`node permissionService.js`) for the
-// self-test, no other file has loaded .env yet. Without this line, the
-// pg pool gets `connectionString: undefined` and you'd see the SASL
-// "password must be a string" error.
-//
-// path.resolve(__dirname, '../../.env') goes from Server/src/services/
-// up two levels to Server/, where .env actually lives.
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const pool = require('./db');
 
-// ─── In-memory cache ──────────────────────────────────────────────────────
-// Permissions change rarely (only via the future admin UI), so we cache the
-// full set in memory and refresh every 60s. Avoids hitting the DB on every
-// API request.
-//
-// When admin saves new rules via the Phase 5 settings page, that endpoint
-// should call clearCache() to force a reload on the next request.
-// ──────────────────────────────────────────────────────────────────────────
 const CACHE_TTL_MS = 60_000;
 
 const _cache = {
-  rolePerms:      null,   // Map<role, Map<resource, Map<operation, scope>>>
-  roleFieldPerms: null,   // Map<role, Map<resource, Map<fieldName, {list, detail}>>>
+  rolePerms:      null,
+  roleFieldPerms: null,
   loadedAt:       0,
 };
 
 async function _loadCache() {
-  // Load role_permissions
   const rolePermsRes = await pool.query(
     `SELECT role, resource, operation, scope FROM role_permissions`
   );
@@ -83,7 +38,6 @@ async function _loadCache() {
     byResource.get(r.resource).set(r.operation, r.scope);
   }
 
-  // Load role_field_permissions
   const fieldPermsRes = await pool.query(
     `SELECT role, resource, field_name, list_permission, detail_permission
      FROM role_field_permissions`
@@ -118,11 +72,6 @@ function clearCache() {
 
 // ─── Resource-level lookups ──────────────────────────────────────────────
 
-/**
- * Get the scope for a (role, resource, operation) rule.
- * Returns 'all' | 'own' | 'none'. Defaults to 'none' for safety if the
- * rule doesn't exist (deny by default).
- */
 async function getResourceScope(role, resource, operation) {
   await _ensureCache();
   return _cache.rolePerms?.get(role)?.get(resource)?.get(operation) ?? 'none';
@@ -130,25 +79,12 @@ async function getResourceScope(role, resource, operation) {
 
 // ─── Field-level lookups ─────────────────────────────────────────────────
 
-/**
- * Get the field-level permissions for (role, resource, field).
- * Returns { list, detail } where each is one of:
- *   'edit' | 'view' | 'view_masked' | 'none'.
- *
- * Fallback for fields not in the catalog: { list: 'view', detail: 'edit' }.
- * This matches the 'other' category rule for all roles, which is the most
- * common case and the existing behavior of the system.
- */
 async function getFieldPermission(role, resource, fieldName) {
   await _ensureCache();
   const perm = _cache.roleFieldPerms?.get(role)?.get(resource)?.get(fieldName);
   return perm || { list: 'view', detail: 'edit' };
 }
 
-/**
- * True if the role can edit the given field on the given resource.
- * Convenience wrapper around getFieldPermission.
- */
 async function canEditField(role, resource, fieldName) {
   const perm = await getFieldPermission(role, resource, fieldName);
   return perm.detail === 'edit';
@@ -156,12 +92,6 @@ async function canEditField(role, resource, fieldName) {
 
 // ─── Lead-ownership check ────────────────────────────────────────────────
 
-/**
- * Is this staff member assigned to this lead? Returns true if their fullName
- * appears in any of the four assignment fields. Used to evaluate scope='own'.
- *
- * `staff` should have { fullName, role }. `lead` is the lead record.
- */
 function isLeadAssignedTo(staff, lead) {
   if (!staff || !lead) return false;
   const name = staff.fullName;
@@ -174,17 +104,6 @@ function isLeadAssignedTo(staff, lead) {
   );
 }
 
-/**
- * Can this staff member perform this operation on this specific lead?
- * Combines the resource-level scope rule with the ownership check.
- *
- *   scope = 'all'  → yes (regardless of ownership)
- *   scope = 'own'  → yes iff isLeadAssignedTo(staff, lead)
- *   scope = 'none' → no
- *
- * Use this in controllers to gate access to detail/edit/delete/assign on
- * a specific lead.
- */
 async function canAccessLead(staff, lead, operation) {
   const scope = await getResourceScope(staff.role, 'leads', operation);
   if (scope === 'all')  return true;
@@ -193,23 +112,83 @@ async function canAccessLead(staff, lead, operation) {
   return false;
 }
 
-// ─── Response masking ────────────────────────────────────────────────────
+// ─── Masking helpers ─────────────────────────────────────────────────────
+//
+// These produce partial masks: enough to recognise a record but not enough
+// to read its full value. Replaces the old '[hidden]' placeholder.
+//
+// Examples:
+//   maskEmail('trinhhoangdiep@gmail.com')  → 't...p@gmail.com'
+//   maskPhone('+84912345623')              → '+84... ...23'
+//   maskPhone('0912345623')                → '091... ...23'
+//   maskGeneric('Nguyễn Văn A')             → 'N...A'
+//
+// Field-type detection prefers the field NAME (more reliable) over the
+// content. Falls back to content sniffing (presence of '@', digit ratio)
+// for fields whose name doesn't disambiguate.
 
-/**
- * Apply field-level permissions to a lead object before sending it in an
- * API response. Returns a NEW object — does not mutate the input.
- *
- *   context = 'list'   → use each field's list_permission
- *   context = 'detail' → use each field's detail_permission
- *
- * Per-field behavior based on the permission value:
- *   'edit' or 'view'   → field passes through with its real value
- *   'view_masked'      → field value replaced with the literal '[hidden]'
- *   'none'             → field is OMITTED from the output entirely
- *
- * The frontend can rely on absent fields meaning "you don't get to know
- * this exists", and '[hidden]' meaning "this exists but isn't yours to read".
- */
+function maskEmail(email) {
+  const s = String(email);
+  const at = s.indexOf('@');
+  if (at < 0) return maskGeneric(s);
+  const local  = s.slice(0, at);
+  const domain = s.slice(at);   // includes the '@'
+  if (local.length <= 1) return `*...${domain}`;
+  if (local.length === 2) return `${local[0]}...${domain}`;
+  return `${local[0]}...${local[local.length - 1]}${domain}`;
+}
+
+function maskPhone(phone) {
+  const s = String(phone);
+  // Strip everything except digits and '+'
+  const cleaned = s.replace(/[^\d+]/g, '');
+  if (cleaned.length <= 4) return '...';
+  // Keep leading 3 chars (e.g. '+84' or '091') and trailing 2 digits
+  const head = cleaned.startsWith('+') ? cleaned.slice(0, 3) : cleaned.slice(0, 3);
+  const tail = cleaned.slice(-2);
+  return `${head}... ...${tail}`;
+}
+
+function maskGeneric(value) {
+  const s = String(value);
+  if (s.length === 0) return s;
+  if (s.length <= 2)  return '...';
+  return `${s[0]}...${s[s.length - 1]}`;
+}
+
+// Field-name patterns that signal each type. Matched case-insensitively
+// against the field name (works on camelCase, snake_case, etc).
+const _EMAIL_FIELDS = /email|mail/i;
+const _PHONE_FIELDS = /phone|mobile|tel|zalo|whatsapp|viber/i;
+
+function maskValue(fieldName, value) {
+  if (value === null || value === undefined || value === '') return value;
+  const f = String(fieldName || '');
+  const s = String(value);
+
+  // 1. Decide by field name first — most reliable
+  if (_EMAIL_FIELDS.test(f)) return maskEmail(s);
+  if (_PHONE_FIELDS.test(f)) return maskPhone(s);
+
+  // 2. Fall back to content sniffing for ambiguous field names
+  if (s.includes('@')) return maskEmail(s);
+  const digitsOnly = s.replace(/\D/g, '');
+  if (digitsOnly.length >= 6 && digitsOnly.length / s.length > 0.6) return maskPhone(s);
+
+  // 3. Generic mask for everything else (names, addresses, etc.)
+  return maskGeneric(s);
+}
+
+// ─── Response masking ────────────────────────────────────────────────────
+//
+// Applies field-level permissions to a lead object before sending it in an
+// API response. Returns a NEW object — does not mutate the input.
+//
+// Per-field behaviour based on the permission value:
+//   'edit' or 'view'   → passes through with its real value
+//   'view_masked'      → value replaced with a partial mask (see maskValue)
+//   'none'             → field OMITTED from the output entirely
+
 async function applyFieldPermissions(staff, lead, context) {
   if (!lead || typeof lead !== 'object') return lead;
   await _ensureCache();
@@ -220,24 +199,16 @@ async function applyFieldPermissions(staff, lead, context) {
     const perm = await getFieldPermission(role, 'leads', fieldName);
     const permValue = context === 'list' ? perm.list : perm.detail;
 
-    if (permValue === 'none') {
-      // Field omitted entirely — caller sees no evidence it exists.
-      continue;
-    }
+    if (permValue === 'none') continue;
     if (permValue === 'view_masked') {
-      result[fieldName] = '[hidden]';
+      result[fieldName] = maskValue(fieldName, value);
       continue;
     }
-    // 'edit' or 'view' → pass through actual value
     result[fieldName] = value;
   }
   return result;
 }
 
-/**
- * Apply field-level permissions to an ARRAY of leads (the list endpoint).
- * Convenience wrapper.
- */
 async function applyFieldPermissionsToList(staff, leads) {
   if (!Array.isArray(leads)) return leads;
   const out = [];
@@ -249,25 +220,6 @@ async function applyFieldPermissionsToList(staff, leads) {
 
 // ─── Bulk permissions for the frontend ───────────────────────────────────
 
-/**
- * Get all permissions for a role as a plain JS object the frontend can
- * iterate. Returned by GET /api/staff/permissions (Phase 2b) so the React
- * app can shape its UI (grey out rows, hide fields, disable edit controls).
- *
- * Shape:
- *   {
- *     resource: {
- *       leads: { view_list:'all', view_detail:'own', edit:'own', delete:'none', assign:'own' }
- *     },
- *     fields: {
- *       leads: {
- *         email:  { list:'view_masked', detail:'edit' },
- *         budget: { list:'view_masked', detail:'edit' },
- *         ...
- *       }
- *     }
- *   }
- */
 async function getAllPermissions(role) {
   await _ensureCache();
 
@@ -292,54 +244,54 @@ async function getAllPermissions(role) {
 
 // ─── Exports ─────────────────────────────────────────────────────────────
 module.exports = {
-  // Cache management
   clearCache,
-
-  // Resource-level
   getResourceScope,
-
-  // Field-level
   getFieldPermission,
   canEditField,
-
-  // Lead-specific helpers
   isLeadAssignedTo,
   canAccessLead,
-
-  // Response masking
   applyFieldPermissions,
   applyFieldPermissionsToList,
-
-  // Bulk lookup for frontend
   getAllPermissions,
+  // Masking utilities — exported for testing and reuse
+  maskValue,
+  maskEmail,
+  maskPhone,
+  maskGeneric,
 };
 
 // ─── Self-test ───────────────────────────────────────────────────────────
-// Runs only when this file is invoked directly: `node permissionService.js`.
-// Loads permissions for each role and prints a summary. If something is off
-// with the seed data or table shape, you'll see it here before it bites you
-// in an API endpoint.
 if (require.main === module) {
   (async () => {
     try {
       console.log('Running permission service self-test...\n');
 
+      // 1. Masking helpers
+      console.log('=== Masking helpers ===');
+      console.table({
+        email:   { in: 'trinhhoangdiep@gmail.com', out: maskEmail('trinhhoangdiep@gmail.com') },
+        twoChar: { in: 'ab@gmail.com',             out: maskEmail('ab@gmail.com') },
+        phoneVN: { in: '+84912345623',             out: maskPhone('+84912345623') },
+        phone0:  { in: '0912345623',               out: maskPhone('0912345623') },
+        name:    { in: 'Nguyễn Văn A',             out: maskGeneric('Nguyễn Văn A') },
+      });
+
+      // 2. Permissions self-test
       for (const role of ['Admin', 'Manager', 'Director', 'Counselor']) {
         const all = await getAllPermissions(role);
-        console.log(`=== ${role} ===`);
+        console.log(`\n=== ${role} ===`);
         console.log('Resource-level rules for leads:');
         console.table(all.resource.leads || {});
-        console.log('Sample field permissions:');
-        const sampleFields = ['email', 'budget', 'stoneTier', 'campaignName', 'studyPlans'];
+        const sampleFields = ['email', 'phone', 'stoneTier', 'budget', 'studyPlans'];
         const sampleRows = {};
         for (const f of sampleFields) {
           sampleRows[f] = all.fields.leads?.[f] || '(not in catalog)';
         }
+        console.log('Sample field permissions:');
         console.table(sampleRows);
-        console.log('');
       }
 
-      console.log('✅ Self-test complete — service is reading rules correctly.');
+      console.log('\n✅ Self-test complete.');
     } catch (err) {
       console.error('❌ Self-test failed:', err);
       process.exit(1);

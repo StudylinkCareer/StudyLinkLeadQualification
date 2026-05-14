@@ -60,6 +60,16 @@ export const staffAPI = {
   setTarget:       (id, target)               => request('PUT',  `/api/staff/${id}/target`, { target }),
 };
 
+// ── Layout variants ───────────────────────────────────────────
+// Per-user named saved layouts for the Leads page (columns + filters + sort).
+export const variantsAPI = {
+  list:   (page = 'leads')      => request('GET',    `/api/staff/variants?page=${page}`),
+  create: (data)                => request('POST',   '/api/staff/variants', data),
+  update: (id, data)            => request('PUT',    `/api/staff/variants/${id}`, data),
+  remove: (id)                  => request('DELETE', `/api/staff/variants/${id}`),
+  delete: (id)                  => request('DELETE', `/api/staff/variants/${id}`),
+};
+
 // ── Students ──────────────────────────────────────────────────
 export const studentAPI = {
   search:         (q)        => request('GET',  `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
@@ -115,4 +125,34 @@ export const columnConfigAPI = {
 export const auditAPI = {
   getForStudent: (studentId) => request('GET', `/api/staff/audit/${studentId}`),
   getRange:      (from, to)  => request('GET', `/api/staff/audit-range?from=${from}&to=${to}`),
+};
+
+// Lookups use their own request helper because the category names
+// (`lead_status`, `ui_string`, etc.) are canonical identifiers and must NOT
+// be camelCased. The shared `request()` helper above would corrupt them.
+async function lookupRequest(method, path, body) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Lookups request failed');
+  return data;
+}
+
+export const lookupAPI = {
+  // Public reads — cached on the backend
+  getAll:      ()         => lookupRequest('GET',  '/api/lookups'),
+  getCategory: (category) => lookupRequest('GET',  `/api/lookups/${encodeURIComponent(category)}`),
+  // Admin reads (includes inactive rows)
+  adminGetAll: (includeInactive) =>
+    lookupRequest('GET',  `/api/lookups/admin/all${includeInactive ? '?includeInactive=true' : ''}`),
+  // Admin writes
+  create:     (body)     => lookupRequest('POST',   '/api/lookups', body),
+  update:     (id, body) => lookupRequest('PUT',    `/api/lookups/${id}`, body),
+  remove:     (id)       => lookupRequest('DELETE', `/api/lookups/${id}`),
+  reactivate: (id)       => lookupRequest('POST',   `/api/lookups/${id}/reactivate`),
+  bustCache:  ()         => lookupRequest('POST',   '/api/lookups/cache/invalidate'),
 };

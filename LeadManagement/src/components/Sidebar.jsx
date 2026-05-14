@@ -73,25 +73,23 @@ export default function Sidebar() {
           <FiUsers size={16} /> {t('sidebar.leads', language)}
         </button>
 
-        {showAdminSection && (
+        {/* Layout variants — every user manages their own */}
+        <button
+          className={`nav-item ${isActive('/settings/columns') ? 'active' : ''}`}
+          onClick={() => navigate('/settings/columns')}
+        >
+          <FiLayout size={16} /> {t('sidebar.columnSettings', language)}
+        </button>
+
+        {canManageStaff && (
           <>
             <span className="nav-section">{t('sidebar.section.admin', language)}</span>
-            {canManageStaff && (
-              <button
-                className={`nav-item ${isActive('/staff') ? 'active' : ''}`}
-                onClick={() => navigate('/staff')}
-              >
-                <FiUserCheck size={16} /> {t('sidebar.staff', language)}
-              </button>
-            )}
-            {canManageColumns && (
-              <button
-                className={`nav-item ${isActive('/settings/columns') ? 'active' : ''}`}
-                onClick={() => navigate('/settings/columns')}
-              >
-                <FiLayout size={16} /> {t('sidebar.columnSettings', language)}
-              </button>
-            )}
+            <button
+              className={`nav-item ${isActive('/staff') ? 'active' : ''}`}
+              onClick={() => navigate('/staff')}
+            >
+              <FiUserCheck size={16} /> {t('sidebar.staff', language)}
+            </button>
           </>
         )}
       </nav>

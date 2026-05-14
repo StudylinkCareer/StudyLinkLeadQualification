@@ -180,7 +180,7 @@ export default function LeadDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
   const { staff } = useAuth();
-  const { canDo, canDoOnLead, scope } = usePermissions();
+  const { canDo, canDoOnLead, canEditField, scope } = usePermissions();
 
   const [lead, setLead]         = useState(null);
   const [notes, setNotes]       = useState([]);
@@ -526,33 +526,61 @@ export default function LeadDetail() {
             </div>
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <EditField label="Study Plans"  name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
-                <EditField label="Destination"  name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
-                <EditField label="Timeline"     name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
-                <EditField label="School/Event" name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
-              </div>
-            ) : (
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <Field label="Email"         value={lead.email}/>
-                <Field label="Phone"         value={lead.phone}/>
+                {/* Contact — only render edit input if user has 'edit' perm.
+                    Otherwise show the masked/read-only value so users still
+                    see what's there but can't change it. */}
+                {canEditField('email')
+                  ? <EditField label="Email" name="email" value={d.email} onChange={updateEdit} type="email"/>
+                  : <Field label="Email" value={lead.email}/>}
+                {canEditField('phone')
+                  ? <EditField label="Phone" name="phone" value={d.phone} onChange={updateEdit}/>
+                  : <Field label="Phone" value={lead.phone}/>}
+                <EditField label="Study Plans"     name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
+                <EditField label="Destination"     name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
+                <EditField label="Timeline"        name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
+                <EditField label="School/Event"    name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
+                <EditField label="Year of Birth"   name="yearOfBirth"        value={d.yearOfBirth}        onChange={updateEdit}/>
+                <EditField label="Residency"       name="residency"          value={d.residency}          onChange={updateEdit}/>
+                {/* Stone Tier / Risk Score / Created / Updated are auto-calculated or system — read-only even in edit mode */}
                 <Field label="Stone Tier"    value={lead.stoneTier}/>
                 <Field label="Risk Score"    value={lead.riskScore}/>
-                <Field label="Study Plans"   value={lead.studyPlans}/>
-                <Field label="Destination"   value={lead.destinationCountry}/>
-                <Field label="Timeline"      value={lead.timeline}/>
-                <Field label="School/Event"  value={lead.schoolEvent}/>
-                <Field label="Year of Birth" value={lead.yearOfBirth}/>
-                <Field label="Residency"     value={lead.residency}/>
                 <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
-                {/* ── Campaign / Event fields (read-only) — always rendered ── */}
+                {/* Campaign / Event section header */}
                 <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
                   <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
                 </div>
-                <Field label="Campaign Type"  value={lead.campaignType}/>
-                <Field label="Campaign Name"  value={lead.campaignName}/>
-                <Field label="Event Start"    value={formatShortDate(lead.campaignStart)}/>
-                <Field label="Event End"      value={formatShortDate(lead.campaignEnd)}/>
+                <EditField label="Referral Source" name="referralSource" value={d.referralSource} onChange={updateEdit}/>
+                <EditField label="Campaign Type"   name="campaignType"   value={d.campaignType}   onChange={updateEdit}/>
+                <EditField label="Campaign Name"   name="campaignName"   value={d.campaignName}   onChange={updateEdit}/>
+                <div/>
+                <EditField label="Event Start"     name="campaignStart" value={d.campaignStart ? String(d.campaignStart).slice(0,10) : ''} onChange={updateEdit} type="date"/>
+                <EditField label="Event End"       name="campaignEnd"   value={d.campaignEnd   ? String(d.campaignEnd).slice(0,10)   : ''} onChange={updateEdit} type="date"/>
+              </div>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+                <Field label="Email"           value={lead.email}/>
+                <Field label="Phone"           value={lead.phone}/>
+                <Field label="Stone Tier"      value={lead.stoneTier}/>
+                <Field label="Risk Score"      value={lead.riskScore}/>
+                <Field label="Study Plans"     value={lead.studyPlans}/>
+                <Field label="Destination"     value={lead.destinationCountry}/>
+                <Field label="Timeline"        value={lead.timeline}/>
+                <Field label="School/Event"    value={lead.schoolEvent}/>
+                <Field label="Year of Birth"   value={lead.yearOfBirth}/>
+                <Field label="Residency"       value={lead.residency}/>
+                <Field label="Created"         value={formatShortDate(lead.createdAt)}/>
+                <Field label="Updated"         value={formatShortDate(lead.updatedAt)}/>
+                {/* ── Campaign / Event fields (read-only) ── */}
+                <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
+                  <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
+                </div>
+                <Field label="Referral Source" value={lead.referralSource}/>
+                <Field label="Campaign Type"   value={lead.campaignType}/>
+                <Field label="Campaign Name"   value={lead.campaignName}/>
+                <div/>
+                <Field label="Event Start"     value={formatShortDate(lead.campaignStart)}/>
+                <Field label="Event End"       value={formatShortDate(lead.campaignEnd)}/>
               </div>
             )}
           </div>

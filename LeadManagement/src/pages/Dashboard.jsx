@@ -40,6 +40,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiX } from 'react-icons/fi';
 import { studentAPI, staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import { labelFor } from '../utils/leadStatusLabels';
@@ -185,9 +186,20 @@ export default function Dashboard() {
   const [activeStaff, setActiveStaff] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [selectedCounselor, setSelectedCounselor] = useState(null);
-  const { staff, isManager, isAdmin } = useAuth();
-  const { language }            = useLanguage();
-  const navigate                = useNavigate();
+  const { staff }    = useAuth();
+  const { scope }    = usePermissions();
+  const { language } = useLanguage();
+  const navigate     = useNavigate();
+
+  // ── Role flags ────────────────────────────────────────────────
+  // scope() is exposed by PermissionsContext with signature
+  //   scope(resource, operation) — note the order: resource FIRST.
+  //   Returns 'all' | 'own' | 'none'.
+  //   hasAllScope  → user can see every lead (Manager, Director, Admin)
+  //   isAdmin      → role-string check for the few places Admin behaves
+  //                  differently (e.g. no target row).
+  const hasAllScope = scope('leads', 'view_list') === 'all';
+  const isAdmin     = staff?.role === 'Admin';
 
   useEffect(() => {
     const promises = [studentAPI.search('').then(d => setLeads(d.data || []))];
@@ -198,7 +210,7 @@ export default function Dashboard() {
           .catch(() => {})
       );
     }
-    if (isManager) {
+    if (hasAllScope) {
       promises.push(
         staffAPI.listActive()
           .then(d => { if (d.data) setActiveStaff(d.data); })
@@ -206,17 +218,17 @@ export default function Dashboard() {
       );
     }
     Promise.all(promises).catch(console.error).finally(() => setLoading(false));
-  }, [staff?.id, isManager]);
+  }, [staff?.id, hasAllScope]);
 
   const scopedLeads = useMemo(() => {
-    if (isManager || isAdmin) return leads;
+    if (hasAllScope) return leads;
     return leads.filter(l =>
       l.counselor       === staff?.fullName ||
       l.seniorCounselor === staff?.fullName ||
       l.presales        === staff?.fullName ||
       l.marketingStaff  === staff?.fullName
     );
-  }, [leads, isManager, isAdmin, staff]);
+  }, [leads, hasAllScope, staff]);
 
   const stats = useMemo(() => {
     const total  = scopedLeads.length;
@@ -276,7 +288,7 @@ export default function Dashboard() {
   }, [scopedLeads]);
 
   const counselorData = useMemo(() => {
-    if (!isManager && !isAdmin) return [];
+    if (!hasAllScope) return [];
     const map = {};
     leads.forEach(l => {
       const counselor = l.counselor || 'Unassigned';
@@ -292,7 +304,7 @@ export default function Dashboard() {
         total: Object.values(stoneMap).reduce((s, arr) => s + arr.length, 0),
       }))
       .sort((a, b) => b.total - a.total);
-  }, [leads, isManager, isAdmin]);
+  }, [leads, hasAllScope]);
 
   const selectedCounselorLeads = useMemo(() => {
     if (!selectedCounselor) return [];
@@ -402,7 +414,7 @@ export default function Dashboard() {
 
   if (loading) return <div className="loading-center">{t('dashboard.loading', language)}</div>;
 
-  const isManagerOrAdmin = isManager || isAdmin;
+  const isManagerOrAdmin = hasAllScope;
   const maxCounselorTotal = Math.max(...counselorData.map(d => d.total), 1);
 
   // ── Pipeline Statistics: bilingual table ─────────────────────
@@ -420,7 +432,9 @@ export default function Dashboard() {
   ];
 
   const managerTargetCount = (() => {
-    if (isManager) {
+    // Manager OR Director (anyone with all-scope view who isn't Admin)
+    // sees the aggregated counselor target total.
+    if (hasAllScope && !isAdmin) {
       const cw = activeStaff.filter(s => s.role === 'Counselor' && s.target != null);
       return cw.length > 0 ? cw.reduce((sum, s) => sum + Number(s.target || 0), 0) : '—';
     }
@@ -429,7 +443,7 @@ export default function Dashboard() {
   })();
 
   const managerTargetSub = (() => {
-    if (isManager) {
+    if (hasAllScope && !isAdmin) {
       const n = activeStaff.filter(s => s.role === 'Counselor' && s.target != null).length;
       if (n === 0) return t('dashboard.pipeline.target.none', language);
       const key = n === 1 ? 'dashboard.pipeline.target.aggregated' : 'dashboard.pipeline.target.aggregatedPlural';
@@ -454,7 +468,7 @@ export default function Dashboard() {
           <tr>
             <th style={{ textAlign:'left', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)' }}></th>
             <th style={{ textAlign:'right', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'var(--primary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)', width:'72px' }}>
-              {isManager ? t('common.manager', language) : t('common.you', language)}
+              {hasAllScope ? (staff?.role || t('common.manager', language)) : t('common.you', language)}
             </th>
             {showCounselorCol && (
               <th style={{ textAlign:'right', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'#10B981', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)', width:'72px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
