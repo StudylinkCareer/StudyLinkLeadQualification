@@ -22,7 +22,6 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-const lookupCtrl = require('../controllers/lookupController');
 
 const ALLOWED_ROLES = new Set(['Admin', 'Manager', 'Director']);
 function requireMarketingRole(req, res, next) {
@@ -95,7 +94,6 @@ router.post('/', requireMarketingRole, async (req, res) => {
       [code, labelEn, labelVi, nextSort, JSON.stringify(meta)]
     );
 
-    if (lookupCtrl.bustCache) lookupCtrl.bustCache();
     res.json({ success: true, data: shapeRow(ins.rows[0]) });
   } catch (err) {
     if (err.code === '23505') {
@@ -114,7 +112,6 @@ router.post('/', requireMarketingRole, async (req, res) => {
           [labelEn, labelVi, JSON.stringify(meta), code]
         );
         if (re.rowCount > 0) {
-          if (lookupCtrl.bustCache) lookupCtrl.bustCache();
           return res.json({ success: true, data: shapeRow(re.rows[0]), reactivated: true });
         }
       } catch (e2) {
@@ -172,7 +169,6 @@ router.put('/:id', requireMarketingRole, async (req, res) => {
       vals
     );
     if (upd.rowCount === 0) return res.status(404).json({ success: false, error: 'Event not found' });
-    if (lookupCtrl.bustCache) lookupCtrl.bustCache();
     res.json({ success: true, data: shapeRow(upd.rows[0]) });
   } catch (err) {
     console.error('[marketingEvents] update failed:', err);
@@ -193,7 +189,6 @@ router.delete('/:id', requireMarketingRole, async (req, res) => {
       [id]
     );
     if (upd.rowCount === 0) return res.status(404).json({ success: false, error: 'Event not found' });
-    if (lookupCtrl.bustCache) lookupCtrl.bustCache();
     res.json({ success: true });
   } catch (err) {
     console.error('[marketingEvents] delete failed:', err);
