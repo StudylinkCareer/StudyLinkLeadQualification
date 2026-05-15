@@ -366,7 +366,8 @@ function Home() {
               onChange={(e) => { setReferralSource(e.target.value); setFieldErrors((p) => ({ ...p, referralSource: false })); }}
               disabled={loading || isLockedOut}>
               <option value="">{t('selectDefault', language)}</option>
-              {referralSourceOptions.map((opt) => (
+              {/* Newest events first — slice() to avoid mutating state, then reverse */}
+              {referralSourceOptions.slice().reverse().map((opt) => (
                 <option key={opt.code} value={opt.code}>
                   {language === 'vi' ? (opt.labelVi || opt.code) : (opt.labelEn || opt.code)}
                 </option>
