@@ -52,7 +52,7 @@ router.get('/', requireMarketingRole, async (req, res) => {
       `SELECT id, code, label_en, label_vi, sort_order, is_active, meta
          FROM lookup_values
         WHERE category = 'referral_source' AND is_active = true
-        ORDER BY sort_order ASC, code ASC`
+        ORDER BY sort_order DESC, code ASC`
     );
     res.json({ success: true, data: r.rows.map(shapeRow) });
   } catch (err) {

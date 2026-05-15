@@ -119,8 +119,8 @@ export default function MarketingEvents() {
       </h1>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 24 }}>
         {language === 'vi'
-          ? 'Danh sách các sự kiện hiển thị trong dropdown "Nguồn giới thiệu" trên trang đăng ký của học sinh.'
-          : 'These events appear in the "Referral Source" dropdown on the student intake form.'}
+          ? 'Danh sách các sự kiện hiển thị trong dropdown "Nguồn giới thiệu" trên trang đăng ký của học sinh. Sắp xếp từ mới nhất đến cũ nhất.'
+          : 'These events appear in the "Referral Source" dropdown on the student intake form. Ordered newest to oldest.'}
       </p>
 
       {error && (
