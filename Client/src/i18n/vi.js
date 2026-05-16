@@ -114,7 +114,7 @@ const vi = {
   facebookProfile: 'Trang Facebook',
   facebookProfilePlaceholder: 'URL hồ sơ Facebook',
   studyPlansLabel: 'Ước mơ',
-  referralSource: 'Nguồn giới thiệu',
+  referralSource: 'Chiến dịch/Sự kiện',
   referralSourcePlaceholder: 'Bạn biết đến chúng tôi từ đâu?',
   
   campaignSection: 'Thông tin sự kiện',
