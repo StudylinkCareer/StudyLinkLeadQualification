@@ -119,103 +119,6 @@ async function listColumns(req, res, next) {
   } catch (err) { next(err); }
 }
 
-// ── Layout variants ─────────────────────────────────────────────
-// Per-user named saved layouts. Each variant holds columns, filters, and
-// sort state. A user can have multiple variants and pick one as their
-// default (auto-loads on page open).
-
-async function listVariants(req, res, next) {
-  try {
-    const userId = req.session.staffId;
-    const page = req.query.page || 'leads';
-    const result = await pool.query(
-      `SELECT id, name, is_default, config, created_at, updated_at
-       FROM layout_variants
-       WHERE user_id = $1 AND page = $2
-       ORDER BY is_default DESC, name ASC`,
-      [userId, page]
-    );
-    res.json({ success: true, data: result.rows });
-  } catch (err) { next(err); }
-}
-
-async function createVariant(req, res, next) {
-  try {
-    const userId = req.session.staffId;
-    const { page = 'leads', name, config, isDefault } = req.body;
-    if (!name || !config) {
-      return res.status(400).json({ success: false, error: 'name and config required' });
-    }
-    if (isDefault) {
-      await pool.query(
-        `UPDATE layout_variants SET is_default = FALSE
-         WHERE user_id = $1 AND page = $2`,
-        [userId, page]
-      );
-    }
-    const result = await pool.query(
-      `INSERT INTO layout_variants (user_id, page, name, config, is_default)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, is_default, config`,
-      [userId, page, name, config, !!isDefault]
-    );
-    res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ success: false, error: 'A variant with that name already exists' });
-    }
-    next(err);
-  }
-}
-
-async function updateVariant(req, res, next) {
-  try {
-    const userId = req.session.staffId;
-    const { id } = req.params;
-    const { name, config, isDefault } = req.body;
-    const own = await pool.query(
-      `SELECT page FROM layout_variants WHERE id = $1 AND user_id = $2`,
-      [id, userId]
-    );
-    if (own.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Variant not found' });
-    }
-    if (isDefault === true) {
-      await pool.query(
-        `UPDATE layout_variants SET is_default = FALSE
-         WHERE user_id = $1 AND page = $2 AND id <> $3`,
-        [userId, own.rows[0].page, id]
-      );
-    }
-    await pool.query(
-      `UPDATE layout_variants
-       SET name       = COALESCE($1, name),
-           config     = COALESCE($2, config),
-           is_default = COALESCE($3, is_default),
-           updated_at = NOW()
-       WHERE id = $4 AND user_id = $5`,
-      [name || null, config || null, isDefault === undefined ? null : !!isDefault, id, userId]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ success: false, error: 'A variant with that name already exists' });
-    }
-    next(err);
-  }
-}
-
-async function deleteVariant(req, res, next) {
-  try {
-    const userId = req.session.staffId;
-    const { id } = req.params;
-    await pool.query(
-      `DELETE FROM layout_variants WHERE id = $1 AND user_id = $2`,
-      [id, userId]
-    );
-    res.json({ success: true });
-  } catch (err) { next(err); }
-}
 
 async function listActiveStaff(req, res, next) {
   try {
@@ -296,13 +199,17 @@ async function updateVariant(req, res, next) {
     }
     const r = await client.query(
       `UPDATE user_variants
-       SET name = COALESCE($1, name),
-           config = COALESCE($2, config),
+       SET name       = COALESCE($1, name),
+           -- JSONB merge: existing config keys are kept, the incoming object
+           -- only OVERWRITES the keys it includes. Prevents the column-settings
+           -- page from wiping filters/sort/sizing when it sends just the
+           -- columnOrder + columnVisibility slice.
+           config     = CASE WHEN $2::jsonb IS NULL THEN config ELSE config || $2::jsonb END,
            is_default = COALESCE($3, is_default),
            updated_at = NOW()
        WHERE id = $4 AND staff_id = $5
        RETURNING id, name, config, is_default, created_at, updated_at`,
-      [name || null, config || null, typeof is_default === 'boolean' ? is_default : null, id, req.session.staffId]
+      [name || null, config ? JSON.stringify(config) : null, typeof is_default === 'boolean' ? is_default : null, id, req.session.staffId]
     );
     if (r.rowCount === 0) {
       await client.query('ROLLBACK');

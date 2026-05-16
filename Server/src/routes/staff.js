@@ -82,13 +82,6 @@ router.post  ('/variants',     requireStaffAuth, staffCtrl.createVariant);
 router.put   ('/variants/:id', requireStaffAuth, staffCtrl.updateVariant);
 router.delete('/variants/:id', requireStaffAuth, staffCtrl.deleteVariant);
 
-// ── Layout variants — per-user, named, multi-variant saved layouts ──
-// Each variant holds { columns, filters, sortField, sortDir }.
-router.get   ('/variants',     requireStaffAuth, staffCtrl.listVariants);
-router.post  ('/variants',     requireStaffAuth, staffCtrl.createVariant);
-router.put   ('/variants/:id', requireStaffAuth, staffCtrl.updateVariant);
-router.delete('/variants/:id', requireStaffAuth, staffCtrl.deleteVariant);
-
 // ── Student routes ────────────────────────────────────────────
 // Student-level operations: list/detail/edit access is enforced inside
 // the controllers themselves via canAccessLead / applyFieldPermissions.
