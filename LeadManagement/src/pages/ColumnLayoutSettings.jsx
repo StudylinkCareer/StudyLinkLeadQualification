@@ -50,7 +50,7 @@ export default function ColumnLayoutSettings() {
   const [catalog,    setCatalog]    = useState([]);   // [{key, label, category}]
   const [variants,   setVariants]   = useState([]);
   const [editingId,  setEditingId]  = useState(null); // variant id or 'new'
-  const [draft,      setDraft]      = useState(null); // {id, name, is_default, columnOrder, columnVisibility, columnSizing, _origConfig}
+  const [draft,      setDraft]      = useState(null); // {id, name, isDefault, columnOrder, columnVisibility, columnSizing, _origConfig}
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState('');
   const [saving,     setSaving]     = useState(false);
@@ -95,7 +95,7 @@ export default function ColumnLayoutSettings() {
     setDraft({
       id: null,
       name: '',
-      is_default: variants.length === 0,
+      isDefault: variants.length === 0,
       columnOrder:      allowedCols.map(c => c.key),
       columnVisibility: {},   // all visible by default
       columnSizing:     {},
@@ -140,7 +140,7 @@ export default function ColumnLayoutSettings() {
     setDraft({
       id:         v.id,
       name:       v.name,
-      is_default: !!v.is_default,
+      isDefault: !!v.isDefault,
       columnOrder:      order,
       columnVisibility: visibility,
       columnSizing:     sizing,
@@ -214,19 +214,19 @@ export default function ColumnLayoutSettings() {
         page:       'leads',
         name:       draft.name.trim(),
         config:     configPatch,
-        is_default: !!draft.is_default,
+        is_default: !!draft.isDefault,
       };
       if (draft.id) {
         const r = await variantsAPI.update(draft.id, payload);
         setVariants(vs => vs.map(v =>
           v.id === r.data.id ? r.data
-          : (draft.is_default ? { ...v, is_default: false } : v)
+          : (draft.isDefault ? { ...v, isDefault: false } : v)
         ));
       } else {
         const r = await variantsAPI.create(payload);
         setVariants(vs => {
-          const next = draft.is_default
-            ? vs.map(v => ({ ...v, is_default: false }))
+          const next = draft.isDefault
+            ? vs.map(v => ({ ...v, isDefault: false }))
             : [...vs];
           return [...next, r.data].sort((a, b) => a.name.localeCompare(b.name));
         });
@@ -254,7 +254,7 @@ export default function ColumnLayoutSettings() {
     try {
       const r = await variantsAPI.update(v.id, { is_default: true });
       setVariants(vs => vs.map(x =>
-        x.id === r.data.id ? r.data : { ...x, is_default: false }
+        x.id === r.data.id ? r.data : { ...x, isDefault: false }
       ));
     } catch (e) {
       setError(e.message || 'Failed to set default');
@@ -367,19 +367,19 @@ export default function ColumnLayoutSettings() {
               }}>
                 <button
                   onClick={() => makeDefault(v)}
-                  title={v.is_default ? 'This is your default' : 'Set as default'}
+                  title={v.isDefault ? 'This is your default' : 'Set as default'}
                   style={{
                     background:'none', border:'none', cursor:'pointer',
-                    color: v.is_default ? '#f59e0b' : 'var(--text-secondary)',
+                    color: v.isDefault ? '#f59e0b' : 'var(--text-secondary)',
                     padding:'0.25rem',
                   }}>
-                  <FiStar fill={v.is_default ? '#f59e0b' : 'none'}/>
+                  <FiStar fill={v.isDefault ? '#f59e0b' : 'none'}/>
                 </button>
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:600 }}>{v.name}</div>
                   <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
                     {visibleCount} of {allowedCols.length} columns visible
-                    {v.is_default && ' · default'}
+                    {v.isDefault && ' · default'}
                   </div>
                 </div>
                 <button className="btn btn--ghost btn--sm" onClick={() => startEdit(v)}>
@@ -429,8 +429,8 @@ export default function ColumnLayoutSettings() {
             <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.85rem' }}>
               <input
                 type="checkbox"
-                checked={draft.is_default}
-                onChange={e => setDraft(d => ({ ...d, is_default: e.target.checked }))}
+                checked={draft.isDefault}
+                onChange={e => setDraft(d => ({ ...d, isDefault: e.target.checked }))}
               />
               Set as my default variant for the Leads page
             </label>

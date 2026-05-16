@@ -458,7 +458,7 @@ export default function Leads() {
   const [pagination,       setPagination]       = useState({ pageIndex: 0, pageSize: 25 });
 
   // ── Layout variants — per-user saved layouts ──
-  const [variants, setVariants]             = useState([]);   // [{id, name, is_default, config}]
+  const [variants, setVariants]             = useState([]);   // [{id, name, isDefault, config}]
   const [activeVariantId, setActiveVariantId] = useState(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showManageDialog, setShowManageDialog] = useState(false);
@@ -719,7 +719,7 @@ export default function Leads() {
       .then(r => {
         const vs = r.data || [];
         setVariants(vs);
-        const def = vs.find(v => v.is_default);
+        const def = vs.find(v => v.isDefault);
         if (def) applyVariant(def);
       })
       .catch(() => setVariants([]));
@@ -812,10 +812,10 @@ export default function Leads() {
   // automatically (one default per user per page).
   async function makeDefaultVariant(v) {
     try {
-      const r = await variantsAPI.update(v.id, { is_default: !v.is_default });
+      const r = await variantsAPI.update(v.id, { is_default: !v.isDefault });
       setVariants(vs => vs.map(x =>
         x.id === r.data.id ? r.data
-        : (r.data.is_default ? { ...x, is_default: false } : x)
+        : (r.data.isDefault ? { ...x, isDefault: false } : x)
       ));
     } catch (e) { alert(e.message); }
   }
@@ -1389,7 +1389,7 @@ export default function Leads() {
                 }}>
                   <button
                     onClick={() => applyVariant(v)}
-                    title={v.is_default ? 'Your default view' : 'Switch to this view'}
+                    title={v.isDefault ? 'Your default view' : 'Switch to this view'}
                     style={{
                       padding:'6px 6px 6px 14px', fontSize:'13px',
                       background:'transparent', border:'none',
@@ -1397,15 +1397,15 @@ export default function Leads() {
                       fontWeight: isActive ? 500 : 400,
                       cursor:'pointer',
                     }}>
-                    {v.is_default && <FiStar size={11} style={{ color:'#f59e0b', marginRight:'4px', verticalAlign:'-1px' }} fill="#f59e0b"/>}
+                    {v.isDefault && <FiStar size={11} style={{ color:'#f59e0b', marginRight:'4px', verticalAlign:'-1px' }} fill="#f59e0b"/>}
                     {v.name}
                   </button>
                   {isActive && (
                     <div style={{ display:'flex', gap:'2px', padding:'0 8px 0 2px' }}>
-                      <button onClick={() => makeDefaultVariant(v)} title={v.is_default ? 'Remove as default' : 'Set as default'}
+                      <button onClick={() => makeDefaultVariant(v)} title={v.isDefault ? 'Remove as default' : 'Set as default'}
                         style={{ background:'none', border:'none', padding:'4px', cursor:'pointer',
-                                 color: v.is_default ? '#f59e0b' : 'var(--text-secondary)', display:'inline-flex' }}>
-                        <FiStar size={12} fill={v.is_default ? '#f59e0b' : 'none'}/>
+                                 color: v.isDefault ? '#f59e0b' : 'var(--text-secondary)', display:'inline-flex' }}>
+                        <FiStar size={12} fill={v.isDefault ? '#f59e0b' : 'none'}/>
                       </button>
                       <button onClick={saveCurrentVariant} title="Save current view"
                         style={{ background:'none', border:'none', padding:'4px', cursor:'pointer',
