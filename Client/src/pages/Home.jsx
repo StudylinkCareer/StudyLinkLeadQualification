@@ -49,9 +49,13 @@ function Home() {
   const [campaignStart] = useState(() => new URLSearchParams(window.location.search).get('sd')  || '');
   const [campaignEnd]   = useState(() => new URLSearchParams(window.location.search).get('ed')  || '');
 
-  // Pre-login lookup lists, fetched from /api/lookups/public/:category.
-  // - referral_source: drop-down options (sorted by sort_order ASC = "earliest to latest")
-  // - vietnam_province: residency dropdown with language-aware labels
+  // Pre-login lookup lists.
+  // - referralSourceOptions: marketing events, filtered server-side to hide
+  //   events outside their active window unless an authorised user has
+  //   activated them for today. Returned newest-first (sort_order DESC).
+  //   Endpoint: /api/marketing-events/public  (no auth required)
+  // - provinceOptions: residency dropdown with language-aware labels.
+  //   Endpoint: /api/lookups/public/vietnam_province
   const [referralSourceOptions, setReferralSourceOptions] = useState([]);
   const [provinceOptions, setProvinceOptions] = useState([]);
 
@@ -59,10 +63,10 @@ function Home() {
     // Both fetches are independent and best-effort. Failure falls back to
     // an empty list (will show only the placeholder). Errors are logged but
     // do not block the login form.
-    fetch('/api/lookups/public/referral_source')
+    fetch('/api/marketing-events/public')
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(j => setReferralSourceOptions(j.data || []))
-      .catch(e => console.warn('referral_source fetch failed:', e));
+      .catch(e => console.warn('marketing-events fetch failed:', e));
 
     fetch('/api/lookups/public/vietnam_province')
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
@@ -366,8 +370,9 @@ function Home() {
               onChange={(e) => { setReferralSource(e.target.value); setFieldErrors((p) => ({ ...p, referralSource: false })); }}
               disabled={loading || isLockedOut}>
               <option value="">{t('selectDefault', language)}</option>
-              {/* Newest events first — slice() to avoid mutating state, then reverse */}
-              {referralSourceOptions.slice().reverse().map((opt) => (
+              {/* Server returns events newest-first (sort_order DESC) and
+                  already filtered to hide out-of-window events. */}
+              {referralSourceOptions.map((opt) => (
                 <option key={opt.code} value={opt.code}>
                   {language === 'vi' ? (opt.labelVi || opt.code) : (opt.labelEn || opt.code)}
                 </option>

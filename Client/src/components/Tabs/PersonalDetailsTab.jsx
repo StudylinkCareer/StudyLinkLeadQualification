@@ -1,5 +1,5 @@
 // client/src/components/Tabs/PersonalDetailsTab.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FiMaximize } from 'react-icons/fi';
 import TextInput from '../Form/TextInput';
 import SelectInput from '../Form/SelectInput';
@@ -39,6 +39,20 @@ export default function PersonalDetailsTab({
   const setSlotDualMode = (slot, mode) => setDualMode((prev) => ({ ...prev, [slot]: mode }));
 
   const [familyDualMode, setFamilyDualMode] = useState({});
+
+  // Marketing-events list for the Campaign/Event dropdown.
+  // Used when formData.referralSource is empty — populated cases display read-only.
+  // Same source as Home: /api/marketing-events/public (filtered to non-hidden,
+  // newest-first by sort_order DESC).
+  const [marketingEvents, setMarketingEvents] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/marketing-events/public')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(j => { if (!cancelled && j.success) setMarketingEvents(j.data || []); })
+      .catch(e => console.warn('marketing-events fetch failed:', e));
+    return () => { cancelled = true; };
+  }, []);
   const getFamilyDualMode = (pfx) => familyDualMode[pfx] || 'email';
   const setFamilyContactDualMode = (pfx, mode) => setFamilyDualMode((prev) => ({ ...prev, [pfx]: mode }));
 
@@ -464,39 +478,62 @@ export default function PersonalDetailsTab({
         />
       </div>
 
-      {/* ── Event / Campaign Information (read-only, from QR code) ── */}
-      {(formData.campaignType || formData.campaignName || formData.campaignStart) && (
+      {/* ── Event / Campaign Information ──
+          Visibility: section appears if ANY of the 5 fields has a value
+                      (QR-populated campaign fields OR user-selected referralSource).
+          Display rule: every populated field is read-only. Empty fields render as "—".
+          referralSource: special case — when empty, render as a SelectInput
+                          backed by the marketing-events public list. */}
+      {(formData.campaignType || formData.campaignName || formData.campaignStart
+          || formData.campaignEnd || formData.referralSource) && (
         <div className="form-section">
           <h3 className="form-section-title">{t('campaignSection', language)}</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div className="form-field">
               <label className="form-label">{t('campaignType', language)}</label>
-              <input className="form-input" type="text" value={formData.campaignType || ''} disabled readOnly />
+              <input className="form-input" type="text"
+                     value={formData.campaignType || '—'} disabled readOnly />
             </div>
             <div className="form-field">
               <label className="form-label">{t('campaignName', language)}</label>
-              <input className="form-input" type="text" value={formData.campaignName || ''} disabled readOnly />
+              <input className="form-input" type="text"
+                     value={formData.campaignName || '—'} disabled readOnly />
             </div>
             <div className="form-field">
               <label className="form-label">{t('campaignStart', language)}</label>
-              <input className="form-input" type="text" value={formData.campaignStart ? String(formData.campaignStart).slice(0, 10) : ''} disabled readOnly />
+              <input className="form-input" type="text"
+                     value={formData.campaignStart ? String(formData.campaignStart).slice(0, 10) : '—'}
+                     disabled readOnly />
             </div>
             <div className="form-field">
               <label className="form-label">{t('campaignEnd', language)}</label>
-              <input className="form-input" type="text" value={formData.campaignEnd ? String(formData.campaignEnd).slice(0, 10) : ''} disabled readOnly />
+              <input className="form-input" type="text"
+                     value={formData.campaignEnd ? String(formData.campaignEnd).slice(0, 10) : '—'}
+                     disabled readOnly />
             </div>
           </div>
 
-          {/* Editable, mandatory referral source */}
-          <TextInput
-            label={t('referralSource', language)}
-            name="referralSource"
-            value={formData.referralSource}
-            onChange={updateField}
-            mandatory
-            placeholder={t('referralSourcePlaceholder', language)}
-            error={personalErrors.referralSource}
-          />
+          {/* referralSource: read-only if populated, dropdown if empty */}
+          {formData.referralSource ? (
+            <div className="form-field">
+              <label className="form-label">{t('referralSource', language)}</label>
+              <input className="form-input" type="text"
+                     value={formData.referralSource} disabled readOnly />
+            </div>
+          ) : (
+            <SelectInput
+              label={t('referralSource', language)}
+              name="referralSource"
+              value={formData.referralSource}
+              onChange={updateField}
+              options={marketingEvents.map(ev => ({
+                value: ev.code,
+                label: language === 'vi' ? (ev.labelVi || ev.code) : (ev.labelEn || ev.code),
+              }))}
+              mandatory
+              error={personalErrors.referralSource}
+            />
+          )}
         </div>
       )}
 

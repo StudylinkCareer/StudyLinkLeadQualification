@@ -2,19 +2,32 @@
 // ─────────────────────────────────────────────────────────────────────
 // Manage marketing events:
 //   - Add (top form)
-//   - Edit (inline modal — pencil icon per row)
+//   - Edit (modal — pencil icon per row)
 //   - Delete (trash icon per row, soft delete)
+//   - "Hide from list" checkbox per row — controls visibility on the LQ
+//     student-facing dropdown. Auto-driven by start/end dates with a
+//     one-day manual override (cleared automatically at midnight).
 //
-// Each event has: name (code), English label, Vietnamese label,
-// start date, end date. Dates are stored under meta.startDate / meta.endDate.
+// VISIBILITY LIFECYCLE (computed server-side, mirrored here for UI):
+//   - Before startDate                      → hidden (checkbox CHECKED)
+//   - startDate ≤ today ≤ endDate + 1 day   → visible (checkbox UNCHECKED, disabled)
+//   - After endDate + 1 day                 → hidden (checkbox CHECKED)
+//   - manualShowDate === today              → visible today only (checkbox UNCHECKED)
+//   - Tomorrow the override expires; checkbox returns to CHECKED.
 //
 // Backing store: lookup_values WHERE category='referral_source'
+// Override stored in: lookup_values.meta.manualShowDate
 // API: /api/marketing-events
 // ─────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react';
 import { FiPlus, FiTrash2, FiEdit2, FiX, FiCheck } from 'react-icons/fi';
 import { useLanguage } from '../contexts/LanguageContext';
+
+// Today's date in ISO YYYY-MM-DD, matched against the server's todayISO()
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function MarketingEvents() {
   const { language } = useLanguage();
@@ -32,6 +45,9 @@ export default function MarketingEvents() {
 
   // ── Edit modal state ──
   const [editing, setEditing] = useState(null);  // the event being edited, or null
+
+  // ── Per-row toggle pending state — disables the checkbox while saving
+  const [togglingId, setTogglingId] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -109,18 +125,51 @@ export default function MarketingEvents() {
     }
   }
 
+  /**
+   * Toggle the visibility override for a single event.
+   *
+   * - Event currently HIDDEN  →  set manualShowDate = today (event becomes visible for today only)
+   * - Event currently VISIBLE via OVERRIDE  →  clear manualShowDate (event re-hides immediately)
+   * - Event currently VISIBLE via AUTO-ACTIVE window  →  not togglable (checkbox disabled)
+   */
+  async function handleToggleHidden(ev) {
+    const today = todayISO();
+    // If event is auto-active (visible without an override), do nothing.
+    if (!ev.hidden && ev.manualShowDate !== today) return;
+
+    const newManualShowDate = ev.hidden ? today : '';  // empty string tells server to clear it
+    setTogglingId(ev.id);
+    try {
+      const r = await fetch(`/api/marketing-events/${ev.id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manualShowDate: newManualShowDate }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'Toggle failed');
+      await load();
+    } catch (err) {
+      setError(err.message || 'Failed to toggle visibility');
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
   const inputStyle = { width: '100%', padding: '8px 10px', borderRadius: 4, border: '1px solid var(--border)' };
   const lbl        = { display:'block', fontSize:'0.8rem', fontWeight:600, marginBottom:4 };
 
+  const today = todayISO();
+
   return (
-    <div style={{ maxWidth: 1100, margin: '24px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 1200, margin: '24px auto', padding: '0 16px' }}>
       <h1 style={{ marginBottom: 8 }}>
         {language === 'vi' ? 'Sự kiện Marketing' : 'Marketing Events'}
       </h1>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 24 }}>
         {language === 'vi'
-          ? 'Danh sách các sự kiện hiển thị trong dropdown "Nguồn giới thiệu" trên trang đăng ký của học sinh. Sắp xếp từ mới nhất đến cũ nhất.'
-          : 'These events appear in the "Referral Source" dropdown on the student intake form. Ordered newest to oldest.'}
+          ? 'Danh sách các sự kiện hiển thị trong dropdown "Chiến dịch/Sự kiện" trên trang đăng ký của học sinh. Sắp xếp từ mới nhất đến cũ nhất.'
+          : 'These events appear in the "Campaign/Event" dropdown on the student intake form. Ordered newest to oldest.'}
       </p>
 
       {error && (
@@ -189,40 +238,73 @@ export default function MarketingEvents() {
               <th style={{ padding: '8px 4px' }}>Nhãn tiếng Việt</th>
               <th style={{ padding: '8px 4px', width: 110 }}>{language === 'vi' ? 'Bắt đầu' : 'Start'}</th>
               <th style={{ padding: '8px 4px', width: 110 }}>{language === 'vi' ? 'Kết thúc' : 'End'}</th>
+              <th style={{ padding: '8px 4px', width: 110, textAlign: 'center' }}>
+                {language === 'vi' ? 'Ẩn khỏi danh sách' : 'Hide from list'}
+              </th>
               <th style={{ padding: '8px 4px', width: 80 }}></th>
             </tr>
           </thead>
           <tbody>
-            {events.map((ev, idx) => (
-              <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={{ padding: '10px 4px', color: 'var(--text-secondary)' }}>{idx + 1}</td>
-                <td style={{ padding: '10px 4px', fontWeight: 500 }}>{ev.code}</td>
-                <td style={{ padding: '10px 4px', color: ev.labelEn ? 'inherit' : 'var(--text-secondary)' }}>
-                  {ev.labelEn || <em>(defaults to event name)</em>}
-                </td>
-                <td style={{ padding: '10px 4px', color: ev.labelVi ? 'inherit' : 'var(--text-secondary)' }}>
-                  {ev.labelVi || <em>(mặc định)</em>}
-                </td>
-                <td style={{ padding: '10px 4px', color: ev.startDate ? 'inherit' : 'var(--text-secondary)' }}>
-                  {ev.startDate || '—'}
-                </td>
-                <td style={{ padding: '10px 4px', color: ev.endDate ? 'inherit' : 'var(--text-secondary)' }}>
-                  {ev.endDate || '—'}
-                </td>
-                <td style={{ padding: '10px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <button onClick={() => setEditing({ ...ev })}
-                          title={language === 'vi' ? 'Sửa' : 'Edit'}
-                          style={{ background:'transparent', border:'none', cursor:'pointer', color:'#2563eb', padding:4, marginRight:4 }}>
-                    <FiEdit2 size={16}/>
-                  </button>
-                  <button onClick={() => handleDelete(ev.id, ev.code)}
-                          title={language === 'vi' ? 'Xóa' : 'Delete'}
-                          style={{ background:'transparent', border:'none', cursor:'pointer', color:'#dc2626', padding:4 }}>
-                    <FiTrash2 size={16}/>
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {events.map((ev, idx) => {
+              const isAutoActive = !ev.hidden && ev.manualShowDate !== today;
+              const isOverridden = !ev.hidden && ev.manualShowDate === today;
+              const checkboxDisabled = isAutoActive || togglingId === ev.id;
+              return (
+                <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '10px 4px', color: 'var(--text-secondary)' }}>{idx + 1}</td>
+                  <td style={{ padding: '10px 4px', fontWeight: 500 }}>{ev.code}</td>
+                  <td style={{ padding: '10px 4px', color: ev.labelEn ? 'inherit' : 'var(--text-secondary)' }}>
+                    {ev.labelEn || <em>(defaults to event name)</em>}
+                  </td>
+                  <td style={{ padding: '10px 4px', color: ev.labelVi ? 'inherit' : 'var(--text-secondary)' }}>
+                    {ev.labelVi || <em>(mặc định)</em>}
+                  </td>
+                  <td style={{ padding: '10px 4px', color: ev.startDate ? 'inherit' : 'var(--text-secondary)' }}>
+                    {ev.startDate || '—'}
+                  </td>
+                  <td style={{ padding: '10px 4px', color: ev.endDate ? 'inherit' : 'var(--text-secondary)' }}>
+                    {ev.endDate || '—'}
+                  </td>
+                  <td style={{ padding: '10px 4px', textAlign: 'center' }}>
+                    <label
+                      title={
+                        isAutoActive
+                          ? (language === 'vi' ? 'Sự kiện đang hoạt động — không thể ẩn' : 'Event is in its active window — cannot hide')
+                          : isOverridden
+                            ? (language === 'vi' ? 'Hiển thị hôm nay (đã ghi đè). Bấm để ẩn lại.' : 'Showing today (override). Click to re-hide.')
+                            : (language === 'vi' ? 'Đang ẩn. Bấm để hiển thị hôm nay.' : 'Hidden. Click to show for today only.')
+                      }
+                      style={{ display:'inline-flex', alignItems:'center', cursor: checkboxDisabled ? 'not-allowed' : 'pointer' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={ev.hidden}
+                        disabled={checkboxDisabled}
+                        onChange={() => handleToggleHidden(ev)}
+                        style={{ width:18, height:18, cursor: checkboxDisabled ? 'not-allowed' : 'pointer' }}
+                      />
+                    </label>
+                    {isOverridden && (
+                      <div style={{ fontSize:'0.7rem', color:'#2563eb', marginTop:2 }}>
+                        {language === 'vi' ? 'hôm nay' : 'today only'}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ padding: '10px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button onClick={() => setEditing({ ...ev })}
+                            title={language === 'vi' ? 'Sửa' : 'Edit'}
+                            style={{ background:'transparent', border:'none', cursor:'pointer', color:'#2563eb', padding:4, marginRight:4 }}>
+                      <FiEdit2 size={16}/>
+                    </button>
+                    <button onClick={() => handleDelete(ev.id, ev.code)}
+                            title={language === 'vi' ? 'Xóa' : 'Delete'}
+                            style={{ background:'transparent', border:'none', cursor:'pointer', color:'#dc2626', padding:4 }}>
+                      <FiTrash2 size={16}/>
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
