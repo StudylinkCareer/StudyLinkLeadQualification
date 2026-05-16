@@ -550,7 +550,7 @@ export default function LeadDetail() {
                 <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
                   <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
                 </div>
-                <EditField label="Referral Source" name="referralSource" value={d.referralSource} onChange={updateEdit}/>
+                <EditField label="Campaign/Event" name="referralSource" value={d.referralSource} onChange={updateEdit}/>
                 <EditField label="Campaign Type"   name="campaignType"   value={d.campaignType}   onChange={updateEdit}/>
                 <EditField label="Campaign Name"   name="campaignName"   value={d.campaignName}   onChange={updateEdit}/>
                 <div/>
@@ -575,7 +575,7 @@ export default function LeadDetail() {
                 <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
                   <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
                 </div>
-                <Field label="Referral Source" value={lead.referralSource}/>
+                <Field label="Campaign/Event" value={lead.referralSource}/>
                 <Field label="Campaign Type"   value={lead.campaignType}/>
                 <Field label="Campaign Name"   value={lead.campaignName}/>
                 <div/>
