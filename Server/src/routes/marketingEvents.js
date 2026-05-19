@@ -4,15 +4,17 @@
 // Restricted to Admin / Manager / Director roles for write operations.
 //
 // Dates are stored in the `meta` JSONB column in ISO YYYY-MM-DD format:
-//   { startDate, endDate, manualShowDate }
+//   { startDate, endDate, manualShowDate, manualHideDate }
 //
 // VISIBILITY LIFECYCLE per event (computed, not stored):
-//   - Before startDate                       → hidden
-//   - startDate ≤ today ≤ endDate + 1 day    → visible (auto-active)
-//   - After endDate + 1 day                  → hidden
-//   - manualShowDate === today               → visible (one-day override)
-//   - Override is single-day. Tomorrow it auto-hides again. Manager can
-//     re-activate any number of times.
+//   - manualHideDate === today              → hidden  (one-day force-hide override)
+//   - manualShowDate === today              → visible (one-day force-show override)
+//   - Otherwise auto:
+//     - Before startDate                    → hidden
+//     - startDate ≤ today ≤ endDate + 1 day → visible
+//     - After endDate + 1 day               → hidden
+//   - Both overrides are single-day. Tomorrow they're stale (no longer match
+//     today), so auto behavior resumes. User can re-set as often as required.
 //
 // Routes:
 //   GET    /api/marketing-events/public  — PUBLIC, no auth. Non-hidden events
@@ -21,8 +23,8 @@
 //   GET    /api/marketing-events         — Admin/Mgr/Dir. All events with
 //                                          computed `hidden` flag for admin UI.
 //   POST   /api/marketing-events         — Create or reactivate
-//   PUT    /api/marketing-events/:id     — Update labels, dates, OR
-//                                          manualShowDate (the one-day override)
+//   PUT    /api/marketing-events/:id     — Update labels, dates, OR override
+//                                          (manualShowDate / manualHideDate)
 //   DELETE /api/marketing-events/:id     — Soft delete
 // ─────────────────────────────────────────────────────────────────────
 
@@ -58,30 +60,32 @@ function addDays(dateStr, n) {
 /**
  * Compute the `hidden` flag for an event given its meta JSONB.
  * Pure function — relies only on input + today's date.
+ *
+ * Precedence:
+ *   1. manualHideDate === today  → hidden (force-hide today only)
+ *   2. manualShowDate === today  → visible (force-show today only)
+ *   3. Auto-active window from startDate/endDate
  */
 function computeHidden(meta) {
   const today          = todayISO();
   const startDate      = meta?.startDate      || null;
   const endDate        = meta?.endDate        || null;
   const manualShowDate = meta?.manualShowDate || null;
+  const manualHideDate = meta?.manualHideDate || null;
 
-  // Manual override for today wins over everything else
+  // Manual overrides win, in priority order. Both are single-day.
+  if (manualHideDate === today) return true;
   if (manualShowDate === today) return false;
 
-  // No date constraints → always visible (rare; admins can leave dates blank)
+  // Auto window
   if (!startDate && !endDate) return false;
-
-  // Pre-event window: hidden until midnight of startDate
   if (startDate && today < startDate) return true;
-
-  // Post-event window: active until end+1 inclusive, hidden from end+2 onward
   if (endDate && today > addDays(endDate, 1)) return true;
 
-  // Inside the auto-active window
+  // In the auto-active window
   return false;
 }
 
-// Helper: build the row shape returned to the client.
 function shapeRow(r) {
   const meta = r.meta || {};
   return {
@@ -94,14 +98,13 @@ function shapeRow(r) {
     startDate:      meta.startDate      || null,
     endDate:        meta.endDate        || null,
     manualShowDate: meta.manualShowDate || null,
+    manualHideDate: meta.manualHideDate || null,
     hidden:         computeHidden(meta),
   };
 }
 
 
 // ── PUBLIC list (no auth) — non-hidden events only ───────────
-// IMPORTANT: this route is declared before /:id so it doesn't get
-// captured as a numeric id.
 router.get('/public', async (req, res) => {
   try {
     const r = await pool.query(
@@ -178,7 +181,6 @@ router.post('/', requireMarketingRole, async (req, res) => {
     res.json({ success: true, data: shapeRow(ins.rows[0]) });
   } catch (err) {
     if (err.code === '23505') {
-      // Row exists (possibly soft-deleted). Reactivate + refresh labels/dates.
       try {
         const re = await pool.query(
           `UPDATE lookup_values
@@ -206,7 +208,7 @@ router.post('/', requireMarketingRole, async (req, res) => {
 });
 
 
-// ── Update (labels, dates, OR manualShowDate) ───────────────
+// ── Update (labels, dates, OR overrides) ────────────────────
 // Any subset of fields can be provided. The meta JSONB is merged
 // rather than replaced so we don't drop sibling keys.
 router.put('/:id', requireMarketingRole, async (req, res) => {
@@ -216,17 +218,17 @@ router.put('/:id', requireMarketingRole, async (req, res) => {
   const labelEn        = req.body.labelEn        !== undefined ? (String(req.body.labelEn).trim()        || null) : undefined;
   const labelVi        = req.body.labelVi        !== undefined ? (String(req.body.labelVi).trim()        || null) : undefined;
   const startDate      = req.body.startDate      !== undefined ? (String(req.body.startDate).trim()      || null) : undefined;
-  const endDate        = req.body.endDate        !== undefined ? (String(req.body.endDate).trim()        || null) : undefined;
+  const endDate        = req.body.endDate        !== undefined ? (String(req.body.endDate).trim()      || null) : undefined;
   const manualShowDate = req.body.manualShowDate !== undefined ? (String(req.body.manualShowDate).trim() || null) : undefined;
+  const manualHideDate = req.body.manualHideDate !== undefined ? (String(req.body.manualHideDate).trim() || null) : undefined;
 
   if (labelEn === undefined && labelVi === undefined
       && startDate === undefined && endDate === undefined
-      && manualShowDate === undefined) {
+      && manualShowDate === undefined && manualHideDate === undefined) {
     return res.status(400).json({ success: false, error: 'No fields to update' });
   }
 
   try {
-    // Load existing meta so we can merge without dropping sibling keys.
     const existing = await pool.query(
       `SELECT meta FROM lookup_values WHERE id = $1 AND category = 'referral_source'`,
       [id]
@@ -237,11 +239,13 @@ router.put('/:id', requireMarketingRole, async (req, res) => {
     if (startDate      !== undefined) { if (startDate)      meta.startDate      = startDate;      else delete meta.startDate; }
     if (endDate        !== undefined) { if (endDate)        meta.endDate        = endDate;        else delete meta.endDate; }
     if (manualShowDate !== undefined) { if (manualShowDate) meta.manualShowDate = manualShowDate; else delete meta.manualShowDate; }
+    if (manualHideDate !== undefined) { if (manualHideDate) meta.manualHideDate = manualHideDate; else delete meta.manualHideDate; }
 
     const sets = [], vals = [];
     if (labelEn !== undefined) { vals.push(labelEn); sets.push(`label_en = $${vals.length}`); }
     if (labelVi !== undefined) { vals.push(labelVi); sets.push(`label_vi = $${vals.length}`); }
-    if (startDate !== undefined || endDate !== undefined || manualShowDate !== undefined) {
+    if (startDate !== undefined || endDate !== undefined
+        || manualShowDate !== undefined || manualHideDate !== undefined) {
       vals.push(JSON.stringify(meta)); sets.push(`meta = $${vals.length}::jsonb`);
     }
     vals.push(id);

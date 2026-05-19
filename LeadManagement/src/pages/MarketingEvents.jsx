@@ -5,26 +5,23 @@
 //   - Edit (modal — pencil icon per row)
 //   - Delete (trash icon per row, soft delete)
 //   - "Hide from list" checkbox per row — controls visibility on the LQ
-//     student-facing dropdown. Auto-driven by start/end dates with a
-//     one-day manual override (cleared automatically at midnight).
+//     student-facing dropdown.
 //
-// VISIBILITY LIFECYCLE (computed server-side, mirrored here for UI):
-//   - Before startDate                      → hidden (checkbox CHECKED)
-//   - startDate ≤ today ≤ endDate + 1 day   → visible (checkbox UNCHECKED, disabled)
-//   - After endDate + 1 day                 → hidden (checkbox CHECKED)
-//   - manualShowDate === today              → visible today only (checkbox UNCHECKED)
-//   - Tomorrow the override expires; checkbox returns to CHECKED.
-//
-// Backing store: lookup_values WHERE category='referral_source'
-// Override stored in: lookup_values.meta.manualShowDate
-// API: /api/marketing-events
+// VISIBILITY MODEL (computed server-side, mirrored here for UI):
+//   The checkbox is ALWAYS interactive. Each click toggles the visibility
+//   for TODAY ONLY.
+//   - Auto-active event + click  → manualHideDate = today (force-hide today)
+//   - Auto-hidden event + click  → manualShowDate = today (force-show today)
+//   - Re-clicking when an override is active for today clears that override
+//     (revert to auto behaviour).
+//   - Both overrides are single-day. Tomorrow they expire automatically.
+//   - User may re-set as often as required.
 // ─────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react';
 import { FiPlus, FiTrash2, FiEdit2, FiX, FiCheck } from 'react-icons/fi';
 import { useLanguage } from '../contexts/LanguageContext';
 
-// Today's date in ISO YYYY-MM-DD, matched against the server's todayISO()
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -43,10 +40,7 @@ export default function MarketingEvents() {
   const [endDate, setEndDate]      = useState('');
   const [adding, setAdding]        = useState(false);
 
-  // ── Edit modal state ──
-  const [editing, setEditing] = useState(null);  // the event being edited, or null
-
-  // ── Per-row toggle pending state — disables the checkbox while saving
+  const [editing, setEditing]    = useState(null);
   const [togglingId, setTogglingId] = useState(null);
 
   async function load() {
@@ -126,25 +120,47 @@ export default function MarketingEvents() {
   }
 
   /**
-   * Toggle the visibility override for a single event.
+   * Toggle the visibility override for a single event. Always togglable.
    *
-   * - Event currently HIDDEN  →  set manualShowDate = today (event becomes visible for today only)
-   * - Event currently VISIBLE via OVERRIDE  →  clear manualShowDate (event re-hides immediately)
-   * - Event currently VISIBLE via AUTO-ACTIVE window  →  not togglable (checkbox disabled)
+   *                          Current state          → Action sent to server
+   * ─────────────────────────────────────────────────────────────────────────
+   * Auto-active, no override (hidden=false)         → set manualHideDate=today
+   * Showing via manualShowDate=today (hidden=false) → clear manualShowDate (revert to auto-hidden)
+   * Auto-hidden, no override (hidden=true)          → set manualShowDate=today
+   * Hidden via manualHideDate=today (hidden=true)   → clear manualHideDate (revert to auto-active)
+   *
+   * In all cases we explicitly clear the OPPOSITE override too so we never
+   * end up with both set on the same row.
    */
   async function handleToggleHidden(ev) {
     const today = todayISO();
-    // If event is auto-active (visible without an override), do nothing.
-    if (!ev.hidden && ev.manualShowDate !== today) return;
+    let payload;
 
-    const newManualShowDate = ev.hidden ? today : '';  // empty string tells server to clear it
+    if (ev.hidden) {
+      // Currently hidden. If hidden by a today-override, just clear it.
+      if (ev.manualHideDate === today) {
+        payload = { manualHideDate: '', manualShowDate: '' };
+      } else {
+        // Auto-hidden → force-show today.
+        payload = { manualShowDate: today, manualHideDate: '' };
+      }
+    } else {
+      // Currently visible. If visible by today-override, just clear it.
+      if (ev.manualShowDate === today) {
+        payload = { manualShowDate: '', manualHideDate: '' };
+      } else {
+        // Auto-active → force-hide today.
+        payload = { manualHideDate: today, manualShowDate: '' };
+      }
+    }
+
     setTogglingId(ev.id);
     try {
       const r = await fetch(`/api/marketing-events/${ev.id}`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manualShowDate: newManualShowDate }),
+        body: JSON.stringify(payload),
       });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'Toggle failed');
@@ -238,7 +254,7 @@ export default function MarketingEvents() {
               <th style={{ padding: '8px 4px' }}>Nhãn tiếng Việt</th>
               <th style={{ padding: '8px 4px', width: 110 }}>{language === 'vi' ? 'Bắt đầu' : 'Start'}</th>
               <th style={{ padding: '8px 4px', width: 110 }}>{language === 'vi' ? 'Kết thúc' : 'End'}</th>
-              <th style={{ padding: '8px 4px', width: 110, textAlign: 'center' }}>
+              <th style={{ padding: '8px 4px', width: 120, textAlign: 'center' }}>
                 {language === 'vi' ? 'Ẩn khỏi danh sách' : 'Hide from list'}
               </th>
               <th style={{ padding: '8px 4px', width: 80 }}></th>
@@ -246,9 +262,10 @@ export default function MarketingEvents() {
           </thead>
           <tbody>
             {events.map((ev, idx) => {
-              const isAutoActive = !ev.hidden && ev.manualShowDate !== today;
-              const isOverridden = !ev.hidden && ev.manualShowDate === today;
-              const checkboxDisabled = isAutoActive || togglingId === ev.id;
+              const showOverrideToday = ev.manualShowDate === today;
+              const hideOverrideToday = ev.manualHideDate === today;
+              const overridden        = showOverrideToday || hideOverrideToday;
+              const saving            = togglingId === ev.id;
               return (
                 <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '10px 4px', color: 'var(--text-secondary)' }}>{idx + 1}</td>
@@ -268,23 +285,27 @@ export default function MarketingEvents() {
                   <td style={{ padding: '10px 4px', textAlign: 'center' }}>
                     <label
                       title={
-                        isAutoActive
-                          ? (language === 'vi' ? 'Sự kiện đang hoạt động — không thể ẩn' : 'Event is in its active window — cannot hide')
-                          : isOverridden
-                            ? (language === 'vi' ? 'Hiển thị hôm nay (đã ghi đè). Bấm để ẩn lại.' : 'Showing today (override). Click to re-hide.')
-                            : (language === 'vi' ? 'Đang ẩn. Bấm để hiển thị hôm nay.' : 'Hidden. Click to show for today only.')
+                        saving
+                          ? (language === 'vi' ? 'Đang lưu…' : 'Saving…')
+                          : ev.hidden
+                            ? (hideOverrideToday
+                                ? (language === 'vi' ? 'Đã ẩn hôm nay. Bấm để khôi phục.' : 'Hidden today (override). Click to revert.')
+                                : (language === 'vi' ? 'Tự động ẩn. Bấm để hiển thị hôm nay.' : 'Auto-hidden. Click to show for today.'))
+                            : (showOverrideToday
+                                ? (language === 'vi' ? 'Hiển thị hôm nay (ghi đè). Bấm để khôi phục.' : 'Showing today (override). Click to revert.')
+                                : (language === 'vi' ? 'Đang hoạt động. Bấm để ẩn hôm nay.' : 'Auto-active. Click to hide for today.'))
                       }
-                      style={{ display:'inline-flex', alignItems:'center', cursor: checkboxDisabled ? 'not-allowed' : 'pointer' }}
+                      style={{ display:'inline-flex', alignItems:'center', cursor: saving ? 'wait' : 'pointer' }}
                     >
                       <input
                         type="checkbox"
                         checked={ev.hidden}
-                        disabled={checkboxDisabled}
+                        disabled={saving}
                         onChange={() => handleToggleHidden(ev)}
-                        style={{ width:18, height:18, cursor: checkboxDisabled ? 'not-allowed' : 'pointer' }}
+                        style={{ width:18, height:18, cursor: saving ? 'wait' : 'pointer' }}
                       />
                     </label>
-                    {isOverridden && (
+                    {overridden && (
                       <div style={{ fontSize:'0.7rem', color:'#2563eb', marginTop:2 }}>
                         {language === 'vi' ? 'hôm nay' : 'today only'}
                       </div>
