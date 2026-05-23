@@ -63,7 +63,8 @@ const MULTI_KEYS = [
   'interaction','destinationCountry','gpa','budget','confidence',
   'counselor','seniorCounselor','presales','marketingStaff',
   // Personal
-  'yearOfBirth','residency','schoolEvent','preferredSocial','socialConsent',
+  //  'yearOfBirth','residency','schoolEvent','preferredSocial','socialConsent',
+  'yearOfBirth','residency','referralSource','preferredSocial','socialConsent',
   // Self assessment
   'scholarshipDemand','immigrationHistory','sponsorIncome','incomeEvidence',
   'studyPlanGap','ultimateObjective',
@@ -81,7 +82,8 @@ const EMPTY_FILTERS = {
   gpa:[], budget:[], confidence:[], counselor:[], seniorCounselor:[],
   presales:[], marketingStaff:[],
   // Personal
-  yearOfBirth:[], residency:[], schoolEvent:[], preferredSocial:[], socialConsent:[],
+  //yearOfBirth:[], residency:[], schoolEvent:[], preferredSocial:[], socialConsent:[],
+  yearOfBirth:[], residency:[], referralSource:[], preferredSocial:[], socialConsent:[],
   // Self assessment
   scholarshipDemand:[], immigrationHistory:[], sponsorIncome:[],
   incomeEvidence:[], studyPlanGap:[], ultimateObjective:[],
@@ -115,7 +117,8 @@ const FILTER_CONFIG = [
   // Personal
   { colKey:'yearOfBirth',        label:'Year of Birth',   type:'multi',     filterKey:'yearOfBirth' },
   { colKey:'residency',          label:'Residency',       type:'multi',     filterKey:'residency' },
-  { colKey:'schoolEvent',        label:'School/Event',    type:'multi',     filterKey:'schoolEvent' },
+  //{ colKey:'schoolEvent',        label:'School/Event',    type:'multi',     filterKey:'schoolEvent' },
+  { colKey:'referralSource',     label:'Campaign/Event',  type:'multi',     filterKey:'referralSource' },
   { colKey:'preferredSocial',    label:'Social Platform', type:'multi',     filterKey:'preferredSocial' },
   { colKey:'socialConsent',      label:'Connect With Us', type:'multi',     filterKey:'socialConsent' },
   // Self assessment
@@ -972,7 +975,8 @@ export default function Leads() {
       // Personal — mix of free-form (from data) and canonical (DB lookup)
       yearOfBirth:        get('yearOfBirth'),
       residency:          provinces.map(p => p.code),
-      schoolEvent:        get('schoolEvent'),
+      // schoolEvent:        get('schoolEvent'),
+      referralSource:     get('referralSource'),
       preferredSocial:    get('preferredSocial'),
       socialConsent:      get('socialConsent'),
       // Self assessment — canonical lists from DB lookup
@@ -1075,7 +1079,8 @@ export default function Leads() {
     // Personal
     if (filters.yearOfBirth?.length)         r = r.filter(l => mf(filters.yearOfBirth,         l.yearOfBirth));
     if (filters.residency?.length)           r = r.filter(l => mf(filters.residency,           resolveProvince(l.residency)));
-    if (filters.schoolEvent?.length)         r = r.filter(l => mf(filters.schoolEvent,         l.schoolEvent));
+    // if (filters.schoolEvent?.length)         r = r.filter(l => mf(filters.schoolEvent,         l.schoolEvent));
+    if (filters.referralSource?.length)      r = r.filter(l => mf(filters.referralSource,      l.referralSource));
     if (filters.preferredSocial?.length)     r = r.filter(l => mf(filters.preferredSocial,     l.preferredSocial));
     if (filters.socialConsent?.length)       r = r.filter(l => mf(filters.socialConsent,       l.socialConsent));
     // Self assessment
