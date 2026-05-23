@@ -303,11 +303,17 @@ function MultiFilter({ label, selected, onChange, options, labelFor = (v) => v }
 // portal-rendered so it can escape the table-wrap's overflow boundary.
 function ColumnFilterChip({ label, selected, onChange, options, labelFor = (v) => v }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const anchorRef = useRef(null);
 
   const toggle = v => onChange(selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v]);
   const count = selected.length;
   const active = count > 0;
+
+  // Filter the displayed options by the search input (case-insensitive, matches against the visible label)
+  const filteredOptions = search.trim()
+    ? options.filter(opt => String(labelFor(opt) || opt).toLowerCase().includes(search.trim().toLowerCase()))
+    : options;
 
   return (
     <>
@@ -328,7 +334,7 @@ function ColumnFilterChip({ label, selected, onChange, options, labelFor = (v) =
         }}>
         {active ? `${count} active` : <span>＋ filter</span>}
       </button>
-      <ChipPopover anchorRef={anchorRef} open={open} onClose={() => setOpen(false)} minWidth={200}>
+      <ChipPopover anchorRef={anchorRef} open={open} onClose={() => { setOpen(false); setSearch(''); }} minWidth={220}>
         <div style={{ padding:'0.4rem 0' }}>
           <div style={{
             padding:'0.3rem 0.6rem', fontSize:'0.7rem',
@@ -343,6 +349,26 @@ function ColumnFilterChip({ label, selected, onChange, options, labelFor = (v) =
               }}>Clear</button>
             )}
           </div>
+          {/* Search box — filters the options as you type. Shown only when there are
+              enough options to make it useful (avoids clutter on short lists). */}
+          {options.length > 5 && (
+            <div style={{ padding:'0.3rem 0.6rem', borderBottom:'1px solid var(--border)' }}>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search…"
+                onClick={e => e.stopPropagation()}
+                style={{
+                  width:'100%', padding:'0.25rem 0.5rem',
+                  fontSize:'0.75rem', border:'1px solid var(--border)',
+                  borderRadius:'4px', background:'var(--bg-primary)',
+                  color:'var(--text-primary)', outline:'none',
+                  boxSizing:'border-box',
+                }}
+              />
+            </div>
+          )}
           {options.length === 0 && (
             <div style={{ padding:'0.4rem 0.6rem', color:'var(--text-secondary)', fontSize:'0.775rem' }}>
               No values
@@ -358,7 +384,12 @@ function ColumnFilterChip({ label, selected, onChange, options, labelFor = (v) =
             <input type="checkbox" checked={selected.includes(NONE_VALUE)} onChange={() => toggle(NONE_VALUE)} style={{ cursor:'pointer' }}/>
             <span>(none)</span>
           </label>
-          {options.map(opt => (
+          {filteredOptions.length === 0 && search.trim() && (
+            <div style={{ padding:'0.4rem 0.6rem', color:'var(--text-secondary)', fontSize:'0.75rem', fontStyle:'italic' }}>
+              No matches
+            </div>
+          )}
+          {filteredOptions.map(opt => (
             <label key={opt} style={{
               display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.3rem 0.6rem',
               cursor:'pointer', fontSize:'0.775rem',
@@ -939,7 +970,8 @@ export default function Leads() {
 
   // ── Unique values for multi-select filter options ──────────
   const uniqueValues = useMemo(() => {
-    const get = key => [...new Set(leads.map(l => l[key]).filter(Boolean))].sort();
+    const get = key => [...new Set(leads.map(l => l[key]).filter(Boolean))]
+      .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }));
     // Split comma-separated multi-value fields into individual values for filter options.
     // Used by destinationCountry where one lead may target multiple countries
     // (e.g. "Australia, Canada, UK") — we want each as a separate filter option.
@@ -952,7 +984,7 @@ export default function Leads() {
           if (t) all.add(t);
         });
       });
-      return [...all].sort();
+      return [...all].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }));
     };
     return {
       // Lead management — canonical lists from DB lookup
