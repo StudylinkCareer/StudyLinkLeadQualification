@@ -15,7 +15,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -30,6 +30,7 @@ export default function Sidebar() {
 
   const canManageStaff   = canDo('staff', 'manage');
   const canManageColumns = canDo('column_config', 'manage');
+  const canViewReports   = canDo('reports', 'view');
   const showAdminSection = canManageStaff || canManageColumns;
 
   async function handleLogout() {
@@ -72,6 +73,15 @@ export default function Sidebar() {
         >
           <FiUsers size={16} /> {t('sidebar.leads', language)}
         </button>
+
+        {canViewReports && (
+          <button
+            className={`nav-item ${isActive('/reports/activity') ? 'active' : ''}`}
+            onClick={() => navigate('/reports/activity')}
+          >
+            <FiPhoneCall size={16} /> {language === 'vi' ? 'Báo cáo hoạt động' : 'Activity Report'}
+          </button>
+        )}
 
         {['Admin', 'Manager', 'Director'].includes(staff?.role) && (
         <button
