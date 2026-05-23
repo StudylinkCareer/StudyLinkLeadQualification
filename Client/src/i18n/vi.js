@@ -2,7 +2,7 @@
 // CHANGES:
 //   - Updated per StudyLink_Lexicon_Review.xlsx (April 2026)
 //   - Added ocean_q1–q15 translation keys (Vietnamese)
-//   - Added campaignSection, campaignType, campaignName, campaignStart, campaignEnd.
+//   - Added campaignSection, campaignType, campaignName, campaignStart, campaignEnd
 
 const vi = {
   languageLabel: 'Ngôn ngữ',
@@ -114,7 +114,7 @@ const vi = {
   facebookProfile: 'Trang Facebook',
   facebookProfilePlaceholder: 'URL hồ sơ Facebook',
   studyPlansLabel: 'Ước mơ',
-  referralSource: 'Chiến dịch/Sự kiện',
+  referralSource: 'Nguồn giới thiệu',
   referralSourcePlaceholder: 'Bạn biết đến chúng tôi từ đâu?',
   
   campaignSection: 'Thông tin sự kiện',

@@ -2,22 +2,11 @@
 // CHANGES:
 //   - Added campaignType, campaignName, campaignStart, campaignEnd to FIELD_LABELS
 //   - Added 4 read-only campaign fields to Student Information view section
-//   - Event/Campaign block now renders unconditionally; <Field> shows '—' for empty values.
-//   - Permissions are now fully table-driven via usePermissions(). The
-//     previous PERMS object (hardcoded role-name arrays) and canDo() helper
-//     have been removed. Each check now reads role_permissions through
-//     the RBAC tables. Mapping from the old PERMS rules to the new helpers:
-//       canEdit              → canDoOnLead('leads', 'edit', lead)
-//       canEditAssignment    → canDoOnLead('leads', 'assign', lead)
-//       canRecalculate       → canDoOnLead('leads', 'recalculate', lead)
-//       canDelayCloseDate    → canDoOnLead('leads', 'delay_close_date', lead)
-//       canWriteNote.<kind>  → canDo('notes', 'write_<kind>')
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { usePermissions } from '../contexts/PermissionsContext';
 import Watermark from '../components/Watermark';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
@@ -45,8 +34,18 @@ const STONE_MESSAGES = {
   Diamond:  'You can aim at the global "cathedrals" of knowledge, places reserved for the most excellent individuals. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
 };
 
-// (Hardcoded PERMS object removed — all permission checks now go through
-//  usePermissions(). See header comment above for the mapping.)
+// ── Permissions config ────────────────────────────────────────────────────────
+const PERMS = {
+  canEdit:           ['Counselor', 'Manager', 'Admin', 'Director'],
+  canEditAssignment: ['Manager', 'Admin'],
+  canRecalculate:    ['Manager', 'Admin', 'Counselor'],
+  canDelayCloseDate: ['Manager', 'Admin', 'Director'],   // only these roles can push Close Date later
+  canWriteNote: {
+    counselor:  ['Counselor', 'Manager', 'Admin'],
+    presales:   ['Counselor', 'Manager', 'Admin'],
+    management: ['Director',  'Manager', 'Admin'],
+  },
+};
 
 const LEAD_STATUSES = [
   'New',
@@ -112,7 +111,7 @@ const FIELD_LABELS = {
   campaignStart:'Campaign Start', campaignEnd:'Campaign End',
 };
 
-// (canDo helper removed — permissions come from usePermissions().)
+function canDo(perm, role) { return Array.isArray(perm) ? perm.includes(role) : false; }
 
 function formatDate(dt) {
   if (!dt) return '';
@@ -180,7 +179,7 @@ export default function LeadDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
   const { staff } = useAuth();
-  const { canDo, canDoOnLead, canEditField, scope } = usePermissions();
+  const role      = staff?.role || '';
 
   const [lead, setLead]         = useState(null);
   const [notes, setNotes]       = useState([]);
@@ -199,7 +198,6 @@ export default function LeadDetail() {
   const [recalculating, setRecalculating] = useState(false);
   const [recalcOcean, setRecalcOcean]     = useState(false);
   const [oceanResult, setOceanResult]     = useState(null);
-  const [accessDenied, setAccessDenied]   = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -233,15 +231,8 @@ export default function LeadDetail() {
           ...getArchetype(scores),
         });
       }
-    }).catch(e => {
-      // Backend's getStudent returns 403 with this exact phrasing when a
-      // Counselor tries to open a lead they're not assigned to.
-      if (e?.message && /access denied|do not have permission|assigned to another/i.test(e.message)) {
-        setAccessDenied(true);
-      } else {
-        console.error(e);
-      }
-    }).finally(() => setLoading(false));
+    }).catch(e=>console.error(e))
+      .finally(()=>setLoading(false));
   }, [id]);
 
   function enterEdit() { setEditData({...lead}); setEditMode(true); }
@@ -274,7 +265,7 @@ export default function LeadDetail() {
         const newDate = new Date(editData.closeDate);
         const dateChanged = oldDate.getTime() !== newDate.getTime();
         const isLater     = newDate > oldDate;
-        if (dateChanged && isLater && !canDoOnLead('leads', 'delay_close_date', lead)) {
+        if (dateChanged && isLater && !canDo(PERMS.canDelayCloseDate, role)) {
           alert(
             'You cannot push the Close Date later once the lead has progressed past "New".\n\n' +
             'Only Managers, Admins, or Directors can delay a Close Date.'
@@ -315,7 +306,7 @@ export default function LeadDetail() {
         setEditMode(false);
         setEditData({});
       }
-      if (canDoOnLead('leads', 'assign', lead)) {
+      if (canDo(PERMS.canEditAssignment, role)) {
         await staffAPI.assign(id, {
           counselor:       assign.counselor,
           seniorCounselor: assign.seniorCounselor,
@@ -385,52 +376,11 @@ export default function LeadDetail() {
   }
 
   if (loading) return <div className="loading-center">Loading...</div>;
+  if (!lead)   return <div className="page-body"><div className="alert alert--error">Lead not found</div></div>;
 
-  if (accessDenied) return (
-    <div>
-      <div className="page-header">
-        <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-          <button className="btn btn--ghost btn--icon" onClick={() => navigate('/leads')}>
-            <FiArrowLeft size={16}/>
-          </button>
-          <span className="page-title">Access denied</span>
-        </div>
-      </div>
-      <div className="page-body">
-        <div className="alert alert--error" style={{ marginBottom:'1rem' }}>
-          You don't have permission to view this lead. It's assigned to another staff member.
-        </div>
-        <button className="btn btn--secondary btn--sm" onClick={() => navigate('/leads')}>
-          ← Back to Leads
-        </button>
-      </div>
-    </div>
-  );
-
-  if (!lead) return (
-    <div>
-      <div className="page-header">
-        <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-          <button className="btn btn--ghost btn--icon" onClick={() => navigate('/leads')}>
-            <FiArrowLeft size={16}/>
-          </button>
-          <span className="page-title">Lead not found</span>
-        </div>
-      </div>
-      <div className="page-body">
-        <div className="alert alert--error" style={{ marginBottom:'1rem' }}>
-          This lead doesn't exist or may have been deleted.
-        </div>
-        <button className="btn btn--secondary btn--sm" onClick={() => navigate('/leads')}>
-          ← Back to Leads
-        </button>
-      </div>
-    </div>
-  );
-
-  const canEdit   = canDoOnLead('leads', 'edit',        lead);
-  const canAssign = canDoOnLead('leads', 'assign',      lead);
-  const canRecalc = canDoOnLead('leads', 'recalculate', lead);
+  const canEdit   = canDo(PERMS.canEdit, role);
+  const canAssign = canDo(PERMS.canEditAssignment, role);
+  const canRecalc = canDo(PERMS.canRecalculate, role);
   const d         = editMode ? editData : lead;
 
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
@@ -526,61 +476,35 @@ export default function LeadDetail() {
             </div>
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                {/* Contact — only render edit input if user has 'edit' perm.
-                    Otherwise show the masked/read-only value so users still
-                    see what's there but can't change it. */}
-                {canEditField('email')
-                  ? <EditField label="Email" name="email" value={d.email} onChange={updateEdit} type="email"/>
-                  : <Field label="Email" value={lead.email}/>}
-                {canEditField('phone')
-                  ? <EditField label="Phone" name="phone" value={d.phone} onChange={updateEdit}/>
-                  : <Field label="Phone" value={lead.phone}/>}
-                <EditField label="Study Plans"     name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
-                <EditField label="Destination"     name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
-                <EditField label="Timeline"        name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
-                <EditField label="School/Event"    name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
-                <EditField label="Year of Birth"   name="yearOfBirth"        value={d.yearOfBirth}        onChange={updateEdit}/>
-                <EditField label="Residency"       name="residency"          value={d.residency}          onChange={updateEdit}/>
-                {/* Stone Tier / Risk Score / Created / Updated are auto-calculated or system — read-only even in edit mode */}
-                <Field label="Stone Tier"    value={lead.stoneTier}/>
-                <Field label="Risk Score"    value={lead.riskScore}/>
-                <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
-                <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
-                {/* Campaign / Event section header */}
-                <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
-                  <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
-                </div>
-                <EditField label="Campaign/Event" name="referralSource" value={d.referralSource} onChange={updateEdit}/>
-                <EditField label="Campaign Type"   name="campaignType"   value={d.campaignType}   onChange={updateEdit}/>
-                <EditField label="Campaign Name"   name="campaignName"   value={d.campaignName}   onChange={updateEdit}/>
-                <div/>
-                <EditField label="Event Start"     name="campaignStart" value={d.campaignStart ? String(d.campaignStart).slice(0,10) : ''} onChange={updateEdit} type="date"/>
-                <EditField label="Event End"       name="campaignEnd"   value={d.campaignEnd   ? String(d.campaignEnd).slice(0,10)   : ''} onChange={updateEdit} type="date"/>
+                <EditField label="Study Plans"  name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
+                <EditField label="Destination"  name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
+                <EditField label="Timeline"     name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
+                <EditField label="School/Event" name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <Field label="Email"           value={lead.email}/>
-                <Field label="Phone"           value={lead.phone}/>
-                <Field label="Stone Tier"      value={lead.stoneTier}/>
-                <Field label="Risk Score"      value={lead.riskScore}/>
-                <Field label="Study Plans"     value={lead.studyPlans}/>
-                <Field label="Destination"     value={lead.destinationCountry}/>
-                <Field label="Timeline"        value={lead.timeline}/>
-                <Field label="School/Event"    value={lead.schoolEvent}/>
-                <Field label="Year of Birth"   value={lead.yearOfBirth}/>
-                <Field label="Residency"       value={lead.residency}/>
-                <Field label="Created"         value={formatShortDate(lead.createdAt)}/>
-                <Field label="Updated"         value={formatShortDate(lead.updatedAt)}/>
+                <Field label="Email"         value={lead.email}/>
+                <Field label="Phone"         value={lead.phone}/>
+                <Field label="Stone Tier"    value={lead.stoneTier}/>
+                <Field label="Risk Score"    value={lead.riskScore}/>
+                <Field label="Study Plans"   value={lead.studyPlans}/>
+                <Field label="Destination"   value={lead.destinationCountry}/>
+                <Field label="Timeline"      value={lead.timeline}/>
+                <Field label="School/Event"  value={lead.schoolEvent}/>
+                <Field label="Year of Birth" value={lead.yearOfBirth}/>
+                <Field label="Residency"     value={lead.residency}/>
+                <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
+                <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
                 {/* ── Campaign / Event fields (read-only) ── */}
-                <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
-                  <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
-                </div>
-                <Field label="Campaign/Event" value={lead.referralSource}/>
-                <Field label="Campaign Type"   value={lead.campaignType}/>
-                <Field label="Campaign Name"   value={lead.campaignName}/>
-                <div/>
-                <Field label="Event Start"     value={formatShortDate(lead.campaignStart)}/>
-                <Field label="Event End"       value={formatShortDate(lead.campaignEnd)}/>
+                {(lead.campaignType || lead.campaignName || lead.campaignStart) && (<>
+                  <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
+                    <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
+                  </div>
+                  <Field label="Campaign Type"  value={lead.campaignType}/>
+                  <Field label="Campaign Name"  value={lead.campaignName}/>
+                  <Field label="Event Start"    value={formatShortDate(lead.campaignStart)}/>
+                  <Field label="Event End"      value={formatShortDate(lead.campaignEnd)}/>
+                </>)}
               </div>
             )}
           </div>
@@ -850,7 +774,7 @@ export default function LeadDetail() {
             <div style={{ marginBottom:'1.25rem' }}>
               <div style={{ display:'flex', gap:'0.75rem', marginBottom:'0.75rem' }}>
                 {Object.entries(NOTE_TYPES).map(([type, label]) => (
-                  canDo('notes', `write_${type}`) && (
+                  PERMS.canWriteNote[type]?.includes(role) && (
                     <button key={type}
                       className={`btn btn--sm ${noteType===type?'btn--primary':'btn--secondary'}`}
                       onClick={()=>setNoteType(type)}>
@@ -859,7 +783,7 @@ export default function LeadDetail() {
                   )
                 ))}
               </div>
-              {canDo('notes', `write_${noteType}`) && (
+              {PERMS.canWriteNote[noteType]?.includes(role) && (
                 <>
                   {!canAddNotes && (
                     <div style={{
