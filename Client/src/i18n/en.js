@@ -2,7 +2,7 @@
 // CHANGES:
 //   - Updated per StudyLink_Lexicon_Review.xlsx (April 2026)
 //   - Added ocean_q1–q15 translation keys
-//   - Added campaignSection, campaignType, campaignName, campaignStart, campaignEnd
+//   - Added campaignSection, campaignType, campaignName, campaignStart, campaignEnd.
 
 const en = {
   // ── Language selector ──
@@ -117,7 +117,7 @@ const en = {
   facebookProfile: 'Facebook Profile',
   facebookProfilePlaceholder: 'Facebook profile URL',
   studyPlansLabel: 'Dream',
-  referralSource: 'Referral Source',
+  referralSource: 'Campaign/Event',
   referralSourcePlaceholder: 'How did you hear about us?',
 
   campaignSection: 'Event Information',
