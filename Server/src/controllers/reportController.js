@@ -147,6 +147,34 @@ async function notesActivity(req, res, next) {
     const result = await pool.query(sql, params);
     const rows   = result.rows.map(objectToCamelCase);
 
+    // ── Second query: ALL leads (irrespective of notes) ──────
+    // The notes query above is filtered by date window + RBAC scope; we
+    // still want totals to respect those constraints (RBAC scope yes,
+    // date window no — totals are point-in-time, not date-bounded).
+    //
+    // We don't apply tier/status/staff filters from the query string here
+    // because the frontend uses this full set to compute "leads in this
+    // drill context" at every level. Applying those filters server-side
+    // would prevent the frontend from re-aggregating during drill.
+    const leadWhere  = [];
+    const leadParams = [];
+    if (scope === 'own') {
+      leadParams.push(staffName);
+      const p = `$${leadParams.length}`;
+      leadWhere.push(`(counselor = ${p} OR senior_counselor = ${p} OR presales = ${p} OR marketing_staff = ${p})`);
+    }
+    const leadSql = `
+      SELECT unique_id, full_name, stone_tier, lead_status,
+             counselor, senior_counselor, presales, marketing_staff
+      FROM students
+      ${leadWhere.length ? `WHERE ${leadWhere.join(' AND ')}` : ''}
+    `;
+    const leadResult = await pool.query(leadSql, leadParams);
+    const allLeads   = leadResult.rows.map(objectToCamelCase).map(l => ({
+      ...l,
+      primaryStaff: primaryStaffOf(l),
+    }));
+
     // ── Classify each note ───────────────────────────────────
     const classified = rows.map(r => ({
       ...r,
@@ -171,10 +199,13 @@ async function notesActivity(req, res, next) {
       ).size,
     };
 
-    function rollUp(keyFn) {
+    // Roll-up over notes, with an optional accessor for matching the
+    // SAME category against the full leads list to compute "total leads
+    // assigned in this category" (independent of whether they have notes).
+    function rollUp(noteKeyFn, leadKeyFn) {
       const map = new Map();
       for (const r of classified) {
-        const key = keyFn(r) || '(none)';
+        const key = noteKeyFn(r) || '(none)';
         if (!map.has(key)) {
           map.set(key, { key, totalNotes: 0, phoneNotes: 0, leadIds: new Set() });
         }
@@ -183,20 +214,43 @@ async function notesActivity(req, res, next) {
         if (r.bucket === 'phone') e.phoneNotes += 1;
         e.leadIds.add(r.studentId);
       }
+      // Compute total leads per category from the full leads list.
+      // If leadKeyFn is supplied, use it; otherwise leave totalLeads as
+      // uniqueLeads-with-notes (caller decides).
+      const totalLeadsByKey = new Map();
+      if (leadKeyFn) {
+        for (const l of allLeads) {
+          const k = leadKeyFn(l) || '(none)';
+          totalLeadsByKey.set(k, (totalLeadsByKey.get(k) || 0) + 1);
+        }
+        // Also ensure every category present in totalLeads but absent in
+        // notes shows up with zero notes (so a tier with no notes still
+        // renders with its total).
+        for (const k of totalLeadsByKey.keys()) {
+          if (!map.has(k)) {
+            map.set(k, { key: k, totalNotes: 0, phoneNotes: 0, leadIds: new Set() });
+          }
+        }
+      }
       return [...map.values()]
         .map(e => ({
-          key:           e.key,
-          totalNotes:    e.totalNotes,
-          phoneNotes:    e.phoneNotes,
-          otherNotes:    e.totalNotes - e.phoneNotes,
-          uniqueLeads:   e.leadIds.size,
+          key:                e.key,
+          totalNotes:         e.totalNotes,
+          phoneNotes:         e.phoneNotes,
+          otherNotes:         e.totalNotes - e.phoneNotes,
+          uniqueLeads:        e.leadIds.size,                // leads w/ notes
+          totalLeads:         totalLeadsByKey.get(e.key) ?? e.leadIds.size,
         }))
         .sort((a, b) => b.totalNotes - a.totalNotes);
     }
 
-    const byStaff  = rollUp(r => r.primaryStaff);
-    const byTier   = rollUp(r => r.stoneTier);
-    const byStatus = rollUp(r => r.leadStatus);
+    // For staff aggregation, a lead can appear in multiple staff slots
+    // (counselor + senior_counselor + presales + marketing_staff). We
+    // treat the primary staff (first non-empty of those four) as the
+    // canonical assignment, matching how the byLead rollup attributes notes.
+    const byStaff  = rollUp(r => r.primaryStaff, l => l.primaryStaff);
+    const byTier   = rollUp(r => r.stoneTier,    l => l.stoneTier);
+    const byStatus = rollUp(r => r.leadStatus,   l => l.leadStatus);
 
     // By-lead breakdown — one row per lead, with last-call timestamp.
     const leadMap = new Map();
@@ -255,6 +309,15 @@ async function notesActivity(req, res, next) {
         byTier,
         byStatus,
         byLead,
+        // Slim list of all leads (no notes attached) so the frontend can
+        // compute "total leads in this drill context" at every level.
+        // Keep this lean — used for totals only, not for rendering.
+        allLeads: allLeads.map(l => ({
+          studentId:    l.uniqueId,
+          stoneTier:    l.stoneTier,
+          leadStatus:   l.leadStatus,
+          primaryStaff: l.primaryStaff,
+        })),
       },
     });
   } catch (err) {

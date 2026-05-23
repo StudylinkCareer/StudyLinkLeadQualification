@@ -105,7 +105,7 @@ function StackedBarChart({ data, onBarClick, displayFor, colorMap, selectedKey }
               background: isSelected ? 'var(--primary-light)' : 'transparent',
               transition:'background 0.15s',
             }}
-            title={`${display} — ${entry.totalNotes} notes (${entry.phoneNotes} phone, ${entry.otherNotes} other) across ${entry.uniqueLeads} leads`}>
+            title={`${display} — ${entry.totalNotes} notes (${entry.phoneNotes} phone, ${entry.otherNotes} other) across ${entry.uniqueLeads} leads with notes — ${entry.totalLeads ?? entry.uniqueLeads} leads total`}>
             <div style={{
               fontSize:'0.75rem', color:'var(--text-secondary)',
               width:'130px', flexShrink:0, textAlign:'right',
@@ -229,11 +229,26 @@ export default function ActivityReport() {
     return r;
   }, [report, selectedStaff, selectedTier, selectedStatus]);
 
+  // Total leads matching the current drill (independent of notes).
+  // Used in the lead-table heading: "Leads (filtered: 8 with notes, 12 total)".
+  const totalLeadsInDrill = useMemo(() => {
+    if (!report?.allLeads) return null;
+    let r = report.allLeads;
+    if (selectedStaff)  r = r.filter(l => l.primaryStaff === selectedStaff);
+    if (selectedTier)   r = r.filter(l => l.stoneTier    === selectedTier);
+    if (selectedStatus) r = r.filter(l => l.leadStatus   === selectedStatus);
+    return r.length;
+  }, [report, selectedStaff, selectedTier, selectedStatus]);
+
   // Roll-ups limited to the current drill — for the side panel when a
   // staff member is selected. Recomputed only on selection change.
+  // Uses report.byLead for note-related counts, and report.allLeads for
+  // total-leads-in-context counts (independent of whether they have notes).
   const drillRollups = useMemo(() => {
     if (!report || !selectedStaff) return null;
     const filtered = report.byLead.filter(l => l.primaryStaff === selectedStaff);
+    const allInScope = (report.allLeads || []).filter(l => l.primaryStaff === selectedStaff);
+
     const tierMap = new Map();
     const statusMap = new Map();
     for (const l of filtered) {
@@ -247,10 +262,34 @@ export default function ActivityReport() {
       const se = statusMap.get(s);
       se.totalNotes += l.totalNotes; se.phoneNotes += l.phoneNotes; se.uniqueLeads += 1;
     }
-    const finalize = m => [...m.values()]
-      .map(e => ({ ...e, otherNotes: e.totalNotes - e.phoneNotes }))
+
+    // Total leads per category WITHIN this drill context — i.e. all of
+    // this staff's leads, grouped by tier / status, regardless of whether
+    // they have notes in the date window.
+    const tierTotals   = new Map();
+    const statusTotals = new Map();
+    for (const l of allInScope) {
+      const t = l.stoneTier  || '(none)';
+      const s = l.leadStatus || '(none)';
+      tierTotals.set(t,   (tierTotals.get(t)   || 0) + 1);
+      statusTotals.set(s, (statusTotals.get(s) || 0) + 1);
+      // Ensure categories with leads but no notes still appear
+      if (!tierMap.has(t))   tierMap.set(t,   { key: t, totalNotes: 0, phoneNotes: 0, uniqueLeads: 0 });
+      if (!statusMap.has(s)) statusMap.set(s, { key: s, totalNotes: 0, phoneNotes: 0, uniqueLeads: 0 });
+    }
+
+    const finalize = (m, totalsMap) => [...m.values()]
+      .map(e => ({
+        ...e,
+        otherNotes: e.totalNotes - e.phoneNotes,
+        totalLeads: totalsMap.get(e.key) ?? e.uniqueLeads,
+      }))
       .sort((a,b) => b.totalNotes - a.totalNotes);
-    return { byTier: finalize(tierMap), byStatus: finalize(statusMap) };
+
+    return {
+      byTier:   finalize(tierMap,   tierTotals),
+      byStatus: finalize(statusMap, statusTotals),
+    };
   }, [report, selectedStaff]);
 
   // ── Excel export ────────────────────────────────────────────
@@ -398,7 +437,7 @@ export default function ActivityReport() {
               </div>
               <StackedBarChart
                 data={byStaff}
-                onBarClick={key => setSelectedStaff(selectedStaff === key ? null : key)}
+                onBarClick={key => setSelectedStaff(key)}
                 selectedKey={selectedStaff}
               />
             </div>
@@ -412,7 +451,7 @@ export default function ActivityReport() {
               data={byTier}
               displayFor={k => stoneLabel ? stoneLabel(k, language) : k}
               colorMap={STONE_COLORS}
-              onBarClick={key => setSelectedTier(selectedTier === key ? null : key)}
+              onBarClick={key => setSelectedTier(key)}
               selectedKey={selectedTier}
             />
           </div>
@@ -439,7 +478,7 @@ export default function ActivityReport() {
                   data={drillRollups.byTier}
                   displayFor={k => stoneLabel ? stoneLabel(k, language) : k}
                   colorMap={STONE_COLORS}
-                  onBarClick={key => setSelectedTier(selectedTier === key ? null : key)}
+                  onBarClick={key => setSelectedTier(key)}
                   selectedKey={selectedTier}
                 />
               </div>
@@ -449,7 +488,7 @@ export default function ActivityReport() {
                 </div>
                 <StackedBarChart
                   data={drillRollups.byStatus}
-                  onBarClick={key => setSelectedStatus(selectedStatus === key ? null : key)}
+                  onBarClick={key => setSelectedStatus(key)}
                   selectedKey={selectedStatus}
                 />
               </div>
@@ -466,7 +505,7 @@ export default function ActivityReport() {
             </div>
             <StackedBarChart
               data={byStatus}
-              onBarClick={key => setSelectedStatus(selectedStatus === key ? null : key)}
+              onBarClick={key => setSelectedStatus(key)}
               selectedKey={selectedStatus}
             />
           </div>
@@ -476,7 +515,9 @@ export default function ActivityReport() {
         <div className="section-card">
           <div className="section-header" style={{ justifyContent:'space-between' }}>
             <span className="section-title">
-              Leads {activeFilters > 0 ? `(filtered: ${filteredLeads.length})` : `(${filteredLeads.length})`}
+              Leads ({filteredLeads.length} with notes
+              {totalLeadsInDrill != null && totalLeadsInDrill !== filteredLeads.length
+                ? `, ${totalLeadsInDrill} total` : ''})
             </span>
             <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)' }}>
               Click → to open lead detail
