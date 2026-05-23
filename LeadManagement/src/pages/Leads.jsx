@@ -753,6 +753,11 @@ export default function Leads() {
       .then(r => {
         const vs = r.data || [];
         setVariants(vs);
+        // Skip default-variant apply when arriving via a Dashboard drill,
+        // otherwise the variant's saved filters clobber the drill filter set
+        // by the drill effect above. Same for back-arrow restore.
+        if (location.state?.drillFilter)    return;
+        if (location.state?.restoreFilters) return;
         const def = vs.find(v => v.isDefault);
         if (def) applyVariant(def);
       })
