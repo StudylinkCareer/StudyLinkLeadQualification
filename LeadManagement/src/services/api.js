@@ -115,6 +115,21 @@ export const notesAPI = {
   delete: (id)                           => request('DELETE', `/api/notes/${id}`),
 };
 
+// ── Reports ───────────────────────────────────────────────────
+// Activity Report aggregates note activity across leads. Accepts optional
+// query params (all ISO dates / strings):
+//   dateFrom, dateTo, staffName, tier, status, noteType
+export const reportsAPI = {
+  notesActivity: (params = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v != null && v !== '') qs.set(k, v);
+    }
+    const qsStr = qs.toString();
+    return request('GET', `/api/reports/notes-activity${qsStr ? `?${qsStr}` : ''}`);
+  },
+};
+
 // ── Column Config ─────────────────────────────────────────────
 export const columnConfigAPI = {
   get:  (screen)         => request('GET', `/api/staff/column-config/${screen}`),
