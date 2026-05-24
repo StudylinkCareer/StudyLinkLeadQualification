@@ -94,16 +94,22 @@ function StackedBarChart({ data, onBarClick, displayFor, colorMap, selectedKey }
         const otherPct   = 100 - phonePct;
         const isSelected = selectedKey === entry.key;
         const tierColor  = colorMap?.[entry.key];
+        // Bars with no notes are kept visible (so users see the dimension
+        // still exists in the dataset) but greyed out at reduced opacity
+        // and made non-clickable.
+        const isEmpty    = entry.totalNotes === 0;
+        const rowClickable = onBarClick && !isEmpty;
         return (
           <div
             key={entry.key}
-            onClick={() => onBarClick && onBarClick(entry.key)}
+            onClick={() => rowClickable && onBarClick(entry.key)}
             style={{
               display:'flex', alignItems:'center', gap:'0.5rem',
-              cursor: onBarClick ? 'pointer' : 'default',
+              cursor: rowClickable ? 'pointer' : 'default',
               padding:'2px 4px', borderRadius:'4px',
               background: isSelected ? 'var(--primary-light)' : 'transparent',
-              transition:'background 0.15s',
+              opacity: isEmpty ? 0.45 : 1,
+              transition:'background 0.15s, opacity 0.2s',
             }}
             title={`${display} — ${entry.totalNotes} notes (${entry.phoneNotes} phone, ${entry.otherNotes} other) across ${entry.uniqueLeads} leads with notes — ${entry.totalLeads ?? entry.uniqueLeads} leads total`}>
             <div style={{
@@ -285,6 +291,85 @@ export default function ActivityReport() {
     return r.length;
   }, [report, selectedStaff, selectedTier, selectedStatus]);
 
+  // ── Cross-filtered chart datasets ───────────────────────────
+  // Each chart is filtered by the OTHER two selections, but NOT by its own
+  // dimension. So clicking Staff=X narrows the Tier+Status charts to X's
+  // data, while leaving the Staff chart unchanged (so you can still pick
+  // a different staff member). This gives the user 6 equivalent drill
+  // pathways (Staff→Tier→Status, Tier→Staff→Status, etc.) that all
+  // converge to the same lead list.
+  //
+  // Bars for categories with 0 notes are still included (greyed out in the
+  // chart component) so the available dimensions remain visible during drill.
+  const crossFilteredCharts = useMemo(() => {
+    if (!report) return { byStaff: [], byTier: [], byStatus: [] };
+
+    // Build a roll-up over byLead (note counts) + allLeads (total leads),
+    // optionally pre-filtered by a subset of {staff, tier, status} drill
+    // selections (the ones that should APPLY to this chart).
+    function buildRollup(dimensionAccessor, applyStaff, applyTier, applyStatus) {
+      // Filter byLead by the OTHER active selections (excluding the one
+      // this chart represents).
+      let notes = report.byLead || [];
+      if (applyStaff  && selectedStaff)  notes = notes.filter(l => matchesCategory(l.primaryStaff, selectedStaff));
+      if (applyTier   && selectedTier)   notes = notes.filter(l => matchesCategory(l.stoneTier,    selectedTier));
+      if (applyStatus && selectedStatus) notes = notes.filter(l => matchesCategory(l.leadStatus,   selectedStatus));
+
+      // Same for allLeads (for the totalLeads count per category).
+      let pool = report.allLeads || [];
+      if (applyStaff  && selectedStaff)  pool = pool.filter(l => matchesCategory(l.primaryStaff, selectedStaff));
+      if (applyTier   && selectedTier)   pool = pool.filter(l => matchesCategory(l.stoneTier,    selectedTier));
+      if (applyStatus && selectedStatus) pool = pool.filter(l => matchesCategory(l.leadStatus,   selectedStatus));
+
+      // Group both arrays by the chart's own dimension.
+      const noteMap = new Map();
+      for (const l of notes) {
+        const key = dimensionAccessor(l) || '(none)';
+        if (!noteMap.has(key)) noteMap.set(key, { key, totalNotes: 0, phoneNotes: 0, leadIds: new Set() });
+        const e = noteMap.get(key);
+        e.totalNotes += l.totalNotes;
+        e.phoneNotes += l.phoneNotes;
+        e.leadIds.add(l.studentId);
+      }
+      const totalByKey = new Map();
+      for (const l of pool) {
+        const key = dimensionAccessor(l) || '(none)';
+        totalByKey.set(key, (totalByKey.get(key) || 0) + 1);
+      }
+      // Categories from either side, merged.
+      const keys = new Set([...noteMap.keys(), ...totalByKey.keys()]);
+      const out = [];
+      for (const key of keys) {
+        const n = noteMap.get(key) || { totalNotes: 0, phoneNotes: 0, leadIds: new Set() };
+        out.push({
+          key,
+          totalNotes:  n.totalNotes,
+          phoneNotes:  n.phoneNotes,
+          otherNotes:  n.totalNotes - n.phoneNotes,
+          uniqueLeads: n.leadIds.size,
+          totalLeads:  totalByKey.get(key) || 0,
+        });
+      }
+      // Sort by total notes desc, with zero-bars at the bottom in alpha order.
+      return out.sort((a, b) => {
+        if ((b.totalNotes > 0) !== (a.totalNotes > 0)) {
+          return (b.totalNotes > 0 ? 1 : 0) - (a.totalNotes > 0 ? 1 : 0);
+        }
+        if (b.totalNotes !== a.totalNotes) return b.totalNotes - a.totalNotes;
+        return String(a.key).localeCompare(String(b.key));
+      });
+    }
+
+    return {
+      // Staff chart: filtered by Tier + Status (not by Staff itself)
+      byStaff:  buildRollup(l => l.primaryStaff, false, true,  true),
+      // Tier chart: filtered by Staff + Status
+      byTier:   buildRollup(l => l.stoneTier,    true,  false, true),
+      // Status chart: filtered by Staff + Tier
+      byStatus: buildRollup(l => l.leadStatus,   true,  true,  false),
+    };
+  }, [report, selectedStaff, selectedTier, selectedStatus]);
+
   // ── Excel export ────────────────────────────────────────────
   // Pulls the same filtered set you're looking at and produces a CSV-ish
   // download via Blob — no external library needed.
@@ -335,7 +420,12 @@ export default function ActivityReport() {
   );
   if (!report) return <div className="page-body">No data.</div>;
 
-  const { kpi, byStaff, byTier, byStatus } = report;
+  const { kpi } = report;
+  // Use the cross-filtered datasets (computed from byLead + allLeads with
+  // the OTHER active selections applied) rather than the server's raw
+  // top-level rollups. This is what makes the three charts behave as
+  // peers — picking any one filters the other two.
+  const { byStaff, byTier, byStatus } = crossFilteredCharts;
   const activeFilters = [selectedStaff, selectedTier, selectedStatus].filter(Boolean).length;
 
   return (
