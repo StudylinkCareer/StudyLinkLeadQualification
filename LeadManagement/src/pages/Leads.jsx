@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLookup } from '../contexts/LookupContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { usePermissions } from '../contexts/PermissionsContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import Watermark from '../components/Watermark';
 import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiPrinter, FiDownload, FiSave, FiTrash2, FiStar } from 'react-icons/fi';
 import {
@@ -522,6 +523,7 @@ export default function Leads() {
   const navigate = useNavigate();
   const location = useLocation();
   const [drillIds, setDrillIds] = useState([]);
+  const { push: pushTrail } = useNavTrail();
 
   // ── Canonical lookup lists from the DB ─────────────────────
   // Used for filter dropdowns and for resolving "dirty" lead values
@@ -734,6 +736,25 @@ export default function Leads() {
       filters, sorting, pagination, drillIds,
     }));
   }, [filters, sorting, pagination, drillIds]);
+
+  // ── Push to navigation trail ──
+  // Label includes filter context so users can see at a glance which
+  // "Leads" view they came from. State carries restoreFilters so when
+  // they navigate back via the trail, the persisted filter state is
+  // re-applied (same mechanism the old "back to leads" arrow used).
+  useEffect(() => {
+    const activeFilterCount =
+      Object.values(filters || {}).filter(v => Array.isArray(v) ? v.length > 0 : v).length
+      + (drillIds.length > 0 ? 1 : 0);
+    const label = activeFilterCount > 0
+      ? `Leads (${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''})`
+      : 'Leads';
+    pushTrail({
+      label,
+      path:  '/leads',
+      state: { restoreFilters: true },
+    });
+  }, [filters, drillIds, pushTrail]);
 
   async function loadLeads() {
     setLoading(true);

@@ -18,7 +18,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import Watermark from '../components/Watermark';
+import TrailBackButton from '../components/TrailBackButton';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
 
@@ -181,6 +183,7 @@ export default function LeadDetail() {
   const navigate  = useNavigate();
   const { staff } = useAuth();
   const { canDo, canDoOnLead, canEditField, scope } = usePermissions();
+  const { push: pushTrail } = useNavTrail();
 
   const [lead, setLead]         = useState(null);
   const [notes, setNotes]       = useState([]);
@@ -243,6 +246,17 @@ export default function LeadDetail() {
       }
     }).finally(() => setLoading(false));
   }, [id]);
+
+  // Push a trail entry once the lead has loaded. push() de-dupes by path,
+  // so re-renders after data fetches don't grow the stack.
+  useEffect(() => {
+    if (lead?.fullName) {
+      pushTrail({
+        label: `Lead: ${lead.fullName}`,
+        path:  `/leads/${id}`,
+      });
+    }
+  }, [lead?.fullName, id, pushTrail]);
 
   function enterEdit() { setEditData({...lead}); setEditMode(true); }
   function cancelEdit() { setEditData({}); setEditMode(false); }
@@ -390,9 +404,7 @@ export default function LeadDetail() {
     <div>
       <div className="page-header">
         <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-          <button className="btn btn--ghost btn--icon" onClick={() => navigate('/leads')}>
-            <FiArrowLeft size={16}/>
-          </button>
+          <TrailBackButton />
           <span className="page-title">Access denied</span>
         </div>
       </div>
@@ -411,9 +423,7 @@ export default function LeadDetail() {
     <div>
       <div className="page-header">
         <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-          <button className="btn btn--ghost btn--icon" onClick={() => navigate('/leads')}>
-            <FiArrowLeft size={16}/>
-          </button>
+          <TrailBackButton />
           <span className="page-title">Lead not found</span>
         </div>
       </div>
@@ -454,9 +464,7 @@ export default function LeadDetail() {
       {/* Header */}
       <div className="page-header">
         <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-          <button className="btn btn--ghost btn--icon" onClick={()=>navigate('/leads', { state: { restoreFilters: true } })}>
-            <FiArrowLeft size={16}/>
-          </button>
+          <TrailBackButton />
           <span className="page-title">{lead.fullName || 'Lead Detail'}</span>
           <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>
             {lead.uniqueId}

@@ -18,6 +18,7 @@ import { staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import { FiPlus, FiEdit2, FiUserX, FiKey, FiX, FiTarget } from 'react-icons/fi';
 
@@ -254,12 +255,19 @@ export default function Staff() {
   const { staff }                       = useAuth();
   const { canDo }                       = usePermissions();
   const { language }                    = useLanguage();
+  const { push: pushTrail }             = useNavTrail();
 
   const canManage   = canDo('staff', 'manage');
   const canSetTgt   = canDo('staff', 'set_target');
   const canViewPage = canManage || canSetTgt;
 
   useEffect(() => { loadStaff(); }, []);
+
+  // Push a Staff page entry to the nav trail. Same path each visit
+  // means push() updates the existing entry rather than stacking.
+  useEffect(() => {
+    pushTrail({ label: 'Staff', path: '/staff' });
+  }, [pushTrail]);
 
   async function loadStaff() {
     setLoading(true);
