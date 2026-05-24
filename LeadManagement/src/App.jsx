@@ -29,8 +29,10 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { NavCollapseProvider, useNavCollapse } from './contexts/NavCollapseContext';
 import { PermissionsProvider, usePermissions } from './contexts/PermissionsContext';
 import { LookupProvider } from './contexts/LookupContext';
+import { NavTrailProvider } from './contexts/NavTrailContext';
 import Sidebar from './components/Sidebar';
 import MobilePageNav from './components/MobilePageNav';
+import TrailBreadcrumb from './components/TrailBreadcrumb';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
@@ -80,7 +82,10 @@ function ConsoleShell({ children }) {
       <SidebarBackdrop />
       <FloatingExpandButton />
       <MobilePageNav />
-      <main className="main-content">{children}</main>
+      <main className="main-content">
+        <TrailBreadcrumb />
+        {children}
+      </main>
     </div>
   );
 }
@@ -111,6 +116,7 @@ export default function App() {
       <NavCollapseProvider>
         <PermissionsProvider>
           <LookupProvider>
+            <NavTrailProvider>
               <Routes>
               <Route path="/login"            element={<Login />} />
               <Route path="/dashboard"        element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
@@ -122,6 +128,7 @@ export default function App() {
               <Route path="/reports/activity" element={<ProtectedLayout><ActivityReport /></ProtectedLayout>} />
               <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
             </Routes>
+            </NavTrailProvider>
           </LookupProvider>
         </PermissionsProvider>
       </NavCollapseProvider>

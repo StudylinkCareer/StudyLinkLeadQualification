@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useNavCollapse } from '../contexts/NavCollapseContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
@@ -23,6 +24,7 @@ export default function Sidebar() {
   const { canDo }            = usePermissions();
   const { toggle }           = useNavCollapse();
   const { language }         = useLanguage();
+  const { clear: clearTrail } = useNavTrail();
   const navigate             = useNavigate();
   const location             = useLocation();
 
@@ -62,7 +64,7 @@ export default function Sidebar() {
 
         <button
           className={`nav-item ${isActive('/dashboard') ? 'active' : ''}`}
-          onClick={() => navigate('/dashboard')}
+          onClick={() => { clearTrail(); navigate('/dashboard'); }}
         >
           <FiGrid size={16} /> {t('sidebar.dashboard', language)}
         </button>
