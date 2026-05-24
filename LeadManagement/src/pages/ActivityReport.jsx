@@ -251,10 +251,24 @@ export default function ActivityReport() {
   // Temporary debug logging — remove once filter consistency is confirmed.
   useEffect(() => {
     if (!report) return;
+    // Count how many leads in allLeads match the current Status filter
+    // independently — to find any discrepancy with the chart's "total leads"
+    // values shown in tooltips.
+    const allLeadsCount       = (report.allLeads || []).length;
+    const allLeadsLostCount   = (report.allLeads || []).filter(l => l.leadStatus === 'Lost').length;
+    const byStatusLostTotal   = (report.byStatus || []).find(s => s.key === 'Lost')?.totalLeads;
+    const byStatusLostUnique  = (report.byStatus || []).find(s => s.key === 'Lost')?.uniqueLeads;
+    const byLeadLostCount     = (report.byLead   || []).filter(l => l.leadStatus === 'Lost').length;
+
     console.log('[ActivityReport drill state]', {
       selectedStaff, selectedTier, selectedStatus,
       filteredLeadsCount:  filteredLeads.length,
       totalLeadsInDrill,
+      'CHECK: allLeads total':           allLeadsCount,
+      'CHECK: allLeads where Lost':      allLeadsLostCount,
+      'CHECK: byStatus Lost.totalLeads': byStatusLostTotal,
+      'CHECK: byStatus Lost.uniqueLeads':byStatusLostUnique,
+      'CHECK: byLead where Lost':        byLeadLostCount,
       firstFewLeads: filteredLeads.slice(0, 3).map(l => ({
         leadName: l.leadName, stoneTier: l.stoneTier, leadStatus: l.leadStatus, primaryStaff: l.primaryStaff,
       })),
