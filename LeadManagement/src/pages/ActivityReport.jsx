@@ -248,6 +248,19 @@ export default function ActivityReport() {
     return r.length;
   }, [report, selectedStaff, selectedTier, selectedStatus]);
 
+  // Temporary debug logging — remove once filter consistency is confirmed.
+  useEffect(() => {
+    if (!report) return;
+    console.log('[ActivityReport drill state]', {
+      selectedStaff, selectedTier, selectedStatus,
+      filteredLeadsCount:  filteredLeads.length,
+      totalLeadsInDrill,
+      firstFewLeads: filteredLeads.slice(0, 3).map(l => ({
+        leadName: l.leadName, stoneTier: l.stoneTier, leadStatus: l.leadStatus, primaryStaff: l.primaryStaff,
+      })),
+    });
+  }, [report, selectedStaff, selectedTier, selectedStatus, filteredLeads, totalLeadsInDrill]);
+
   // Roll-ups limited to the current drill — for the side panel when a
   // staff member is selected. Recomputed only on selection change.
   // Uses report.byLead for note-related counts, and report.allLeads for
