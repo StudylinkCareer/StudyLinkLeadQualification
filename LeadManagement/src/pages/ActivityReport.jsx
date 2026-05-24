@@ -216,6 +216,14 @@ export default function ActivityReport() {
 
   useEffect(() => { loadReport(); }, [loadReport]);
 
+  // When a category bar is labelled "(none)", that means "leads where the
+  // field is null/empty". The lead-level data has actual null/empty values
+  // in those fields, not the literal string "(none)", so we need a matcher
+  // that treats both as equivalent.
+  const isNone = v => v == null || v === '';
+  const matchesCategory = (leadValue, selectedValue) =>
+    selectedValue === '(none)' ? isNone(leadValue) : leadValue === selectedValue;
+
   // ── Filter the by-lead table client-side ────────────────────
   // The roll-ups (byStaff, byTier, byStatus) always reflect the full
   // server payload — they're our drill navigation surface. The lead
@@ -223,9 +231,9 @@ export default function ActivityReport() {
   const filteredLeads = useMemo(() => {
     if (!report) return [];
     let r = report.byLead;
-    if (selectedStaff)  r = r.filter(l => l.primaryStaff === selectedStaff);
-    if (selectedTier)   r = r.filter(l => l.stoneTier    === selectedTier);
-    if (selectedStatus) r = r.filter(l => l.leadStatus   === selectedStatus);
+    if (selectedStaff)  r = r.filter(l => matchesCategory(l.primaryStaff, selectedStaff));
+    if (selectedTier)   r = r.filter(l => matchesCategory(l.stoneTier,    selectedTier));
+    if (selectedStatus) r = r.filter(l => matchesCategory(l.leadStatus,   selectedStatus));
     return r;
   }, [report, selectedStaff, selectedTier, selectedStatus]);
 
@@ -234,9 +242,9 @@ export default function ActivityReport() {
   const totalLeadsInDrill = useMemo(() => {
     if (!report?.allLeads) return null;
     let r = report.allLeads;
-    if (selectedStaff)  r = r.filter(l => l.primaryStaff === selectedStaff);
-    if (selectedTier)   r = r.filter(l => l.stoneTier    === selectedTier);
-    if (selectedStatus) r = r.filter(l => l.leadStatus   === selectedStatus);
+    if (selectedStaff)  r = r.filter(l => matchesCategory(l.primaryStaff, selectedStaff));
+    if (selectedTier)   r = r.filter(l => matchesCategory(l.stoneTier,    selectedTier));
+    if (selectedStatus) r = r.filter(l => matchesCategory(l.leadStatus,   selectedStatus));
     return r.length;
   }, [report, selectedStaff, selectedTier, selectedStatus]);
 
@@ -246,8 +254,8 @@ export default function ActivityReport() {
   // total-leads-in-context counts (independent of whether they have notes).
   const drillRollups = useMemo(() => {
     if (!report || !selectedStaff) return null;
-    const filtered = report.byLead.filter(l => l.primaryStaff === selectedStaff);
-    const allInScope = (report.allLeads || []).filter(l => l.primaryStaff === selectedStaff);
+    const filtered   = report.byLead.filter(l => matchesCategory(l.primaryStaff, selectedStaff));
+    const allInScope = (report.allLeads || []).filter(l => matchesCategory(l.primaryStaff, selectedStaff));
 
     const tierMap = new Map();
     const statusMap = new Map();
