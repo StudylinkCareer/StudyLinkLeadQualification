@@ -42,6 +42,7 @@ import { studentAPI, staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import { labelFor } from '../utils/leadStatusLabels';
 import { stoneLabel } from '../utils/stoneLabels';
@@ -189,7 +190,15 @@ export default function Dashboard() {
   const { staff }    = useAuth();
   const { scope }    = usePermissions();
   const { language } = useLanguage();
+  const { push: pushTrail } = useNavTrail();
   const navigate     = useNavigate();
+
+  // Push trail entry on mount. Dashboard is the trail root — clicking
+  // the sidebar Dashboard link clears the trail before navigating here,
+  // so this becomes the first entry on a fresh navigation chain.
+  useEffect(() => {
+    pushTrail({ label: 'Dashboard', path: '/dashboard' });
+  }, [pushTrail]);
 
   // ── Role flags ────────────────────────────────────────────────
   // scope() is exposed by PermissionsContext with signature
