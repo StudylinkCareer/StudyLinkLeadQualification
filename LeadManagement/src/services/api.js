@@ -27,9 +27,18 @@ async function request(method, path, body) {
   const data = await res.json();
   if (!data.success) throw new Error(data.error || 'Request failed');
 
+  // Only convert actual objects to camelCase — strings, numbers, null,
+  // and arrays of primitives pass through unchanged. Without this guard,
+  // endpoints that return arrays of strings (e.g. GET /api/staff/roles
+  // returns ['Admin','Counselor',...]) would have each string spread into
+  // an object with numeric keys ({0:'C',1:'o',...}), causing React
+  // "objects are not valid as a child" errors when rendered.
+  const isPlainObject = v =>
+    v != null && typeof v === 'object' && !Array.isArray(v);
+
   if (Array.isArray(data.data)) {
-    data.data = data.data.map(objectToCamelCase);
-  } else if (data.data && typeof data.data === 'object') {
+    data.data = data.data.map(item => isPlainObject(item) ? objectToCamelCase(item) : item);
+  } else if (isPlainObject(data.data)) {
     data.data = objectToCamelCase(data.data);
   }
 
