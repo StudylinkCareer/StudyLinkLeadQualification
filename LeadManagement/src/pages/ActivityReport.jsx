@@ -29,6 +29,7 @@ import { FiX, FiDownload, FiPhone, FiMessageSquare, FiRefreshCw, FiArrowRight } 
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import { reportsAPI, staffAPI } from '../services/api';
 import { stoneLabel } from '../utils/stoneLabels';
 import Watermark from '../components/Watermark';
@@ -224,6 +225,7 @@ export default function ActivityReport() {
   const { staff }    = useAuth();
   const { scope }    = usePermissions();
   const { language } = useLanguage();
+  const { push: pushTrail } = useNavTrail();
 
   // Permissions — gate the page itself and the Excel-export button.
   const hasAllScope    = scope('reports', 'view') === 'all';
@@ -242,6 +244,22 @@ export default function ActivityReport() {
   const [report,  setReport]  = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+
+  // ── Navigation trail entry ──────────────────────────────────
+  // Push (or update) the trail entry whenever the page mounts or its
+  // filter context changes. The same path means push() will update the
+  // existing entry rather than create a new one — so drilling deeper
+  // doesn't pile up the trail.
+  useEffect(() => {
+    const parts = [];
+    if (selectedStaff)  parts.push(`Staff: ${selectedStaff}`);
+    if (selectedTier)   parts.push(`Tier: ${selectedTier}`);
+    if (selectedStatus) parts.push(`Status: ${selectedStatus}`);
+    const label = parts.length
+      ? `Activity Report (${parts.join(', ')})`
+      : 'Activity Report';
+    pushTrail({ label, path: '/reports/activity' });
+  }, [pushTrail, selectedStaff, selectedTier, selectedStatus]);
 
   // ── Fetch data ──────────────────────────────────────────────
   const loadReport = useCallback(async () => {
