@@ -175,6 +175,43 @@ function Legend() {
   );
 }
 
+// ── Filter chip ───────────────────────────────────────────────
+// Pill showing an active filter (e.g. "Staff: Nguyễn Thị Mỹ Ly ×").
+// Clicking the × clears just that filter; other filters remain active.
+function FilterChip({ label, value, onRemove }) {
+  return (
+    <span style={{
+      display:'inline-flex', alignItems:'center', gap:'6px',
+      padding:'4px 8px 4px 10px',
+      background:'var(--bg-primary)',
+      border:'1px solid var(--border)',
+      borderRadius:'14px',
+      fontSize:'0.75rem',
+    }}>
+      <span style={{ color:'var(--text-secondary)', fontWeight:500 }}>{label}:</span>
+      <span style={{ fontWeight:600, color:'var(--text-primary)' }}>{value}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remove this filter"
+        aria-label={`Remove ${label} filter`}
+        style={{
+          display:'inline-flex', alignItems:'center', justifyContent:'center',
+          width:'18px', height:'18px',
+          border:'none', borderRadius:'50%',
+          background:'transparent', cursor:'pointer',
+          color:'var(--text-secondary)',
+          padding:0, marginLeft:'2px',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--danger)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+      >
+        <FiX size={12}/>
+      </button>
+    </span>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────
 export default function ActivityReport() {
   const navigate = useNavigate();
@@ -247,85 +284,6 @@ export default function ActivityReport() {
     if (selectedStatus) r = r.filter(l => matchesCategory(l.leadStatus,   selectedStatus));
     return r.length;
   }, [report, selectedStaff, selectedTier, selectedStatus]);
-
-  // Temporary debug logging — remove once filter consistency is confirmed.
-  useEffect(() => {
-    if (!report) return;
-    // Count how many leads in allLeads match the current Status filter
-    // independently — to find any discrepancy with the chart's "total leads"
-    // values shown in tooltips.
-    const allLeadsCount       = (report.allLeads || []).length;
-    const allLeadsLostCount   = (report.allLeads || []).filter(l => l.leadStatus === 'Lost').length;
-    const byStatusLostTotal   = (report.byStatus || []).find(s => s.key === 'Lost')?.totalLeads;
-    const byStatusLostUnique  = (report.byStatus || []).find(s => s.key === 'Lost')?.uniqueLeads;
-    const byLeadLostCount     = (report.byLead   || []).filter(l => l.leadStatus === 'Lost').length;
-
-    console.log('[ActivityReport drill state]', {
-      selectedStaff, selectedTier, selectedStatus,
-      filteredLeadsCount:  filteredLeads.length,
-      totalLeadsInDrill,
-      'CHECK: allLeads total':           allLeadsCount,
-      'CHECK: allLeads where Lost':      allLeadsLostCount,
-      'CHECK: byStatus Lost.totalLeads': byStatusLostTotal,
-      'CHECK: byStatus Lost.uniqueLeads':byStatusLostUnique,
-      'CHECK: byLead where Lost':        byLeadLostCount,
-      firstFewLeads: filteredLeads.slice(0, 3).map(l => ({
-        leadName: l.leadName, stoneTier: l.stoneTier, leadStatus: l.leadStatus, primaryStaff: l.primaryStaff,
-      })),
-    });
-  }, [report, selectedStaff, selectedTier, selectedStatus, filteredLeads, totalLeadsInDrill]);
-
-  // Roll-ups limited to the current drill — for the side panel when a
-  // staff member is selected. Recomputed only on selection change.
-  // Uses report.byLead for note-related counts, and report.allLeads for
-  // total-leads-in-context counts (independent of whether they have notes).
-  const drillRollups = useMemo(() => {
-    if (!report || !selectedStaff) return null;
-    const filtered   = report.byLead.filter(l => matchesCategory(l.primaryStaff, selectedStaff));
-    const allInScope = (report.allLeads || []).filter(l => matchesCategory(l.primaryStaff, selectedStaff));
-
-    const tierMap = new Map();
-    const statusMap = new Map();
-    for (const l of filtered) {
-      const t = l.stoneTier || '(none)';
-      if (!tierMap.has(t)) tierMap.set(t, { key: t, totalNotes: 0, phoneNotes: 0, uniqueLeads: 0 });
-      const te = tierMap.get(t);
-      te.totalNotes += l.totalNotes; te.phoneNotes += l.phoneNotes; te.uniqueLeads += 1;
-
-      const s = l.leadStatus || '(none)';
-      if (!statusMap.has(s)) statusMap.set(s, { key: s, totalNotes: 0, phoneNotes: 0, uniqueLeads: 0 });
-      const se = statusMap.get(s);
-      se.totalNotes += l.totalNotes; se.phoneNotes += l.phoneNotes; se.uniqueLeads += 1;
-    }
-
-    // Total leads per category WITHIN this drill context — i.e. all of
-    // this staff's leads, grouped by tier / status, regardless of whether
-    // they have notes in the date window.
-    const tierTotals   = new Map();
-    const statusTotals = new Map();
-    for (const l of allInScope) {
-      const t = l.stoneTier  || '(none)';
-      const s = l.leadStatus || '(none)';
-      tierTotals.set(t,   (tierTotals.get(t)   || 0) + 1);
-      statusTotals.set(s, (statusTotals.get(s) || 0) + 1);
-      // Ensure categories with leads but no notes still appear
-      if (!tierMap.has(t))   tierMap.set(t,   { key: t, totalNotes: 0, phoneNotes: 0, uniqueLeads: 0 });
-      if (!statusMap.has(s)) statusMap.set(s, { key: s, totalNotes: 0, phoneNotes: 0, uniqueLeads: 0 });
-    }
-
-    const finalize = (m, totalsMap) => [...m.values()]
-      .map(e => ({
-        ...e,
-        otherNotes: e.totalNotes - e.phoneNotes,
-        totalLeads: totalsMap.get(e.key) ?? e.uniqueLeads,
-      }))
-      .sort((a,b) => b.totalNotes - a.totalNotes);
-
-    return {
-      byTier:   finalize(tierMap,   tierTotals),
-      byStatus: finalize(statusMap, statusTotals),
-    };
-  }, [report, selectedStaff]);
 
   // ── Excel export ────────────────────────────────────────────
   // Pulls the same filtered set you're looking at and produces a CSV-ish
@@ -457,7 +415,9 @@ export default function ActivityReport() {
           />
         </div>
 
-        {/* ── Level 1 charts: Staff + Tier side by side ───── */}
+        {/* ── Charts: Staff on the left (tall); Tier + Status stacked on the right ──
+            All three charts filter the lead-level table independently. Any
+            combination of bars across all three may be active at once. */}
         <div style={{
           display:'grid',
           gridTemplateColumns: hasAllScope ? '1fr 1fr' : '1fr',
@@ -477,72 +437,74 @@ export default function ActivityReport() {
               />
             </div>
           )}
-          <div className="section-card">
-            <div className="section-header" style={{ justifyContent:'space-between' }}>
-              <span className="section-title">Notes by Tier</span>
-              <Legend/>
+
+          {/* Right column: Tier above, Status below — stacked */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
+            <div className="section-card">
+              <div className="section-header" style={{ justifyContent:'space-between' }}>
+                <span className="section-title">Notes by Tier</span>
+                <Legend/>
+              </div>
+              <StackedBarChart
+                data={byTier}
+                displayFor={k => stoneLabel ? stoneLabel(k, language) : k}
+                colorMap={STONE_COLORS}
+                onBarClick={key => setSelectedTier(key)}
+                selectedKey={selectedTier}
+              />
             </div>
-            <StackedBarChart
-              data={byTier}
-              displayFor={k => stoneLabel ? stoneLabel(k, language) : k}
-              colorMap={STONE_COLORS}
-              onBarClick={key => setSelectedTier(key)}
-              selectedKey={selectedTier}
-            />
+
+            <div className="section-card">
+              <div className="section-header" style={{ justifyContent:'space-between' }}>
+                <span className="section-title">Notes by Status</span>
+                <Legend/>
+              </div>
+              <StackedBarChart
+                data={byStatus}
+                onBarClick={key => setSelectedStatus(key)}
+                selectedKey={selectedStatus}
+              />
+            </div>
           </div>
         </div>
 
-        {/* ── Drill panel: shows when a staff is selected ──── */}
-        {selectedStaff && drillRollups && (
-          <div className="section-card" style={{
-            borderLeft:`4px solid ${COLORS.primary}`,
-            background:'var(--bg-secondary)',
+        {/* ── Active filter chips (visible only when any filter is active) ──
+            Each chip shows the category + value and can be dismissed with ×.
+            This makes the "all 3 are independent filters that AND together"
+            model self-evident — users see exactly what's narrowing the list. */}
+        {activeFilters > 0 && (
+          <div style={{
+            display:'flex', flexWrap:'wrap', gap:'6px', alignItems:'center',
+            padding:'8px 10px', background:'var(--bg-secondary)',
+            borderRadius:'8px', border:'1px solid var(--border)',
           }}>
-            <div className="section-header" style={{ justifyContent:'space-between' }}>
-              <span className="section-title">Drill: {selectedStaff}</span>
-              <button className="btn btn--ghost btn--sm" onClick={() => setSelectedStaff(null)}>
-                <FiX size={12}/>
-              </button>
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem' }}>
-              <div>
-                <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:600, marginBottom:'0.5rem', textTransform:'uppercase' }}>
-                  Their leads by Tier
-                </div>
-                <StackedBarChart
-                  data={drillRollups.byTier}
-                  displayFor={k => stoneLabel ? stoneLabel(k, language) : k}
-                  colorMap={STONE_COLORS}
-                  onBarClick={key => setSelectedTier(key)}
-                  selectedKey={selectedTier}
-                />
-              </div>
-              <div>
-                <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:600, marginBottom:'0.5rem', textTransform:'uppercase' }}>
-                  Their leads by Status
-                </div>
-                <StackedBarChart
-                  data={drillRollups.byStatus}
-                  onBarClick={key => setSelectedStatus(key)}
-                  selectedKey={selectedStatus}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Status chart (Level 1 alt — shown only when NO staff selected) ── */}
-        {!selectedStaff && (
-          <div className="section-card">
-            <div className="section-header" style={{ justifyContent:'space-between' }}>
-              <span className="section-title">Notes by Status</span>
-              <Legend/>
-            </div>
-            <StackedBarChart
-              data={byStatus}
-              onBarClick={key => setSelectedStatus(key)}
-              selectedKey={selectedStatus}
-            />
+            <span style={{
+              fontSize:'0.7rem', fontWeight:600, textTransform:'uppercase',
+              color:'var(--text-secondary)', marginRight:'4px',
+            }}>
+              Filtered by:
+            </span>
+            {selectedStaff && (
+              <FilterChip
+                label="Staff"
+                value={selectedStaff}
+                onRemove={() => setSelectedStaff(null)}
+              />
+            )}
+            {selectedTier && (
+              <FilterChip
+                label="Tier"
+                value={stoneLabel ? stoneLabel(selectedTier, language) : selectedTier}
+                onRemove={() => setSelectedTier(null)}
+              />
+            )}
+            {selectedStatus && (
+              <FilterChip
+                label="Status"
+                value={selectedStatus}
+                onRemove={() => setSelectedStatus(null)}
+              />
+            )}
           </div>
         )}
 
