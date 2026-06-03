@@ -82,9 +82,6 @@ async function listStaff(req, res, next) {
 }
 
 // Returns the distinct list of role names configured in role_permissions.
-// This replaces the hardcoded ROLES = [...] arrays that used to live in
-// the frontend, ensuring the role dropdown reflects whatever the RBAC
-// tables actually define. Order alphabetical.
 async function listRoles(req, res, next) {
   try {
     const result = await pool.query(
@@ -95,9 +92,6 @@ async function listRoles(req, res, next) {
 }
 
 // Returns the full field catalog with column metadata for the Leads list.
-// Reads from permission_fields where column_width IS NOT NULL — these are
-// the fields that act as columns in the Leads table. Per-role visibility
-// is then applied client-side by PermissionsContext.fieldList().
 async function listColumns(req, res, next) {
   try {
     const result = await pool.query(
@@ -119,7 +113,6 @@ async function listColumns(req, res, next) {
   } catch (err) { next(err); }
 }
 
-
 async function listActiveStaff(req, res, next) {
   try {
     const staff = await Staff.findAllActive();
@@ -128,10 +121,6 @@ async function listActiveStaff(req, res, next) {
 }
 
 // ── User Layout Variants ─────────────────────────────────────
-// Each user can save multiple named "variants" of a page layout:
-//   { columns: [{key, width, visible}], filters: {...}, sort: {field, dir} }
-// They can switch between them via the UI on the Leads list.
-
 async function listVariants(req, res, next) {
   try {
     const page = req.query.page || 'leads';
@@ -153,7 +142,6 @@ async function createVariant(req, res, next) {
     if (!page || !name || !config) return res.status(400).json({ success: false, error: 'page, name, config required' });
     await client.query('BEGIN');
     if (is_default) {
-      // Unset any existing default for this user+page
       await client.query(
         `UPDATE user_variants SET is_default = FALSE WHERE staff_id = $1 AND page = $2`,
         [req.session.staffId, page]
@@ -182,7 +170,6 @@ async function updateVariant(req, res, next) {
     const { id } = req.params;
     const { name, config, is_default } = req.body;
     await client.query('BEGIN');
-    // If marking this as default, first get its page and unset others on the same page
     if (is_default === true) {
       const pg = await client.query(
         `SELECT page FROM user_variants WHERE id = $1 AND staff_id = $2`,
@@ -200,10 +187,6 @@ async function updateVariant(req, res, next) {
     const r = await client.query(
       `UPDATE user_variants
        SET name       = COALESCE($1, name),
-           -- JSONB merge: existing config keys are kept, the incoming object
-           -- only OVERWRITES the keys it includes. Prevents the column-settings
-           -- page from wiping filters/sort/sizing when it sends just the
-           -- columnOrder + columnVisibility slice.
            config     = CASE WHEN $2::jsonb IS NULL THEN config ELSE config || $2::jsonb END,
            is_default = COALESCE($3, is_default),
            updated_at = NOW()
@@ -238,9 +221,6 @@ async function deleteVariant(req, res, next) {
   } catch (err) { next(err); }
 }
 
-// Returns the currently logged-in staff member's full profile.
-// Reads ID from the session and looks up the latest record from the DB
-// so any role/permission updates take effect on next request.
 async function getMe(req, res, next) {
   try {
     if (!req.session || !req.session.staffId) {
@@ -325,10 +305,6 @@ async function assignStaff(req, res, next) {
     const { studentId } = req.params;
     const { counselor, seniorCounselor, presales, marketingStaff } = req.body;
 
-    // ─── Phase 2c: Resource-level assign check ──────────────
-    // Replaces the old route-level requireAdminOrManager middleware.
-    // For Counselor with scope='own', this allows handing off their
-    // own leads but blocks reassigning anyone else's.
     const assignStaffCtx = {
       role: req.session.staffRole,
       fullName: req.session.staffName,
@@ -351,7 +327,6 @@ async function assignStaff(req, res, next) {
         error: 'You do not have permission to reassign this lead.',
       });
     }
-    // ─── End Phase 2c assign check ──────────────────────────
 
     const result = await pool.query(
       `UPDATE students
@@ -373,11 +348,6 @@ async function assignStaff(req, res, next) {
 
 async function massAssign(req, res, next) {
   try {
-    // ─── Phase 2c: Mass-assign requires scope='all' ──────────
-    // Replaces the old route-level requireAdminOrManager middleware.
-    // Counselors with scope='own' must use single-assign on each
-    // lead — bulk operations on partial-permission roles get
-    // unpredictable semantics and we'd rather force the explicit path.
     const massAssignScope = await permissionService.getResourceScope(
       req.session.staffRole, 'leads', 'assign'
     );
@@ -387,7 +357,6 @@ async function massAssign(req, res, next) {
         error: 'Mass-assign requires unrestricted assign permission. Use single-assign for individual leads.',
       });
     }
-    // ─── End Phase 2c mass-assign check ──────────────────────
 
     const { Pool } = require('pg');
     const pool = new Pool({
@@ -413,10 +382,6 @@ async function massAssign(req, res, next) {
 }
 
 // ── Student Search ────────────────────────────────────────────
-// PHASE 2b: enforces resource-level view_list permission and applies
-// field-level masking ('[hidden]' / omitted) according to the user's
-// list_permission rules. If a role's view_list scope is 'own', we
-// additionally filter to leads the user is assigned to.
 async function searchStudents(req, res, next) {
   try {
     const { Pool } = require('pg');
@@ -442,14 +407,11 @@ async function searchStudents(req, res, next) {
     const result = await pool.query(query, params);
     await pool.end();
 
-    // Build staff context from session for permission checks.
     const staff = {
       role:     req.session.staffRole,
       fullName: req.session.staffName,
     };
 
-    // Resource-level view_list check. Currently 'all' for every role in
-    // the seed, but this honours future changes via the admin UI.
     const scope = await permissionService.getResourceScope(
       staff.role, 'leads', 'view_list'
     );
@@ -462,13 +424,10 @@ async function searchStudents(req, res, next) {
 
     let leads = result.rows.map(objectToCamelCase);
 
-    // If view_list is 'own', filter to only assigned leads. (Not used by
-    // any current role, but the seed could be changed via admin UI.)
     if (scope === 'own') {
       leads = leads.filter(l => permissionService.isLeadAssignedTo(staff, l));
     }
 
-    // Apply per-field masking using each field's list_permission rule.
     const masked = await permissionService.applyFieldPermissionsToList(staff, leads);
 
     res.json({ success: true, data: masked });
@@ -476,9 +435,6 @@ async function searchStudents(req, res, next) {
 }
 
 // ── Student Detail ────────────────────────────────────────────
-// PHASE 2b: enforces canAccessLead for view_detail (returns 403 if a
-// Counselor tries to open a lead they're not assigned to), then masks
-// fields the user can't see in detail-context.
 async function getStudent(req, res, next) {
   try {
     const { Pool } = require('pg');
@@ -498,15 +454,11 @@ async function getStudent(req, res, next) {
 
     const lead = objectToCamelCase(result.rows[0]);
 
-    // Build staff context from session.
     const staff = {
       role:     req.session.staffRole,
       fullName: req.session.staffName,
     };
 
-    // Access check — for Counselor with scope='own', this is where
-    // unassigned leads get blocked. Admin/Manager/Director have
-    // scope='all' so they pass through.
     const canAccess = await permissionService.canAccessLead(
       staff, lead, 'view_detail'
     );
@@ -517,15 +469,12 @@ async function getStudent(req, res, next) {
       });
     }
 
-    // Log the view AFTER the access check passes — no audit trail for
-    // blocked attempts (they didn't see anything).
     await logView({
       studentId: id,
       viewedBy:  req.session.staffName || req.session.staffEmail || 'unknown',
       req,
     });
 
-    // Apply field-level masking before sending to client.
     const masked = await permissionService.applyFieldPermissions(staff, lead, 'detail');
 
     res.json({ success: true, data: masked });
@@ -533,16 +482,8 @@ async function getStudent(req, res, next) {
 }
 
 // ── Student Update ────────────────────────────────────────────
-// PHASE 2b (defensive): strip any field the user doesn't have edit
-// permission for BEFORE the existing update logic runs. Prevents
-// '[hidden]' masked values from being saved back to the DB, and stops
-// any client-side bypass of field-level edit restrictions.
-//
-// Phase 2c will add the resource-level access check (can this user
-// even edit this lead?) on top of this field-level filter.
 async function updateStudent(req, res, next) {
   try {
-    // ─── Phase 2b defensive filter ────────────────────────────
     const role = req.session.staffRole;
     if (role) {
       const filteredBody = {};
@@ -554,7 +495,6 @@ async function updateStudent(req, res, next) {
       }
       req.body = filteredBody;
     }
-    // ─── End Phase 2b filter — existing logic continues below ──
 
     const { Pool } = require('pg');
     const pool = new Pool({
@@ -566,11 +506,7 @@ async function updateStudent(req, res, next) {
     const existing = await pool.query(
       `SELECT * FROM students WHERE unique_id = $1`, [id]
     );
-    
-    // ─── Phase 2c: Resource-level edit access check ──────────
-    // For scope='own' (Counselor), this blocks edits on leads they
-    // aren't assigned to. For scope='all' (Admin/Manager/Director),
-    // passes through.
+
     if (existing.rows.length === 0) {
       await pool.end();
       return res.status(404).json({ success: false, error: 'Lead not found' });
@@ -586,7 +522,6 @@ async function updateStudent(req, res, next) {
       });
     }
 
-    // ─── End Phase 2c access check ───────────────────────────
     const fields = [], values = [];
     let i = 1;
     const seen = new Set();
@@ -629,7 +564,6 @@ async function calculateRisk(req, res, next) {
     const result = await Student.findById(id);
     if (!result) return res.status(404).json({ success: false, error: 'Lead not found' });
 
-    // ─── Phase 2c: Resource-level edit access check ──────────
     const editStaff = { role: req.session.staffRole, fullName: req.session.staffName };
     const canEditRisk = await permissionService.canAccessLead(editStaff, result.data, 'edit');
     if (!canEditRisk) {
@@ -639,7 +573,6 @@ async function calculateRisk(req, res, next) {
       });
     }
 
-    // ─── End Phase 2c access check ───────────────────────────
     const riskResult = calculateRiskScore(result.data);
 
     await Student.update(id, {
@@ -666,10 +599,9 @@ async function calculateOceanStudent(req, res, next) {
       await pool.end();
       return res.status(404).json({ success: false, error: 'Lead not found' });
     }
-    
+
     const data = objectToCamelCase(existing.rows[0]);
 
-    // ─── Phase 2c: Resource-level edit access check ──────────
     const editStaff = { role: req.session.staffRole, fullName: req.session.staffName };
     const canEditOcean = await permissionService.canAccessLead(editStaff, data, 'edit');
     if (!canEditOcean) {
@@ -679,10 +611,8 @@ async function calculateOceanStudent(req, res, next) {
         error: 'You do not have permission to recalculate OCEAN for this lead.',
       });
     }
-    // ─── End Phase 2c access check ───────────────────────────
 
     const responses = {};
-    
     for (let i = 1; i <= 15; i++) {
       responses[i] = Number(data[`oceanQ${i}`]) || 0;
     }
@@ -750,10 +680,65 @@ async function saveColumnConfig(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Export to Excel ───────────────────────────────────────────
+// POST /api/staff/students/export-excel
+// Body: { startDate, endDate, dateField, fields, includeNotes }
+// Returns a binary .xlsx file as a download.
+async function exportExcel(req, res, next) {
+  try {
+    const XLSX = require('xlsx');
+    const { startDate, endDate, dateField = 'created_at', fields, includeNotes } = req.body;
+
+    const conditions = [];
+    const params     = [];
+
+    if (startDate) {
+      params.push(startDate);
+      conditions.push(`${dateField} >= $${params.length}`);
+    }
+    if (endDate) {
+      params.push(endDate);
+      conditions.push(`${dateField} <= $${params.length}::date + interval '1 day'`);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await pool.query(
+      `SELECT * FROM students ${where} ORDER BY created_at DESC`,
+      params
+    );
+
+    function snakeToCamel(s) {
+      return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    }
+
+    const sheetRows = result.rows.map(row => {
+      const camel = {};
+      for (const [k, v] of Object.entries(row)) {
+        camel[snakeToCamel(k)] = v == null ? '' : v;
+      }
+      if (fields && Array.isArray(fields) && fields.length > 0) {
+        const picked = {};
+        fields.forEach(f => { picked[f] = camel[f] ?? ''; });
+        return picked;
+      }
+      return camel;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(sheetRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Leads');
+
+    const filename = `leads-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const buffer   = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('X-Export-Row-Count', String(result.rows.length));
+    res.send(buffer);
+  } catch (err) { next(err); }
+}
+
 // ── Build a plain-text archive for a deleted lead ──────────────
-// Always written at deletion, regardless of whether the lead had notes.
-// The header is the forensic record of the deletion event; if notes existed,
-// they're appended below.
 function buildNotesArchive(student, notes, deletedBy) {
   const sep = '═'.repeat(60);
   const sub = '─'.repeat(60);
@@ -801,10 +786,6 @@ async function deleteStudents(req, res, next) {
     return res.status(400).json({ success: false, error: 'uniqueIds array is required' });
   }
 
-  // ─── Phase 2c: Resource-level delete check ──────────────
-  // Replaces the old route-level requireAdmin middleware. Per the
-  // role_permissions seed, Admin and Director both have scope='all'
-  // for delete; everyone else is 'none'.
   const deleteScope = await permissionService.getResourceScope(
     req.session.staffRole, 'leads', 'delete'
   );
@@ -814,16 +795,10 @@ async function deleteStudents(req, res, next) {
       error: 'You do not have permission to delete leads.',
     });
   }
-  // ─── End Phase 2c delete check ──────────────────────────
 
-  const deletedBy = req.session?.staffName || req.session?.staffEmail || 'Unknown';  
-  const archiveResults = [];   // { studentId, status: 'archived' | 'skipped' | 'failed', viewUrl?, error? }
+  const deletedBy = req.session?.staffName || req.session?.staffEmail || 'Unknown';
+  const archiveResults = [];
 
-  // ── PHASE 1: Archive every deletion to Google Drive (per student) ──
-  // Every deletion creates a forensic record, regardless of whether the lead
-  // had notes attached. The archive content adapts: with notes, it includes
-  // them; without, it's just lead metadata + deletion event details.
-  // Done before the DB delete so we never lose data if upload succeeds and delete fails.
   for (const studentId of uniqueIds) {
     try {
       const sRes = await pool.query(`SELECT * FROM students      WHERE unique_id = $1`, [studentId]);
@@ -855,8 +830,6 @@ async function deleteStudents(req, res, next) {
     }
   }
 
-  // ── If ANY archive failed, abort the deletion ──
-  // Keeps notes safe — the user can retry once Drive is healthy.
   const failed = archiveResults.filter(r => r.status === 'failed');
   if (failed.length > 0) {
     return res.status(500).json({
@@ -866,8 +839,6 @@ async function deleteStudents(req, res, next) {
     });
   }
 
-  // ── PHASE 2: Delete in a transaction ──
-  // All-or-nothing — if any DELETE fails, the others roll back.
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -890,9 +861,6 @@ async function deleteStudents(req, res, next) {
 }
 
 // ── Permissions for current user ──────────────────────────────
-// PHASE 2b: returns the full permission set for the logged-in user's
-// role. Frontend uses this on login to shape its UI — disable edit
-// controls on view-only fields, hide rows for unassigned leads, etc.
 async function getPermissions(req, res, next) {
   try {
     const role = req.session.staffRole;
@@ -912,6 +880,6 @@ module.exports = {
   assignStaff, massAssign, searchStudents, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,
-  setTarget, deleteStudents,
+  setTarget, deleteStudents, exportExcel,
   getPermissions,
 };

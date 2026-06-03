@@ -13,6 +13,7 @@
 //     table. The role-permissions matrix is the single source of truth.
 //   - Added the GET /permissions route used by the frontend
 //     PermissionsContext to populate its UI rules on login.
+//   - Added POST /students/export-excel route for Excel export.
 
 const express    = require('express');
 const router     = express.Router();
@@ -86,12 +87,14 @@ router.delete('/variants/:id', requireStaffAuth, staffCtrl.deleteVariant);
 // Student-level operations: list/detail/edit access is enforced inside
 // the controllers themselves via canAccessLead / applyFieldPermissions.
 // Mass delete is gated here at the route layer (leads.delete).
-router.get('/students/search',              requireStaffAuth,                                            staffCtrl.searchStudents);
-router.get('/students/:id',                 requireStaffAuth,                                            staffCtrl.getStudent);
-router.put('/students/:id',                 requireStaffAuth,                                            staffCtrl.updateStudent);
-router.post('/students/:id/calculate-risk', requireStaffAuth, requirePermission('leads', 'recalculate'), staffCtrl.calculateRisk);
-router.post('/students/:id/calculate-ocean',requireStaffAuth, requirePermission('leads', 'recalculate'), staffCtrl.calculateOceanStudent);
-router.delete('/students',                  requireStaffAuth, requirePermission('leads', 'delete'),       staffCtrl.deleteStudents);
+// Export is gated on leads.export permission.
+router.get('/students/search',               requireStaffAuth,                                            staffCtrl.searchStudents);
+router.post('/students/export-excel',        requireStaffAuth, requirePermission('leads', 'export'),      staffCtrl.exportExcel);
+router.get('/students/:id',                  requireStaffAuth,                                            staffCtrl.getStudent);
+router.put('/students/:id',                  requireStaffAuth,                                            staffCtrl.updateStudent);
+router.post('/students/:id/calculate-risk',  requireStaffAuth, requirePermission('leads', 'recalculate'), staffCtrl.calculateRisk);
+router.post('/students/:id/calculate-ocean', requireStaffAuth, requirePermission('leads', 'recalculate'), staffCtrl.calculateOceanStudent);
+router.delete('/students',                   requireStaffAuth, requirePermission('leads', 'delete'),      staffCtrl.deleteStudents);
 
 // ── Audit log routes ──────────────────────────────────────────
 // Per-lead audit log is visible to anyone who can view the lead
