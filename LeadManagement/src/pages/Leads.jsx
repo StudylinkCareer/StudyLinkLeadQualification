@@ -1242,7 +1242,8 @@ export default function Leads() {
   async function handleExportExcel() {
     try {
       const fields = visibleCols.map(c => c.key);
-      const result = await staffAPI.exportExcel({
+      // const result = await staffAPI.exportExcel({
+      const result = await studentAPI.exportExcel({
         startDate:    filters.dateFrom    || null,
         endDate:      filters.dateTo      || null,
         dateField:    'createdAt',
