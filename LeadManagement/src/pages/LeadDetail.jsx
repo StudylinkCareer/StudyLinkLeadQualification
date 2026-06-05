@@ -12,6 +12,12 @@
 //       canRecalculate       → canDoOnLead('leads', 'recalculate', lead)
 //       canDelayCloseDate    → canDoOnLead('leads', 'delay_close_date', lead)
 //       canWriteNote.<kind>  → canDo('notes', 'write_<kind>')
+// CHANGES (phone click-to-call + auto note):
+//   - Phone field in Student Information (read-only view) is now a tel: hyperlink.
+//   - Clicking the phone number opens the device dialler AND silently posts a
+//     Counselor Note "📞 Called student — <timestamp>" via notesAPI.add().
+//     The new note is prepended to the notes list immediately so the counselor
+//     can see it without a page refresh.
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -568,7 +574,26 @@ export default function LeadDetail() {
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                 <Field label="Email"           value={lead.email}/>
-                <Field label="Phone"           value={lead.phone}/>
+                {/* Phone — click-to-call link that auto-logs a Counselor Note */}
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
+                  <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Phone</span>
+                  {lead.phone ? (
+                    <a
+                      href={`tel:${lead.phone}`}
+                      style={{ fontSize:'0.875rem', color:'var(--primary)', textDecoration:'none' }}
+                      title={`Call ${lead.phone}`}
+                      onClick={() => {
+                        const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+                        notesAPI.add(id, 'counselor', `📞 Called student — ${now}`)
+                          .then(data => setNotes(n => [data.data, ...n]))
+                          .catch(err => console.warn('Auto call note failed:', err));
+                      }}>
+                      {lead.phone}
+                    </a>
+                  ) : (
+                    <span style={{ fontSize:'0.875rem' }}>—</span>
+                  )}
+                </div>
                 <Field label="Stone Tier"      value={lead.stoneTier}/>
                 <Field label="Risk Score"      value={lead.riskScore}/>
                 <Field label="Study Plans"     value={lead.studyPlans}/>

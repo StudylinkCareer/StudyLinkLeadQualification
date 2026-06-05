@@ -40,7 +40,9 @@ import { useNavigate } from 'react-router-dom';
 import { FiX } from 'react-icons/fi';
 import { studentAPI, staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import { labelFor } from '../utils/leadStatusLabels';
 import { stoneLabel } from '../utils/stoneLabels';
@@ -185,9 +187,28 @@ export default function Dashboard() {
   const [activeStaff, setActiveStaff] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [selectedCounselor, setSelectedCounselor] = useState(null);
-  const { staff, isManager, isAdmin } = useAuth();
-  const { language }            = useLanguage();
-  const navigate                = useNavigate();
+  const { staff }    = useAuth();
+  const { scope }    = usePermissions();
+  const { language } = useLanguage();
+  const { push: pushTrail } = useNavTrail();
+  const navigate     = useNavigate();
+
+  // Push trail entry on mount. Dashboard is the trail root — clicking
+  // the sidebar Dashboard link clears the trail before navigating here,
+  // so this becomes the first entry on a fresh navigation chain.
+  useEffect(() => {
+    pushTrail({ label: 'Dashboard', path: '/dashboard' });
+  }, [pushTrail]);
+
+  // ── Role flags ────────────────────────────────────────────────
+  // scope() is exposed by PermissionsContext with signature
+  //   scope(resource, operation) — note the order: resource FIRST.
+  //   Returns 'all' | 'own' | 'none'.
+  //   hasAllScope  → user can see every lead (Manager, Director, Admin)
+  //   isAdmin      → role-string check for the few places Admin behaves
+  //                  differently (e.g. no target row).
+  const hasAllScope = scope('leads', 'view_list') === 'all';
+  const isAdmin     = staff?.role === 'Admin';
 
   useEffect(() => {
     const promises = [studentAPI.search('').then(d => setLeads(d.data || []))];
@@ -198,7 +219,7 @@ export default function Dashboard() {
           .catch(() => {})
       );
     }
-    if (isManager) {
+    if (hasAllScope) {
       promises.push(
         staffAPI.listActive()
           .then(d => { if (d.data) setActiveStaff(d.data); })
@@ -206,28 +227,34 @@ export default function Dashboard() {
       );
     }
     Promise.all(promises).catch(console.error).finally(() => setLoading(false));
-  }, [staff?.id, isManager]);
+  }, [staff?.id, hasAllScope]);
 
   const scopedLeads = useMemo(() => {
-    if (isManager || isAdmin) return leads;
+    if (hasAllScope) return leads;
     return leads.filter(l =>
       l.counselor       === staff?.fullName ||
       l.seniorCounselor === staff?.fullName ||
       l.presales        === staff?.fullName ||
       l.marketingStaff  === staff?.fullName
     );
-  }, [leads, isManager, isAdmin, staff]);
+  }, [leads, hasAllScope, staff]);
 
   const stats = useMemo(() => {
-    const total     = scopedLeads.length;
-    const won       = scopedLeads.filter(l => l.leadStatus === 'Contracted').length;
-    const active    = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus)).length;
-    const thisMonth = scopedLeads.filter(l => {
+    const total  = scopedLeads.length;
+    const won    = scopedLeads.filter(l => l.leadStatus === 'Contracted').length;
+    const active = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus)).length;
+    const thisMonthLeads = scopedLeads.filter(l => {
       if (!l.createdAt) return false;
       const d = new Date(l.createdAt), now = new Date();
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }).length;
-    return { total, won, active, thisMonth };
+    });
+    return {
+      total,
+      won,
+      active,
+      thisMonth:    thisMonthLeads.length,
+      thisMonthIds: thisMonthLeads.map(l => l.uniqueId),
+    };
   }, [scopedLeads]);
 
   const pipeline = useMemo(() => {
@@ -270,7 +297,7 @@ export default function Dashboard() {
   }, [scopedLeads]);
 
   const counselorData = useMemo(() => {
-    if (!isManager && !isAdmin) return [];
+    if (!hasAllScope) return [];
     const map = {};
     leads.forEach(l => {
       const counselor = l.counselor || 'Unassigned';
@@ -286,7 +313,7 @@ export default function Dashboard() {
         total: Object.values(stoneMap).reduce((s, arr) => s + arr.length, 0),
       }))
       .sort((a, b) => b.total - a.total);
-  }, [leads, isManager, isAdmin]);
+  }, [leads, hasAllScope]);
 
   const selectedCounselorLeads = useMemo(() => {
     if (!selectedCounselor) return [];
@@ -336,11 +363,45 @@ export default function Dashboard() {
     }
   }, [counselorData, selectedCounselor]);
 
+  // Counselor restriction: when a Counselor user drills from the dashboard,
+  // the resulting Leads view should only contain THEIR leads (not the whole
+  // company's). We implement this by pre-filtering leads to ownership and
+  // passing the matching IDs through the existing `_ids` drill mechanism.
+  // Non-Counselors fall through to the original behavior.
+  const isCounselor = staff?.role === 'Counselor';
+  function ownsLead(l) {
+    if (!staff?.fullName) return false;
+    return (
+      l.counselor       === staff.fullName ||
+      l.seniorCounselor === staff.fullName ||
+      l.presales        === staff.fullName ||
+      l.marketingStaff  === staff.fullName
+    );
+  }
+
   function drillDown(filterKey, filterValue) {
+    if (isCounselor) {
+      const ids = leads
+        .filter(ownsLead)
+        .filter(l => {
+          if (filterKey === 'stoneTier') {
+            return (l.stoneTier || 'Unscored') === filterValue;
+          }
+          if (filterKey === 'leadStatus' && filterValue === 'active') {
+            const active = ['New','Not contactable','Engaged','Vetted','Met with customer and family','Proposal','Family negotiation/review','Nurturing'];
+            return active.includes(l.leadStatus || 'New');
+          }
+          return l[filterKey] === filterValue;
+        })
+        .map(l => l.uniqueId);
+      navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
+      return;
+    }
     navigate('/leads', { state: { drillFilter: { key: filterKey, value: filterValue } } });
   }
   function drillPipeline(leads) {
-    navigate('/leads', { state: { drillFilter: { key: '_ids', value: leads.map(l => l.uniqueId) } } });
+    const list = isCounselor ? leads.filter(ownsLead) : leads;
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: list.map(l => l.uniqueId) } } });
   }
   function toggleCounselor(name) {
     setSelectedCounselor(prev => prev === name ? null : name);
@@ -362,7 +423,7 @@ export default function Dashboard() {
 
   if (loading) return <div className="loading-center">{t('dashboard.loading', language)}</div>;
 
-  const isManagerOrAdmin = isManager || isAdmin;
+  const isManagerOrAdmin = hasAllScope;
   const maxCounselorTotal = Math.max(...counselorData.map(d => d.total), 1);
 
   // ── Pipeline Statistics: bilingual table ─────────────────────
@@ -380,7 +441,9 @@ export default function Dashboard() {
   ];
 
   const managerTargetCount = (() => {
-    if (isManager) {
+    // Manager OR Director (anyone with all-scope view who isn't Admin)
+    // sees the aggregated counselor target total.
+    if (hasAllScope && !isAdmin) {
       const cw = activeStaff.filter(s => s.role === 'Counselor' && s.target != null);
       return cw.length > 0 ? cw.reduce((sum, s) => sum + Number(s.target || 0), 0) : '—';
     }
@@ -389,7 +452,7 @@ export default function Dashboard() {
   })();
 
   const managerTargetSub = (() => {
-    if (isManager) {
+    if (hasAllScope && !isAdmin) {
       const n = activeStaff.filter(s => s.role === 'Counselor' && s.target != null).length;
       if (n === 0) return t('dashboard.pipeline.target.none', language);
       const key = n === 1 ? 'dashboard.pipeline.target.aggregated' : 'dashboard.pipeline.target.aggregatedPlural';
@@ -414,7 +477,7 @@ export default function Dashboard() {
           <tr>
             <th style={{ textAlign:'left', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)' }}></th>
             <th style={{ textAlign:'right', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'var(--primary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)', width:'72px' }}>
-              {isManager ? t('common.manager', language) : t('common.you', language)}
+              {hasAllScope ? (staff?.role || t('common.manager', language)) : t('common.you', language)}
             </th>
             {showCounselorCol && (
               <th style={{ textAlign:'right', padding:'0.4rem 0.25rem', fontSize:'0.6875rem', fontWeight:600, color:'#10B981', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)', width:'72px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
@@ -507,16 +570,22 @@ export default function Dashboard() {
       <div className="page-body">
 
         {/* ── Top stat cards ──────────────────────────────────── */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
-          <StatCard label={t('dashboard.stat.totalLeads', language)}    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads')}/>
+        <div className="dashboard-stat-grid" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
+          <StatCard label={t('dashboard.stat.totalLeads', language)}    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads', { state: { reset: true } })}/>
           <StatCard label={t('dashboard.stat.active', language)}        value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
           <StatCard label={t('dashboard.stat.contracted', language)}    value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
-          <StatCard label={t('dashboard.stat.newThisMonth', language)}  value={stats.thisMonth} color="#F59E0B" sub={t('dashboard.stat.newThisMonth.sub', language)}/>
+          <StatCard
+            label={t('dashboard.stat.newThisMonth', language)}
+            value={stats.thisMonth}
+            color="#F59E0B"
+            sub={t('dashboard.stat.newThisMonth.sub', language)}
+            onClick={() => drillDown('_ids', stats.thisMonthIds)}
+          />
         </div>
 
         {/* ── Level 1 / counselor mixed ───────────────────────── */}
         {isManagerOrAdmin ? (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
+          <div className="dashboard-charts-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.5rem' }}>
             <div className="section-card">
               <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStone', language)}</span></div>
               <HBarChart data={stoneData} colorMap={STONE_COLORS}
@@ -534,7 +603,7 @@ export default function Dashboard() {
             </div>
           </div>
         ) : (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 300px', gap:'1rem', marginBottom:'1.5rem' }}>
+          <div className="dashboard-charts-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 300px', gap:'1rem', marginBottom:'1.5rem' }}>
 
             <div className="section-card">
               <div className="section-header"><span className="section-title">{t('dashboard.chart.leadsByStone', language)}</span></div>
@@ -564,7 +633,7 @@ export default function Dashboard() {
 
         {/* ── Level 2 (Manager/Admin only) ────────────────────── */}
         {isManagerOrAdmin && (
-          <div style={{
+          <div className="dashboard-level2-grid" style={{
             display:'grid',
             gridTemplateColumns: selectedCounselor ? '1.3fr 1fr 1fr' : '2fr 1fr',
             gap:'1rem',

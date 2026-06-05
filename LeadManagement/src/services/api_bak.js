@@ -11,15 +11,6 @@
 //   - Added staffAPI.getPermissions() for GET /api/staff/permissions,
 //     returning the full RBAC permission set for the logged-in user's role.
 //     Used by PermissionsContext on mount to drive all UI affordances.
-//
-// CHANGES (safe JSON parsing — fixes "Unexpected end of JSON input"):
-//   - request() now reads the response body with res.text() first, then
-//     attempts JSON.parse(). Previously it called res.json() directly, which
-//     throws "Unexpected end of JSON input" when the server returns an empty
-//     body (e.g. on a crash, timeout, or cold-start). The new approach gives
-//     a readable error message instead of a cryptic alert.
-//   - Note: lookupRequest() intentionally keeps res.json() since lookup
-//     endpoints always return valid JSON and must not camelCase category names.
 
 import { objectToCamelCase } from '../utils/caseConvert';
 
@@ -33,17 +24,7 @@ async function request(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  // ── Safe response parsing ────────────────────────────────────
-  // Read as text first so we never crash on an empty body or an HTML
-  // error page (both of which cause res.json() to throw "Unexpected
-  // end of JSON input").
-  const text = await res.text();
-  let data;
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`Server error (${res.status}): response was not valid JSON`);
-  }
+  const data = await res.json();
   if (!data.success) throw new Error(data.error || 'Request failed');
 
   // Only convert actual objects to camelCase — strings, numbers, null,

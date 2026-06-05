@@ -11,6 +11,12 @@
 // Phase 2.1 UPDATE: Replaced literal '[hidden]' masking with partial masking
 // (e.g. 't...p@gmail.com', '+84... ...23'). The mask reveals enough for a
 // staff member to recognise a record but not enough to read the full value.
+//
+// Phase 2.2 UPDATE: For view_masked fields, the raw value is preserved under
+// a '_raw_<fieldName>' key alongside the masked display value. This allows
+// the frontend to search against real contact data (phone, email, social
+// handles) while still displaying only the masked value to the user.
+// The '_raw_*' keys are never shown in the UI — only used for search.
 // ---------------------------------------------------------------------------
 
 const path = require('path');
@@ -201,7 +207,15 @@ async function applyFieldPermissions(staff, lead, context) {
 
     if (permValue === 'none') continue;
     if (permValue === 'view_masked') {
+      // Store the masked value for display
       result[fieldName] = maskValue(fieldName, value);
+      // Also store the raw value under a '_raw_' prefix so the frontend
+      // can search against real contact data without exposing it in the UI.
+      // Only emitted for list context — detail view either shows full value
+      // or omits the field based on the detail permission.
+      if (context === 'list' && value !== null && value !== undefined && value !== '') {
+        result[`_raw_${fieldName}`] = value;
+      }
       continue;
     }
     result[fieldName] = value;

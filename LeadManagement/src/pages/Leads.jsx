@@ -9,11 +9,40 @@
 //     navigating; unauthorized clicks show a toast on the list, no nav.
 //   - Bulk-select column, action bar, delete button, print button all
 //     gated on permissions from usePermissions().
+// CHANGES (phone + masking):
+//   - Added notesAPI import.
+//   - maskField() helper: respects fieldList() RBAC value 'view_masked'.
+//     Counselors see full data for their OWN assigned leads; masked partial
+//     values (e.g. "09****12") for leads assigned to others.
+//   - handleCallClick(): fires a background notesAPI.add() counselor note
+//     when a phone number is clicked, so every call attempt is recorded.
+//   - renderCellInner now has explicit 'email' and 'phone' cases:
+//     email shows masked text when applicable;
+//     phone renders as a tel: hyperlink (unmasked only) with auto-note on click.
+// CHANGES (search always uses raw data):
+//   - The global search filter now always runs against the raw lead data,
+//     never masked values. Counselors can search by full phone/email even
+//     when those fields display as masked in the list.
+//   - contactDetails (Zalo, Facebook, social handles) is now flattened one
+//     level and included in the search candidates, so social media accounts
+//     are fully searchable.
+// CHANGES (search normalisation — fixes phone/email not matching):
+//   - matchesSearch() now normalises both the search term and the stored value
+//     by collapsing whitespace and stripping punctuation (spaces, dashes,
+//     brackets, dots, +) before comparing. This means "093 6187919" matches
+//     "0936187919", "+84 93 618 7919" matches "0936187919", and email
+//     searches work regardless of how the user spaces/punctuates the input.
+// CHANGES (search uses _raw_ fields from server):
+//   - The server now returns masked fields (e.g. 'b...n@psb-academy.edu.sg')
+//     for display AND the real value under a '_raw_email' / '_raw_phone' key
+//     for search. The search block now includes all keys including '_raw_*'
+//     in its candidates, so users can find records by typing either the
+//     masked or real contact value. '_raw_*' fields never appear as columns.
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { studentAPI, staffAPI, columnConfigAPI, variantsAPI } from '../services/api';
+import { studentAPI, staffAPI, columnConfigAPI, variantsAPI, notesAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLookup } from '../contexts/LookupContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -160,11 +189,27 @@ function getLeadAge(createdAt) {
 function matchesSearch(value, pattern) {
   if (!pattern) return true;
   if (!value) return false;
-  const v = String(value).toLowerCase(), p = pattern.toLowerCase();
-  if (p.startsWith('*') && p.endsWith('*')) return v.includes(p.slice(1, -1));
-  if (p.endsWith('*')) return v.startsWith(p.slice(0, -1));
-  if (p.startsWith('*')) return v.endsWith(p.slice(1));
-  return v.includes(p);
+  // Normalise both sides: collapse whitespace and strip common punctuation
+  // so "093 6187919" matches "0936187919" and vice versa, and
+  // "baotran.tran@..." still matches a dotted search term.
+  const normalise = s => String(s).toLowerCase().replace(/[\s\-().+]/g, '');
+  const v  = String(value).toLowerCase();
+  const vn = normalise(value);
+  const p  = pattern.toLowerCase();
+  const pn = normalise(pattern);
+  if (p.startsWith('*') && p.endsWith('*')) {
+    const core = p.slice(1, -1);
+    return v.includes(core) || vn.includes(normalise(core));
+  }
+  if (p.endsWith('*')) {
+    const stem = p.slice(0, -1);
+    return v.startsWith(stem) || vn.startsWith(normalise(stem));
+  }
+  if (p.startsWith('*')) {
+    const tail = p.slice(1);
+    return v.endsWith(tail) || vn.endsWith(normalise(tail));
+  }
+  return v.includes(p) || vn.includes(pn);
 }
 
 // ── Multi-select filter pill ──────────────────────────────────
@@ -510,6 +555,41 @@ export default function Leads() {
   const canMassAssign    = scope('leads', 'assign') === 'all';        // mass-assign / bulk-select column
   const canDeleteLeads   = canDo('leads', 'delete');                  // delete button
   const canPrintList     = canDo('leads', 'export');                   // print/export — Director only via DB
+
+  // ── Field masking helper ──────────────────────────────────────
+  // fieldList(key) returns 'view_masked' when the role can see a field
+  // but not in full (e.g. Counselors viewing leads not assigned to them).
+  // For a counselor's OWN assigned lead we always show the real value.
+  function maskField(key, value, lead) {
+    if (!value) return null;
+    if (fieldList(key) !== 'view_masked') return value;  // full access or hidden
+    // Un-mask when this lead belongs to the current staff member
+    const isOwn =
+      lead.counselor       === staff?.fullName ||
+      lead.seniorCounselor === staff?.fullName ||
+      lead.presales        === staff?.fullName ||
+      lead.marketingStaff  === staff?.fullName;
+    if (isOwn) return value;
+    // Apply partial mask
+    if (key === 'email') {
+      const [user, domain] = String(value).split('@');
+      return (user?.slice(0, 2) || '') + '***@' + (domain || '');
+    }
+    if (key === 'phone') {
+      const s = String(value);
+      return s.slice(0, 3) + '****' + s.slice(-2);
+    }
+    return String(value).slice(0, 3) + '...';
+  }
+
+  // ── Click-to-call handler ─────────────────────────────────────
+  // Opens the device dialler via the tel: link and silently logs a
+  // Counselor Note so there is an automatic record of the call attempt.
+  function handleCallClick(lead) {
+    const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+    notesAPI.add(lead.uniqueId, 'counselor', `📞 Called student — ${now}`)
+      .catch(err => console.warn('Auto call note failed:', err));
+  }
 
   // Toast for "Access not authorised" feedback when a Counselor clicks an
   // unassigned lead. Auto-dismisses after 3 seconds.
@@ -1071,17 +1151,32 @@ export default function Leads() {
     // gets all leads or only their own. No second-layer filtering by role here.
 
     if (filters.search) {
-      // Universal search — match against any string field on the lead.
-      // Pulls every value, coerces to string, runs through matchesSearch.
-      r = r.filter(l =>
-        Object.values(l).some(v => {
-          if (v == null) return false;
-          // Skip non-primitives (arrays/objects); join arrays so phone lists, etc. still search.
-          if (Array.isArray(v)) return matchesSearch(v.join(' '), filters.search);
-          if (typeof v === 'object') return false;
-          return matchesSearch(String(v), filters.search);
-        })
-      );
+      // Universal search — searches against both the display values AND the
+      // raw underlying values for masked fields.
+      //
+      // The server returns masked display values (e.g. 'b...n@psb-academy.edu.sg')
+      // for restricted fields, but also includes the real value under a
+      // '_raw_<fieldName>' key (e.g. '_raw_email') so we can search against
+      // the actual contact data without exposing it in the UI.
+      //
+      // This means:
+      //   - Typing the masked value  ("b...n")          → matches via display value
+      //   - Typing the real value    ("baotran.tran@...") → matches via _raw_ key
+      //   - Typing a partial number  ("6187919")         → matches via _raw_phone
+      //
+      // contactDetails is a JSON object of social/contact handles (Zalo,
+      // Facebook etc.). We flatten its values so handles are searchable too.
+      r = r.filter(l => {
+        const candidates = Object.entries(l).flatMap(([key, v]) => {
+          if (v == null) return [];
+          // Always include _raw_ fields in search candidates but never display them
+          if (Array.isArray(v)) return [v.join(' ')];
+          if (typeof v === 'object') return Object.values(v)
+            .filter(x => x != null && typeof x !== 'object').map(String);
+          return [String(v)];
+        });
+        return candidates.some(c => matchesSearch(c, filters.search));
+      });
     }
 
     // Multi-select match. Supports the (none) sentinel: a lead matches if its value
@@ -1319,6 +1414,33 @@ export default function Leads() {
       case 'oceanConscientiousness':
       case 'oceanNeuroticism':
       case 'oceanOpenness':         return v != null ? `${v}/15` : <MissingValue/>;
+
+      // ── Email — respect field-level masking from RBAC ──────────
+      case 'email': {
+        const display = maskField('email', v, lead);
+        if (!display) return <MissingValue/>;
+        const isMasked = String(display).includes('*') || String(display).includes('...');
+        if (isMasked) return <span style={{ color:'var(--text-secondary)', fontStyle:'italic' }}>{display}</span>;
+        return <span>{display}</span>;
+      }
+
+      // ── Phone — mask if needed, or render as a click-to-call link ──
+      case 'phone': {
+        const display = maskField('phone', v, lead);
+        if (!display) return <MissingValue/>;
+        const isMasked = String(display).includes('*') || String(display).includes('...');
+        if (isMasked) return <span style={{ color:'var(--text-secondary)', fontStyle:'italic' }}>{display}</span>;
+        return (
+          <a
+            href={`tel:${v}`}
+            style={{ color:'var(--primary)', textDecoration:'none', fontWeight:500 }}
+            title={`Call ${display}`}
+            onClick={e => { e.stopPropagation(); handleCallClick(lead); }}>
+            {display}
+          </a>
+        );
+      }
+
       default: {
         // Lookup-driven columns get language-aware display labels;
         // non-lookup columns (free-form text) pass through unchanged.
