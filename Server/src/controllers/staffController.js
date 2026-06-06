@@ -236,11 +236,19 @@ async function getMe(req, res, next) {
 
 async function createStaff(req, res, next) {
   try {
-    const { fullName, email, position, role, password } = req.body;
+    const {
+      fullName, email, position, role, password,
+      emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
+      zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
+    } = req.body;
     if (!fullName || !email || !position || !role || !password) {
       return res.status(400).json({ success: false, error: 'All fields are required' });
     }
-    const staff = await Staff.create({ fullName, email, position, role, password });
+    const staff = await Staff.create({
+      fullName, email, position, role, password,
+      emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
+      zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
+    });
     res.status(201).json({ success: true, data: staff });
   } catch (err) {
     if (err.code === '23505') {
@@ -253,8 +261,16 @@ async function createStaff(req, res, next) {
 async function updateStaff(req, res, next) {
   try {
     const { id } = req.params;
-    const { fullName, email, position, role, isActive, viewThreshold } = req.body;
-    const staff = await Staff.update(id, { fullName, email, position, role, isActive, viewThreshold });
+    const {
+      fullName, email, position, role, isActive, viewThreshold,
+      emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
+      zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
+    } = req.body;
+    const staff = await Staff.update(id, {
+      fullName, email, position, role, isActive, viewThreshold,
+      emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
+      zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
+    });
     if (!staff) return res.status(404).json({ success: false, error: 'Staff member not found' });
     res.json({ success: true, data: staff });
   } catch (err) { next(err); }

@@ -24,6 +24,105 @@ import TrailBackButton from '../components/TrailBackButton';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
 
+// ── Contact Log Modal ────────────────────────────────────────────────────────
+// Appears immediately when any contact button is clicked.
+// Counsellor fills in summary, next steps, follow-up date then saves.
+function ContactLogModal({ method, studentName, staffName, timestamp, onSave, onCancel }) {
+  const [summary,      setSummary]      = useState('');
+  const [nextSteps,    setNextSteps]    = useState('');
+  const [followUpDate, setFollowUpDate] = useState('');
+  const [saving,       setSaving]       = useState(false);
+
+  const ICONS  = { call:'📞', sms:'💬', zalo:'Z', whatsapp:'W', messenger:'M', email:'✉' };
+  const LABELS = { call:'Phone Call', sms:'Text Message', zalo:'Zalo', whatsapp:'WhatsApp', messenger:'Messenger', email:'Email' };
+  const COLORS = { call:'#16a34a', sms:'#2563eb', zalo:'#0068ff', whatsapp:'#25d366', messenger:'#0084ff', email:'#0072c6' };
+  const icon  = ICONS[method]  || '📞';
+  const label = LABELS[method] || 'Contact';
+  const color = COLORS[method] || '#2563eb';
+
+  const displayTime = new Date(timestamp).toLocaleString('en-GB', {
+    day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit',
+  });
+
+  async function handleSave() {
+    if (!summary.trim() && !nextSteps.trim()) {
+      alert('Please add at least a summary or next steps before saving.');
+      return;
+    }
+    setSaving(true);
+    const parts = [
+      icon + ' ' + label + ' — ' + studentName,
+      'By: ' + staffName + '  |  ' + displayTime,
+      '',
+    ];
+    if (summary.trim())   parts.push('Summary:\n' + summary.trim());
+    if (nextSteps.trim()) parts.push('\nNext Steps:\n' + nextSteps.trim());
+    if (followUpDate)     parts.push('\nFollow-up Date: ' + followUpDate);
+    await onSave(parts.join('\n'));
+    setSaving(false);
+  }
+
+  if (typeof window === 'undefined') return null;
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:9999,
+      background:'rgba(0,0,0,0.55)',
+      display:'flex', alignItems:'flex-start', justifyContent:'center',
+      paddingTop:'48px',
+    }}>
+      <div style={{
+        background:'var(--bg-primary)', borderRadius:'14px',
+        boxShadow:'0 20px 60px rgba(0,0,0,0.3)',
+        width:'min(560px, calc(100vw - 32px))',
+        maxHeight:'calc(100vh - 96px)', overflowY:'auto',
+        display:'flex', flexDirection:'column',
+      }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'1.25rem 1.5rem 1rem', borderBottom:'1px solid var(--border)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+            <span style={{ width:'36px', height:'36px', borderRadius:'8px', background:color, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', fontWeight:700 }}>{icon}</span>
+            <div>
+              <div style={{ fontWeight:700, fontSize:'1rem', color:'var(--text-primary)' }}>{label} — {studentName}</div>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'2px' }}>{staffName} · {displayTime}</div>
+            </div>
+          </div>
+          <button onClick={onCancel} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-secondary)', padding:'4px' }}><FiX size={18}/></button>
+        </div>
+        <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+          <div>
+            <label style={{ display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' }}>Call Summary</label>
+            <textarea autoFocus rows={4} placeholder="What was discussed? Key points from the conversation..."
+              value={summary} onChange={e => setSummary(e.target.value)}
+              style={{ width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 }}
+            />
+          </div>
+          <div>
+            <label style={{ display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' }}>Next Steps</label>
+            <textarea rows={3} placeholder="What needs to happen next? Actions agreed with the student..."
+              value={nextSteps} onChange={e => setNextSteps(e.target.value)}
+              style={{ width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 }}
+            />
+          </div>
+          <div>
+            <label style={{ display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' }}>
+              Follow-up Date <span style={{ fontWeight:400, opacity:0.7 }}>(optional)</span>
+            </label>
+            <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)}
+              style={{ padding:'0.5rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit' }}
+            />
+          </div>
+        </div>
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:'0.75rem', padding:'1rem 1.5rem', borderTop:'1px solid var(--border)', background:'var(--bg-secondary)', borderRadius:'0 0 14px 14px' }}>
+          <button onClick={onCancel} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'1px solid var(--border)', background:'transparent', color:'var(--text-secondary)', cursor:'pointer', fontSize:'0.875rem' }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'none', background:'var(--primary)', color:'#fff', cursor: saving ? 'not-allowed' : 'pointer', fontSize:'0.875rem', fontWeight:600, opacity: saving ? 0.7 : 1, display:'flex', alignItems:'center', gap:'0.4rem' }}>
+            <FiSave size={13}/>{saving ? 'Saving...' : 'Save Note'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Stone images ──────────────────────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
 import agateImg    from '../Assets/Stones/agate.png';
@@ -203,6 +302,35 @@ export default function LeadDetail() {
   const [recalcOcean, setRecalcOcean]     = useState(false);
   const [oceanResult, setOceanResult]     = useState(null);
   const [accessDenied, setAccessDenied]   = useState(false);
+  // ── Contact log modal ──────────────────────────────────────────────────────
+  const [contactModal, setContactModal] = useState(null);
+
+  function openContactModal(method, href) {
+    setContactModal({ method, href, openedAt: new Date().toISOString() });
+  }
+
+  async function handleContactSave(noteText) {
+    try {
+      const data = await notesAPI.add(id, 'counselor', noteText);
+      setNotes(n => [data.data, ...n]);
+    } catch(e) { alert('Failed to save note: ' + e.message); }
+    if (contactModal?.href) {
+      const isLocal = contactModal.method === 'call' || contactModal.method === 'sms';
+      if (isLocal) window.location.href = contactModal.href;
+      else window.open(contactModal.href, '_blank');
+    }
+    setContactModal(null);
+  }
+
+  function handleContactCancel() {
+    if (contactModal?.href) {
+      const isLocal = contactModal.method === 'call' || contactModal.method === 'sms';
+      if (isLocal) window.location.href = contactModal.href;
+      else window.open(contactModal.href, '_blank');
+    }
+    setContactModal(null);
+  }
+
 
   useEffect(() => {
     Promise.all([
@@ -458,6 +586,7 @@ export default function LeadDetail() {
   const canAddNotes = notesMissing.length === 0;
 
   return (
+    <>
     <div>
       <Watermark />
 
@@ -567,8 +696,55 @@ export default function LeadDetail() {
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <Field label="Email"           value={lead.email}/>
-                <Field label="Phone"           value={lead.phone}/>
+                {/* Email — click opens contact log modal */}
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
+                  <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Email</span>
+                  <span style={{ fontSize:'0.875rem' }}>{lead.email || '—'}</span>
+                  {lead.email && (
+                    <div style={{ display:'flex', gap:'0.35rem', marginTop:'0.25rem' }}>
+                      <a href="#" title="Send Email"
+                         onClick={e => { e.preventDefault(); openContactModal('email', 'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent(lead.email) + '&subject=' + encodeURIComponent('StudyLink — ' + (lead.fullName||'')) + '&from=data%40studylink.org'); }}
+                         style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:'#0072c6', color:'#fff', fontSize:'0.75rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                        ✉
+                      </a>
+                    </div>
+                  )}
+                </div>
+                {/* Phone — click opens contact log modal */}
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
+                  <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Phone</span>
+                  <span style={{ fontSize:'0.875rem' }}>
+                    {lead.phone
+                      ? <a href="#" style={{ color:'var(--primary)', textDecoration:'none' }}
+                           onClick={e => { e.preventDefault(); openContactModal('call', 'tel:' + lead.phone); }}>
+                          {lead.phone}
+                        </a>
+                      : '—'}
+                  </span>
+                  {lead.phone && (
+                    <div style={{ display:'flex', gap:'0.35rem', marginTop:'0.25rem' }}>
+                      {[
+                        { key:'call',      label:'Call',      color:'#16a34a', icon:'📞', href:'tel:' + lead.phone },
+                        { key:'sms',       label:'SMS',       color:'#2563eb', icon:'💬', href:'sms:' + lead.phone },
+                        { key:'zalo',      label:'Zalo',      color:'#0068ff', icon:'Z',  href:'https://zalo.me/' + lead.phone.replace(/^0/,'84') },
+                        { key:'whatsapp',  label:'WhatsApp',  color:'#25d366', icon:'W',  href:'https://wa.me/'   + lead.phone.replace(/^0/,'84') },
+                      ].map(({key, label, color, icon, href}) => (
+                        <a key={key} href="#" title={label}
+                           onClick={e => { e.preventDefault(); openContactModal(key, href); }}
+                           style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:color, color:'#fff', fontSize: icon.length > 1 ? '0.6rem' : '0.875rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                          {icon}
+                        </a>
+                      ))}
+                      {lead.preferredSocial === 'Messenger' && lead.connectWithUs && (
+                        <a href="#" title="Messenger"
+                           onClick={e => { e.preventDefault(); openContactModal('messenger', 'https://m.me/' + lead.connectWithUs); }}
+                           style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:'#0084ff', color:'#fff', fontSize:'0.6rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                          M
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <Field label="Stone Tier"      value={lead.stoneTier}/>
                 <Field label="Risk Score"      value={lead.riskScore}/>
                 <Field label="Study Plans"     value={lead.studyPlans}/>
@@ -1026,5 +1202,17 @@ export default function LeadDetail() {
         </div>
       </div>
     </div>
+
+    {contactModal && (
+      <ContactLogModal
+        method={contactModal.method}
+        studentName={lead?.fullName || 'Student'}
+        staffName={staff?.fullName || 'Counselor'}
+        timestamp={contactModal.openedAt}
+        onSave={handleContactSave}
+        onCancel={handleContactCancel}
+      />
+    )}
+  </>
   );
 }

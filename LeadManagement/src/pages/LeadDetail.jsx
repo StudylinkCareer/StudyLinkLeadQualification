@@ -12,12 +12,6 @@
 //       canRecalculate       → canDoOnLead('leads', 'recalculate', lead)
 //       canDelayCloseDate    → canDoOnLead('leads', 'delay_close_date', lead)
 //       canWriteNote.<kind>  → canDo('notes', 'write_<kind>')
-// CHANGES (phone click-to-call + auto note):
-//   - Phone field in Student Information (read-only view) is now a tel: hyperlink.
-//   - Clicking the phone number opens the device dialler AND silently posts a
-//     Counselor Note "📞 Called student — <timestamp>" via notesAPI.add().
-//     The new note is prepended to the notes list immediately so the counselor
-//     can see it without a page refresh.
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -29,6 +23,267 @@ import Watermark from '../components/Watermark';
 import TrailBackButton from '../components/TrailBackButton';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
+
+// ── Contact Log Modal ────────────────────────────────────────────────────────
+// Handles all contact methods. Email shows Outlook+Gmail launchers with
+// pre-filled subject/body. SMS/WhatsApp pre-fill opening message.
+// All methods capture summary, next steps, follow-up date and log a note.
+const EMAIL_SUBJECT = 'We at StudyLink are proud to serve you';
+const CONTACT_COLORS = { call:'#16a34a', sms:'#2563eb', zalo:'#0068ff', whatsapp:'#25d366', messenger:'#0084ff', email:'#0072c6', gmail:'#ea4335' };
+const CONTACT_LABELS = { call:'Phone Call', sms:'Text Message', zalo:'Zalo', whatsapp:'WhatsApp', messenger:'Messenger', email:'Email' };
+const CONTACT_ICONS  = { call:'📞', sms:'💬', zalo:'Z', whatsapp:'W', messenger:'M', email:'✉' };
+
+function toIntlPhone(phone) {
+  if (!phone) return '';
+  const d = String(phone).replace(/[^0-9]/g, '');
+  return d.startsWith('0') ? '84' + d.slice(1) : d;
+}
+
+function ContactLogModal({ method, studentName, studentEmail, studentPhone, connectWithUs, staffName, timestamp, documents, onSave, onCancel }) {
+  const [summary,      setSummary]      = useState('');
+  const [nextSteps,    setNextSteps]    = useState('');
+  const [followUpDate, setFollowUpDate] = useState('');
+  const [saving,       setSaving]       = useState(false);
+
+  const isEmail    = method === 'email';
+  const isSMS      = method === 'sms';
+  const isWhatsApp = method === 'whatsapp';
+  const isZalo     = method === 'zalo';
+  const isMessenger= method === 'messenger';
+
+  const icon  = CONTACT_ICONS[method]  || '📞';
+  const label = CONTACT_LABELS[method] || 'Contact';
+  const color = CONTACT_COLORS[method] || '#2563eb';
+
+  const displayTime = new Date(timestamp).toLocaleString('en-GB', {
+    day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit',
+  });
+
+  const intlPhone = toIntlPhone(studentPhone);
+  const dearLine  = 'Dear ' + (studentName || 'Student') + ',';
+
+  // Pre-filled message body for SMS and WhatsApp
+  const defaultMessage = dearLine + '\n\n';
+
+  // Email deep links — Outlook Web and Gmail
+  const emailSubjectEnc = encodeURIComponent(EMAIL_SUBJECT);
+  const emailBodyEnc    = encodeURIComponent(dearLine + '\n\n');
+  const outlookUrl = 'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent(studentEmail||'') + '&subject=' + emailSubjectEnc + '&body=' + emailBodyEnc;
+  const gmailUrl   = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(studentEmail||'') + '&su=' + emailSubjectEnc + '&body=' + emailBodyEnc;
+
+  // SMS and WhatsApp links with pre-filled message
+  const smsUrl      = 'sms:' + (studentPhone||'') + '?body=' + encodeURIComponent(defaultMessage);
+  const whatsappUrl = 'https://wa.me/' + intlPhone + '?text=' + encodeURIComponent(defaultMessage);
+
+  // Zalo — opens to contact profile or add-friend
+  const zaloUrl = 'https://zalo.me/' + intlPhone;
+
+  // Messenger — use connectWithUs field if available
+  const messengerUrl = connectWithUs
+    ? (connectWithUs.startsWith('http') ? connectWithUs : 'https://m.me/' + connectWithUs)
+    : null;
+
+  function openLink(url) {
+    if (!url) return;
+    const isDevice = url.startsWith('tel:') || url.startsWith('sms:');
+    if (isDevice) window.location.href = url;
+    else window.open(url, '_blank');
+  }
+
+  async function handleSave() {
+    if (!summary.trim() && !nextSteps.trim()) {
+      alert('Please add at least a summary or next steps before saving.');
+      return;
+    }
+    setSaving(true);
+    const parts = [
+      icon + ' ' + label + ' — ' + studentName,
+      'By: ' + staffName + '  |  ' + displayTime,
+      '',
+    ];
+    if (summary.trim())   parts.push('Summary:\n' + summary.trim());
+    if (nextSteps.trim()) parts.push('\nNext Steps:\n' + nextSteps.trim());
+    if (followUpDate)     parts.push('\nFollow-up Date: ' + followUpDate);
+    await onSave(parts.join('\n'));
+    setSaving(false);
+  }
+
+  const inputStyle = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
+  const labelStyle = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
+  const actionBtnStyle = (bg) => ({ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1rem', borderRadius:'8px', border:'none', background:bg, color:'#fff', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, textDecoration:'none' });
+
+  if (typeof window === 'undefined') return null;
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop:'48px' }}>
+      <div style={{ background:'var(--bg-primary)', borderRadius:'14px', boxShadow:'0 20px 60px rgba(0,0,0,0.3)', width:'min(600px, calc(100vw - 32px))', maxHeight:'calc(100vh - 96px)', overflowY:'auto', display:'flex', flexDirection:'column' }}>
+
+        {/* Header */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'1.25rem 1.5rem 1rem', borderBottom:'1px solid var(--border)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+            <span style={{ width:'36px', height:'36px', borderRadius:'8px', background:color, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', fontWeight:700 }}>{icon}</span>
+            <div>
+              <div style={{ fontWeight:700, fontSize:'1rem', color:'var(--text-primary)' }}>{label} — {studentName}</div>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'2px' }}>{staffName} · {displayTime}</div>
+            </div>
+          </div>
+          <button onClick={onCancel} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-secondary)', padding:'4px' }}><FiX size={18}/></button>
+        </div>
+
+        <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
+
+          {/* ── EMAIL: Outlook + Gmail launchers ── */}
+          {isEmail && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open email composer</div>
+              <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'0.75rem' }}>
+                <a href={outlookUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#0072c6')}>
+                  ✉ Outlook
+                </a>
+                <a href={gmailUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#ea4335')}>
+                  ✉ Gmail
+                </a>
+              </div>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', lineHeight:1.5 }}>
+                Opens your email client pre-filled with:<br/>
+                <strong>To:</strong> {studentEmail}<br/>
+                <strong>Subject:</strong> {EMAIL_SUBJECT}<br/>
+                <strong>Body:</strong> {dearLine} [your message]
+              </div>
+              {documents && documents.length > 0 && (
+                <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)' }}>
+                  <div style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.5rem' }}>
+                    📎 Attach from student documents (open the file, then attach manually):
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+                    {documents.map((doc, i) => (
+                      <a key={i} href={doc.url || doc.fileUrl} target="_blank" rel="noreferrer"
+                         style={{ fontSize:'0.8125rem', color:'var(--primary)', textDecoration:'none' }}>
+                        📄 {doc.fileName || doc.name || 'Document ' + (i+1)}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── CALL: tel: hyperlink so counsellor can dial directly ── */}
+          {method === 'call' && studentPhone && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Make phone call</div>
+              <a href={'tel:' + studentPhone}
+                 style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1rem', borderRadius:'8px', background:'#16a34a', color:'#fff', fontSize:'0.8125rem', fontWeight:600, textDecoration:'none' }}>
+                📞 Call {studentPhone}
+              </a>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem' }}>
+                Opens your device dialler with {studentPhone} ready to dial.
+              </div>
+            </div>
+          )}
+
+          {/* ── SMS: open device SMS app ── */}
+          {isSMS && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Send text message</div>
+              <a href={smsUrl} style={actionBtnStyle('#2563eb')}>
+                💬 Open SMS — {studentPhone}
+              </a>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
+                Opens your phone’s SMS app with {studentPhone} and “Dear {studentName},” pre-filled.
+              </div>
+            </div>
+          )}
+
+          {/* ── WHATSAPP: open WhatsApp with pre-filled message ── */}
+          {isWhatsApp && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open WhatsApp</div>
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#25d366')}>
+                W Open WhatsApp — {studentPhone}
+              </a>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
+                Opens WhatsApp chat with {studentName}. Message pre-filled with “Dear {studentName},” — complete and send in WhatsApp.
+              </div>
+            </div>
+          )}
+
+          {/* ── ZALO: open Zalo to contact/add-friend ── */}
+          {isZalo && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open Zalo</div>
+              <a href={zaloUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#0068ff')}>
+                Z Open Zalo — {studentPhone}
+              </a>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
+                Opens Zalo to {studentName}’s profile. If already a contact, opens the chat. If not, shows the Add Friend screen.
+              </div>
+            </div>
+          )}
+
+          {/* ── MESSENGER ── */}
+          {isMessenger && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open Messenger</div>
+              {messengerUrl ? (
+                <a href={messengerUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#0084ff')}>
+                  M Open Messenger — {connectWithUs}
+                </a>
+              ) : (
+                <div style={{ fontSize:'0.8125rem', color:'var(--text-secondary)', padding:'0.5rem', background:'var(--bg-primary)', borderRadius:'6px', border:'1px solid var(--border)' }}>
+                  No Messenger username on file. Add the student’s Facebook username or profile URL to the “Connect With Us” field first.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Documents panel (non-email methods) ── */}
+          {!isEmail && documents && documents.length > 0 && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.5rem' }}>
+                📎 Student documents (open to share manually):
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+                {documents.map((doc, i) => (
+                  <a key={i} href={doc.url || doc.fileUrl} target="_blank" rel="noreferrer"
+                     style={{ fontSize:'0.8125rem', color:'var(--primary)', textDecoration:'none' }}>
+                    📄 {doc.fileName || doc.name || 'Document ' + (i+1)}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Summary + next steps (all methods) ── */}
+          <div>
+            <label style={labelStyle}>Contact Summary</label>
+            <textarea autoFocus rows={3} placeholder="What was discussed / sent?"
+              value={summary} onChange={e => setSummary(e.target.value)} style={inputStyle}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Next Steps</label>
+            <textarea rows={2} placeholder="What needs to happen next?"
+              value={nextSteps} onChange={e => setNextSteps(e.target.value)} style={inputStyle}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Follow-up Date <span style={{ fontWeight:400, opacity:0.7 }}>(optional)</span></label>
+            <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)}
+              style={{ padding:'0.5rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit' }}/>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:'0.75rem', padding:'1rem 1.5rem', borderTop:'1px solid var(--border)', background:'var(--bg-secondary)', borderRadius:'0 0 14px 14px' }}>
+          <button onClick={onCancel} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'1px solid var(--border)', background:'transparent', color:'var(--text-secondary)', cursor:'pointer', fontSize:'0.875rem' }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'none', background:'var(--primary)', color:'#fff', cursor: saving ? 'not-allowed' : 'pointer', fontSize:'0.875rem', fontWeight:600, opacity: saving ? 0.7 : 1, display:'flex', alignItems:'center', gap:'0.4rem' }}>
+            <FiSave size={13}/>{saving ? 'Saving...' : 'Save Note'}
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
 
 // ── Stone images ──────────────────────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
@@ -209,6 +464,26 @@ export default function LeadDetail() {
   const [recalcOcean, setRecalcOcean]     = useState(false);
   const [oceanResult, setOceanResult]     = useState(null);
   const [accessDenied, setAccessDenied]   = useState(false);
+
+  // ── Contact log modal ──────────────────────────────────────────────────────
+  const [contactModal, setContactModal] = useState(null);
+
+  function openContactModal(method) {
+    setContactModal({ method, openedAt: new Date().toISOString() });
+  }
+
+  async function handleContactSave(noteText) {
+    try {
+      const data = await notesAPI.add(id, 'counselor', noteText);
+      setNotes(n => [data.data, ...n]);
+    } catch(e) { alert('Failed to save note: ' + e.message); }
+    setContactModal(null);
+  }
+
+  function handleContactCancel() {
+    setContactModal(null);
+  }
+
 
   useEffect(() => {
     Promise.all([
@@ -464,6 +739,7 @@ export default function LeadDetail() {
   const canAddNotes = notesMissing.length === 0;
 
   return (
+    <>
     <div>
       <Watermark />
 
@@ -573,25 +849,53 @@ export default function LeadDetail() {
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <Field label="Email"           value={lead.email}/>
-                {/* Phone — click-to-call link that auto-logs a Counselor Note */}
+                {/* Email with Outlook + Gmail launchers */}
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
+                  <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Email</span>
+                  <span style={{ fontSize:'0.875rem' }}>{lead.email || '—'}</span>
+                  {lead.email && (
+                    <div style={{ display:'flex', gap:'0.35rem', marginTop:'0.25rem' }}>
+                      <a href="#" title="Send Email (Outlook / Gmail)"
+                         onClick={e => { e.preventDefault(); openContactModal('email'); }}
+                         style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:'#0072c6', color:'#fff', fontSize:'0.75rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                        ✉
+                      </a>
+                    </div>
+                  )}
+                </div>
+                {/* Phone with all contact method buttons */}
                 <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
                   <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Phone</span>
-                  {lead.phone ? (
-                    <a
-                      href={`tel:${lead.phone}`}
-                      style={{ fontSize:'0.875rem', color:'var(--primary)', textDecoration:'none' }}
-                      title={`Call ${lead.phone}`}
-                      onClick={() => {
-                        const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-                        notesAPI.add(id, 'counselor', `📞 Called student — ${now}`)
-                          .then(data => setNotes(n => [data.data, ...n]))
-                          .catch(err => console.warn('Auto call note failed:', err));
-                      }}>
-                      {lead.phone}
-                    </a>
-                  ) : (
-                    <span style={{ fontSize:'0.875rem' }}>—</span>
+                  <span style={{ fontSize:'0.875rem' }}>
+                    {lead.phone
+                      ? <a href="#" style={{ color:'var(--primary)', textDecoration:'none' }}
+                           onClick={e => { e.preventDefault(); openContactModal('call'); }}>
+                          {lead.phone}
+                        </a>
+                      : '—'}
+                  </span>
+                  {lead.phone && (
+                    <div style={{ display:'flex', gap:'0.35rem', flexWrap:'wrap', marginTop:'0.25rem' }}>
+                      {[
+                        { key:'call',     label:'Call',     color:'#16a34a', icon:'📞' },
+                        { key:'sms',      label:'SMS',      color:'#2563eb', icon:'💬' },
+                        { key:'zalo',     label:'Zalo',     color:'#0068ff', icon:'Z'  },
+                        { key:'whatsapp', label:'WhatsApp', color:'#25d366', icon:'W'  },
+                      ].map(({key, label, color, icon}) => (
+                        <a key={key} href="#" title={label}
+                           onClick={e => { e.preventDefault(); openContactModal(key); }}
+                           style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:color, color:'#fff', fontSize: icon.length > 1 ? '0.6rem' : '0.875rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                          {icon}
+                        </a>
+                      ))}
+                      {lead.connectWithUs && (
+                        <a href="#" title="Messenger"
+                           onClick={e => { e.preventDefault(); openContactModal('messenger'); }}
+                           style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:'#0084ff', color:'#fff', fontSize:'0.6rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                          M
+                        </a>
+                      )}
+                    </div>
                   )}
                 </div>
                 <Field label="Stone Tier"      value={lead.stoneTier}/>
@@ -1051,5 +1355,21 @@ export default function LeadDetail() {
         </div>
       </div>
     </div>
+
+    {contactModal && (
+      <ContactLogModal
+        method={contactModal.method}
+        studentName={lead?.fullName || 'Student'}
+        studentEmail={lead?._raw_email || lead?.email || ''}
+        studentPhone={lead?._raw_phone || lead?.phone || ''}
+        connectWithUs={lead?._raw_connectWithUs || lead?.connectWithUs || ''}
+        staffName={staff?.fullName || 'Counselor'}
+        timestamp={contactModal.openedAt}
+        documents={[]}
+        onSave={handleContactSave}
+        onCancel={handleContactCancel}
+      />
+    )}
+  </>
   );
 }

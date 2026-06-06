@@ -43,16 +43,69 @@ function roleBadge(role) {
   return <span className={`badge badge--${role?.toLowerCase()}`}>{role}</span>;
 }
 
+// ── QR Code upload/preview helper ────────────────────────────────────────────
+// Accepts a base64 data URI or empty string. Shows a preview and a file picker.
+function QrUpload({ value, onChange, platform }) {
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 200 * 1024) {
+      alert('QR image must be under 200KB. Please screenshot just the QR code and try again.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev => onChange(ev.target.result);
+    reader.readAsDataURL(file);
+  }
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginTop:'0.25rem' }}>
+      {value ? (
+        <div style={{ position:'relative' }}>
+          <img src={value} alt={platform + ' QR'} style={{ width:'80px', height:'80px', borderRadius:'6px', border:'1px solid var(--border)', objectFit:'contain', background:'#fff' }}/>
+          <button type="button" onClick={() => onChange('')}
+            style={{ position:'absolute', top:'-6px', right:'-6px', width:'18px', height:'18px', borderRadius:'50%', background:'var(--danger)', color:'#fff', border:'none', cursor:'pointer', fontSize:'10px', lineHeight:'18px', textAlign:'center' }}>
+            ×
+          </button>
+        </div>
+      ) : (
+        <div style={{ width:'80px', height:'80px', borderRadius:'6px', border:'2px dashed var(--border)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', color:'var(--text-secondary)', textAlign:'center', lineHeight:1.3 }}>
+          No QR uploaded
+        </div>
+      )}
+      <div>
+        <label style={{ display:'inline-block', padding:'0.375rem 0.75rem', borderRadius:'6px', border:'1px solid var(--border)', cursor:'pointer', fontSize:'0.8125rem', color:'var(--text-secondary)' }}>
+          {value ? 'Replace' : 'Upload'} QR
+          <input type="file" accept="image/*" style={{ display:'none' }} onChange={handleFile}/>
+        </label>
+        <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', marginTop:'0.25rem' }}>
+          Screenshot your {platform} QR<br/>from the app (max 200KB)
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StaffModal({ staff, onClose, onSaved }) {
   const isEdit = !!staff;
   const { language } = useLanguage();
   const [form, setForm] = useState({
-    fullName:      staff?.fullName      || '',
-    email:         staff?.email         || '',
-    position:      staff?.position      || '',
-    role:          staff?.role          || '',
-    password:      '',
-    viewThreshold: staff?.viewThreshold ?? 20,
+    fullName:           staff?.fullName           || '',
+    email:              staff?.email              || '',
+    position:           staff?.position           || '',
+    role:               staff?.role               || '',
+    password:           '',
+    viewThreshold:      staff?.viewThreshold      ?? 20,
+    // ── Communication fields ──
+    emailClient:        staff?.emailClient        || 'outlook',
+    contactMobile:      staff?.contactMobile      || '',
+    platformSms:        staff?.platformSms        ?? false,
+    platformZalo:       staff?.platformZalo       ?? false,
+    platformWhatsapp:   staff?.platformWhatsapp   ?? false,
+    zaloNumber:         staff?.zaloNumber         || '',
+    zaloQrCode:         staff?.zaloQrCode         || '',
+    whatsappQrCode:     staff?.whatsappQrCode      || '',
+    messengerUsername:  staff?.messengerUsername  || '',
+    messengerQrCode:    staff?.messengerQrCode    || '',
   });
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
@@ -87,14 +140,27 @@ function StaffModal({ staff, onClose, onSaved }) {
 
     setSaving(true);
     try {
+      const commsPayload = {
+        emailClient:       form.emailClient,
+        contactMobile:     form.contactMobile     || null,
+        platformSms:       form.platformSms,
+        platformZalo:      form.platformZalo,
+        platformWhatsapp:  form.platformWhatsapp,
+        zaloNumber:        form.zaloNumber         || null,
+        zaloQrCode:        form.zaloQrCode         || null,
+        whatsappQrCode:    form.whatsappQrCode     || null,
+        messengerUsername: form.messengerUsername  || null,
+        messengerQrCode:   form.messengerQrCode    || null,
+      };
       if (isEdit) {
         await staffAPI.update(staff.id, {
           fullName: form.fullName, email: form.email,
           position: form.position, role: form.role,
           viewThreshold: Number(form.viewThreshold),
+          ...commsPayload,
         });
       } else {
-        await staffAPI.create(form);
+        await staffAPI.create({ ...form, ...commsPayload });
       }
       onSaved();
     } catch(e) { setError(e.message); }
@@ -103,12 +169,12 @@ function StaffModal({ staff, onClose, onSaved }) {
 
   return (
     <div className="modal-overlay">
-      <div className="modal">
-        <div className="modal-header">
+      <div className="modal" style={{ display:'flex', flexDirection:'column', maxHeight:'90vh', width:'min(560px, calc(100vw - 32px))' }}>
+        <div className="modal-header" style={{ flexShrink:0 }}>
           <h2 className="modal-title">{isEdit ? t('staff.modal.editTitle', language) : t('staff.modal.addTitle', language)}</h2>
           <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX /></button>
         </div>
-        <div className="modal-body">
+        <div className="modal-body" style={{ overflowY:'auto', flex:1, minHeight:0 }}>
           <div className="form-group">
             <label className="form-label">{t('staff.form.fullName', language)}</label>
             <input className="form-input" value={form.fullName} onChange={e=>set('fullName',e.target.value)}/>
@@ -142,9 +208,94 @@ function StaffModal({ staff, onClose, onSaved }) {
               <input className="form-input" type="password" value={form.password} onChange={e=>set('password',e.target.value)}/>
             </div>
           )}
-          {error && <div className="alert alert--error">{error}</div>}
+          {/* ── Communication section (Admin/Manager only) ── */}
+          <div style={{ borderTop:'1px solid var(--border)', paddingTop:'1rem', marginTop:'0.5rem' }}>
+            <div style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'0.875rem' }}>
+              Communication Settings
+            </div>
+
+            {/* Email client preference */}
+            <div className="form-group">
+              <label className="form-label">Email Client</label>
+              <div style={{ display:'flex', gap:'1rem', marginTop:'0.25rem' }}>
+                {['outlook','gmail'].map(client => (
+                  <label key={client} style={{ display:'flex', alignItems:'center', gap:'0.5rem', cursor:'pointer', fontSize:'0.875rem' }}>
+                    <input type="checkbox"
+                      checked={form.emailClient.includes(client)}
+                      onChange={e => {
+                        const clients = form.emailClient.split(',').filter(Boolean);
+                        if (e.target.checked) set('emailClient', [...new Set([...clients, client])].join(','));
+                        else set('emailClient', clients.filter(c => c !== client).join(',') || 'outlook');
+                      }}
+                    />
+                    {client === 'outlook' ? 'Outlook' : 'Gmail'}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Contact mobile */}
+            <div className="form-group">
+              <label className="form-label">Contact Mobile Number</label>
+              <input className="form-input" value={form.contactMobile}
+                onChange={e => set('contactMobile', e.target.value)}
+                placeholder="e.g. 0901234567"/>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.25rem' }}>
+                Used for calls, SMS, Zalo, and WhatsApp
+              </div>
+            </div>
+
+            {/* Platform flags */}
+            <div className="form-group">
+              <label className="form-label">Active Platforms (on contact mobile)</label>
+              <div style={{ display:'flex', gap:'1.25rem', marginTop:'0.25rem' }}>
+                {[
+                  { key:'platformSms',      label:'SMS',       color:'#2563eb' },
+                  { key:'platformZalo',     label:'Zalo',      color:'#0068ff' },
+                  { key:'platformWhatsapp', label:'WhatsApp',  color:'#25d366' },
+                ].map(({ key, label, color }) => (
+                  <label key={key} style={{ display:'flex', alignItems:'center', gap:'0.5rem', cursor:'pointer', fontSize:'0.875rem' }}>
+                    <input type="checkbox" checked={!!form[key]} onChange={e => set(key, e.target.checked)}/>
+                    <span style={{ color }}>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Zalo — separate number + QR */}
+            <div className="form-group">
+              <label className="form-label">Zalo Number <span style={{ fontWeight:400, color:'var(--text-secondary)' }}>(if different from contact mobile)</span></label>
+              <input className="form-input" value={form.zaloNumber}
+                onChange={e => set('zaloNumber', e.target.value)}
+                placeholder="Leave blank to use contact mobile"/>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Zalo QR Code</label>
+              <QrUpload value={form.zaloQrCode} onChange={v => set('zaloQrCode', v)} platform="Zalo"/>
+            </div>
+
+            {/* WhatsApp QR */}
+            <div className="form-group">
+              <label className="form-label">WhatsApp QR Code</label>
+              <QrUpload value={form.whatsappQrCode} onChange={v => set('whatsappQrCode', v)} platform="WhatsApp"/>
+            </div>
+
+            {/* Messenger */}
+            <div className="form-group">
+              <label className="form-label">Messenger Username or Profile URL</label>
+              <input className="form-input" value={form.messengerUsername}
+                onChange={e => set('messengerUsername', e.target.value)}
+                placeholder="e.g. john.smith or https://facebook.com/john.smith"/>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Messenger QR Code</label>
+              <QrUpload value={form.messengerQrCode} onChange={v => set('messengerQrCode', v)} platform="Messenger"/>
+            </div>
+          </div>
+
+          {error && <div className="alert alert--error" style={{ marginTop:'0.5rem' }}>{error}</div>}
         </div>
-        <div className="modal-footer">
+        <div className="modal-footer" style={{ flexShrink:0, borderTop:'1px solid var(--border)' }}>
           <button className="btn btn--ghost" onClick={onClose}>{t('common.cancel', language)}</button>
           <button className="btn btn--primary" onClick={handleSave} disabled={saving}>
             {saving ? t('common.saving', language) : t('common.save', language)}

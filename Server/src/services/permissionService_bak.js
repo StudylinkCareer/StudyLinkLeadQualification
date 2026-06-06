@@ -210,10 +210,10 @@ async function applyFieldPermissions(staff, lead, context) {
       // Store the masked value for display
       result[fieldName] = maskValue(fieldName, value);
       // Also store the raw value under a '_raw_' prefix so the frontend
-      // can use real contact data for dialling/messaging while still
-      // displaying the masked value to the user.
-      // Emitted for both list and detail contexts.
-      if (value !== null && value !== undefined && value !== '') {
+      // can search against real contact data without exposing it in the UI.
+      // Only emitted for list context — detail view either shows full value
+      // or omits the field based on the detail permission.
+      if (context === 'list' && value !== null && value !== undefined && value !== '') {
         result[`_raw_${fieldName}`] = value;
       }
       continue;
