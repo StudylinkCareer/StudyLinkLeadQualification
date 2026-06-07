@@ -24,6 +24,61 @@ import TrailBackButton from '../components/TrailBackButton';
 import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
 
+// ── MessengerSearch ──────────────────────────────────────────────────────────
+// Two-step flow: Step 1 copies the name, Step 2 opens Messenger.
+// Kept as a separate component so useState works cleanly without
+// browser clipboard/popup security conflicts.
+function MessengerSearch({ studentName, actionBtnStyle, onContacted }) {
+  const [searchName, setSearchName] = useState(studentName || '');
+  const [copied, setCopied]         = useState(false);
+
+  function handleCopy() {
+    const el = document.createElement('textarea');
+    el.value = searchName;
+    el.style.position = 'fixed';
+    el.style.opacity  = '0';
+    document.body.appendChild(el);
+    el.focus();
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    setCopied(true);
+    if (onContacted) onContacted();
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginBottom:'0.5rem', lineHeight:1.5 }}>
+        Step 1 — copy the name (edit if needed), then Step 2 — open Messenger and paste into the search box:
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.625rem' }}>
+        <input
+          value={searchName}
+          onChange={e => { setSearchName(e.target.value); setCopied(false); }}
+          style={{ flex:1, padding:'0.5rem 0.75rem', borderRadius:'6px', border:'1px solid var(--border)', fontSize:'0.9375rem', fontWeight:600, color:'var(--text-primary)', background:'var(--bg-primary)', fontFamily:'inherit' }}
+        />
+        <button onClick={handleCopy}
+          style={{ padding:'0.5rem 0.875rem', borderRadius:'6px', border:'none', background: copied ? '#16a34a' : 'var(--primary)', color:'#fff', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, whiteSpace:'nowrap', transition:'background 0.2s' }}>
+          {copied ? '✓ Copied!' : 'Copy Name'}
+        </button>
+      </div>
+      <a href="https://www.messenger.com/" target="_blank" rel="noreferrer"
+        style={{ ...actionBtnStyle('#0084ff'), opacity: copied ? 1 : 0.5, pointerEvents: copied ? 'auto' : 'none', display:'inline-flex' }}>
+        M Open Messenger {!copied && '(copy name first)'}
+      </a>
+      {copied && (
+        <div style={{ fontSize:'0.75rem', color:'#16a34a', marginTop:'0.5rem' }}>
+          Name copied — paste it into the Messenger search box.
+        </div>
+      )}
+      <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
+        Tip: save the student’s Facebook username to the “Connect With Us” field for a direct link next time.
+      </div>
+    </div>
+  );
+}
+
 // ── Contact Log Modal ────────────────────────────────────────────────────────
 // Handles all contact methods. Email shows Outlook+Gmail launchers with
 // pre-filled subject/body. SMS/WhatsApp pre-fill opening message.
@@ -44,6 +99,21 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
   const [nextSteps,    setNextSteps]    = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
   const [saving,       setSaving]       = useState(false);
+  // Once the counsellor opens a communication medium (clicks an action button),
+  // the note becomes mandatory — they cannot cancel or close until saved.
+  const [contacted,    setContacted]    = useState(false);
+
+  // Block browser close/refresh/navigation while note is mandatory
+  useEffect(() => {
+    if (!contacted) return;
+    const handler = e => {
+      e.preventDefault();
+      e.returnValue = 'You must save the contact note before leaving.';
+      return e.returnValue;
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [contacted]);
 
   const isEmail    = method === 'email';
   const isSMS      = method === 'sms';
@@ -78,13 +148,15 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
   // Zalo — opens to contact profile or add-friend
   const zaloUrl = 'https://zalo.me/' + intlPhone;
 
-  // Messenger — use connectWithUs field if available
+  // Messenger — use connectWithUs (username/URL) if available,
+  // otherwise open messenger.com so the counsellor can search by name.
   const messengerUrl = connectWithUs
     ? (connectWithUs.startsWith('http') ? connectWithUs : 'https://m.me/' + connectWithUs)
-    : null;
+    : 'https://www.messenger.com/';
 
   function openLink(url) {
     if (!url) return;
+    setContacted(true);
     const isDevice = url.startsWith('tel:') || url.startsWith('sms:');
     if (isDevice) window.location.href = url;
     else window.open(url, '_blank');
@@ -115,7 +187,8 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
   if (typeof window === 'undefined') return null;
 
   return (
-    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop:'48px' }}>
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop:'48px' }}
+      onClick={e => { if (e.target === e.currentTarget && !contacted) onCancel(); }}>
       <div style={{ background:'var(--bg-primary)', borderRadius:'14px', boxShadow:'0 20px 60px rgba(0,0,0,0.3)', width:'min(600px, calc(100vw - 32px))', maxHeight:'calc(100vh - 96px)', overflowY:'auto', display:'flex', flexDirection:'column' }}>
 
         {/* Header */}
@@ -127,7 +200,13 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
               <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'2px' }}>{staffName} · {displayTime}</div>
             </div>
           </div>
-          <button onClick={onCancel} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-secondary)', padding:'4px' }}><FiX size={18}/></button>
+          {contacted ? (
+            <div title="Save the note before closing" style={{ padding:'4px', color:'var(--text-secondary)', opacity:0.3, cursor:'not-allowed' }}>
+              <FiX size={18}/>
+            </div>
+          ) : (
+            <button onClick={onCancel} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-secondary)', padding:'4px' }}><FiX size={18}/></button>
+          )}
         </div>
 
         <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
@@ -137,10 +216,10 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open email composer</div>
               <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'0.75rem' }}>
-                <a href={outlookUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#0072c6')}>
+                <a href={outlookUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0072c6')}>
                   ✉ Outlook
                 </a>
-                <a href={gmailUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#ea4335')}>
+                <a href={gmailUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#ea4335')}>
                   ✉ Gmail
                 </a>
               </div>
@@ -173,6 +252,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Make phone call</div>
               <a href={'tel:' + studentPhone}
+                 onClick={() => setContacted(true)}
                  style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1rem', borderRadius:'8px', background:'#16a34a', color:'#fff', fontSize:'0.8125rem', fontWeight:600, textDecoration:'none' }}>
                 📞 Call {studentPhone}
               </a>
@@ -186,7 +266,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           {isSMS && (
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Send text message</div>
-              <a href={smsUrl} style={actionBtnStyle('#2563eb')}>
+              <a href={smsUrl} onClick={() => setContacted(true)} style={actionBtnStyle('#2563eb')}>
                 💬 Open SMS — {studentPhone}
               </a>
               <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
@@ -199,7 +279,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           {isWhatsApp && (
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open WhatsApp</div>
-              <a href={whatsappUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#25d366')}>
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#25d366')}>
                 W Open WhatsApp — {studentPhone}
               </a>
               <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
@@ -212,7 +292,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           {isZalo && (
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open Zalo</div>
-              <a href={zaloUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#0068ff')}>
+              <a href={zaloUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0068ff')}>
                 Z Open Zalo — {studentPhone}
               </a>
               <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
@@ -225,14 +305,16 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           {isMessenger && (
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open Messenger</div>
-              {messengerUrl ? (
-                <a href={messengerUrl} target="_blank" rel="noreferrer" style={actionBtnStyle('#0084ff')}>
+              {connectWithUs ? (
+                <a href={messengerUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0084ff')}>
                   M Open Messenger — {connectWithUs}
                 </a>
               ) : (
-                <div style={{ fontSize:'0.8125rem', color:'var(--text-secondary)', padding:'0.5rem', background:'var(--bg-primary)', borderRadius:'6px', border:'1px solid var(--border)' }}>
-                  No Messenger username on file. Add the student’s Facebook username or profile URL to the “Connect With Us” field first.
-                </div>
+                <>
+                  {/* Step 1: Copy name. Step 2: Open Messenger. Two separate actions
+                      because browsers block clipboard writes inside window.open calls. */}
+                  <MessengerSearch studentName={studentName} actionBtnStyle={actionBtnStyle} onContacted={() => setContacted(true)}/>
+                </>
               )}
             </div>
           )}
@@ -274,8 +356,17 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
 
         {/* Footer */}
         <div style={{ display:'flex', justifyContent:'flex-end', gap:'0.75rem', padding:'1rem 1.5rem', borderTop:'1px solid var(--border)', background:'var(--bg-secondary)', borderRadius:'0 0 14px 14px' }}>
-          <button onClick={onCancel} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'1px solid var(--border)', background:'transparent', color:'var(--text-secondary)', cursor:'pointer', fontSize:'0.875rem' }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'none', background:'var(--primary)', color:'#fff', cursor: saving ? 'not-allowed' : 'pointer', fontSize:'0.875rem', fontWeight:600, opacity: saving ? 0.7 : 1, display:'flex', alignItems:'center', gap:'0.4rem' }}>
+          {contacted ? (
+            <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', flex:1 }}>
+              <span style={{ fontSize:'0.8125rem', color:'var(--danger, #dc2626)', fontWeight:500 }}>
+                ⚠️ Note required — please complete and save before continuing
+              </span>
+            </div>
+          ) : (
+            <button onClick={onCancel} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'1px solid var(--border)', background:'transparent', color:'var(--text-secondary)', cursor:'pointer', fontSize:'0.875rem' }}>Cancel</button>
+          )}
+          <button onClick={handleSave} disabled={saving || (!summary.trim() && !nextSteps.trim())}
+            style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'none', background:'var(--primary)', color:'#fff', cursor: (saving || (!summary.trim() && !nextSteps.trim())) ? 'not-allowed' : 'pointer', fontSize:'0.875rem', fontWeight:600, opacity: (saving || (!summary.trim() && !nextSteps.trim())) ? 0.5 : 1, display:'flex', alignItems:'center', gap:'0.4rem' }}>
             <FiSave size={13}/>{saving ? 'Saving...' : 'Save Note'}
           </button>
         </div>
@@ -888,13 +979,11 @@ export default function LeadDetail() {
                           {icon}
                         </a>
                       ))}
-                      {lead.connectWithUs && (
-                        <a href="#" title="Messenger"
+                      <a href="#" title="Messenger"
                            onClick={e => { e.preventDefault(); openContactModal('messenger'); }}
                            style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:'#0084ff', color:'#fff', fontSize:'0.6rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
                           M
                         </a>
-                      )}
                     </div>
                   )}
                 </div>

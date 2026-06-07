@@ -101,6 +101,7 @@ function StaffModal({ staff, onClose, onSaved }) {
     platformSms:        staff?.platformSms        ?? false,
     platformZalo:       staff?.platformZalo       ?? false,
     platformWhatsapp:   staff?.platformWhatsapp   ?? false,
+    platformMessenger:  staff?.platformMessenger  ?? false,
     zaloNumber:         staff?.zaloNumber         || '',
     zaloQrCode:         staff?.zaloQrCode         || '',
     whatsappQrCode:     staff?.whatsappQrCode      || '',
@@ -146,6 +147,7 @@ function StaffModal({ staff, onClose, onSaved }) {
         platformSms:       form.platformSms,
         platformZalo:      form.platformZalo,
         platformWhatsapp:  form.platformWhatsapp,
+        platformMessenger: form.platformMessenger,
         zaloNumber:        form.zaloNumber         || null,
         zaloQrCode:        form.zaloQrCode         || null,
         whatsappQrCode:    form.whatsappQrCode     || null,
@@ -250,9 +252,10 @@ function StaffModal({ staff, onClose, onSaved }) {
               <label className="form-label">Active Platforms (on contact mobile)</label>
               <div style={{ display:'flex', gap:'1.25rem', marginTop:'0.25rem' }}>
                 {[
-                  { key:'platformSms',      label:'SMS',       color:'#2563eb' },
-                  { key:'platformZalo',     label:'Zalo',      color:'#0068ff' },
-                  { key:'platformWhatsapp', label:'WhatsApp',  color:'#25d366' },
+                  { key:'platformSms',       label:'SMS',       color:'#2563eb' },
+                  { key:'platformZalo',      label:'Zalo',      color:'#0068ff' },
+                  { key:'platformWhatsapp',  label:'WhatsApp',  color:'#25d366' },
+                  { key:'platformMessenger', label:'Messenger', color:'#0084ff' },
                 ].map(({ key, label, color }) => (
                   <label key={key} style={{ display:'flex', alignItems:'center', gap:'0.5rem', cursor:'pointer', fontSize:'0.875rem' }}>
                     <input type="checkbox" checked={!!form[key]} onChange={e => set(key, e.target.checked)}/>
