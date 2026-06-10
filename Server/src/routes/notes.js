@@ -12,8 +12,12 @@ function requireStaffAuth(req, res, next) {
   next();
 }
 
-router.get('/:studentId',       requireStaffAuth, noteCtrl.getNotes);
+router.get('/reminders',        requireStaffAuth, noteCtrl.getReminders);
+router.get('/communications',    requireStaffAuth, noteCtrl.getCommunications);
+router.get('/:studentId',        requireStaffAuth, noteCtrl.getNotes);
 router.post('/:studentId',      requireStaffAuth, noteCtrl.addNote);
 router.delete('/:id',           requireStaffAuth, noteCtrl.deleteNote);
+router.patch('/:id/reminder',    requireStaffAuth, noteCtrl.updateReminder);
+router.patch('/:id/append',      requireStaffAuth, noteCtrl.appendToNote);
 
 module.exports = router;

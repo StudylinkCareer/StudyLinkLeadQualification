@@ -16,7 +16,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -74,6 +74,13 @@ export default function Sidebar() {
           onClick={() => navigate('/leads')}
         >
           <FiUsers size={16} /> {t('sidebar.leads', language)}
+        </button>
+
+        <button
+          className={`nav-item ${isActive('/client-followup') ? 'active' : ''}`}
+          onClick={() => navigate('/client-followup')}
+        >
+          <FiBell size={16} /> {language === 'vi' ? 'Theo dõi khách hàng' : 'Client Followup'}
         </button>
 
         {canViewReports && (

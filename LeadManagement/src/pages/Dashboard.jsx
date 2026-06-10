@@ -188,7 +188,7 @@ export default function Dashboard() {
   const [loading, setLoading]   = useState(true);
   const [selectedCounselor, setSelectedCounselor] = useState(null);
   const { staff }    = useAuth();
-  const { scope }    = usePermissions();
+  const { scope, loading: permsLoading } = usePermissions();
   const { language } = useLanguage();
   const { push: pushTrail } = useNavTrail();
   const navigate     = useNavigate();
@@ -207,10 +207,17 @@ export default function Dashboard() {
   //   hasAllScope  → user can see every lead (Manager, Director, Admin)
   //   isAdmin      → role-string check for the few places Admin behaves
   //                  differently (e.g. no target row).
-  const hasAllScope = scope('leads', 'view_list') === 'all';
+  // Do not treat scope as 'all' until permissions have finished loading.
+  // While permsLoading is true, scope() returns a default that may not
+  // reflect the real role — treating it as 'all' too early causes
+  // counsellors to see every lead until permissions settle.
+  const hasAllScope = !permsLoading && scope('leads', 'view_list') === 'all';
   const isAdmin     = staff?.role === 'Admin';
 
   useEffect(() => {
+    // Wait for permissions to resolve before fetching, so hasAllScope
+    // is stable and scopedLeads computes correctly on first render.
+    if (permsLoading) return;
     const promises = [studentAPI.search('').then(d => setLeads(d.data || []))];
     if (staff?.id) {
       promises.push(
@@ -227,7 +234,7 @@ export default function Dashboard() {
       );
     }
     Promise.all(promises).catch(console.error).finally(() => setLoading(false));
-  }, [staff?.id, hasAllScope]);
+  }, [staff?.id, hasAllScope, permsLoading]);
 
   const scopedLeads = useMemo(() => {
     if (hasAllScope) return leads;

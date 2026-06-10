@@ -17,12 +17,285 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useLookup } from '../contexts/LookupContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import Watermark from '../components/Watermark';
 import TrailBackButton from '../components/TrailBackButton';
-import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
+import { FiArrowLeft, FiPlus, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
+
+// ── NoteForm ─────────────────────────────────────────────────────────────────
+// Unified structured note form. All 5 fields mandatory.
+// onSubmit receives: { topic, summary, nextSteps, reason, followUpDate }
+function NoteForm({ onSubmit, saving, topicOptions, disabled }) {
+  const [topic,        setTopic]        = useState('');
+  const [summary,      setSummary]      = useState('');
+  const [nextSteps,    setNextSteps]    = useState('');
+  const [reason,       setReason]       = useState('');
+  const [followUpDate, setFollowUpDate] = useState('');
+
+  const fld = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
+  const inp = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
+  const sel = { ...inp, resize:'none', cursor:'pointer' };
+  const isValid = topic && summary.trim() && nextSteps.trim() && reason.trim() && followUpDate;
+
+  function handleSubmit() {
+    if (!topic)            { alert('Topic / Objective is required.'); return; }
+    if (!summary.trim())   { alert('Summary is required.'); return; }
+    if (!nextSteps.trim()) { alert('Next Steps is required.'); return; }
+    if (!reason.trim())    { alert('Reason is required.'); return; }
+    if (!followUpDate)     { alert('Follow-up Date is required.'); return; }
+    onSubmit({ topic, summary: summary.trim(), nextSteps: nextSteps.trim(), reason: reason.trim(), followUpDate });
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
+      <div>
+        <label style={fld}>Topic / Objective <span style={{ color:'#dc2626' }}>*</span></label>
+        <select value={topic} onChange={e=>setTopic(e.target.value)} disabled={disabled} style={sel}>
+          <option value="">— Select topic —</option>
+          {(topicOptions||[]).map(o=><option key={o.code} value={o.code}>{o.labelEn||o.code}</option>)}
+        </select>
+      </div>
+      <div>
+        <label style={fld}>Summary <span style={{ color:'#dc2626' }}>*</span></label>
+        <textarea rows={3} placeholder="What was discussed?" value={summary}
+          onChange={e=>setSummary(e.target.value)} disabled={disabled} style={inp}/>
+      </div>
+      <div>
+        <label style={fld}>Next Steps <span style={{ color:'#dc2626' }}>*</span></label>
+        <textarea rows={2} placeholder="What needs to happen next?" value={nextSteps}
+          onChange={e=>setNextSteps(e.target.value)} disabled={disabled} style={inp}/>
+      </div>
+      <div>
+        <label style={fld}>Reason <span style={{ color:'#dc2626' }}>*</span></label>
+        <textarea rows={2} placeholder="Why is this action / follow-up needed?" value={reason}
+          onChange={e=>setReason(e.target.value)} disabled={disabled} style={inp}/>
+      </div>
+      <div style={{ display:'flex', alignItems:'flex-end', gap:'1rem', flexWrap:'wrap' }}>
+        <div>
+          <label style={fld}>Follow-up Date <span style={{ color:'#dc2626' }}>*</span></label>
+          <input type="date" value={followUpDate} onChange={e=>setFollowUpDate(e.target.value)}
+            disabled={disabled}
+            style={{ padding:'0.5rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', opacity:disabled?0.6:1 }}/>
+        </div>
+        <button className="btn btn--primary" onClick={handleSubmit}
+          disabled={saving||!isValid||disabled}
+          style={{ display:'flex', alignItems:'center', gap:'0.4rem', opacity:(saving||!isValid||disabled)?0.5:1, cursor:(saving||!isValid||disabled)?'not-allowed':'pointer' }}>
+          <FiSave size={13}/>{saving?'Saving...':'Save Note'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── NoteCard ─────────────────────────────────────────────────────────────────
+// isLatest=true shows reminder controls + append panel.
+function NoteCard({ note, staff, canAppend, onDelete, onAppend, onUpdateReminder, isLatest }) {
+  const [appendOpen,     setAppendOpen]     = useState(false);
+  const [appSaving,      setAppSaving]      = useState(false);
+  const [appSummary,     setAppSummary]     = useState('');
+  const [appSteps,       setAppSteps]       = useState('');
+  const [appReason,      setAppReason]      = useState('');
+  const [appDate,        setAppDate]        = useState('');
+  const [reschedOpen,    setReschedOpen]    = useState(false);
+  const [newDate,        setNewDate]        = useState('');
+  const [reminderSaving, setReminderSaving] = useState(false);
+
+  const fld = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
+  const inp = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.5rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-primary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
+  const appValid = appSummary.trim() && appSteps.trim() && appReason.trim() && appDate;
+
+  const STATUS_COLORS = { active:'#10b981', closed:'#6b7280', rescheduled:'#f59e0b', superseded:'#d1d5db' };
+  const STATUS_LABELS = { active:'Active', closed:'Closed', rescheduled:'Rescheduled', superseded:'Superseded' };
+  const reminderStatus = note.reminderStatus || 'active';
+  const hasReminder    = !!note.followUpDate;
+  const effDate        = note.rescheduledDate || note.followUpDate;
+
+  async function handleAppend() {
+    if (!appSummary.trim()) { alert('Summary is required.'); return; }
+    if (!appSteps.trim())   { alert('Next Steps is required.'); return; }
+    if (!appReason.trim())  { alert('Reason is required.'); return; }
+    if (!appDate)           { alert('Follow-up Date is required.'); return; }
+    setAppSaving(true);
+    try {
+      const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      const addendum = [
+        '\n─────────────────────────────────',
+        'Addendum — ' + (staff?.fullName||'') + '  |  ' + now,
+        '',
+        'Summary:\n' + appSummary.trim(),
+        '\nNext Steps:\n' + appSteps.trim(),
+        '\nReason:\n' + appReason.trim(),
+        '\nFollow-up Date: ' + appDate,
+      ].join('\n');
+      await onAppend(note.id, addendum, appDate);
+      setAppSummary(''); setAppSteps(''); setAppReason(''); setAppDate('');
+      setAppendOpen(false);
+    } catch(e) { alert(e.message); }
+    finally { setAppSaving(false); }
+  }
+
+  async function handleClose() {
+    setReminderSaving(true);
+    try { await onUpdateReminder(note.id, { reminderStatus:'closed' }); }
+    catch(e) { alert(e.message); }
+    finally { setReminderSaving(false); }
+  }
+
+  async function handleReschedule() {
+    if (!newDate) return;
+    setReminderSaving(true);
+    try {
+      await onUpdateReminder(note.id, { reminderStatus:'rescheduled', rescheduledDate:newDate });
+      setReschedOpen(false); setNewDate('');
+    } catch(e) { alert(e.message); }
+    finally { setReminderSaving(false); }
+  }
+
+  return (
+    <div style={{ background:'var(--bg-primary)', border:'1px solid var(--border)', borderRadius:'8px', overflow:'hidden',
+      borderLeft: hasReminder ? `3px solid ${STATUS_COLORS[reminderStatus]}` : undefined }}>
+      <div style={{ padding:'0.625rem 0.875rem', display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:'0.5rem', background:'var(--bg-secondary)' }}>
+        <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
+          <span style={{ fontSize:'0.8125rem', fontWeight:500, color:'var(--text-secondary)' }}>{note.authorName}</span>
+          {hasReminder && (
+            <span style={{ fontSize:'0.7rem', fontWeight:700, borderRadius:'4px', padding:'1px 7px',
+              background:STATUS_COLORS[reminderStatus]+'22', color:STATUS_COLORS[reminderStatus],
+              border:`1px solid ${STATUS_COLORS[reminderStatus]}44` }}>
+              {STATUS_LABELS[reminderStatus]}
+              {effDate && ` · ${new Date(effDate).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}`}
+            </span>
+          )}
+        </div>
+        <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+          <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>{formatDate(note.createdAt)}</span>
+          {note.authorId===staff?.id && (
+            <button className="btn btn--ghost btn--icon btn--sm" onClick={()=>onDelete(note.id)} style={{ color:'var(--danger)' }}>
+              <FiTrash2 size={13}/>
+            </button>
+          )}
+        </div>
+      </div>
+      <div style={{ padding:'0.75rem 0.875rem', fontSize:'0.9375rem', whiteSpace:'pre-wrap' }}>{note.content}</div>
+      {isLatest && hasReminder && (reminderStatus==='active'||reminderStatus==='rescheduled') && (
+        <div style={{ padding:'0 0.875rem 0.75rem', display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
+          {!reschedOpen ? (
+            <>
+              <button disabled={reminderSaving} onClick={handleClose}
+                style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', border:'1px solid var(--border)', background:'var(--bg-secondary)', fontSize:'0.8125rem', fontWeight:600, cursor:'pointer', color:'#6b7280' }}>
+                ✓ Close reminder
+              </button>
+              <button disabled={reminderSaving} onClick={()=>setReschedOpen(true)}
+                style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', border:'1px solid #f59e0b', background:'#fef3c7', fontSize:'0.8125rem', fontWeight:600, cursor:'pointer', color:'#92400e' }}>
+                ↻ Reschedule
+              </button>
+            </>
+          ) : (
+            <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
+              <span style={{ fontSize:'0.8125rem', fontWeight:600 }}>New date:</span>
+              <input type="date" value={newDate} onChange={e=>setNewDate(e.target.value)}
+                style={{ padding:'0.3rem 0.5rem', borderRadius:'6px', border:'1px solid var(--border)', fontSize:'0.8125rem' }}/>
+              <button disabled={reminderSaving||!newDate} onClick={handleReschedule}
+                style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', border:'none', background:'var(--primary)', color:'#fff', fontSize:'0.8125rem', fontWeight:600, cursor:newDate?'pointer':'not-allowed', opacity:newDate?1:0.5 }}>
+                {reminderSaving?'Saving…':'Confirm'}
+              </button>
+              <button onClick={()=>{setReschedOpen(false);setNewDate('');}}
+                style={{ padding:'0.25rem 0.5rem', borderRadius:'6px', border:'1px solid var(--border)', background:'transparent', fontSize:'0.8125rem', cursor:'pointer' }}>Cancel</button>
+            </div>
+          )}
+        </div>
+      )}
+      {isLatest && canAppend && reminderStatus!=='closed' && (
+        <div style={{ borderTop:'1px solid var(--border)' }}>
+          <button onClick={()=>setAppendOpen(o=>!o)}
+            style={{ width:'100%', padding:'0.5rem 0.875rem', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.8125rem', fontWeight:600, color:'var(--primary)', textAlign:'left' }}>
+            <FiEdit2 size={13}/>{appendOpen?'Cancel':'Add Update / Reschedule'}
+          </button>
+          {appendOpen && (
+            <div style={{ padding:'0.875rem', background:'var(--bg-secondary)', display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+              <div style={{ fontSize:'0.8125rem', color:'var(--text-secondary)', fontStyle:'italic' }}>
+                Add an update to this thread. The new follow-up date will become the active reminder.
+              </div>
+              <div>
+                <label style={fld}>Summary <span style={{ color:'#dc2626' }}>*</span></label>
+                <textarea rows={2} placeholder="What has changed / been discussed?" value={appSummary} onChange={e=>setAppSummary(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <label style={fld}>Next Steps <span style={{ color:'#dc2626' }}>*</span></label>
+                <textarea rows={2} placeholder="Updated next steps" value={appSteps} onChange={e=>setAppSteps(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <label style={fld}>Reason <span style={{ color:'#dc2626' }}>*</span></label>
+                <textarea rows={2} placeholder="Why is the follow-up date being changed?" value={appReason} onChange={e=>setAppReason(e.target.value)} style={inp}/>
+              </div>
+              <div style={{ display:'flex', alignItems:'flex-end', gap:'1rem', flexWrap:'wrap' }}>
+                <div>
+                  <label style={fld}>New Follow-up Date <span style={{ color:'#dc2626' }}>*</span></label>
+                  <input type="date" value={appDate} onChange={e=>setAppDate(e.target.value)}
+                    style={{ padding:'0.5rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit' }}/>
+                </div>
+                <button className="btn btn--primary" onClick={handleAppend} disabled={appSaving||!appValid}
+                  style={{ display:'flex', alignItems:'center', gap:'0.4rem', opacity:appValid?1:0.5, cursor:appValid?'pointer':'not-allowed' }}>
+                  <FiSave size={13}/>{appSaving?'Saving...':'Save Update'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── NoteThread ────────────────────────────────────────────────────────────────
+function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpdateReminder }) {
+  const [expanded, setExpanded] = useState(false);
+  const sorted     = [...notes].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  const latest     = sorted[sorted.length-1];
+  const history    = sorted.slice(0, sorted.length-1);
+  const hasHistory = history.length > 0;
+  const STATUS_COLORS = { active:'#10b981', closed:'#6b7280', rescheduled:'#f59e0b', superseded:'#d1d5db' };
+  const threadStatus  = latest?.reminderStatus || 'active';
+  const isClosed      = threadStatus === 'closed';
+
+  return (
+    <div style={{ borderRadius:'10px', border:'1px solid var(--border)', overflow:'hidden', opacity:isClosed?0.65:1 }}>
+      <div style={{ padding:'0.5rem 0.875rem', background:'var(--bg-secondary)', borderBottom:'1px solid var(--border)',
+        display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.5rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.625rem', flexWrap:'wrap' }}>
+          <span style={{ fontSize:'0.875rem', fontWeight:700, color:'var(--primary)' }}>{topic||'General'}</span>
+          <span style={{ fontSize:'0.7rem', fontWeight:700, borderRadius:'4px', padding:'1px 7px',
+            background:STATUS_COLORS[threadStatus]+'22', color:STATUS_COLORS[threadStatus],
+            border:`1px solid ${STATUS_COLORS[threadStatus]}44` }}>
+            {threadStatus.charAt(0).toUpperCase()+threadStatus.slice(1)}
+          </span>
+          <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
+            {notes.length} {notes.length===1?'entry':'entries'}
+          </span>
+        </div>
+        {hasHistory && (
+          <button onClick={()=>setExpanded(e=>!e)}
+            style={{ background:'none', border:'1px solid var(--border)', borderRadius:'6px', cursor:'pointer',
+              padding:'2px 10px', fontSize:'0.8125rem', fontWeight:700, color:'var(--text-secondary)',
+              display:'flex', alignItems:'center', gap:'4px' }}>
+            {expanded?'−':`+${history.length}`}
+            <span style={{ fontSize:'0.7rem', fontWeight:400 }}>{expanded?'collapse':'history'}</span>
+          </button>
+        )}
+      </div>
+      {expanded && history.map(note=>(
+        <div key={note.id} style={{ borderBottom:'1px solid var(--border)', opacity:0.75 }}>
+          <NoteCard note={note} staff={staff} canAppend={false}
+            onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={false}/>
+        </div>
+      ))}
+      <NoteCard note={latest} staff={staff} canAppend={canAppend}
+        onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={true}/>
+    </div>
+  );
+}
 
 // ── MessengerSearch ──────────────────────────────────────────────────────────
 // Two-step flow: Step 1 copies the name, Step 2 opens Messenger.
@@ -94,11 +367,8 @@ function toIntlPhone(phone) {
   return d.startsWith('0') ? '84' + d.slice(1) : d;
 }
 
-function ContactLogModal({ method, studentName, studentEmail, studentPhone, connectWithUs, staffName, timestamp, documents, onSave, onCancel }) {
-  const [summary,      setSummary]      = useState('');
-  const [nextSteps,    setNextSteps]    = useState('');
-  const [followUpDate, setFollowUpDate] = useState('');
-  const [saving,       setSaving]       = useState(false);
+function ContactLogModal({ method, studentName, studentEmail, studentPhone, connectWithUs, staffName, timestamp, documents, onSave, onCancel, topicOptions }) {
+  const [saving, setSaving] = useState(false);
   // Once the counsellor opens a communication medium (clicks an action button),
   // the note becomes mandatory — they cannot cancel or close until saved.
   const [contacted,    setContacted]    = useState(false);
@@ -162,23 +432,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
     else window.open(url, '_blank');
   }
 
-  async function handleSave() {
-    if (!summary.trim() && !nextSteps.trim()) {
-      alert('Please add at least a summary or next steps before saving.');
-      return;
-    }
-    setSaving(true);
-    const parts = [
-      icon + ' ' + label + ' — ' + studentName,
-      'By: ' + staffName + '  |  ' + displayTime,
-      '',
-    ];
-    if (summary.trim())   parts.push('Summary:\n' + summary.trim());
-    if (nextSteps.trim()) parts.push('\nNext Steps:\n' + nextSteps.trim());
-    if (followUpDate)     parts.push('\nFollow-up Date: ' + followUpDate);
-    await onSave(parts.join('\n'));
-    setSaving(false);
-  }
+  // handleSave replaced by NoteForm onSubmit inline
 
   const inputStyle = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
   const labelStyle = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
@@ -336,22 +590,26 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
             </div>
           )}
 
-          {/* ── Summary + next steps (all methods) ── */}
-          <div>
-            <label style={labelStyle}>Contact Summary</label>
-            <textarea autoFocus rows={3} placeholder="What was discussed / sent?"
-              value={summary} onChange={e => setSummary(e.target.value)} style={inputStyle}/>
-          </div>
-          <div>
-            <label style={labelStyle}>Next Steps</label>
-            <textarea rows={2} placeholder="What needs to happen next?"
-              value={nextSteps} onChange={e => setNextSteps(e.target.value)} style={inputStyle}/>
-          </div>
-          <div>
-            <label style={labelStyle}>Follow-up Date <span style={{ fontWeight:400, opacity:0.7 }}>(optional)</span></label>
-            <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)}
-              style={{ padding:'0.5rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit' }}/>
-          </div>
+          {/* ── Unified NoteForm ── */}
+          <NoteForm
+            topicOptions={topicOptions}
+            saving={saving}
+            onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate }) => {
+              setSaving(true);
+              const parts = [
+                icon + ' ' + label + ' — ' + studentName,
+                'By: ' + staffName + '  |  ' + displayTime,
+                'Topic: ' + topic,
+                '',
+                'Summary:\n' + summary,
+                '\nNext Steps:\n' + nextSteps,
+                '\nReason:\n' + reason,
+                '\nFollow-up Date: ' + followUpDate,
+              ];
+              await onSave({ noteText: parts.join('\n'), topic, followUpDate, contactPlatform: label });
+              setSaving(false);
+            }}
+          />
         </div>
 
         {/* Footer */}
@@ -365,10 +623,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           ) : (
             <button onClick={onCancel} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'1px solid var(--border)', background:'transparent', color:'var(--text-secondary)', cursor:'pointer', fontSize:'0.875rem' }}>Cancel</button>
           )}
-          <button onClick={handleSave} disabled={saving || (!summary.trim() && !nextSteps.trim())}
-            style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'none', background:'var(--primary)', color:'#fff', cursor: (saving || (!summary.trim() && !nextSteps.trim())) ? 'not-allowed' : 'pointer', fontSize:'0.875rem', fontWeight:600, opacity: (saving || (!summary.trim() && !nextSteps.trim())) ? 0.5 : 1, display:'flex', alignItems:'center', gap:'0.4rem' }}>
-            <FiSave size={13}/>{saving ? 'Saving...' : 'Save Note'}
-          </button>
+          {/* Save button rendered inside NoteForm */}
         </div>
 
       </div>
@@ -548,9 +803,10 @@ export default function LeadDetail() {
   const [showHistory, setShowHistory]               = useState(false);
   const [showOceanQuestions, setShowOceanQuestions] = useState(false);
   const [assign, setAssign]     = useState({});
-  const [noteType, setNoteType] = useState('counselor');
-  const [noteText, setNoteText] = useState('');
-  const [addingNote, setAdding] = useState(false);
+  const topicOptions = useLookup('note_topic');
+  const [noteType,     setNoteType]     = useState('counselor');
+  const [addingNote,   setAdding]       = useState(false);
+  const [showNoteForm, setShowNoteForm] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcOcean, setRecalcOcean]     = useState(false);
   const [oceanResult, setOceanResult]     = useState(null);
@@ -563,9 +819,14 @@ export default function LeadDetail() {
     setContactModal({ method, openedAt: new Date().toISOString() });
   }
 
-  async function handleContactSave(noteText) {
+  async function handleContactSave({ noteText, topic, followUpDate, contactPlatform }) {
     try {
-      const data = await notesAPI.add(id, 'counselor', noteText);
+      const data = await notesAPI.add(id, 'counselor', noteText, {
+        topic,
+        followUpDate,
+        contactPlatform,
+        reminderStatus: followUpDate ? 'active' : null,
+      });
       setNotes(n => [data.data, ...n]);
     } catch(e) { alert('Failed to save note: ' + e.message); }
     setContactModal(null);
@@ -751,13 +1012,21 @@ export default function LeadDetail() {
     finally { setRecalcOcean(false); }
   }
 
-  async function addNote() {
-    if (!noteText.trim()) return;
+  async function addNote({ topic, summary, nextSteps, reason, followUpDate }) {
     setAdding(true);
     try {
-      const data = await notesAPI.add(id, noteType, noteText.trim());
+      const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      const parts = [
+        NOTE_TYPES[noteType] + ' — ' + (lead?.fullName || ''),
+        'By: ' + (staff?.fullName || '') + '  |  ' + now,
+        'Topic: ' + topic, '',
+        'Summary:\n' + summary,
+        '\nNext Steps:\n' + nextSteps,
+        '\nReason:\n' + reason,
+        '\nFollow-up Date: ' + followUpDate,
+      ];
+      const data = await notesAPI.add(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null });
       setNotes(n=>[data.data,...n]);
-      setNoteText('');
     } catch(e) { alert(e.message); }
     finally { setAdding(false); }
   }
@@ -1299,50 +1568,67 @@ export default function LeadDetail() {
                       </ul>
                     </div>
                   )}
-                  <div style={{ display:'flex', gap:'0.75rem' }}>
-                    <textarea className="form-input" rows={3}
-                      placeholder={canAddNotes ? `Add a ${NOTE_TYPES[noteType]}...` : 'Complete the required fields above to add a note'}
-                      value={noteText} onChange={e=>setNoteText(e.target.value)}
-                      disabled={!canAddNotes}
-                      style={{ resize:'vertical', flex:1, opacity: canAddNotes ? 1 : 0.6 }}/>
-                    <button className="btn btn--primary btn--icon"
-                      onClick={addNote} disabled={!canAddNotes||addingNote||!noteText.trim()}>
-                      <FiSend size={15}/>
+                  {!showNoteForm ? (
+                    <button onClick={()=>setShowNoteForm(true)} disabled={!canAddNotes}
+                      className="btn btn--primary"
+                      style={{ alignSelf:'flex-start', display:'flex', alignItems:'center', gap:'0.4rem', opacity:canAddNotes?1:0.5, cursor:canAddNotes?'pointer':'not-allowed' }}>
+                      <FiPlus size={14}/> New Note
                     </button>
-                  </div>
+                  ) : (
+                    <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem', border:'1px solid var(--border)' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.875rem' }}>
+                        <span style={{ fontWeight:700, fontSize:'0.9375rem' }}>New Note</span>
+                        <button onClick={()=>setShowNoteForm(false)}
+                          style={{ background:'none', border:'none', cursor:'pointer', fontSize:'1.1rem', color:'var(--text-secondary)', lineHeight:1 }}>✕</button>
+                      </div>
+                      <NoteForm
+                        topicOptions={topicOptions}
+                        saving={addingNote}
+                        disabled={!canAddNotes}
+                        onSubmit={async (data) => { await addNote(data); setShowNoteForm(false); }}
+                      />
+                    </div>
+                  )}
                 </>
               )}
             </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
               {notes.length===0 && <div style={{ color:'var(--text-secondary)', fontSize:'0.875rem' }}>No notes yet</div>}
-              {notes.map(note=>(
-                <div key={note.id} style={{
-                  padding:'0.875rem', borderRadius:'8px',
-                  background:'var(--bg-secondary)', border:'1px solid var(--border)',
-                }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.5rem' }}>
-                    <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
-                      <span className={`badge badge--${note.noteType==='management'?'director':note.noteType==='presales'?'manager':'counselor'}`}>
-                        {NOTE_TYPES[note.noteType]}
-                      </span>
-                      <span style={{ fontSize:'0.8125rem', fontWeight:500 }}>{note.authorName}</span>
-                    </div>
-                    <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
-                      <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>
-                        {formatDate(note.createdAt)}
-                      </span>
-                      {note.authorId===staff?.id && (
-                        <button className="btn btn--ghost btn--icon btn--sm"
-                          onClick={()=>deleteNote(note.id)}
-                          style={{ color:'var(--danger)' }}>
-                          <FiTrash2 size={13}/>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ fontSize:'0.9375rem', whiteSpace:'pre-wrap' }}>{note.content}</div>
-                </div>
-              ))}
+              {(() => {
+                const topicMap = new Map();
+                [...notes].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt)).forEach(n=>{
+                  const key = n.topic||'__none__';
+                  if (!topicMap.has(key)) topicMap.set(key,[]);
+                  topicMap.get(key).push(n);
+                });
+                const threads = [...topicMap.entries()].sort((a,b)=>{
+                  const la=a[1][a[1].length-1], lb=b[1][b[1].length-1];
+                  const ca=la?.reminderStatus==='closed', cb=lb?.reminderStatus==='closed';
+                  if (ca!==cb) return ca?1:-1;
+                  return new Date(lb.createdAt)-new Date(la.createdAt);
+                });
+                return threads.map(([key,threadNotes])=>(
+                  <NoteThread key={key}
+                    topic={key==='__none__'?null:key}
+                    notes={threadNotes}
+                    staff={staff}
+                    canAppend={canDo('notes','write_counselor')}
+                    onDelete={deleteNote}
+                    onAppend={async (noteId,appendText,appendFollowUpDate)=>{
+                      try {
+                        const data = await notesAPI.append(noteId,appendText,appendFollowUpDate);
+                        setNotes(n=>n.map(x=>x.id===noteId?data.data:x));
+                      } catch(e){ alert(e.message); }
+                    }}
+                    onUpdateReminder={async (noteId,update)=>{
+                      try {
+                        const data = await notesAPI.updateReminder(noteId,update);
+                        setNotes(n=>n.map(x=>x.id===noteId?{...x,...data.data}:x));
+                      } catch(e){ alert(e.message); }
+                    }}
+                  />
+                ));
+              })()}
             </div>
           </div>
 
@@ -1447,6 +1733,7 @@ export default function LeadDetail() {
 
     {contactModal && (
       <ContactLogModal
+        topicOptions={topicOptions}
         method={contactModal.method}
         studentName={lead?.fullName || 'Student'}
         studentEmail={lead?._raw_email || lead?.email || ''}

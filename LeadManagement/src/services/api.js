@@ -139,8 +139,26 @@ export const studentAPI = {
 // ── Notes ─────────────────────────────────────────────────────
 export const notesAPI = {
   list:   (studentId)                    => request('GET',    `/api/notes/${studentId}`),
-  add:    (studentId, noteType, content) => request('POST',   `/api/notes/${studentId}`, { noteType, content }),
-  delete: (id)                           => request('DELETE', `/api/notes/${id}`),
+
+  // extra = { topic, followUpDate, reminderStatus, rescheduledDate, contactPlatform }
+  add:    (studentId, noteType, content, extra = {}) =>
+    request('POST', `/api/notes/${studentId}`, {
+      noteType,
+      content,
+      topic:           extra.topic           || null,
+      followUpDate:    extra.followUpDate    || null,
+      reminderStatus:  extra.reminderStatus  || null,
+      rescheduledDate: extra.rescheduledDate || null,
+      contactPlatform: extra.contactPlatform || null,
+    }),
+
+  delete:            (id)             => request('DELETE', `/api/notes/${id}`),
+  // Append a new addendum block to an existing note (existing content immutable).
+  append:            (id, text, followUpDate) =>
+    request('PATCH', `/api/notes/${id}/append`, { text, followUpDate }),
+  getReminders:      ()             => request('GET',    '/api/notes/reminders'),
+  getCommunications: ()             => request('GET',    '/api/notes/communications'),
+  updateReminder:    (id, data)     => request('PATCH',  `/api/notes/${id}/reminder`, data),
 };
 
 // ── Reports ───────────────────────────────────────────────────
