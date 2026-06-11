@@ -13,9 +13,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
-import { notesAPI } from '../services/api';
+import { notesAPI, staffAPI } from '../services/api';
 import Watermark from '../components/Watermark';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -869,15 +870,20 @@ function RemindersTab({ reminders, setReminders, navigate }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ClientFollowup() {
-  const [tab,       setTab]       = useState('reminders');
-  const [comms,     setComms]     = useState([]);
-  const [reminders, setReminders] = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
+  const [tab,           setTab]           = useState('reminders');
+  const [comms,         setComms]         = useState([]);
+  const [reminders,     setReminders]     = useState([]);
+  const [activeStaff,   setActiveStaff]   = useState([]);
+  const [selectedStaff, setSelectedStaff] = useState('');
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
 
+  const { staff }           = useAuth();
+  const { scope }           = usePermissions();
   const { language }        = useLanguage();
   const { push: pushTrail } = useNavTrail();
   const navigate            = useNavigate();
+  const hasAllScope = scope('leads', 'view_list') === 'all';
 
   useEffect(() => {
     pushTrail({ label: language==='vi' ? 'Theo dõi khách hàng' : 'Client Followup', path:'/client-followup' });
@@ -885,11 +891,27 @@ export default function ClientFollowup() {
 
   useEffect(() => {
     setLoading(true); setError(null);
-    Promise.all([notesAPI.getCommunications(), notesAPI.getReminders()])
-      .then(([c,r]) => { setComms(c.data||[]); setReminders(r.data||[]); })
+    const fetches = [notesAPI.getCommunications(), notesAPI.getReminders()];
+    if (hasAllScope) fetches.push(staffAPI.listActive());
+    Promise.all(fetches)
+      .then(([c, r, s]) => {
+        setComms(c.data||[]);
+        setReminders(r.data||[]);
+        if (s) setActiveStaff(s.data||[]);
+      })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [hasAllScope]);
+
+  const filteredComms = useMemo(() => {
+    if (!selectedStaff) return comms;
+    return comms.filter(c => c.authorName === selectedStaff);
+  }, [comms, selectedStaff]);
+
+  const filteredReminders = useMemo(() => {
+    if (!selectedStaff) return reminders;
+    return reminders.filter(r => r.authorName === selectedStaff);
+  }, [reminders, selectedStaff]);
 
   const TABS = [
     { key:'reminders',      label: language==='vi' ? 'Nhắc nhở'  : 'Reminders' },
@@ -906,6 +928,40 @@ export default function ClientFollowup() {
         <span className="page-title">{language==='vi' ? 'Theo dõi khách hàng' : 'Client Followup'}</span>
       </div>
       <div className="page-body">
+
+        {/* Staff filter — Admin / Manager / Director only */}
+        {hasAllScope && activeStaff.length > 0 && (
+          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', marginBottom:'1.25rem',
+            background:'var(--bg-secondary)', borderRadius:'10px', padding:'0.75rem 1rem', flexWrap:'wrap' }}>
+            <label style={{ fontSize:'0.875rem', fontWeight:600, color:'var(--text-secondary)', whiteSpace:'nowrap' }}>
+              Filter by staff:
+            </label>
+            <select value={selectedStaff} onChange={e=>setSelectedStaff(e.target.value)}
+              style={{ padding:'0.375rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)',
+                fontSize:'0.875rem', background:'var(--bg-primary)', color:'var(--text-primary)',
+                fontFamily:'inherit', cursor:'pointer', minWidth:'200px' }}>
+              <option value=''>All Staff</option>
+              {activeStaff
+                .slice().sort((a,b)=>(a.fullName||'').localeCompare(b.fullName||''))
+                .map(s=>(
+                  <option key={s.id} value={s.fullName}>{s.fullName} ({s.role})</option>
+                ))}
+            </select>
+            {selectedStaff && (
+              <>
+                <button onClick={()=>setSelectedStaff('')}
+                  style={{ padding:'0.375rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)',
+                    background:'transparent', fontSize:'0.8125rem', cursor:'pointer', color:'var(--text-secondary)' }}>
+                  ✕ Clear
+                </button>
+                <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>
+                  Showing: <strong style={{ color:'var(--text-primary)' }}>{selectedStaff}</strong>
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
         <div style={{ display:'flex', borderBottom:'2px solid var(--border)', marginBottom:'1.5rem' }}>
           {TABS.map(({key,label})=>(
             <button key={key} onClick={()=>setTab(key)}
@@ -918,8 +974,8 @@ export default function ClientFollowup() {
             </button>
           ))}
         </div>
-        {tab==='communications' && <CommunicationsTab comms={comms}/>}
-        {tab==='reminders'      && <RemindersTab reminders={reminders} setReminders={setReminders} navigate={navigate}/>}
+        {tab==='communications' && <CommunicationsTab comms={filteredComms}/>}
+        {tab==='reminders'      && <RemindersTab reminders={filteredReminders} setReminders={setReminders} navigate={navigate}/>}
       </div>
     </>
   );
