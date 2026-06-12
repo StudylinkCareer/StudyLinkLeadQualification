@@ -1,18 +1,642 @@
 // C:/Users/rhod_/Documents/StudyLinkLeadQualification/LeadManagement/src/pages/LeadDetail.jsx
-// CHANGES:
-//   - Family Contacts section now editable in Edit mode (mother/father name, email, phone, contact medium, contact detail)
+// CHANGES (this session):
+//   - Family Contacts section now editable in Edit mode (mother/father name,
+//     email, phone, contact medium, contact detail)
 //   - Family contact fields added to saveAll() update payload
-//   - Added CONTACT_MEDIUM_OPTS constant for the Contact Medium dropdowns
+//   - Added CONTACT_MEDIUM_OPTS constant for Contact Medium dropdowns
+//   - enterEdit() now seeds editData with _raw_ (unmasked) values so saving
+//     never writes masked display values back to the database
+// PREVIOUS CHANGES:
 //   - Added campaignType, campaignName, campaignStart, campaignEnd to FIELD_LABELS
 //   - Added 4 read-only campaign fields to Student Information view section
+//   - Event/Campaign block now renders unconditionally; <Field> shows '—' for empty values.
+//   - Permissions are now fully table-driven via usePermissions(). The
+//     previous PERMS object (hardcoded role-name arrays) and canDo() helper
+//     have been removed. Each check now reads role_permissions through
+//     the RBAC tables. Mapping from the old PERMS rules to the new helpers:
+//       canEdit              → canDoOnLead('leads', 'edit', lead)
+//       canEditAssignment    → canDoOnLead('leads', 'assign', lead)
+//       canRecalculate       → canDoOnLead('leads', 'recalculate', lead)
+//       canDelayCloseDate    → canDoOnLead('leads', 'delay_close_date', lead)
+//       canWriteNote.<kind>  → canDo('notes', 'write_<kind>')
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useLookup } from '../contexts/LookupContext';
+import { usePermissions } from '../contexts/PermissionsContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import Watermark from '../components/Watermark';
-import { FiArrowLeft, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
+import TrailBackButton from '../components/TrailBackButton';
+import { FiArrowLeft, FiPlus, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
+
+// ── NoteForm ─────────────────────────────────────────────────────────────────
+// Unified structured note form. All 5 fields mandatory.
+// onSubmit receives: { topic, summary, nextSteps, reason, followUpDate }
+function NoteForm({ onSubmit, saving, topicOptions, disabled }) {
+  const [topic,        setTopic]        = useState('');
+  const [summary,      setSummary]      = useState('');
+  const [nextSteps,    setNextSteps]    = useState('');
+  const [reason,       setReason]       = useState('');
+  const [followUpDate, setFollowUpDate] = useState('');
+
+  const fld = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
+  const inp = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
+  const sel = { ...inp, resize:'none', cursor:'pointer' };
+  const isValid = topic && summary.trim() && nextSteps.trim() && reason.trim() && followUpDate;
+
+  function handleSubmit() {
+    if (!topic)            { alert('Topic / Objective is required.'); return; }
+    if (!summary.trim())   { alert('Summary is required.'); return; }
+    if (!nextSteps.trim()) { alert('Next Steps is required.'); return; }
+    if (!reason.trim())    { alert('Reason is required.'); return; }
+    if (!followUpDate)     { alert('Follow-up Date is required.'); return; }
+    onSubmit({ topic, summary: summary.trim(), nextSteps: nextSteps.trim(), reason: reason.trim(), followUpDate });
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
+      <div>
+        <label style={fld}>Topic / Objective <span style={{ color:'#dc2626' }}>*</span></label>
+        <select value={topic} onChange={e=>setTopic(e.target.value)} disabled={disabled} style={sel}>
+          <option value="">— Select topic —</option>
+          {(topicOptions||[]).map(o=><option key={o.code} value={o.code}>{o.labelEn||o.code}</option>)}
+        </select>
+      </div>
+      <div>
+        <label style={fld}>Summary <span style={{ color:'#dc2626' }}>*</span></label>
+        <textarea rows={3} placeholder="What was discussed?" value={summary}
+          onChange={e=>setSummary(e.target.value)} disabled={disabled} style={inp}/>
+      </div>
+      <div>
+        <label style={fld}>Next Steps <span style={{ color:'#dc2626' }}>*</span></label>
+        <textarea rows={2} placeholder="What needs to happen next?" value={nextSteps}
+          onChange={e=>setNextSteps(e.target.value)} disabled={disabled} style={inp}/>
+      </div>
+      <div>
+        <label style={fld}>Reason <span style={{ color:'#dc2626' }}>*</span></label>
+        <textarea rows={2} placeholder="Why is this action / follow-up needed?" value={reason}
+          onChange={e=>setReason(e.target.value)} disabled={disabled} style={inp}/>
+      </div>
+      <div style={{ display:'flex', alignItems:'flex-end', gap:'1rem', flexWrap:'wrap' }}>
+        <div>
+          <label style={fld}>Follow-up Date <span style={{ color:'#dc2626' }}>*</span></label>
+          <input type="date" value={followUpDate} onChange={e=>setFollowUpDate(e.target.value)}
+            disabled={disabled}
+            style={{ padding:'0.5rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', opacity:disabled?0.6:1 }}/>
+        </div>
+        <button className="btn btn--primary" onClick={handleSubmit}
+          disabled={saving||!isValid||disabled}
+          style={{ display:'flex', alignItems:'center', gap:'0.4rem', opacity:(saving||!isValid||disabled)?0.5:1, cursor:(saving||!isValid||disabled)?'not-allowed':'pointer' }}>
+          <FiSave size={13}/>{saving?'Saving...':'Save Note'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── NoteCard ─────────────────────────────────────────────────────────────────
+// isLatest=true shows reminder controls + append panel.
+function NoteCard({ note, staff, canAppend, onDelete, onAppend, onUpdateReminder, isLatest }) {
+  const [appendOpen,     setAppendOpen]     = useState(false);
+  const [appSaving,      setAppSaving]      = useState(false);
+  const [appSummary,     setAppSummary]     = useState('');
+  const [appSteps,       setAppSteps]       = useState('');
+  const [appReason,      setAppReason]      = useState('');
+  const [appDate,        setAppDate]        = useState('');
+  const [reschedOpen,    setReschedOpen]    = useState(false);
+  const [newDate,        setNewDate]        = useState('');
+  const [reminderSaving, setReminderSaving] = useState(false);
+
+  const fld = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
+  const inp = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.5rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-primary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
+  const appValid = appSummary.trim() && appSteps.trim() && appReason.trim() && appDate;
+
+  const STATUS_COLORS = { active:'#10b981', closed:'#6b7280', rescheduled:'#f59e0b', superseded:'#d1d5db' };
+  const STATUS_LABELS = { active:'Active', closed:'Closed', rescheduled:'Rescheduled', superseded:'Superseded' };
+  const reminderStatus = note.reminderStatus || 'active';
+  const hasReminder    = !!note.followUpDate;
+  const effDate        = note.rescheduledDate || note.followUpDate;
+
+  async function handleAppend() {
+    if (!appSummary.trim()) { alert('Summary is required.'); return; }
+    if (!appSteps.trim())   { alert('Next Steps is required.'); return; }
+    if (!appReason.trim())  { alert('Reason is required.'); return; }
+    if (!appDate)           { alert('Follow-up Date is required.'); return; }
+    setAppSaving(true);
+    try {
+      const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      const addendum = [
+        '\n─────────────────────────────────',
+        'Addendum — ' + (staff?.fullName||'') + '  |  ' + now,
+        '',
+        'Summary:\n' + appSummary.trim(),
+        '\nNext Steps:\n' + appSteps.trim(),
+        '\nReason:\n' + appReason.trim(),
+        '\nFollow-up Date: ' + appDate,
+      ].join('\n');
+      await onAppend(note.id, addendum, appDate);
+      setAppSummary(''); setAppSteps(''); setAppReason(''); setAppDate('');
+      setAppendOpen(false);
+    } catch(e) { alert(e.message); }
+    finally { setAppSaving(false); }
+  }
+
+  async function handleClose() {
+    setReminderSaving(true);
+    try { await onUpdateReminder(note.id, { reminderStatus:'closed' }); }
+    catch(e) { alert(e.message); }
+    finally { setReminderSaving(false); }
+  }
+
+  async function handleReschedule() {
+    if (!newDate) return;
+    setReminderSaving(true);
+    try {
+      await onUpdateReminder(note.id, { reminderStatus:'rescheduled', rescheduledDate:newDate });
+      setReschedOpen(false); setNewDate('');
+    } catch(e) { alert(e.message); }
+    finally { setReminderSaving(false); }
+  }
+
+  return (
+    <div style={{ background:'var(--bg-primary)', border:'1px solid var(--border)', borderRadius:'8px', overflow:'hidden',
+      borderLeft: hasReminder ? `3px solid ${STATUS_COLORS[reminderStatus]}` : undefined }}>
+      <div style={{ padding:'0.625rem 0.875rem', display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:'0.5rem', background:'var(--bg-secondary)' }}>
+        <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
+          <span style={{ fontSize:'0.8125rem', fontWeight:500, color:'var(--text-secondary)' }}>{note.authorName}</span>
+          {hasReminder && (
+            <span style={{ fontSize:'0.7rem', fontWeight:700, borderRadius:'4px', padding:'1px 7px',
+              background:STATUS_COLORS[reminderStatus]+'22', color:STATUS_COLORS[reminderStatus],
+              border:`1px solid ${STATUS_COLORS[reminderStatus]}44` }}>
+              {STATUS_LABELS[reminderStatus]}
+              {effDate && ` · ${new Date(effDate).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}`}
+            </span>
+          )}
+        </div>
+        <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+          <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>{formatDate(note.createdAt)}</span>
+          {note.authorId===staff?.id && (
+            <button className="btn btn--ghost btn--icon btn--sm" onClick={()=>onDelete(note.id)} style={{ color:'var(--danger)' }}>
+              <FiTrash2 size={13}/>
+            </button>
+          )}
+        </div>
+      </div>
+      <div style={{ padding:'0.75rem 0.875rem', fontSize:'0.9375rem', whiteSpace:'pre-wrap' }}>{note.content}</div>
+      {isLatest && hasReminder && (reminderStatus==='active'||reminderStatus==='rescheduled') && (
+        <div style={{ padding:'0 0.875rem 0.75rem', display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
+          {!reschedOpen ? (
+            <>
+              <button disabled={reminderSaving} onClick={handleClose}
+                style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', border:'1px solid var(--border)', background:'var(--bg-secondary)', fontSize:'0.8125rem', fontWeight:600, cursor:'pointer', color:'#6b7280' }}>
+                ✓ Close reminder
+              </button>
+              <button disabled={reminderSaving} onClick={()=>setReschedOpen(true)}
+                style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', border:'1px solid #f59e0b', background:'#fef3c7', fontSize:'0.8125rem', fontWeight:600, cursor:'pointer', color:'#92400e' }}>
+                ↻ Reschedule
+              </button>
+            </>
+          ) : (
+            <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
+              <span style={{ fontSize:'0.8125rem', fontWeight:600 }}>New date:</span>
+              <input type="date" value={newDate} onChange={e=>setNewDate(e.target.value)}
+                style={{ padding:'0.3rem 0.5rem', borderRadius:'6px', border:'1px solid var(--border)', fontSize:'0.8125rem' }}/>
+              <button disabled={reminderSaving||!newDate} onClick={handleReschedule}
+                style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', border:'none', background:'var(--primary)', color:'#fff', fontSize:'0.8125rem', fontWeight:600, cursor:newDate?'pointer':'not-allowed', opacity:newDate?1:0.5 }}>
+                {reminderSaving?'Saving…':'Confirm'}
+              </button>
+              <button onClick={()=>{setReschedOpen(false);setNewDate('');}}
+                style={{ padding:'0.25rem 0.5rem', borderRadius:'6px', border:'1px solid var(--border)', background:'transparent', fontSize:'0.8125rem', cursor:'pointer' }}>Cancel</button>
+            </div>
+          )}
+        </div>
+      )}
+      {isLatest && canAppend && reminderStatus!=='closed' && (
+        <div style={{ borderTop:'1px solid var(--border)' }}>
+          <button onClick={()=>setAppendOpen(o=>!o)}
+            style={{ width:'100%', padding:'0.5rem 0.875rem', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.8125rem', fontWeight:600, color:'var(--primary)', textAlign:'left' }}>
+            <FiEdit2 size={13}/>{appendOpen?'Cancel':'Add Update / Reschedule'}
+          </button>
+          {appendOpen && (
+            <div style={{ padding:'0.875rem', background:'var(--bg-secondary)', display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+              <div style={{ fontSize:'0.8125rem', color:'var(--text-secondary)', fontStyle:'italic' }}>
+                Add an update to this thread. The new follow-up date will become the active reminder.
+              </div>
+              <div>
+                <label style={fld}>Summary <span style={{ color:'#dc2626' }}>*</span></label>
+                <textarea rows={2} placeholder="What has changed / been discussed?" value={appSummary} onChange={e=>setAppSummary(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <label style={fld}>Next Steps <span style={{ color:'#dc2626' }}>*</span></label>
+                <textarea rows={2} placeholder="Updated next steps" value={appSteps} onChange={e=>setAppSteps(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <label style={fld}>Reason <span style={{ color:'#dc2626' }}>*</span></label>
+                <textarea rows={2} placeholder="Why is the follow-up date being changed?" value={appReason} onChange={e=>setAppReason(e.target.value)} style={inp}/>
+              </div>
+              <div style={{ display:'flex', alignItems:'flex-end', gap:'1rem', flexWrap:'wrap' }}>
+                <div>
+                  <label style={fld}>New Follow-up Date <span style={{ color:'#dc2626' }}>*</span></label>
+                  <input type="date" value={appDate} onChange={e=>setAppDate(e.target.value)}
+                    style={{ padding:'0.5rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit' }}/>
+                </div>
+                <button className="btn btn--primary" onClick={handleAppend} disabled={appSaving||!appValid}
+                  style={{ display:'flex', alignItems:'center', gap:'0.4rem', opacity:appValid?1:0.5, cursor:appValid?'pointer':'not-allowed' }}>
+                  <FiSave size={13}/>{appSaving?'Saving...':'Save Update'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── NoteThread ────────────────────────────────────────────────────────────────
+function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpdateReminder }) {
+  const [expanded, setExpanded] = useState(false);
+  const sorted     = [...notes].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  const latest     = sorted[sorted.length-1];
+  const history    = sorted.slice(0, sorted.length-1);
+  const hasHistory = history.length > 0;
+  const STATUS_COLORS = { active:'#10b981', closed:'#6b7280', rescheduled:'#f59e0b', superseded:'#d1d5db' };
+  const threadStatus  = latest?.reminderStatus || 'active';
+  const isClosed      = threadStatus === 'closed';
+
+  return (
+    <div style={{ borderRadius:'10px', border:'1px solid var(--border)', overflow:'hidden', opacity:isClosed?0.65:1 }}>
+      <div style={{ padding:'0.5rem 0.875rem', background:'var(--bg-secondary)', borderBottom:'1px solid var(--border)',
+        display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.5rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.625rem', flexWrap:'wrap' }}>
+          <span style={{ fontSize:'0.875rem', fontWeight:700, color:'var(--primary)' }}>{topic||'General'}</span>
+          <span style={{ fontSize:'0.7rem', fontWeight:700, borderRadius:'4px', padding:'1px 7px',
+            background:STATUS_COLORS[threadStatus]+'22', color:STATUS_COLORS[threadStatus],
+            border:`1px solid ${STATUS_COLORS[threadStatus]}44` }}>
+            {threadStatus.charAt(0).toUpperCase()+threadStatus.slice(1)}
+          </span>
+          <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
+            {notes.length} {notes.length===1?'entry':'entries'}
+          </span>
+        </div>
+        {hasHistory && (
+          <button onClick={()=>setExpanded(e=>!e)}
+            style={{ background:'none', border:'1px solid var(--border)', borderRadius:'6px', cursor:'pointer',
+              padding:'2px 10px', fontSize:'0.8125rem', fontWeight:700, color:'var(--text-secondary)',
+              display:'flex', alignItems:'center', gap:'4px' }}>
+            {expanded?'−':`+${history.length}`}
+            <span style={{ fontSize:'0.7rem', fontWeight:400 }}>{expanded?'collapse':'history'}</span>
+          </button>
+        )}
+      </div>
+      {expanded && history.map(note=>(
+        <div key={note.id} style={{ borderBottom:'1px solid var(--border)', opacity:0.75 }}>
+          <NoteCard note={note} staff={staff} canAppend={false}
+            onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={false}/>
+        </div>
+      ))}
+      <NoteCard note={latest} staff={staff} canAppend={canAppend}
+        onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={true}/>
+    </div>
+  );
+}
+
+// ── MessengerSearch ──────────────────────────────────────────────────────────
+// Two-step flow: Step 1 copies the name, Step 2 opens Messenger.
+// Kept as a separate component so useState works cleanly without
+// browser clipboard/popup security conflicts.
+function MessengerSearch({ studentName, actionBtnStyle, onContacted }) {
+  const [searchName, setSearchName] = useState(studentName || '');
+  const [copied, setCopied]         = useState(false);
+
+  function handleCopy() {
+    const el = document.createElement('textarea');
+    el.value = searchName;
+    el.style.position = 'fixed';
+    el.style.opacity  = '0';
+    document.body.appendChild(el);
+    el.focus();
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    setCopied(true);
+    if (onContacted) onContacted();
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginBottom:'0.5rem', lineHeight:1.5 }}>
+        Step 1 — copy the name (edit if needed), then Step 2 — open Messenger and paste into the search box:
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.625rem' }}>
+        <input
+          value={searchName}
+          onChange={e => { setSearchName(e.target.value); setCopied(false); }}
+          style={{ flex:1, padding:'0.5rem 0.75rem', borderRadius:'6px', border:'1px solid var(--border)', fontSize:'0.9375rem', fontWeight:600, color:'var(--text-primary)', background:'var(--bg-primary)', fontFamily:'inherit' }}
+        />
+        <button onClick={handleCopy}
+          style={{ padding:'0.5rem 0.875rem', borderRadius:'6px', border:'none', background: copied ? '#16a34a' : 'var(--primary)', color:'#fff', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, whiteSpace:'nowrap', transition:'background 0.2s' }}>
+          {copied ? '✓ Copied!' : 'Copy Name'}
+        </button>
+      </div>
+      <a href="https://www.messenger.com/" target="_blank" rel="noreferrer"
+        style={{ ...actionBtnStyle('#0084ff'), opacity: copied ? 1 : 0.5, pointerEvents: copied ? 'auto' : 'none', display:'inline-flex' }}>
+        M Open Messenger {!copied && '(copy name first)'}
+      </a>
+      {copied && (
+        <div style={{ fontSize:'0.75rem', color:'#16a34a', marginTop:'0.5rem' }}>
+          Name copied — paste it into the Messenger search box.
+        </div>
+      )}
+      <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
+        Tip: save the student’s Facebook username to the “Connect With Us” field for a direct link next time.
+      </div>
+    </div>
+  );
+}
+
+// ── Contact Log Modal ────────────────────────────────────────────────────────
+// Handles all contact methods. Email shows Outlook+Gmail launchers with
+// pre-filled subject/body. SMS/WhatsApp pre-fill opening message.
+// All methods capture summary, next steps, follow-up date and log a note.
+const EMAIL_SUBJECT = 'We at StudyLink are proud to serve you';
+const CONTACT_COLORS = { call:'#16a34a', sms:'#2563eb', zalo:'#0068ff', whatsapp:'#25d366', messenger:'#0084ff', email:'#0072c6', gmail:'#ea4335' };
+const CONTACT_LABELS = { call:'Phone Call', sms:'Text Message', zalo:'Zalo', whatsapp:'WhatsApp', messenger:'Messenger', email:'Email' };
+const CONTACT_ICONS  = { call:'📞', sms:'💬', zalo:'Z', whatsapp:'W', messenger:'M', email:'✉' };
+
+function toIntlPhone(phone) {
+  if (!phone) return '';
+  const d = String(phone).replace(/[^0-9]/g, '');
+  return d.startsWith('0') ? '84' + d.slice(1) : d;
+}
+
+function ContactLogModal({ method, studentName, studentEmail, studentPhone, connectWithUs, staffName, timestamp, documents, onSave, onCancel, topicOptions }) {
+  const [saving, setSaving] = useState(false);
+  // Once the counsellor opens a communication medium (clicks an action button),
+  // the note becomes mandatory — they cannot cancel or close until saved.
+  const [contacted,    setContacted]    = useState(false);
+
+  // Block browser close/refresh/navigation while note is mandatory
+  useEffect(() => {
+    if (!contacted) return;
+    const handler = e => {
+      e.preventDefault();
+      e.returnValue = 'You must save the contact note before leaving.';
+      return e.returnValue;
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [contacted]);
+
+  const isEmail    = method === 'email';
+  const isSMS      = method === 'sms';
+  const isWhatsApp = method === 'whatsapp';
+  const isZalo     = method === 'zalo';
+  const isMessenger= method === 'messenger';
+
+  const icon  = CONTACT_ICONS[method]  || '📞';
+  const label = CONTACT_LABELS[method] || 'Contact';
+  const color = CONTACT_COLORS[method] || '#2563eb';
+
+  const displayTime = new Date(timestamp).toLocaleString('en-GB', {
+    day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit',
+  });
+
+  const intlPhone = toIntlPhone(studentPhone);
+  const dearLine  = 'Dear ' + (studentName || 'Student') + ',';
+
+  // Pre-filled message body for SMS and WhatsApp
+  const defaultMessage = dearLine + '\n\n';
+
+  // Email deep links — Outlook Web and Gmail
+  const emailSubjectEnc = encodeURIComponent(EMAIL_SUBJECT);
+  const emailBodyEnc    = encodeURIComponent(dearLine + '\n\n');
+  const outlookUrl = 'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent(studentEmail||'') + '&subject=' + emailSubjectEnc + '&body=' + emailBodyEnc;
+  const gmailUrl   = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(studentEmail||'') + '&su=' + emailSubjectEnc + '&body=' + emailBodyEnc;
+
+  // SMS and WhatsApp links with pre-filled message
+  const smsUrl      = 'sms:' + (studentPhone||'') + '?body=' + encodeURIComponent(defaultMessage);
+  const whatsappUrl = 'https://wa.me/' + intlPhone + '?text=' + encodeURIComponent(defaultMessage);
+
+  // Zalo — opens to contact profile or add-friend
+  const zaloUrl = 'https://zalo.me/' + intlPhone;
+
+  // Messenger — use connectWithUs (username/URL) if available,
+  // otherwise open messenger.com so the counsellor can search by name.
+  const messengerUrl = connectWithUs
+    ? (connectWithUs.startsWith('http') ? connectWithUs : 'https://m.me/' + connectWithUs)
+    : 'https://www.messenger.com/';
+
+  function openLink(url) {
+    if (!url) return;
+    setContacted(true);
+    const isDevice = url.startsWith('tel:') || url.startsWith('sms:');
+    if (isDevice) window.location.href = url;
+    else window.open(url, '_blank');
+  }
+
+  // handleSave replaced by NoteForm onSubmit inline
+
+  const inputStyle = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
+  const labelStyle = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
+  const actionBtnStyle = (bg) => ({ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1rem', borderRadius:'8px', border:'none', background:bg, color:'#fff', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, textDecoration:'none' });
+
+  if (typeof window === 'undefined') return null;
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop:'48px' }}
+      onClick={e => { if (e.target === e.currentTarget && !contacted) onCancel(); }}>
+      <div style={{ background:'var(--bg-primary)', borderRadius:'14px', boxShadow:'0 20px 60px rgba(0,0,0,0.3)', width:'min(600px, calc(100vw - 32px))', maxHeight:'calc(100vh - 96px)', overflowY:'auto', display:'flex', flexDirection:'column' }}>
+
+        {/* Header */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'1.25rem 1.5rem 1rem', borderBottom:'1px solid var(--border)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+            <span style={{ width:'36px', height:'36px', borderRadius:'8px', background:color, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', fontWeight:700 }}>{icon}</span>
+            <div>
+              <div style={{ fontWeight:700, fontSize:'1rem', color:'var(--text-primary)' }}>{label} — {studentName}</div>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'2px' }}>{staffName} · {displayTime}</div>
+            </div>
+          </div>
+          {contacted ? (
+            <div title="Save the note before closing" style={{ padding:'4px', color:'var(--text-secondary)', opacity:0.3, cursor:'not-allowed' }}>
+              <FiX size={18}/>
+            </div>
+          ) : (
+            <button onClick={onCancel} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-secondary)', padding:'4px' }}><FiX size={18}/></button>
+          )}
+        </div>
+
+        <div style={{ padding:'1.25rem 1.5rem', display:'flex', flexDirection:'column', gap:'1.25rem' }}>
+
+          {/* ── EMAIL: Outlook + Gmail launchers ── */}
+          {isEmail && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open email composer</div>
+              <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'0.75rem' }}>
+                <a href={outlookUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0072c6')}>
+                  ✉ Outlook
+                </a>
+                <a href={gmailUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#ea4335')}>
+                  ✉ Gmail
+                </a>
+              </div>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', lineHeight:1.5 }}>
+                Opens your email client pre-filled with:<br/>
+                <strong>To:</strong> {studentEmail}<br/>
+                <strong>Subject:</strong> {EMAIL_SUBJECT}<br/>
+                <strong>Body:</strong> {dearLine} [your message]
+              </div>
+              {documents && documents.length > 0 && (
+                <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)' }}>
+                  <div style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.5rem' }}>
+                    📎 Attach from student documents (open the file, then attach manually):
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+                    {documents.map((doc, i) => (
+                      <a key={i} href={doc.url || doc.fileUrl} target="_blank" rel="noreferrer"
+                         style={{ fontSize:'0.8125rem', color:'var(--primary)', textDecoration:'none' }}>
+                        📄 {doc.fileName || doc.name || 'Document ' + (i+1)}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── CALL: tel: hyperlink so counsellor can dial directly ── */}
+          {method === 'call' && studentPhone && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Make phone call</div>
+              <a href={'tel:' + studentPhone}
+                 onClick={() => setContacted(true)}
+                 style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1rem', borderRadius:'8px', background:'#16a34a', color:'#fff', fontSize:'0.8125rem', fontWeight:600, textDecoration:'none' }}>
+                📞 Call {studentPhone}
+              </a>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem' }}>
+                Opens your device dialler with {studentPhone} ready to dial.
+              </div>
+            </div>
+          )}
+
+          {/* ── SMS: open device SMS app ── */}
+          {isSMS && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Send text message</div>
+              <a href={smsUrl} onClick={() => setContacted(true)} style={actionBtnStyle('#2563eb')}>
+                💬 Open SMS — {studentPhone}
+              </a>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
+                Opens your phone’s SMS app with {studentPhone} and “Dear {studentName},” pre-filled.
+              </div>
+            </div>
+          )}
+
+          {/* ── WHATSAPP: open WhatsApp with pre-filled message ── */}
+          {isWhatsApp && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open WhatsApp</div>
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#25d366')}>
+                W Open WhatsApp — {studentPhone}
+              </a>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
+                Opens WhatsApp chat with {studentName}. Message pre-filled with “Dear {studentName},” — complete and send in WhatsApp.
+              </div>
+            </div>
+          )}
+
+          {/* ── ZALO: open Zalo to contact/add-friend ── */}
+          {isZalo && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open Zalo</div>
+              <a href={zaloUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0068ff')}>
+                Z Open Zalo — {studentPhone}
+              </a>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
+                Opens Zalo to {studentName}’s profile. If already a contact, opens the chat. If not, shows the Add Friend screen.
+              </div>
+            </div>
+          )}
+
+          {/* ── MESSENGER ── */}
+          {isMessenger && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open Messenger</div>
+              {connectWithUs ? (
+                <a href={messengerUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0084ff')}>
+                  M Open Messenger — {connectWithUs}
+                </a>
+              ) : (
+                <>
+                  {/* Step 1: Copy name. Step 2: Open Messenger. Two separate actions
+                      because browsers block clipboard writes inside window.open calls. */}
+                  <MessengerSearch studentName={studentName} actionBtnStyle={actionBtnStyle} onContacted={() => setContacted(true)}/>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Documents panel (non-email methods) ── */}
+          {!isEmail && documents && documents.length > 0 && (
+            <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
+              <div style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.5rem' }}>
+                📎 Student documents (open to share manually):
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+                {documents.map((doc, i) => (
+                  <a key={i} href={doc.url || doc.fileUrl} target="_blank" rel="noreferrer"
+                     style={{ fontSize:'0.8125rem', color:'var(--primary)', textDecoration:'none' }}>
+                    📄 {doc.fileName || doc.name || 'Document ' + (i+1)}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Unified NoteForm ── */}
+          <NoteForm
+            topicOptions={topicOptions}
+            saving={saving}
+            onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate }) => {
+              setSaving(true);
+              const parts = [
+                icon + ' ' + label + ' — ' + studentName,
+                'By: ' + staffName + '  |  ' + displayTime,
+                'Topic: ' + topic,
+                '',
+                'Summary:\n' + summary,
+                '\nNext Steps:\n' + nextSteps,
+                '\nReason:\n' + reason,
+                '\nFollow-up Date: ' + followUpDate,
+              ];
+              await onSave({ noteText: parts.join('\n'), topic, followUpDate, contactPlatform: label });
+              setSaving(false);
+            }}
+          />
+        </div>
+
+        {/* Footer */}
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:'0.75rem', padding:'1rem 1.5rem', borderTop:'1px solid var(--border)', background:'var(--bg-secondary)', borderRadius:'0 0 14px 14px' }}>
+          {contacted ? (
+            <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', flex:1 }}>
+              <span style={{ fontSize:'0.8125rem', color:'var(--danger, #dc2626)', fontWeight:500 }}>
+                ⚠️ Note required — please complete and save before continuing
+              </span>
+            </div>
+          ) : (
+            <button onClick={onCancel} style={{ padding:'0.5rem 1.25rem', borderRadius:'8px', border:'1px solid var(--border)', background:'transparent', color:'var(--text-secondary)', cursor:'pointer', fontSize:'0.875rem' }}>Cancel</button>
+          )}
+          {/* Save button rendered inside NoteForm */}
+        </div>
+
+      </div>
+    </div>
+  );
+}
 
 // ── Stone images ──────────────────────────────────────────────────────────────
 import quartzImg   from '../Assets/Stones/quartz.png';
@@ -37,18 +661,8 @@ const STONE_MESSAGES = {
   Diamond:  'You can aim at the global "cathedrals" of knowledge, places reserved for the most excellent individuals. StudyLink will be your Companion on this study abroad journey, starting RIGHT NOW!',
 };
 
-// ── Permissions config ────────────────────────────────────────────────────────
-const PERMS = {
-  canEdit:           ['Counselor', 'Manager', 'Admin', 'Director'],
-  canEditAssignment: ['Manager', 'Admin'],
-  canRecalculate:    ['Manager', 'Admin', 'Counselor'],
-  canDelayCloseDate: ['Manager', 'Admin', 'Director'],   // only these roles can push Close Date later
-  canWriteNote: {
-    counselor:  ['Counselor', 'Manager', 'Admin'],
-    presales:   ['Counselor', 'Manager', 'Admin'],
-    management: ['Director',  'Manager', 'Admin'],
-  },
-};
+// (Hardcoded PERMS object removed — all permission checks now go through
+//  usePermissions(). See header comment above for the mapping.)
 
 const LEAD_STATUSES = [
   'New',
@@ -115,7 +729,7 @@ const FIELD_LABELS = {
   campaignStart:'Campaign Start', campaignEnd:'Campaign End',
 };
 
-function canDo(perm, role) { return Array.isArray(perm) ? perm.includes(role) : false; }
+// (canDo helper removed — permissions come from usePermissions().)
 
 function formatDate(dt) {
   if (!dt) return '';
@@ -183,7 +797,8 @@ export default function LeadDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
   const { staff } = useAuth();
-  const role      = staff?.role || '';
+  const { canDo, canDoOnLead, canEditField, scope } = usePermissions();
+  const { push: pushTrail } = useNavTrail();
 
   const [lead, setLead]         = useState(null);
   const [notes, setNotes]       = useState([]);
@@ -196,12 +811,39 @@ export default function LeadDetail() {
   const [showHistory, setShowHistory]               = useState(false);
   const [showOceanQuestions, setShowOceanQuestions] = useState(false);
   const [assign, setAssign]     = useState({});
-  const [noteType, setNoteType] = useState('counselor');
-  const [noteText, setNoteText] = useState('');
-  const [addingNote, setAdding] = useState(false);
+  const topicOptions = useLookup('note_topic');
+  const [noteType,     setNoteType]     = useState('counselor');
+  const [addingNote,   setAdding]       = useState(false);
+  const [showNoteForm, setShowNoteForm] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcOcean, setRecalcOcean]     = useState(false);
   const [oceanResult, setOceanResult]     = useState(null);
+  const [accessDenied, setAccessDenied]   = useState(false);
+
+  // ── Contact log modal ──────────────────────────────────────────────────────
+  const [contactModal, setContactModal] = useState(null);
+
+  function openContactModal(method) {
+    setContactModal({ method, openedAt: new Date().toISOString() });
+  }
+
+  async function handleContactSave({ noteText, topic, followUpDate, contactPlatform }) {
+    try {
+      const data = await notesAPI.add(id, 'counselor', noteText, {
+        topic,
+        followUpDate,
+        contactPlatform,
+        reminderStatus: followUpDate ? 'active' : null,
+      });
+      setNotes(n => [data.data, ...n]);
+    } catch(e) { alert('Failed to save note: ' + e.message); }
+    setContactModal(null);
+  }
+
+  function handleContactCancel() {
+    setContactModal(null);
+  }
+
 
   useEffect(() => {
     Promise.all([
@@ -235,11 +877,38 @@ export default function LeadDetail() {
           ...getArchetype(scores),
         });
       }
-    }).catch(e=>console.error(e))
-      .finally(()=>setLoading(false));
+    }).catch(e => {
+      // Backend's getStudent returns 403 with this exact phrasing when a
+      // Counselor tries to open a lead they're not assigned to.
+      if (e?.message && /access denied|do not have permission|assigned to another/i.test(e.message)) {
+        setAccessDenied(true);
+      } else {
+        console.error(e);
+      }
+    }).finally(() => setLoading(false));
   }, [id]);
 
-  function enterEdit() { setEditData({...lead}); setEditMode(true); }
+  // Push a trail entry once the lead has loaded. push() de-dupes by path,
+  // so re-renders after data fetches don't grow the stack.
+  useEffect(() => {
+    if (lead?.fullName) {
+      pushTrail({
+        label: `Lead: ${lead.fullName}`,
+        path:  `/leads/${id}`,
+      });
+    }
+  }, [lead?.fullName, id, pushTrail]);
+
+  function enterEdit() {
+    // Seed edit data with raw (unmasked) values where the server provided
+    // them, so saving never writes masked display values back to the DB.
+    const base = { ...lead };
+    Object.keys(lead || {}).forEach(k => {
+      if (k.startsWith('_raw_')) base[k.slice(5)] = lead[k];
+    });
+    setEditData(base);
+    setEditMode(true);
+  }
   function cancelEdit() { setEditData({}); setEditMode(false); }
   function updateEdit(name, value) { setEditData(d=>({...d,[name]:value})); }
 
@@ -269,7 +938,7 @@ export default function LeadDetail() {
         const newDate = new Date(editData.closeDate);
         const dateChanged = oldDate.getTime() !== newDate.getTime();
         const isLater     = newDate > oldDate;
-        if (dateChanged && isLater && !canDo(PERMS.canDelayCloseDate, role)) {
+        if (dateChanged && isLater && !canDoOnLead('leads', 'delay_close_date', lead)) {
           alert(
             'You cannot push the Close Date later once the lead has progressed past "New".\n\n' +
             'Only Managers, Admins, or Directors can delay a Close Date.'
@@ -320,7 +989,7 @@ export default function LeadDetail() {
         setEditMode(false);
         setEditData({});
       }
-      if (canDo(PERMS.canEditAssignment, role)) {
+      if (canDoOnLead('leads', 'assign', lead)) {
         await staffAPI.assign(id, {
           counselor:       assign.counselor,
           seniorCounselor: assign.seniorCounselor,
@@ -370,13 +1039,21 @@ export default function LeadDetail() {
     finally { setRecalcOcean(false); }
   }
 
-  async function addNote() {
-    if (!noteText.trim()) return;
+  async function addNote({ topic, summary, nextSteps, reason, followUpDate }) {
     setAdding(true);
     try {
-      const data = await notesAPI.add(id, noteType, noteText.trim());
+      const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      const parts = [
+        NOTE_TYPES[noteType] + ' — ' + (lead?.fullName || ''),
+        'By: ' + (staff?.fullName || '') + '  |  ' + now,
+        'Topic: ' + topic, '',
+        'Summary:\n' + summary,
+        '\nNext Steps:\n' + nextSteps,
+        '\nReason:\n' + reason,
+        '\nFollow-up Date: ' + followUpDate,
+      ];
+      const data = await notesAPI.add(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null });
       setNotes(n=>[data.data,...n]);
-      setNoteText('');
     } catch(e) { alert(e.message); }
     finally { setAdding(false); }
   }
@@ -390,11 +1067,48 @@ export default function LeadDetail() {
   }
 
   if (loading) return <div className="loading-center">Loading...</div>;
-  if (!lead)   return <div className="page-body"><div className="alert alert--error">Lead not found</div></div>;
 
-  const canEdit   = canDo(PERMS.canEdit, role);
-  const canAssign = canDo(PERMS.canEditAssignment, role);
-  const canRecalc = canDo(PERMS.canRecalculate, role);
+  if (accessDenied) return (
+    <div>
+      <div className="page-header">
+        <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+          <TrailBackButton />
+          <span className="page-title">Access denied</span>
+        </div>
+      </div>
+      <div className="page-body">
+        <div className="alert alert--error" style={{ marginBottom:'1rem' }}>
+          You don't have permission to view this lead. It's assigned to another staff member.
+        </div>
+        <button className="btn btn--secondary btn--sm" onClick={() => navigate('/leads')}>
+          ← Back to Leads
+        </button>
+      </div>
+    </div>
+  );
+
+  if (!lead) return (
+    <div>
+      <div className="page-header">
+        <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+          <TrailBackButton />
+          <span className="page-title">Lead not found</span>
+        </div>
+      </div>
+      <div className="page-body">
+        <div className="alert alert--error" style={{ marginBottom:'1rem' }}>
+          This lead doesn't exist or may have been deleted.
+        </div>
+        <button className="btn btn--secondary btn--sm" onClick={() => navigate('/leads')}>
+          ← Back to Leads
+        </button>
+      </div>
+    </div>
+  );
+
+  const canEdit   = canDoOnLead('leads', 'edit',        lead);
+  const canAssign = canDoOnLead('leads', 'assign',      lead);
+  const canRecalc = canDoOnLead('leads', 'recalculate', lead);
   const d         = editMode ? editData : lead;
 
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
@@ -412,15 +1126,14 @@ export default function LeadDetail() {
   const canAddNotes = notesMissing.length === 0;
 
   return (
+    <>
     <div>
       <Watermark />
 
       {/* Header */}
       <div className="page-header">
         <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-          <button className="btn btn--ghost btn--icon" onClick={()=>navigate('/leads', { state: { restoreFilters: true } })}>
-            <FiArrowLeft size={16}/>
-          </button>
+          <TrailBackButton />
           <span className="page-title">{lead.fullName || 'Lead Detail'}</span>
           <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>
             {lead.uniqueId}
@@ -490,35 +1203,106 @@ export default function LeadDetail() {
             </div>
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <EditField label="Study Plans"  name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
-                <EditField label="Destination"  name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
-                <EditField label="Timeline"     name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
-                <EditField label="School/Event" name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
+                {/* Contact — only render edit input if user has 'edit' perm.
+                    Otherwise show the masked/read-only value so users still
+                    see what's there but can't change it. */}
+                {canEditField('email')
+                  ? <EditField label="Email" name="email" value={d.email} onChange={updateEdit} type="email"/>
+                  : <Field label="Email" value={lead.email}/>}
+                {canEditField('phone')
+                  ? <EditField label="Phone" name="phone" value={d.phone} onChange={updateEdit}/>
+                  : <Field label="Phone" value={lead.phone}/>}
+                <EditField label="Study Plans"     name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
+                <EditField label="Destination"     name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
+                <EditField label="Timeline"        name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
+                <EditField label="School/Event"    name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
+                <EditField label="Year of Birth"   name="yearOfBirth"        value={d.yearOfBirth}        onChange={updateEdit}/>
+                <EditField label="Residency"       name="residency"          value={d.residency}          onChange={updateEdit}/>
+                {/* Stone Tier / Risk Score / Created / Updated are auto-calculated or system — read-only even in edit mode */}
+                <Field label="Stone Tier"    value={lead.stoneTier}/>
+                <Field label="Risk Score"    value={lead.riskScore}/>
+                <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
+                <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
+                {/* Campaign / Event section header */}
+                <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
+                  <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
+                </div>
+                <EditField label="Campaign/Event" name="referralSource" value={d.referralSource} onChange={updateEdit}/>
+                <EditField label="Campaign Type"   name="campaignType"   value={d.campaignType}   onChange={updateEdit}/>
+                <EditField label="Campaign Name"   name="campaignName"   value={d.campaignName}   onChange={updateEdit}/>
+                <div/>
+                <EditField label="Event Start"     name="campaignStart" value={d.campaignStart ? String(d.campaignStart).slice(0,10) : ''} onChange={updateEdit} type="date"/>
+                <EditField label="Event End"       name="campaignEnd"   value={d.campaignEnd   ? String(d.campaignEnd).slice(0,10)   : ''} onChange={updateEdit} type="date"/>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <Field label="Email"         value={lead.email}/>
-                <Field label="Phone"         value={lead.phone}/>
-                <Field label="Stone Tier"    value={lead.stoneTier}/>
-                <Field label="Risk Score"    value={lead.riskScore}/>
-                <Field label="Study Plans"   value={lead.studyPlans}/>
-                <Field label="Destination"   value={lead.destinationCountry}/>
-                <Field label="Timeline"      value={lead.timeline}/>
-                <Field label="School/Event"  value={lead.schoolEvent}/>
-                <Field label="Year of Birth" value={lead.yearOfBirth}/>
-                <Field label="Residency"     value={lead.residency}/>
-                <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
-                <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
+                {/* Email with Outlook + Gmail launchers */}
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
+                  <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Email</span>
+                  <span style={{ fontSize:'0.875rem' }}>{lead.email || '—'}</span>
+                  {lead.email && (
+                    <div style={{ display:'flex', gap:'0.35rem', marginTop:'0.25rem' }}>
+                      <a href="#" title="Send Email (Outlook / Gmail)"
+                         onClick={e => { e.preventDefault(); openContactModal('email'); }}
+                         style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:'#0072c6', color:'#fff', fontSize:'0.75rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                        ✉
+                      </a>
+                    </div>
+                  )}
+                </div>
+                {/* Phone with all contact method buttons */}
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
+                  <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Phone</span>
+                  <span style={{ fontSize:'0.875rem' }}>
+                    {lead.phone
+                      ? <a href="#" style={{ color:'var(--primary)', textDecoration:'none' }}
+                           onClick={e => { e.preventDefault(); openContactModal('call'); }}>
+                          {lead.phone}
+                        </a>
+                      : '—'}
+                  </span>
+                  {lead.phone && (
+                    <div style={{ display:'flex', gap:'0.35rem', flexWrap:'wrap', marginTop:'0.25rem' }}>
+                      {[
+                        { key:'call',     label:'Call',     color:'#16a34a', icon:'📞' },
+                        { key:'sms',      label:'SMS',      color:'#2563eb', icon:'💬' },
+                        { key:'zalo',     label:'Zalo',     color:'#0068ff', icon:'Z'  },
+                        { key:'whatsapp', label:'WhatsApp', color:'#25d366', icon:'W'  },
+                      ].map(({key, label, color, icon}) => (
+                        <a key={key} href="#" title={label}
+                           onClick={e => { e.preventDefault(); openContactModal(key); }}
+                           style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:color, color:'#fff', fontSize: icon.length > 1 ? '0.6rem' : '0.875rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                          {icon}
+                        </a>
+                      ))}
+                      <a href="#" title="Messenger"
+                           onClick={e => { e.preventDefault(); openContactModal('messenger'); }}
+                           style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:'#0084ff', color:'#fff', fontSize:'0.6rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+                          M
+                        </a>
+                    </div>
+                  )}
+                </div>
+                <Field label="Stone Tier"      value={lead.stoneTier}/>
+                <Field label="Risk Score"      value={lead.riskScore}/>
+                <Field label="Study Plans"     value={lead.studyPlans}/>
+                <Field label="Destination"     value={lead.destinationCountry}/>
+                <Field label="Timeline"        value={lead.timeline}/>
+                <Field label="School/Event"    value={lead.schoolEvent}/>
+                <Field label="Year of Birth"   value={lead.yearOfBirth}/>
+                <Field label="Residency"       value={lead.residency}/>
+                <Field label="Created"         value={formatShortDate(lead.createdAt)}/>
+                <Field label="Updated"         value={formatShortDate(lead.updatedAt)}/>
                 {/* ── Campaign / Event fields (read-only) ── */}
-                {(lead.campaignType || lead.campaignName || lead.campaignStart) && (<>
-                  <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
-                    <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
-                  </div>
-                  <Field label="Campaign Type"  value={lead.campaignType}/>
-                  <Field label="Campaign Name"  value={lead.campaignName}/>
-                  <Field label="Event Start"    value={formatShortDate(lead.campaignStart)}/>
-                  <Field label="Event End"      value={formatShortDate(lead.campaignEnd)}/>
-                </>)}
+                <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
+                  <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
+                </div>
+                <Field label="Campaign/Event" value={lead.referralSource}/>
+                <Field label="Campaign Type"   value={lead.campaignType}/>
+                <Field label="Campaign Name"   value={lead.campaignName}/>
+                <div/>
+                <Field label="Event Start"     value={formatShortDate(lead.campaignStart)}/>
+                <Field label="Event End"       value={formatShortDate(lead.campaignEnd)}/>
               </div>
             )}
           </div>
@@ -808,7 +1592,7 @@ export default function LeadDetail() {
             <div style={{ marginBottom:'1.25rem' }}>
               <div style={{ display:'flex', gap:'0.75rem', marginBottom:'0.75rem' }}>
                 {Object.entries(NOTE_TYPES).map(([type, label]) => (
-                  PERMS.canWriteNote[type]?.includes(role) && (
+                  canDo('notes', `write_${type}`) && (
                     <button key={type}
                       className={`btn btn--sm ${noteType===type?'btn--primary':'btn--secondary'}`}
                       onClick={()=>setNoteType(type)}>
@@ -817,7 +1601,7 @@ export default function LeadDetail() {
                   )
                 ))}
               </div>
-              {PERMS.canWriteNote[noteType]?.includes(role) && (
+              {canDo('notes', `write_${noteType}`) && (
                 <>
                   {!canAddNotes && (
                     <div style={{
@@ -831,50 +1615,67 @@ export default function LeadDetail() {
                       </ul>
                     </div>
                   )}
-                  <div style={{ display:'flex', gap:'0.75rem' }}>
-                    <textarea className="form-input" rows={3}
-                      placeholder={canAddNotes ? `Add a ${NOTE_TYPES[noteType]}...` : 'Complete the required fields above to add a note'}
-                      value={noteText} onChange={e=>setNoteText(e.target.value)}
-                      disabled={!canAddNotes}
-                      style={{ resize:'vertical', flex:1, opacity: canAddNotes ? 1 : 0.6 }}/>
-                    <button className="btn btn--primary btn--icon"
-                      onClick={addNote} disabled={!canAddNotes||addingNote||!noteText.trim()}>
-                      <FiSend size={15}/>
+                  {!showNoteForm ? (
+                    <button onClick={()=>setShowNoteForm(true)} disabled={!canAddNotes}
+                      className="btn btn--primary"
+                      style={{ alignSelf:'flex-start', display:'flex', alignItems:'center', gap:'0.4rem', opacity:canAddNotes?1:0.5, cursor:canAddNotes?'pointer':'not-allowed' }}>
+                      <FiPlus size={14}/> New Note
                     </button>
-                  </div>
+                  ) : (
+                    <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem', border:'1px solid var(--border)' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.875rem' }}>
+                        <span style={{ fontWeight:700, fontSize:'0.9375rem' }}>New Note</span>
+                        <button onClick={()=>setShowNoteForm(false)}
+                          style={{ background:'none', border:'none', cursor:'pointer', fontSize:'1.1rem', color:'var(--text-secondary)', lineHeight:1 }}>✕</button>
+                      </div>
+                      <NoteForm
+                        topicOptions={topicOptions}
+                        saving={addingNote}
+                        disabled={!canAddNotes}
+                        onSubmit={async (data) => { await addNote(data); setShowNoteForm(false); }}
+                      />
+                    </div>
+                  )}
                 </>
               )}
             </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
               {notes.length===0 && <div style={{ color:'var(--text-secondary)', fontSize:'0.875rem' }}>No notes yet</div>}
-              {notes.map(note=>(
-                <div key={note.id} style={{
-                  padding:'0.875rem', borderRadius:'8px',
-                  background:'var(--bg-secondary)', border:'1px solid var(--border)',
-                }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.5rem' }}>
-                    <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
-                      <span className={`badge badge--${note.noteType==='management'?'director':note.noteType==='presales'?'manager':'counselor'}`}>
-                        {NOTE_TYPES[note.noteType]}
-                      </span>
-                      <span style={{ fontSize:'0.8125rem', fontWeight:500 }}>{note.authorName}</span>
-                    </div>
-                    <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
-                      <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>
-                        {formatDate(note.createdAt)}
-                      </span>
-                      {note.authorId===staff?.id && (
-                        <button className="btn btn--ghost btn--icon btn--sm"
-                          onClick={()=>deleteNote(note.id)}
-                          style={{ color:'var(--danger)' }}>
-                          <FiTrash2 size={13}/>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ fontSize:'0.9375rem', whiteSpace:'pre-wrap' }}>{note.content}</div>
-                </div>
-              ))}
+              {(() => {
+                const topicMap = new Map();
+                [...notes].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt)).forEach(n=>{
+                  const key = n.topic||'__none__';
+                  if (!topicMap.has(key)) topicMap.set(key,[]);
+                  topicMap.get(key).push(n);
+                });
+                const threads = [...topicMap.entries()].sort((a,b)=>{
+                  const la=a[1][a[1].length-1], lb=b[1][b[1].length-1];
+                  const ca=la?.reminderStatus==='closed', cb=lb?.reminderStatus==='closed';
+                  if (ca!==cb) return ca?1:-1;
+                  return new Date(lb.createdAt)-new Date(la.createdAt);
+                });
+                return threads.map(([key,threadNotes])=>(
+                  <NoteThread key={key}
+                    topic={key==='__none__'?null:key}
+                    notes={threadNotes}
+                    staff={staff}
+                    canAppend={canDo('notes','write_counselor')}
+                    onDelete={deleteNote}
+                    onAppend={async (noteId,appendText,appendFollowUpDate)=>{
+                      try {
+                        const data = await notesAPI.append(noteId,appendText,appendFollowUpDate);
+                        setNotes(n=>n.map(x=>x.id===noteId?data.data:x));
+                      } catch(e){ alert(e.message); }
+                    }}
+                    onUpdateReminder={async (noteId,update)=>{
+                      try {
+                        const data = await notesAPI.updateReminder(noteId,update);
+                        setNotes(n=>n.map(x=>x.id===noteId?{...x,...data.data}:x));
+                      } catch(e){ alert(e.message); }
+                    }}
+                  />
+                ));
+              })()}
             </div>
           </div>
 
@@ -976,5 +1777,22 @@ export default function LeadDetail() {
         </div>
       </div>
     </div>
+
+    {contactModal && (
+      <ContactLogModal
+        topicOptions={topicOptions}
+        method={contactModal.method}
+        studentName={lead?.fullName || 'Student'}
+        studentEmail={lead?._raw_email || lead?.email || ''}
+        studentPhone={lead?._raw_phone || lead?.phone || ''}
+        connectWithUs={lead?._raw_connectWithUs || lead?.connectWithUs || ''}
+        staffName={staff?.fullName || 'Counselor'}
+        timestamp={contactModal.openedAt}
+        documents={[]}
+        onSave={handleContactSave}
+        onCancel={handleContactCancel}
+      />
+    )}
+  </>
   );
 }
