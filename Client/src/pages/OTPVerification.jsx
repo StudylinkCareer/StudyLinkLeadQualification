@@ -1,5 +1,12 @@
 // client/src/pages/OTPVerification.jsx
-// CHANGES: Passes selectedRecordId, recordsToDeactivate, and fullName through to Dashboard
+//
+// CHANGES:
+//   - Removed bypass auto-verify (OTP code no longer comes back in API response)
+//   - Added WebOTP API listener (Android Chrome) — auto-fills code from
+//     OS notification pop-up and shows a confirmation toast
+//   - autoComplete="one-time-code" retained for iOS native keyboard suggestion
+//   - Toast banner shows detected code with one-tap "Use this code" button
+//   - info@studylink.org is now the from address (set in emailService.js)
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -17,33 +24,26 @@ export default function OTPVerification() {
   const { login } = useAuth();
   const { language } = useLanguage();
 
-  // Pull all state from navigation (Home.jsx passes these)
   const {
-    email,
-    phone,
-    fullName,
-    mode,
-    selectedRecordId,
-    recordsToDeactivate,
-    yearOfBirth,
-    placeOfResidence,
-    studyPlan,
-    referralSource,
-    preferredSocial,
-    connectWithYou,
-    campaignType,
-    campaignName,
-    campaignStart,
-    campaignEnd,
+    email, phone, fullName, mode,
+    selectedRecordId, recordsToDeactivate,
+    yearOfBirth, placeOfResidence, studyPlan,
+    referralSource, preferredSocial, connectWithYou,
+    campaignType, campaignName, campaignStart, campaignEnd,
   } = location.state || {};
 
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [resendTimer, setResendTimer] = useState(60);
+  const [code,           setCode]           = useState('');
+  const [error,          setError]          = useState('');
+  const [loading,        setLoading]        = useState(false);
+  const [resendTimer,    setResendTimer]     = useState(60);
   const [failedAttempts, setFailedAttempts] = useState(0);
-  const inputRef = useRef(null);
+  // Toast state: null | { detectedCode: string }
+  const [otpToast,       setOtpToast]       = useState(null);
 
+  const inputRef  = useRef(null);
+  const abortRef  = useRef(null);   // AbortController for WebOTP
+
+  // ── Redirect if no email in state ───────────────────────────────────────────
   useEffect(() => {
     if (!email) {
       navigate('/', { replace: true });
@@ -52,23 +52,50 @@ export default function OTPVerification() {
     inputRef.current?.focus();
   }, [email, navigate]);
 
+  // ── Resend countdown ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (resendTimer <= 0) return;
-    const interval = setInterval(() => {
-      setResendTimer((prev) => prev - 1);
-    }, 1000);
+    const interval = setInterval(() => setResendTimer(prev => prev - 1), 1000);
     return () => clearInterval(interval);
   }, [resendTimer]);
 
-  const handleVerify = async () => {
+  // ── WebOTP API (Android Chrome) ──────────────────────────────────────────────
+  // When an email or SMS arrives with a code, Android shows an OS-level
+  // notification. The WebOTP API intercepts it and fires here, showing a
+  // confirmation toast so the user taps once to fill the field.
+  useEffect(() => {
+    if (!('OTPCredential' in window)) return;   // only on supported browsers
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    navigator.credentials.get({
+      otp: { transport: ['sms', 'email'] },
+      signal: ctrl.signal,
+    })
+    .then(otp => {
+      if (otp?.code) {
+        // Show toast — don't auto-fill silently, let user confirm
+        setOtpToast({ detectedCode: otp.code });
+      }
+    })
+    .catch(() => {
+      // Aborted or not supported — silent fail
+    });
+
+    return () => ctrl.abort();
+  }, []);
+
+  // ── Verify handler ────────────────────────────────────────────────────────────
+  const handleVerify = async (overrideCode) => {
+    const codeToUse = overrideCode || code;
     setError('');
-    if (code.length !== 6) return setError(t('enterCode', language));
+    if (codeToUse.length !== 6) return setError(t('enterCode', language));
 
     setLoading(true);
     try {
-      const result = await authAPI.verifyOTP(email, code, fullName, phone);
+      const result = await authAPI.verifyOTP(email, codeToUse, fullName, phone);
       login(result.email, null, result.isCounselor);
-
       navigate('/dashboard', {
         state: {
           email, phone, fullName, mode,
@@ -99,17 +126,77 @@ export default function OTPVerification() {
 
   const handleResend = async () => {
     setError('');
+    setOtpToast(null);
     try {
       await authAPI.requestOTP(email);
       setResendTimer(60);
+      // Re-register WebOTP listener after resend
+      if ('OTPCredential' in window) {
+        abortRef.current?.abort();
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+        navigator.credentials.get({ otp: { transport: ['sms', 'email'] }, signal: ctrl.signal })
+          .then(otp => { if (otp?.code) setOtpToast({ detectedCode: otp.code }); })
+          .catch(() => {});
+      }
     } catch (err) {
       setError(err.message || t('resendFailed', language));
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') handleVerify();
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const digits = text.replace(/\D/g, '').slice(0, 6);
+      if (digits.length === 6) setCode(digits);
+    } catch { /* clipboard not available */ }
   };
+
+  // ── OTP Toast — shown when WebOTP detects a code ─────────────────────────────
+  function OTPToast({ toast, onUse, onDismiss }) {
+    if (!toast) return null;
+    return (
+      <div style={{
+        position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)',
+        zIndex: 1000, width: 'calc(100% - 2rem)', maxWidth: '400px',
+        background: '#1e3a5f', color: '#fff', borderRadius: '14px',
+        padding: '1rem 1.25rem', boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+        display: 'flex', flexDirection: 'column', gap: '0.625rem',
+        animation: 'slideUp 0.25s ease',
+      }}>
+        <style>{`
+          @keyframes slideUp {
+            from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+            to   { transform: translateX(-50%) translateY(0);    opacity: 1; }
+          }
+        `}</style>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontSize: '0.8125rem', opacity: 0.75, marginBottom: '0.25rem' }}>
+              StudyLink — verification code
+            </div>
+            <div style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '0.2em', fontFamily: 'DM Mono, monospace' }}>
+              {toast.detectedCode}
+            </div>
+          </div>
+          <button onClick={onDismiss}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '1.25rem', lineHeight: 1, padding: '0 0 0 0.5rem' }}>
+            ✕
+          </button>
+        </div>
+
+        <button onClick={() => onUse(toast.detectedCode)}
+          style={{
+            background: '#fff', color: '#1e3a5f', border: 'none', borderRadius: '8px',
+            padding: '0.625rem 1rem', fontSize: '0.9375rem', fontWeight: 700,
+            cursor: 'pointer', width: '100%', textAlign: 'center',
+          }}>
+          Use this code →
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="home-page">
@@ -130,20 +217,14 @@ export default function OTPVerification() {
               maxLength={6}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              onKeyDown={handleKeyDown}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleVerify(); }}
               placeholder={t('otpPlaceholder', language)}
               disabled={loading}
             />
             <button
               type="button"
               className="btn btn--ghost otp-paste-btn"
-              onClick={async () => {
-                try {
-                  const text = await navigator.clipboard.readText();
-                  const digits = text.replace(/\D/g, '').slice(0, 6);
-                  if (digits.length === 6) setCode(digits);
-                } catch { /* clipboard not available */ }
-              }}
+              onClick={handlePaste}
             >
               {t('paste', language)}
             </button>
@@ -155,7 +236,7 @@ export default function OTPVerification() {
 
           <button
             className="btn btn--primary btn--full"
-            onClick={handleVerify}
+            onClick={() => handleVerify()}
             disabled={loading || code.length !== 6}
           >
             {loading ? t('verifying', language) : t('verify', language)}
@@ -176,6 +257,17 @@ export default function OTPVerification() {
           </button>
         </div>
       </div>
+
+      {/* OTP detected toast — slides up from bottom */}
+      <OTPToast
+        toast={otpToast}
+        onUse={(detectedCode) => {
+          setCode(detectedCode);
+          setOtpToast(null);
+          handleVerify(detectedCode);
+        }}
+        onDismiss={() => setOtpToast(null)}
+      />
     </div>
   );
 }

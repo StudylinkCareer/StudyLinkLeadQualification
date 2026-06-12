@@ -112,23 +112,8 @@ function Home() {
   const sendOtpAndNavigate = async (mode, extraState = {}) => {
     setLoadingMessage(t('sendingOtp', language));
     try {
-      const otpResult = await authAPI.requestOTP(email);
+      await authAPI.requestOTP(email);
       const phone = `${phoneCountryCode} ${phoneNumber}`;
-
-      if (otpResult?.bypassed && otpResult?.code) {
-        setLoadingMessage(t('otpReceived', language));
-        await new Promise((r) => setTimeout(r, 800));
-        setLoadingMessage(t('verifying', language));
-        await new Promise((r) => setTimeout(r, 600));
-        const verifyResult = await authAPI.verifyOTP(email, otpResult.code, fullName, phone);
-        setLoadingMessage(t('redirecting', language));
-        await new Promise((r) => setTimeout(r, 400));
-        login(verifyResult.email, null, verifyResult.isCounselor);
-        const resolvedMode = verifyResult.isCounselor ? 'counselor' : mode;
-        setPendingNav({ email, phone, fullName, mode: resolvedMode, ...getExtraFields(), ...extraState });
-        return;
-      }
-
       navigate('/verify', { state: { email, phone, fullName, mode, ...getExtraFields(), ...extraState } });
     } catch (err) {
       setError(err.message || t('otpFailed', language));

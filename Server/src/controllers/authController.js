@@ -112,7 +112,7 @@ async function requestOTP(req, res, next) {
     const otp = otpService.createAndStore(email);
     await emailService.sendOTPEmail(email, otp);
 
-    res.json({ success: true, message: 'OTP sent to your email', bypassed: true, code: otp });
+    res.json({ success: true, message: 'OTP sent to your email' });
   } catch (err) {
     next(err);
   }

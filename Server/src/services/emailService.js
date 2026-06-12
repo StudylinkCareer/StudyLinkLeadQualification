@@ -12,7 +12,7 @@ async function sendOTPEmail(to, otp) {
   const response = await fetch(gasUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: to, otp }),
+    body: JSON.stringify({ email: to, otp, from: 'info@studylink.org' }),
     redirect: 'follow',
   });
 
