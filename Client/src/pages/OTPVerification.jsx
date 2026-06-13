@@ -52,6 +52,23 @@ export default function OTPVerification() {
     inputRef.current?.focus();
   }, [email, navigate]);
 
+  // ── OTP BYPASS: auto-fill + auto-submit (no manual code entry needed) ────────
+  // While email-OTP verification is bypassed on the server, users should not
+  // have to fetch a real code. We pre-fill a placeholder and submit it after a
+  // short delay, so the screen is still briefly visible but hands-free.
+  //   • To make it require a manual tap instead: delete the setTimeout line
+  //     (leave setCode) so the field is pre-filled and the user clicks Verify.
+  //   • To turn this off completely: delete this whole effect.
+  const BYPASS_CODE = '000000';
+  const AUTO_SUBMIT_DELAY_MS = 1200;
+  useEffect(() => {
+    if (!email) return;
+    setCode(BYPASS_CODE);
+    const timer = setTimeout(() => handleVerify(BYPASS_CODE), AUTO_SUBMIT_DELAY_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+
   // ── Resend countdown ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (resendTimer <= 0) return;
