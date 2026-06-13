@@ -109,8 +109,15 @@ async function requestOTP(req, res, next) {
       return res.status(429).json({ success: false, error: 'Too many OTP requests. Please wait a few minutes.' });
     }
 
-    const otp = otpService.createAndStore(email);
-    await emailService.sendOTPEmail(email, otp);
+    // ─── EMAIL SEND DISABLED (OTP bypassed) ───────────────────────────
+    // No real code is needed, so we skip generating and emailing one.
+    // This also removes the Google-Apps-Script email dependency from the
+    // login path, so a flaky email service can no longer block users
+    // from reaching the verification screen.
+    // To RE-ENABLE: restore the two lines below.
+    //   const otp = otpService.createAndStore(email);
+    //   await emailService.sendOTPEmail(email, otp);
+    // ──────────────────────────────────────────────────────────────────
 
     res.json({ success: true, message: 'OTP sent to your email' });
   } catch (err) {
