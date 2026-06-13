@@ -125,10 +125,16 @@ async function verifyOTP(req, res, next) {
       return res.status(400).json({ success: false, error: 'Email and code are required' });
     }
 
-    const result = otpService.verifyOTP(email, code);
-    if (!result.valid) {
-      return res.status(401).json({ success: false, error: result.reason });
-    }
+    // ─── OTP BYPASS (temporary) ───────────────────────────────────────
+    // Real verification is disabled while email OTP is being fixed.
+    // Any 6-digit code submitted from the OTP screen is accepted.
+    // To RE-ENABLE real verification, delete this block and restore:
+    //   const result = otpService.verifyOTP(email, code);
+    //   if (!result.valid) {
+    //     return res.status(401).json({ success: false, error: result.reason });
+    //   }
+    console.log(`[AUTH] OTP bypass active — accepting ${email} without code check`);
+    // ──────────────────────────────────────────────────────────────────
 
     // Check counselor status — pass fullName + phone so GAS can validate fully
     let isCounselorFlag = false;
