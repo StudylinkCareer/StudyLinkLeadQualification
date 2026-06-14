@@ -38,7 +38,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiX } from 'react-icons/fi';
-import { studentAPI, staffAPI } from '../services/api';
+import { studentAPI, staffAPI, reportsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -64,10 +64,13 @@ function getWeekStart() {
   return d;
 }
 function getWeekEnd() {
-  const d = new Date();
-  d.setDate(d.getDate() + (7 - d.getDay()));
-  d.setHours(23, 59, 59, 999);
-  return d;
+  // Sunday of the current Mon-Sun week. Derived from getWeekStart so it is
+  // always exactly 6 days after Monday. (The old formula `date + (7 - getDay())`
+  // jumped to NEXT Sunday when today WAS Sunday, stretching "this week" to ~2 weeks.)
+  const end = getWeekStart();
+  end.setDate(end.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return end;
 }
 function getMonthEnd() {
   const d = new Date();
@@ -82,6 +85,63 @@ function getRolling3m() {
   const d = new Date();
   d.setMonth(d.getMonth() + 3);
   return d;
+}
+function getQuarterStart() {
+  const d = new Date();
+  const q = Math.floor(d.getMonth() / 3);
+  return new Date(d.getFullYear(), q * 3, 1, 0, 0, 0, 0);
+}
+function getNextMonthStart() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0);
+}
+function getNextMonthEnd() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() + 2, 0, 23, 59, 59, 999);
+}
+function getNextQuarterStart() {
+  const d = new Date();
+  const q = Math.floor(d.getMonth() / 3);
+  return new Date(d.getFullYear(), (q + 1) * 3, 1, 0, 0, 0, 0);
+}
+function getNextQuarterEnd() {
+  const d = new Date();
+  const q = Math.floor(d.getMonth() / 3);
+  return new Date(d.getFullYear(), (q + 2) * 3, 0, 23, 59, 59, 999);
+}
+function getQuarterPlus2Start() {
+  const d = new Date();
+  const q = Math.floor(d.getMonth() / 3);
+  return new Date(d.getFullYear(), (q + 2) * 3, 1, 0, 0, 0, 0);
+}
+
+// Forward-looking pipeline buckets, keyed off close date. Overlaps are
+// INTENTIONAL: "to month end" includes "this week", "to quarter end" includes
+// the months inside it, etc. Backlog (before today) and no-close-date stand
+// alone. Each bucket is its own filter — they are NOT meant to sum to a total.
+function computePipeline(active) {
+  const today        = getStartOfToday();
+  const weekStart    = getWeekStart();
+  const weekEnd      = getWeekEnd();
+  const monthEnd     = getMonthEnd();
+  const nextMonStart = getNextMonthStart();
+  const nextMonEnd   = getNextMonthEnd();
+  const quarterStart = getQuarterStart();
+  const quarterEnd   = getQuarterEnd();
+  const nextQStart   = getNextQuarterStart();
+  const nextQEnd     = getNextQuarterEnd();
+  const qPlus2Start  = getQuarterPlus2Start();
+  const cd = l => new Date(l.closeDate);
+  return {
+    backlog:         active.filter(l => l.closeDate && cd(l) <  today),
+    thisWeek:        active.filter(l => l.closeDate && cd(l) >= weekStart    && cd(l) <= weekEnd),
+    toMonthEnd:      active.filter(l => l.closeDate && cd(l) >= weekStart    && cd(l) <= monthEnd),
+    followingMonth:  active.filter(l => l.closeDate && cd(l) >= nextMonStart && cd(l) <= nextMonEnd),
+    toQuarterEnd:    active.filter(l => l.closeDate && cd(l) >= quarterStart && cd(l) <= quarterEnd),
+    nextQuarter:     active.filter(l => l.closeDate && cd(l) >= nextQStart   && cd(l) <= nextQEnd),
+    postNextQuarter: active.filter(l => l.closeDate && cd(l) >= qPlus2Start),
+    noCloseDate:     active.filter(l => !l.closeDate),
+  };
 }
 
 function fmt(str, params) {
@@ -110,6 +170,13 @@ const STATUS_COLORS = {
 const SOURCE_COLORS = ['#2563EB','#0891B2','#059669','#D97706','#7C3AED','#DB2777'];
 
 const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived'];
+
+// Labels for the Contracted period cards (kept local for now; can be moved
+// into i18n/en.js + vi.js later).
+const CONTRACTED_LABELS = {
+  en: { heading:'Contracts signed — backward-looking (actuals)', lastWeek:'Contracted last week', mtd:'Contracted MTD', qtd:'Contracted QTD', ytd:'Contracted YTD', reversed:'Contracted reversed' },
+  vi: { heading:'Hợp đồng đã ký — nhìn lại', lastWeek:'Hợp đồng tuần trước', mtd:'Hợp đồng tháng này', qtd:'Hợp đồng quý này', ytd:'Hợp đồng năm nay', reversed:'Hợp đồng bị đảo' },
+};
 
 const COUNSELOR_STONES        = ['Diamond', 'Ruby', 'Sapphire', 'Agate', 'Quartz', 'Unscored'];
 const COUNSELOR_STONE_COLORS  = {
@@ -185,6 +252,8 @@ export default function Dashboard() {
   const [leads, setLeads]       = useState([]);
   const [myStaff, setMyStaff]   = useState(null);
   const [activeStaff, setActiveStaff] = useState([]);
+  const [contracted, setContracted]   = useState(null);
+  const [contractedSelected, setContractedSelected] = useState(null);
   const [loading, setLoading]   = useState(true);
   const [selectedCounselor, setSelectedCounselor] = useState(null);
   const { staff }    = useAuth();
@@ -233,6 +302,11 @@ export default function Dashboard() {
           .catch(() => {})
       );
     }
+    promises.push(
+      reportsAPI.contractedStats()
+        .then(d => { if (d.data) setContracted(d.data); })
+        .catch(() => {})
+    );
     Promise.all(promises).catch(console.error).finally(() => setLoading(false));
   }, [staff?.id, hasAllScope, permsLoading]);
 
@@ -265,24 +339,8 @@ export default function Dashboard() {
   }, [scopedLeads]);
 
   const pipeline = useMemo(() => {
-    const weekStart  = getWeekStart();
-    const weekEnd    = getWeekEnd();
-    const monthEnd   = getMonthEnd();
-    const quarterEnd = getQuarterEnd();
-    const rolling3m  = getRolling3m();
-
     const active = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus));
-
-    // Item #5: Backlog = anything BEFORE this week's Monday.
-    // thisWeek = Mon..Sun of the current week (any leads in the current week, even past days).
-    const backlog     = active.filter(l => l.closeDate && new Date(l.closeDate) <  weekStart);
-    const thisWeek    = active.filter(l => l.closeDate && new Date(l.closeDate) >= weekStart && new Date(l.closeDate) <= weekEnd);
-    const thisMonth   = active.filter(l => l.closeDate && new Date(l.closeDate) >  weekEnd  && new Date(l.closeDate) <= monthEnd);
-    const thisQuarter = active.filter(l => l.closeDate && new Date(l.closeDate) >  monthEnd && new Date(l.closeDate) <= quarterEnd);
-    const rolling     = active.filter(l => l.closeDate && new Date(l.closeDate) >  quarterEnd && new Date(l.closeDate) <= rolling3m);
-    const notProjected = active.filter(l => l.closeDate && new Date(l.closeDate) > rolling3m);
-    const noCloseDate = active.filter(l => !l.closeDate);
-    return { backlog, thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
+    return computePipeline(active);
   }, [scopedLeads]);
 
   const stoneData = useMemo(() => {
@@ -327,6 +385,14 @@ export default function Dashboard() {
     return leads.filter(l => (l.counselor || 'Unassigned') === selectedCounselor);
   }, [leads, selectedCounselor]);
 
+  // Per-counsellor backward (signed) figures for the pipeline's counsellor column.
+  useEffect(() => {
+    if (!selectedCounselor || !hasAllScope) { setContractedSelected(null); return; }
+    reportsAPI.contractedStats(selectedCounselor)
+      .then(d => setContractedSelected(d.data || null))
+      .catch(() => setContractedSelected(null));
+  }, [selectedCounselor, hasAllScope]);
+
   const selectedStoneData = useMemo(() => {
     const counts = {};
     selectedCounselorLeads.forEach(l => { const s = l.stoneTier || 'Unscored'; counts[s] = (counts[s]||0)+1; });
@@ -342,21 +408,8 @@ export default function Dashboard() {
 
   const selectedPipeline = useMemo(() => {
     if (!selectedCounselor) return null;
-    const weekStart  = getWeekStart();
-    const weekEnd    = getWeekEnd();
-    const monthEnd   = getMonthEnd();
-    const quarterEnd = getQuarterEnd();
-    const rolling3m  = getRolling3m();
     const active = selectedCounselorLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus));
-    // Same backlog/thisWeek split as the global pipeline.
-    const backlog     = active.filter(l => l.closeDate && new Date(l.closeDate) <  weekStart);
-    const thisWeek    = active.filter(l => l.closeDate && new Date(l.closeDate) >= weekStart && new Date(l.closeDate) <= weekEnd);
-    const thisMonth   = active.filter(l => l.closeDate && new Date(l.closeDate) >  weekEnd  && new Date(l.closeDate) <= monthEnd);
-    const thisQuarter = active.filter(l => l.closeDate && new Date(l.closeDate) >  monthEnd && new Date(l.closeDate) <= quarterEnd);
-    const rolling     = active.filter(l => l.closeDate && new Date(l.closeDate) >  quarterEnd && new Date(l.closeDate) <= rolling3m);
-    const notProjected = active.filter(l => l.closeDate && new Date(l.closeDate) > rolling3m);
-    const noCloseDate = active.filter(l => !l.closeDate);
-    return { backlog, thisWeek, thisMonth, thisQuarter, rolling, notProjected, noCloseDate };
+    return computePipeline(active);
   }, [selectedCounselor, selectedCounselorLeads]);
 
   const selectedCounselorStaff = useMemo(() => {
@@ -410,6 +463,10 @@ export default function Dashboard() {
     const list = isCounselor ? leads.filter(ownsLead) : leads;
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: list.map(l => l.uniqueId) } } });
   }
+  // Drill straight into a server-provided id list (already scope-correct).
+  function drillIds(ids) {
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids || [] } } });
+  }
   function toggleCounselor(name) {
     setSelectedCounselor(prev => prev === name ? null : name);
   }
@@ -437,14 +494,20 @@ export default function Dashboard() {
   const showCounselorCol = isManagerOrAdmin && !!selectedCounselor;
 
   // Item #5: Backlog row goes first (highest urgency).
+  const _cl = CONTRACTED_LABELS[language] || CONTRACTED_LABELS.en;
   const pipelineRows = [
-    { key:'backlog',      labelKey:'dashboard.pipeline.backlog',          subKey:'dashboard.pipeline.backlog.sub',          subParams:null,                                            color:'#DC2626' },
-    { key:'thisWeek',     labelKey:'dashboard.pipeline.closeThisWeek',    subKey:'dashboard.pipeline.closeThisWeek.sub',    subParams:{ date: getWeekEnd().toLocaleDateString()    }, color:'#10B981' },
-    { key:'thisMonth',    labelKey:'dashboard.pipeline.closeThisMonth',   subKey:'dashboard.pipeline.closeThisMonth.sub',   subParams:{ date: getMonthEnd().toLocaleDateString()   }, color:'#2563EB' },
-    { key:'thisQuarter',  labelKey:'dashboard.pipeline.closeThisQuarter', subKey:'dashboard.pipeline.closeThisQuarter.sub', subParams:{ date: getQuarterEnd().toLocaleDateString() }, color:'#8B5CF6' },
-    { key:'rolling',      labelKey:'dashboard.pipeline.rolling3Months',   subKey:'dashboard.pipeline.rolling3Months.sub',   subParams:null,                                            color:'#F59E0B' },
-    { key:'notProjected', labelKey:'dashboard.pipeline.beyond3Months',    subKey:null,                                      subParams:null,                                            color:'#EF4444' },
-    { key:'noCloseDate',  labelKey:'dashboard.pipeline.noCloseDate',      subKey:null,                                      subParams:null,                                            color:'#9CA3AF' },
+    { kind:'header', label: language==='vi'?'Đã ký — thực tế (nhìn lại)':'Signed — actual (backward)' },
+    { kind:'contracted', bucket:'lastWeek',    label: _cl.lastWeek, color:'#10B981' },
+    { kind:'contracted', bucket:'monthToDate', label: _cl.mtd,      color:'#10B981' },
+    { kind:'header', label: language==='vi'?'Dự kiến ký — theo ngày chốt (nhìn tới)':'Projected — by close date (forward)' },
+    { kind:'pipeline', key:'backlog',         label: language==='vi'?'Tồn đọng':'Backlog',           sub: language==='vi'?'trước hôm nay':'before today',                                            color:'#DC2626' },
+    { kind:'pipeline', key:'thisWeek',        label: language==='vi'?'Tuần này':'This week',              sub: `${getWeekStart().toLocaleDateString()} – ${getWeekEnd().toLocaleDateString()}`,                       color:'#10B981' },
+    { kind:'pipeline', key:'toMonthEnd',      label: language==='vi'?'Đến cuối tháng':'To month end',  sub: `${getWeekStart().toLocaleDateString()} → ${getMonthEnd().toLocaleDateString()}`,             color:'#2563EB' },
+    { kind:'pipeline', key:'followingMonth',  label: language==='vi'?'Tháng kế tiếp':'Following month',    sub: `${getNextMonthStart().toLocaleDateString()} – ${getNextMonthEnd().toLocaleDateString()}`,    color:'#0EA5E9' },
+    { kind:'pipeline', key:'toQuarterEnd',    label: language==='vi'?'Đến cuối quý':'To quarter end',  sub: `${getQuarterStart().toLocaleDateString()} → ${getQuarterEnd().toLocaleDateString()}`,        color:'#8B5CF6' },
+    { kind:'pipeline', key:'nextQuarter',     label: language==='vi'?'Quý kế tiếp':'Next quarter',         sub: `${getNextQuarterStart().toLocaleDateString()} – ${getNextQuarterEnd().toLocaleDateString()}`, color:'#A855F7' },
+    { kind:'pipeline', key:'postNextQuarter', label: language==='vi'?'Sau quý kế tiếp':'Post next quarter', sub: `${getQuarterPlus2Start().toLocaleDateString()} →`,                                          color:'#F59E0B' },
+    { kind:'pipeline', key:'noCloseDate',     label: language==='vi'?'Chưa có ngày chốt':'No close date', sub: null,                                                                                         color:'#9CA3AF' },
   ];
 
   const managerTargetCount = (() => {
@@ -511,14 +574,51 @@ export default function Dashboard() {
               )}
             </tr>
           )}
-          {pipelineRows.map(row => {
+          {pipelineRows.map((row, idx) => {
+            if (row.kind === 'header') {
+              return (
+                <tr key={`hdr-${idx}`}>
+                  <td colSpan={showCounselorCol ? 3 : 2}
+                      style={{ padding:'0.7rem 0.25rem 0.3rem', fontSize:'0.6875rem', fontWeight:700, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:'1px solid var(--border)' }}>
+                    {row.label}
+                  </td>
+                </tr>
+              );
+            }
+            if (row.kind === 'contracted') {
+              const c = contracted ? contracted[row.bucket] : null;
+              return (
+                <tr key={`ctr-${row.bucket}`}>
+                  <td style={{ padding:'0.5rem 0.25rem', borderBottom:'1px solid var(--border)' }}>
+                    <div style={{ fontSize:'0.875rem' }}>{row.label}</div>
+                  </td>
+                  <td onClick={() => drillIds(c ? c.ids : [])}
+                    style={{ padding:'0.5rem 0.25rem', textAlign:'right', fontSize:'1rem', fontWeight:600, color: row.color, borderBottom:'1px solid var(--border)', cursor:'pointer' }}
+                    onMouseEnter={e => { e.currentTarget.style.background='var(--bg-secondary)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background='transparent'; }}>
+                    {c ? c.count : '—'}
+                  </td>
+                  {showCounselorCol && (() => {
+                    const sc = contractedSelected ? contractedSelected[row.bucket] : null;
+                    return (
+                      <td onClick={() => drillIds(sc ? sc.ids : [])}
+                        style={{ padding:'0.5rem 0.25rem', textAlign:'right', fontSize:'1rem', fontWeight:600, color: row.color, borderBottom:'1px solid var(--border)', cursor:'pointer' }}
+                        onMouseEnter={e => { e.currentTarget.style.background='var(--bg-secondary)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background='transparent'; }}>
+                        {sc ? sc.count : '—'}
+                      </td>
+                    );
+                  })()}
+                </tr>
+              );
+            }
             const mgrLeads = pipeline[row.key] || [];
             const cslLeads = selectedPipeline ? (selectedPipeline[row.key] || []) : [];
-            const subText = row.subKey ? fmt(t(row.subKey, language), row.subParams || {}) : null;
+            const subText = row.sub || null;
             return (
               <tr key={row.key}>
                 <td style={{ padding:'0.5rem 0.25rem', borderBottom:'1px solid var(--border)' }}>
-                  <div style={{ fontSize:'0.875rem' }}>{t(row.labelKey, language)}</div>
+                  <div style={{ fontSize:'0.875rem' }}>{row.label}</div>
                   {subText && <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>{subText}</div>}
                 </td>
                 <td
@@ -589,6 +689,8 @@ export default function Dashboard() {
             onClick={() => drillDown('_ids', stats.thisMonthIds)}
           />
         </div>
+
+        {/* Contracts-signed cards moved to the Weekly Report page. */}
 
         {/* ── Level 1 / counselor mixed ───────────────────────── */}
         {isManagerOrAdmin ? (

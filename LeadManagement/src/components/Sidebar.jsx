@@ -16,7 +16,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -91,6 +91,13 @@ export default function Sidebar() {
             <FiPhoneCall size={16} /> {language === 'vi' ? 'Báo cáo hoạt động' : 'Activity Report'}
           </button>
         )}
+
+        <button
+          className={`nav-item ${isActive('/reports/weekly') ? 'active' : ''}`}
+          onClick={() => navigate('/reports/weekly')}
+        >
+          <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần' : 'Weekly Report'}
+        </button>
 
         {['Admin', 'Manager', 'Director'].includes(staff?.role) && (
         <button

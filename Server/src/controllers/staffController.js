@@ -344,12 +344,15 @@ async function assignStaff(req, res, next) {
       });
     }
 
+    const before = objectToCamelCase(targetLead.rows[0]);
+
     const result = await pool.query(
       `UPDATE students
        SET counselor        = COALESCE($1, counselor),
            senior_counselor = COALESCE($2, senior_counselor),
            presales         = COALESCE($3, presales),
-           marketing_staff  = COALESCE($4, marketing_staff)
+           marketing_staff  = COALESCE($4, marketing_staff),
+           updated_at       = NOW()
        WHERE unique_id = $5
        RETURNING unique_id, counselor, senior_counselor, presales, marketing_staff`,
       [counselor, seniorCounselor, presales, marketingStaff, studentId]
@@ -358,7 +361,23 @@ async function assignStaff(req, res, next) {
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Student not found' });
     }
-    res.json({ success: true, data: objectToCamelCase(result.rows[0]) });
+
+    // Record who/when for each assignment slot that actually changed.
+    const after = objectToCamelCase(result.rows[0]);
+    await logChanges({
+      studentId,
+      changedBy: req.session.staffName || req.session.staffEmail || 'unknown',
+      oldData: before,
+      newData: {
+        counselor:       after.counselor,
+        seniorCounselor: after.seniorCounselor,
+        presales:        after.presales,
+        marketingStaff:  after.marketingStaff,
+      },
+      source: 'staff_app',
+    });
+
+    res.json({ success: true, data: after });
   } catch (err) { next(err); }
 }
 
@@ -388,11 +407,33 @@ async function massAssign(req, res, next) {
       return res.status(400).json({ success: false, error: 'studentIds array is required' });
     }
     const dbField = toSnakeCase(field);
+
+    // Snapshot old values so we can record who/when per lead.
+    const before = await pool.query(
+      `SELECT unique_id, ${dbField} AS old_val FROM students WHERE unique_id = ANY($1)`,
+      [studentIds]
+    );
+
     await pool.query(
-      `UPDATE students SET ${dbField} = $1 WHERE unique_id = ANY($2)`,
+      `UPDATE students SET ${dbField} = $1, updated_at = NOW() WHERE unique_id = ANY($2)`,
       [value, studentIds]
     );
     await pool.end();
+
+    // Log only the leads whose value actually changed.
+    const changedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+    const newVal = value === '' || value === null || value === undefined ? '' : value;
+    for (const row of before.rows) {
+      if (String(row.old_val ?? '') === String(newVal ?? '')) continue;
+      await logChanges({
+        studentId: row.unique_id,
+        changedBy,
+        oldData: { [field]: row.old_val },
+        newData: { [field]: newVal },
+        source: 'staff_app',
+      });
+    }
+
     res.json({ success: true, updated: studentIds.length });
   } catch (err) { next(err); }
 }

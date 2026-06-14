@@ -8,19 +8,20 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-async function create({ studentId, noteType, content, authorId, authorName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic }) {
+async function create({ studentId, noteType, content, authorId, authorName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation }) {
   const result = await pool.query(
     `INSERT INTO student_notes
        (student_id, note_type, content, author_id, author_name,
-        follow_up_date, reminder_status, rescheduled_date, contact_platform, topic)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        follow_up_date, reminder_status, rescheduled_date, contact_platform, topic, meeting_location)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
     [studentId, noteType, content, authorId, authorName,
      followUpDate || null,
      reminderStatus || (followUpDate ? 'active' : null),
      rescheduledDate || null,
      contactPlatform || null,
-     topic || null]
+     topic || null,
+     meetingLocation || null]
   );
   return objectToCamelCase(result.rows[0]);
 }

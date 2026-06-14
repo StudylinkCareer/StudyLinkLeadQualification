@@ -325,4 +325,426 @@ async function notesActivity(req, res, next) {
   }
 }
 
-module.exports = { notesActivity };
+// ── Contracted pipeline metrics (period counts from audit_log) ───────────────
+// GET /api/reports/contracted-stats
+// Counts leads that transitioned INTO 'Contracted' within each period, plus the
+// lead ids for drill-down. Periods are computed in Vietnam local time (UTC+7).
+// Scope: 'all' sees every lead; 'own' is limited to the caller's assignments.
+async function contractedStats(req, res, next) {
+  try {
+    const role = req.session.staffRole;
+    const name = req.session.staffName;
+    const scope = await permissionService.getResourceScope(role, 'leads', 'view_list');
+    if (!scope || scope === 'none') {
+      return res.status(403).json({ success: false, error: 'Not authorised to view leads' });
+    }
+
+    const VN = 7 * 60 * 60 * 1000;            // UTC+7, fixed (no DST in Vietnam)
+    const now = new Date();
+    const vn  = new Date(now.getTime() + VN); // shift so UTC fields read as VN local
+    const y = vn.getUTCFullYear(), m = vn.getUTCMonth(), day = vn.getUTCDate(), dow = vn.getUTCDay();
+    const vnMidnightUTC = (yy, mm, dd) => new Date(Date.UTC(yy, mm, dd) - VN);
+
+    const mondayOffset  = (dow + 6) % 7;                     // days back to Monday (Mon=0 .. Sun=6)
+    const thisWeekMon   = vnMidnightUTC(y, m, day - mondayOffset);
+    const lastWeekStart = new Date(thisWeekMon.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const lastWeekEnd   = thisWeekMon;                       // exclusive (covers prev Mon..Sun)
+    const monthStart    = vnMidnightUTC(y, m, 1);
+    const quarterStart  = vnMidnightUTC(y, m - (m % 3), 1);
+    const yearStart     = vnMidnightUTC(y, 0, 1);
+    const earliest      = new Date(Math.min(lastWeekStart.getTime(), yearStart.getTime()));
+
+    // Optional per-counsellor drill (managers only): ?counselor=Name scopes to
+    // the primary `counselor` slot, matching the dashboard's per-counsellor view.
+    const counselorParam = (req.query.counselor || '').trim();
+    const byCounselor = !!counselorParam && scope === 'all';
+    const buildScope = (idx) => {
+      if (byCounselor)     return { sql: `AND s.counselor = $${idx}`, val: counselorParam };
+      if (scope === 'own') return { sql: `AND (s.counselor = $${idx} OR s.senior_counselor = $${idx} OR s.presales = $${idx} OR s.marketing_staff = $${idx})`, val: name };
+      return { sql: '', val: null };
+    };
+
+    const periodScope = buildScope(2);
+    const params = [earliest.toISOString()];
+    if (periodScope.val !== null) params.push(periodScope.val);
+    const scopeSql = periodScope.sql;
+
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (a.student_id) a.student_id, a.changed_at
+         FROM audit_log a
+         JOIN students s ON s.unique_id = a.student_id
+        WHERE a.field_name = 'leadStatus'
+          AND a.new_value  = 'Contracted'
+          AND s.lead_status = 'Contracted'   -- only leads STILL contracted today
+          AND a.changed_at >= $1
+          ${scopeSql}
+        ORDER BY a.student_id, a.changed_at DESC`,
+      params
+    );
+
+    const nowMs = now.getTime();
+    const b = {
+      lastWeek:      { count: 0, ids: [] },
+      monthToDate:   { count: 0, ids: [] },
+      quarterToDate: { count: 0, ids: [] },
+      yearToDate:    { count: 0, ids: [] },
+    };
+    for (const r of rows) {
+      const t = new Date(r.changed_at).getTime();
+      if (t >= lastWeekStart.getTime() && t < lastWeekEnd.getTime()) { b.lastWeek.count++;      b.lastWeek.ids.push(r.student_id); }
+      if (t >= monthStart.getTime()    && t <= nowMs)               { b.monthToDate.count++;   b.monthToDate.ids.push(r.student_id); }
+      if (t >= quarterStart.getTime()  && t <= nowMs)               { b.quarterToDate.count++; b.quarterToDate.ids.push(r.student_id); }
+      if (t >= yearStart.getTime()     && t <= nowMs)               { b.yearToDate.count++;    b.yearToDate.ids.push(r.student_id); }
+    }
+
+    // Reversed: leads set to Contracted at some point but no longer Contracted.
+    const revScope = buildScope(1);
+    const reversedRes = await pool.query(
+      `SELECT DISTINCT a.student_id
+         FROM audit_log a
+         JOIN students s ON s.unique_id = a.student_id
+        WHERE a.field_name = 'leadStatus'
+          AND a.new_value  = 'Contracted'
+          AND s.lead_status <> 'Contracted'
+          ${revScope.sql}`,
+      revScope.val !== null ? [revScope.val] : []
+    );
+    b.reversed = { count: reversedRes.rows.length, ids: reversedRes.rows.map(r => r.student_id) };
+
+    res.json({ success: true, data: b });
+  } catch (err) { next(err); }
+}
+
+// -- Weekly status report (per resource-group, Mon-Sun) ----------------------
+// GET /api/reports/weekly?weekStart=YYYY-MM-DD&mode=all|groups|selected|individual&resources=A,B
+// Managers: all / by-group (Counsellors|Pre-Sales) / selected (one combined total) /
+// individual. Individual users always see only themselves. Leads-in assignment
+// date falls back to students.created_at when no assignment audit row exists.
+
+// Normalise a stored contact_platform into one of the six communication modes.
+// Keyword-only call mentions (no platform) are treated as Phone call upstream.
+function normalizeMode(platform) {
+  const p = String(platform || '').toLowerCase();
+  if (p.includes('mail'))                         return 'E-mail';
+  if (p.includes('phone') || p.includes('call'))  return 'Phone call';
+  if (p.includes('sms') || p.includes('text'))    return 'SMS';
+  if (p.includes('zalo'))                          return 'Zalo';
+  if (p.includes('whatsapp'))                      return 'WhatsApp';
+  if (p.includes('messenger') || p.includes('facebook')) return 'Messenger';
+  return platform || 'Phone call';
+}
+
+// Contracted buckets (last week / MTD / QTD / YTD + reversed YTD), still-Contracted
+// only, with names for drill-down. names = array → scope to those staff;
+// names = null → company-wide total (used for the page-header KPIs).
+async function contractedBuckets(ctx, names) {
+  const filt    = names ? `AND (s.counselor = ANY($2) OR s.presales = ANY($2))` : '';
+  const ctrPar  = names ? [ctx.earliestISO, names] : [ctx.earliestISO];
+  const ctr = (await pool.query(
+    `SELECT DISTINCT ON (a.student_id) a.student_id, a.changed_at, s.full_name, s.destination_country
+       FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+      WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted'
+        AND s.lead_status = 'Contracted'
+        AND a.changed_at >= $1 ${filt}
+      ORDER BY a.student_id, a.changed_at DESC`, ctrPar)).rows;
+  const mkBucket = () => ({ count: 0, ids: [], items: [] });
+  const out = { lastWeek: mkBucket(), monthToDate: mkBucket(), quarterToDate: mkBucket(), yearToDate: mkBucket() };
+  const push = (bk, r) => { bk.count++; bk.ids.push(r.student_id);
+    bk.items.push({ studentId: r.student_id, fullName: r.full_name, country: r.destination_country }); };
+  for (const r of ctr) {
+    const t = new Date(r.changed_at).getTime();
+    if (t >= ctx.lwStartMs && t < ctx.lwEndMs)     push(out.lastWeek, r);
+    if (t >= ctx.monthStartMs   && t <= ctx.nowMs) push(out.monthToDate, r);
+    if (t >= ctx.quarterStartMs && t <= ctx.nowMs) push(out.quarterToDate, r);
+    if (t >= ctx.yearStartMs    && t <= ctx.nowMs) push(out.yearToDate, r);
+  }
+  const revPar = names ? [ctx.yearStartISO, names] : [ctx.yearStartISO];
+  const rev = (await pool.query(
+    `SELECT DISTINCT a.student_id, s.full_name
+       FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+      WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted' AND s.lead_status <> 'Contracted'
+        AND a.changed_at >= $1 ${filt}`, revPar)).rows;
+  out.reversed = { count: rev.length, ids: rev.map(r => r.student_id),
+    items: rev.map(r => ({ studentId: r.student_id, fullName: r.full_name })) };
+  return out;
+}
+
+async function computeGroup(names, ctx, opts = {}) {
+  const cc = rows => rows.map(objectToCamelCase);
+  const { ws, we, monthStartISO, earliestISO, yearStartISO } = ctx;
+
+  // -- Leads in: assignment audit events (or created_at fallback) in the week --
+  const leadsIn = cc((await pool.query(
+    `SELECT q.student_id, q.full_name, q.lead_source, q.lead_status FROM (
+       (SELECT DISTINCT ON (a.student_id) a.student_id, s.full_name, s.lead_source, s.lead_status, a.changed_at AS eff
+          FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+         WHERE a.field_name IN ('counselor','presales') AND a.new_value = ANY($1)
+           AND a.changed_at >= $2 AND a.changed_at < $3
+         ORDER BY a.student_id, a.changed_at DESC)
+       UNION
+       (SELECT s.unique_id, s.full_name, s.lead_source, s.lead_status, s.created_at AS eff
+          FROM students s
+         WHERE (s.counselor = ANY($1) OR s.presales = ANY($1))
+           AND s.created_at >= $2 AND s.created_at < $3
+           AND NOT EXISTS (SELECT 1 FROM audit_log a2
+                           WHERE a2.student_id = s.unique_id AND a2.field_name IN ('counselor','presales')))
+     ) q`, [names, ws, we])).rows);
+
+  const leadsOut = cc((await pool.query(
+    `SELECT DISTINCT ON (a.student_id) a.student_id, s.full_name, s.lead_source, a.new_value AS moved_to
+       FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+      WHERE a.field_name IN ('counselor','presales') AND a.old_value = ANY($1)
+        AND COALESCE(a.new_value,'') <> ALL($1)
+        AND a.changed_at >= $2 AND a.changed_at < $3
+      ORDER BY a.student_id, a.changed_at DESC`, [names, ws, we])).rows);
+
+  // -- Leads in progress: currently-assigned, non-terminal leads (a stock, not week-bound) --
+  const leadsInProgress = cc((await pool.query(
+    `SELECT s.unique_id AS student_id, s.full_name, s.lead_source, s.lead_status
+       FROM students s
+      WHERE (s.counselor = ANY($1) OR s.presales = ANY($1))
+        AND s.lead_status NOT IN ('Contracted','Lost','Archived')
+      ORDER BY s.full_name`, [names])).rows);
+
+  // -- Calls (prior week). RECONCILED with the Activity Report: a note is a call
+  //    if it was logged with a contact platform OR its text mentions a call
+  //    ("call"/"goi"/... via phoneAliases). New-client vs follow-up is decided by
+  //    whether the student had any earlier qualifying call (any author, any time). --
+  const isCall = n => (n.contact_platform != null && n.contact_platform !== '')
+                      || containsPhoneMention(n.content);
+
+  const weekNoteRows = (await pool.query(
+    `SELECT sn.student_id, sn.contact_platform, sn.content, sn.created_at, s.full_name
+       FROM student_notes sn JOIN students s ON s.unique_id = sn.student_id
+      WHERE sn.author_name = ANY($1) AND sn.created_at >= $2 AND sn.created_at < $3`,
+    [names, ws, we])).rows;
+  const weekCalls = weekNoteRows.filter(isCall);
+
+  const callStudentIds = [...new Set(weekCalls.map(c => c.student_id))];
+  const histRows = callStudentIds.length ? (await pool.query(
+    `SELECT student_id, contact_platform, content, created_at
+       FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
+    [callStudentIds, we])).rows : [];
+  const firstMs = {};
+  for (const h of histRows) {
+    if (!isCall(h)) continue;
+    const t = new Date(h.created_at).getTime();
+    if (firstMs[h.student_id] == null || t < firstMs[h.student_id]) firstMs[h.student_id] = t;
+  }
+
+  const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const daily = dayNames.map(d => ({ day: d, newLeads: new Set(), ongoing: new Set() }));
+  const modeDaily = dayNames.map(d => ({ day: d, byMode: {} }));   // mode x day matrix
+  const platforms = {};
+  const newMap = new Map();      // student_id -> full_name (first-ever call lands this week)
+  const ongoingMap = new Map();
+  for (const c of weekCalls) {
+    const isFirst = new Date(c.created_at).getTime() === firstMs[c.student_id];
+    const i = Math.floor((new Date(c.created_at).getTime() - ctx.weekStartMs) / (24 * 60 * 60 * 1000));
+    const b = daily[Math.max(0, Math.min(6, i))];
+    (isFirst ? b.newLeads : b.ongoing).add(c.student_id);
+    const p = c.contact_platform ? normalizeMode(c.contact_platform) : 'Phone call';
+    platforms[p] = platforms[p] || { platform: p, newCount: 0, ongoing: 0 };
+    if (isFirst) platforms[p].newCount++; else platforms[p].ongoing++;
+    const md = modeDaily[Math.max(0, Math.min(6, i))].byMode;
+    md[p] = (md[p] || 0) + 1;
+    (isFirst ? newMap : ongoingMap).set(c.student_id, c.full_name);
+  }
+  const headcount = Math.max(0, names.length);
+  const dailyCalls = daily.map(d => ({ day: d.day, newLeads: d.newLeads.size, ongoing: d.ongoing.size,
+    targetNew: 10 * headcount, targetOngoing: 5 * headcount }));
+  const newLeadItems = [...newMap].map(([studentId, fullName]) => ({ studentId, fullName }));
+  const ongoingItems = [...ongoingMap].filter(([id]) => !newMap.has(id))
+                                      .map(([studentId, fullName]) => ({ studentId, fullName }));
+  const callTotals = { newLeads: newLeadItems.length, ongoing: ongoingItems.length };
+
+  const lettersFor = async (topic) => {
+    const week = cc((await pool.query(
+      `SELECT sn.student_id, s.full_name, s.destination_country
+         FROM student_notes sn JOIN students s ON s.unique_id = sn.student_id
+        WHERE sn.author_name = ANY($1) AND sn.topic = $2 AND sn.created_at >= $3 AND sn.created_at < $4`,
+      [names, topic, ws, we])).rows);
+    const mtd = (await pool.query(
+      `SELECT COUNT(*)::int AS c FROM student_notes
+        WHERE author_name = ANY($1) AND topic = $2 AND created_at >= $3`, [names, topic, monthStartISO])).rows[0].c;
+    return { count: week.length, monthToDate: mtd, items: week };
+  };
+  const basicLetters = await lettersFor('Basic Counselling Letter');
+  const finalLetters = await lettersFor('Final Counselling Letter');
+
+  const meetings = cc((await pool.query(
+    `SELECT sn.student_id, s.full_name, sn.topic, sn.meeting_location
+       FROM student_notes sn JOIN students s ON s.unique_id = sn.student_id
+      WHERE sn.author_name = ANY($1)
+        AND sn.topic IN ('First Meeting','Second Meeting','Office Visit')
+        AND sn.created_at >= $2 AND sn.created_at < $3`, [names, ws, we])).rows);
+
+  const contracts = cc((await pool.query(
+    `SELECT DISTINCT a.student_id, s.full_name, s.destination_country
+       FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+      WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted'
+        AND (s.counselor = ANY($1) OR s.presales = ANY($1))
+        AND a.changed_at >= $2 AND a.changed_at < $3`, [names, ws, we])).rows);
+
+  const contracted = await contractedBuckets(ctx, opts.companyWideContracted ? null : names);
+
+  return {
+    contracted,
+    leadsIn:  { count: leadsIn.length,  leads: leadsIn },
+    leadsOut: { count: leadsOut.length, leads: leadsOut },
+    leadsInProgress: { count: leadsInProgress.length, leads: leadsInProgress },
+    calls: { byPlatform: Object.values(platforms), daily: dailyCalls, modeByDay: modeDaily,
+             totals: callTotals, newLeadItems, ongoingItems, headcount },
+    basicLetters, finalLetters,
+    meetings:  { count: meetings.length,  items: meetings },
+    contracts: { count: contracts.length, items: contracts },
+  };
+}
+
+async function weeklyReport(req, res, next) {
+  try {
+    const role = req.session.staffRole;
+    const name = req.session.staffName;
+    const scope = await permissionService.getResourceScope(role, 'leads', 'view_list');
+    if (!scope || scope === 'none') {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+
+    const VN = 7 * 60 * 60 * 1000;
+    const vnMidnightUTC = (y, m, d) => new Date(Date.UTC(y, m, d) - VN);
+    let weekStart;
+    if (req.query.weekStart && /^\d{4}-\d{2}-\d{2}$/.test(req.query.weekStart)) {
+      const [yy, mm, dd] = req.query.weekStart.split('-').map(Number);
+      weekStart = vnMidnightUTC(yy, mm - 1, dd);
+    } else {
+      const vnd = new Date(Date.now() + VN);
+      const off = (vnd.getUTCDay() + 6) % 7;
+      const thisMon = vnMidnightUTC(vnd.getUTCFullYear(), vnd.getUTCMonth(), vnd.getUTCDate() - off);
+      weekStart = new Date(thisMon.getTime() - 7 * 24 * 60 * 60 * 1000);
+    }
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const vn = new Date(Date.now() + VN);
+    const monthStart   = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth(), 1);
+    const quarterStart = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth() - (vn.getUTCMonth() % 3), 1);
+    const yearStart    = vnMidnightUTC(vn.getUTCFullYear(), 0, 1);
+    const vnOff = (vn.getUTCDay() + 6) % 7;
+    const curMon = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth(), vn.getUTCDate() - vnOff);
+    const lwStart = new Date(curMon.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const earliest = new Date(Math.min(lwStart.getTime(), yearStart.getTime()));
+
+    const ctx = {
+      ws: weekStart.toISOString(), we: weekEnd.toISOString(), weekStartMs: weekStart.getTime(),
+      monthStartISO: monthStart.toISOString(), earliestISO: earliest.toISOString(),
+      lwStartMs: lwStart.getTime(), lwEndMs: curMon.getTime(),
+      monthStartMs: monthStart.getTime(), quarterStartMs: quarterStart.getTime(),
+      yearStartMs: yearStart.getTime(), yearStartISO: yearStart.toISOString(), nowMs: Date.now(),
+    };
+
+    const namesByRole = async (r) =>
+      (await pool.query(`SELECT full_name FROM staff WHERE role = $1 AND is_active = true`, [r])).rows.map(x => x.full_name);
+    const counsellorNames = await namesByRole('Counselor');
+    const presalesNames   = await namesByRole('Pre-Sales');
+    const allNames = Array.from(new Set([...counsellorNames, ...presalesNames]));
+
+    const mode = req.query.mode || 'all';
+    const resourcesParam = (req.query.resources || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    let groups;
+    if (scope !== 'all') {
+      groups = [{ label: name, names: [name] }];
+    } else if (mode === 'groups') {
+      groups = [
+        { label: 'Counsellors', names: counsellorNames },
+        { label: 'Pre-Sales',   names: presalesNames },
+      ];
+    } else if (mode === 'selected' && resourcesParam.length) {
+      groups = [{ label: 'Selected', names: resourcesParam }];
+    } else if (mode === 'individual' && resourcesParam.length) {
+      groups = [{ label: resourcesParam[0], names: [resourcesParam[0]] }];
+    } else {
+      groups = [{ label: 'All', names: allNames, companyWide: true }];
+    }
+
+    // Page-header KPIs are ALWAYS the period totals across all individuals
+    // (company-wide for managers; own figures for own-scope users).
+    const contractedTotals = await contractedBuckets(ctx, scope === 'all' ? null : [name]);
+
+    const results = [];
+    for (const g of groups) {
+      results.push({ label: g.label, names: g.names, ...(await computeGroup(g.names, ctx, { companyWideContracted: !!g.companyWide })) });
+    }
+
+    res.json({ success: true, data: {
+      weekStart: ctx.ws, weekEnd: ctx.we, mode,
+      staff: { counsellors: counsellorNames, presales: presalesNames },
+      contractedTotals,
+      groups: results,
+    }});
+  } catch (err) { next(err); }
+}
+
+// -- Weekly Status Report recommendations (per week, per view-scope) ----------
+// scope_key mirrors the report's group selection so each view keeps its own
+// notes. Non-managers are always scoped to their own name.
+async function recoScopeKey(req) {
+  const role  = req.session.staffRole;
+  const name  = req.session.staffName;
+  const scope = await permissionService.getResourceScope(role, 'leads', 'view_list');
+  if (scope !== 'all') return `individual:${name}`;
+  const mode = (req.query.mode ?? (req.body && req.body.mode)) || 'all';
+  const raw  = (req.query.resources ?? (req.body && req.body.resources)) || '';
+  const resources = (Array.isArray(raw) ? raw.join(',') : String(raw))
+    .split(',').map(s => s.trim()).filter(Boolean);
+  if (mode === 'groups') return 'groups';
+  if (mode === 'selected'   && resources.length) return 'selected:' + resources.slice().sort().join('|');
+  if (mode === 'individual' && resources.length) return 'individual:' + resources[0];
+  return 'all';
+}
+
+async function getRecommendation(req, res, next) {
+  try {
+    const scope = await permissionService.getResourceScope(req.session.staffRole, 'leads', 'view_list');
+    if (!scope || scope === 'none') return res.status(403).json({ success: false, error: 'Not authorised' });
+    const weekStart = req.query.weekStart;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart || '')) {
+      return res.status(400).json({ success: false, error: 'weekStart must be YYYY-MM-DD' });
+    }
+    const scopeKey = await recoScopeKey(req);
+    const r = await pool.query(
+      `SELECT content, updated_by, updated_at FROM weekly_recommendations
+        WHERE week_start = $1 AND scope_key = $2`, [weekStart, scopeKey]);
+    const row = r.rows[0] || null;
+    res.json({ success: true, data: {
+      content:   row ? row.content    : '',
+      updatedBy: row ? row.updated_by : null,
+      updatedAt: row ? row.updated_at : null,
+      scopeKey,
+    }});
+  } catch (err) { next(err); }
+}
+
+async function saveRecommendation(req, res, next) {
+  try {
+    const scope = await permissionService.getResourceScope(req.session.staffRole, 'leads', 'view_list');
+    if (!scope || scope === 'none') return res.status(403).json({ success: false, error: 'Not authorised' });
+    const { weekStart, content } = req.body || {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart || '')) {
+      return res.status(400).json({ success: false, error: 'weekStart must be YYYY-MM-DD' });
+    }
+    const scopeKey = await recoScopeKey(req);
+    const r = await pool.query(
+      `INSERT INTO weekly_recommendations (week_start, scope_key, content, updated_by, updated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (week_start, scope_key)
+       DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+       RETURNING content, updated_by, updated_at`,
+      [weekStart, scopeKey, content || '', req.session.staffName || '']);
+    const row = r.rows[0];
+    res.json({ success: true, data: {
+      content: row.content, updatedBy: row.updated_by, updatedAt: row.updated_at, scopeKey,
+    }});
+  } catch (err) { next(err); }
+}
+
+module.exports = { notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation };

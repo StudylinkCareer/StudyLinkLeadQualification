@@ -47,4 +47,30 @@ router.get(
   reportCtrl.notesActivity
 );
 
+// Contracted pipeline metrics for the Dashboard. Auth-only; scope (own/all)
+// is resolved inside the controller, same as the dashboard's lead list.
+router.get(
+  '/contracted-stats',
+  requireStaffAuth,
+  reportCtrl.contractedStats
+);
+
+router.get(
+  '/weekly',
+  requireStaffAuth,
+  reportCtrl.weeklyReport
+);
+
+// Weekly Status Report recommendations (load / upsert), per week + view-scope.
+router.get(
+  '/weekly-recommendation',
+  requireStaffAuth,
+  reportCtrl.getRecommendation
+);
+router.put(
+  '/weekly-recommendation',
+  requireStaffAuth,
+  reportCtrl.saveRecommendation
+);
+
 module.exports = router;

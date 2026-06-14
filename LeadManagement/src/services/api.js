@@ -150,6 +150,7 @@ export const notesAPI = {
       reminderStatus:  extra.reminderStatus  || null,
       rescheduledDate: extra.rescheduledDate || null,
       contactPlatform: extra.contactPlatform || null,
+      meetingLocation: extra.meetingLocation || null,
     }),
 
   delete:            (id)             => request('DELETE', `/api/notes/${id}`),
@@ -174,6 +175,26 @@ export const reportsAPI = {
     const qsStr = qs.toString();
     return request('GET', `/api/reports/notes-activity${qsStr ? `?${qsStr}` : ''}`);
   },
+  contractedStats: (counselor) => request('GET', `/api/reports/contracted-stats${counselor ? `?counselor=${encodeURIComponent(counselor)}` : ''}`),
+  weeklyReport: (weekStart, mode, resources) => {
+    const qs = new URLSearchParams();
+    if (weekStart) qs.set('weekStart', weekStart);
+    if (mode) qs.set('mode', mode);
+    if (resources && resources.length) qs.set('resources', resources.join(','));
+    const s = qs.toString();
+    return request('GET', `/api/reports/weekly${s ? `?${s}` : ''}`);
+  },
+  getRecommendation: (weekStart, mode, resources) => {
+    const qs = new URLSearchParams();
+    if (weekStart) qs.set('weekStart', weekStart);
+    if (mode) qs.set('mode', mode);
+    if (resources && resources.length) qs.set('resources', resources.join(','));
+    return request('GET', `/api/reports/weekly-recommendation?${qs.toString()}`);
+  },
+  saveRecommendation: (weekStart, mode, resources, content) =>
+    request('PUT', '/api/reports/weekly-recommendation', {
+      weekStart, mode, resources: resources || [], content: content || '',
+    }),
 };
 
 // ── Column Config ─────────────────────────────────────────────
