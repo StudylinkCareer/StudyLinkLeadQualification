@@ -30,6 +30,16 @@ function Home() {
   const [placeOfResidence, setPlaceOfResidence] = useState('');
   const [studyPlan, setStudyPlan] = useState('');
   const [referralSource, setReferralSource] = useState('');
+  // ── Source-of-Lead picker state ──
+  const [sourceOfLead, setSourceOfLead]         = useState('');
+  const [source, setSource]                     = useState('');
+  const [sourceDetail, setSourceDetail]         = useState('');
+  const [b2bType, setB2bType]                   = useState('');
+  const [sourceUnverified, setSourceUnverified] = useState(false);
+  const [eventId, setEventId]                   = useState(null);
+  const [counsellor, setCounsellor]             = useState('');
+  const [sourceOptions, setSourceOptions]       = useState({ sourceOfLead: [], source: {}, b2bType: [], b2bParty: {} });
+  const [counsellorOptions, setCounsellorOptions] = useState([]);
   const [preferredSocial, setPreferredSocial] = useState('Zalo');
   const [connectWithYou, setConnectWithYou] = useState('');
   const [error, setError] = useState('');
@@ -68,11 +78,55 @@ function Home() {
       .then(j => setReferralSourceOptions(j.data || []))
       .catch(e => console.warn('marketing-events fetch failed:', e));
 
+    fetch('/api/reference-data/public/source-options')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(j => setSourceOptions(j.data || { sourceOfLead: [], source: {}, b2bType: [], b2bParty: {} }))
+      .catch(e => console.warn('source-options fetch failed:', e));
+
+    fetch('/api/reference-data/public/counsellors')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(j => setCounsellorOptions(j.data || []))
+      .catch(e => console.warn('counsellors fetch failed:', e));
+
     fetch('/api/lookups/public/vietnam_province')
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(j => setProvinceOptions(j.data || []))
       .catch(e => console.warn('vietnam_province fetch failed:', e));
   }, []);
+
+  // Prefill from event-QR deep-link
+  //   ?sol=Event/Campaign&eid=<id>&ename=<name>&counsellor=<name>
+  // Matches by event id first (exact), then a diacritic/case-insensitive name.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const sol = p.get('sol');
+    const eid = p.get('eid');
+    const ename = p.get('ename') || p.get('en');
+    const qc = p.get('counsellor');
+    if (qc) setCounsellor(prev => prev || qc);
+    if (sol === 'Event/Campaign' || eid || ename) {
+      setSourceOfLead('Event/Campaign');
+      if (referralSourceOptions.length) {
+        const norm = (x) => (x || '').toString()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // strip diacritics
+          .trim().toLowerCase();
+        let ev = null;
+        if (eid) ev = referralSourceOptions.find(o => String(o.id) === String(eid));
+        if (!ev && ename) ev = referralSourceOptions.find(o =>
+          norm(o.name) === norm(ename) ||
+          norm(o.labelEn) === norm(ename) ||
+          norm(o.labelVi) === norm(ename));
+        if (ev) {
+          setEventId(ev.id);
+          setSource(ev.name);
+          if (ev.dedicatedCounsellor) setCounsellor(prev => prev || ev.dedicatedCounsellor);
+        } else if (ename) {
+          setSource(ename);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [referralSourceOptions]);
 
   useEffect(() => {
     const stored = localStorage.getItem('studylink_lockout');
@@ -103,10 +157,13 @@ function Home() {
     );
   }
 
+  const L = (en, vi) => (language === 'vi' ? vi : en);
+  const currentMode = (sourceOptions.sourceOfLead.find(s => s.code === sourceOfLead) || {}).mode || '';
+
   const getExtraFields = () => ({
-    yearOfBirth, placeOfResidence, studyPlan, referralSource,
+    yearOfBirth, placeOfResidence, studyPlan,
     preferredSocial, connectWithYou,
-    campaignType, campaignName, campaignStart, campaignEnd,
+    sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
   });
 
   const sendOtpAndNavigate = async (mode, extraState = {}) => {
@@ -129,7 +186,8 @@ function Home() {
     if (!email.trim())             errors.email = true;
     if (!phoneNumber.trim())       errors.phoneNumber = true;
     if (!yearOfBirth.trim())       errors.yearOfBirth = true;
-    if (!referralSource.trim())    errors.referralSource = true;
+    if (!sourceOfLead)             errors.sourceOfLead = true;
+    else if (!source.trim())       errors.source = true;
     if (!placeOfResidence)         errors.placeOfResidence = true;
     if (!studyPlan)                errors.studyPlan = true;
     if (!connectWithYou)           errors.connectWithYou = true;
@@ -347,20 +405,170 @@ function Home() {
           </div>
 
           <div className="home-row">
-            <label className="home-row-label" htmlFor="referralSource">
-              {t('referralSource', language)}<span className="home-mandatory">*</span>
+            <label className="home-row-label" htmlFor="sourceOfLead">
+              {L('Source of Lead', 'Nguồn khách hàng')}<span className="home-mandatory">*</span>
             </label>
-            <select id="referralSource" className={`home-row-input${fieldErrors.referralSource ? ' home-input--error' : ''}`}
-              value={referralSource}
-              onChange={(e) => { setReferralSource(e.target.value); setFieldErrors((p) => ({ ...p, referralSource: false })); }}
+            <select id="sourceOfLead" className={`home-row-input${fieldErrors.sourceOfLead ? ' home-input--error' : ''}`}
+              value={sourceOfLead}
+              onChange={(e) => {
+                setSourceOfLead(e.target.value);
+                setSource(''); setSourceDetail(''); setB2bType('');
+                setSourceUnverified(false); setEventId(null);
+                setFieldErrors((p) => ({ ...p, sourceOfLead: false, source: false }));
+              }}
               disabled={loading || isLockedOut}>
               <option value="">{t('selectDefault', language)}</option>
-              {/* Server returns events newest-first (sort_order DESC) and
-                  already filtered to hide out-of-window events. */}
-              {referralSourceOptions.map((opt) => (
-                <option key={opt.code} value={opt.code}>
-                  {language === 'vi' ? (opt.labelVi || opt.code) : (opt.labelEn || opt.code)}
+              {sourceOptions.sourceOfLead.map((o) => (
+                <option key={o.code} value={o.code}>
+                  {language === 'vi' ? (o.labelVi || o.code) : (o.labelEn || o.code)}
                 </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Databases / On-line */}
+          {currentMode === 'list' && (
+            <div className="home-row">
+              <label className="home-row-label" htmlFor="sourceList">
+                {L('Source', 'Nguồn')}<span className="home-mandatory">*</span>
+              </label>
+              <select id="sourceList" className={`home-row-input${fieldErrors.source ? ' home-input--error' : ''}`}
+                value={source}
+                onChange={(e) => { setSource(e.target.value); setFieldErrors((p) => ({ ...p, source: false })); }}
+                disabled={loading || isLockedOut}>
+                <option value="">{t('selectDefault', language)}</option>
+                {(sourceOptions.source[sourceOfLead] || []).map((o) => (
+                  <option key={o.code} value={o.code}>
+                    {language === 'vi' ? (o.labelVi || o.code) : (o.labelEn || o.code)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Event / Campaign */}
+          {currentMode === 'events' && (
+            <div className="home-row">
+              <label className="home-row-label" htmlFor="sourceEvent">
+                {L('Event', 'Sự kiện')}<span className="home-mandatory">*</span>
+              </label>
+              <select id="sourceEvent" className={`home-row-input${fieldErrors.source ? ' home-input--error' : ''}`}
+                value={eventId || ''}
+                onChange={(e) => {
+                  const ev = referralSourceOptions.find((o) => String(o.id) === e.target.value);
+                  setEventId(ev ? ev.id : null);
+                  setSource(ev ? ev.name : '');
+                  if (ev && ev.dedicatedCounsellor && !counsellor.trim()) setCounsellor(ev.dedicatedCounsellor);
+                  setFieldErrors((p) => ({ ...p, source: false }));
+                }}
+                disabled={loading || isLockedOut}>
+                <option value="">{t('selectDefault', language)}</option>
+                {referralSourceOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {(language === 'vi' ? opt.labelVi : opt.labelEn) || opt.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Personal referrals: source + free-text name */}
+          {currentMode === 'list_freetext' && (
+            <>
+              <div className="home-row">
+                <label className="home-row-label" htmlFor="sourcePersonal">
+                  {L('Source', 'Nguồn')}<span className="home-mandatory">*</span>
+                </label>
+                <select id="sourcePersonal" className={`home-row-input${fieldErrors.source ? ' home-input--error' : ''}`}
+                  value={source}
+                  onChange={(e) => { setSource(e.target.value); setFieldErrors((p) => ({ ...p, source: false })); }}
+                  disabled={loading || isLockedOut}>
+                  <option value="">{t('selectDefault', language)}</option>
+                  {(sourceOptions.source[sourceOfLead] || []).map((o) => (
+                    <option key={o.code} value={o.code}>
+                      {language === 'vi' ? (o.labelVi || o.code) : (o.labelEn || o.code)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="home-row">
+                <label className="home-row-label" htmlFor="referrerName">
+                  {L("Referrer's name", 'Tên người giới thiệu')}
+                </label>
+                <input id="referrerName" className="home-row-input"
+                  value={sourceDetail} maxLength={40}
+                  onChange={(e) => setSourceDetail(e.target.value)}
+                  placeholder={L('Optional', 'Không bắt buộc')}
+                  disabled={loading || isLockedOut} />
+              </div>
+            </>
+          )}
+
+          {/* B2B referrals: type + party (free-text fallback) */}
+          {currentMode === 'b2b' && (
+            <>
+              <div className="home-row">
+                <label className="home-row-label" htmlFor="b2bType">
+                  {L('Referral type', 'Loại đối tác')}<span className="home-mandatory">*</span>
+                </label>
+                <select id="b2bType" className={`home-row-input${fieldErrors.source ? ' home-input--error' : ''}`}
+                  value={b2bType}
+                  onChange={(e) => {
+                    setB2bType(e.target.value); setSource(e.target.value);
+                    setSourceDetail(''); setSourceUnverified(false);
+                    setFieldErrors((p) => ({ ...p, source: false }));
+                  }}
+                  disabled={loading || isLockedOut}>
+                  <option value="">{t('selectDefault', language)}</option>
+                  {sourceOptions.b2bType.map((o) => (
+                    <option key={o.code} value={o.code}>
+                      {language === 'vi' ? (o.labelVi || o.code) : (o.labelEn || o.code)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {b2bType && (
+                <div className="home-row">
+                  <label className="home-row-label" htmlFor="b2bParty">
+                    {L('Partner / organisation', 'Đối tác / tổ chức')}
+                  </label>
+                  <input id="b2bParty" className="home-row-input" list="b2bPartyList"
+                    value={sourceDetail}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setSourceDetail(v);
+                      const known = (sourceOptions.b2bParty[b2bType] || []).some((x) => x.code === v);
+                      setSourceUnverified(v.trim() !== '' && !known);
+                    }}
+                    placeholder={L('Select or type a name', 'Chọn hoặc nhập tên')}
+                    disabled={loading || isLockedOut} />
+                  <datalist id="b2bPartyList">
+                    {(sourceOptions.b2bParty[b2bType] || []).map((o) => (
+                      <option key={o.code} value={o.code} />
+                    ))}
+                  </datalist>
+                  {sourceUnverified && (
+                    <span style={{ display: 'block', fontSize: '0.8rem', color: '#b45309', marginTop: '0.25rem' }}>
+                      {L('Not in our list \u2014 we will verify this.', 'Không có trong danh sách \u2014 chúng tôi sẽ xác minh.')}
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Counsellor (prefilled from event/QR, editable) */}
+          <div className="home-row">
+            <label className="home-row-label" htmlFor="counsellor">
+              {L('Counsellor', 'Tư vấn viên')}
+            </label>
+            <select id="counsellor" className="home-row-input"
+              value={counsellor}
+              onChange={(e) => setCounsellor(e.target.value)}
+              disabled={loading || isLockedOut}>
+              <option value="">{L('Optional', 'Không bắt buộc')}</option>
+              {[...new Set([...counsellorOptions, counsellor].filter(Boolean))].map((c) => (
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>

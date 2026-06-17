@@ -16,7 +16,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -105,6 +105,15 @@ export default function Sidebar() {
           onClick={() => navigate('/marketing-events')}
         >
           <FiCalendar size={16} /> {language === 'vi' ? 'Sự kiện Marketing' : 'Marketing Events'}
+        </button>
+      )}
+
+        {['Admin', 'Manager', 'Director'].includes(staff?.role) && (
+        <button
+          className={`nav-item ${isActive('/reference-data') ? 'active' : ''}`}
+          onClick={() => navigate('/reference-data')}
+        >
+          <FiShare2 size={16} /> {language === 'vi' ? 'Dữ liệu tham chiếu' : 'Reference Data'}
         </button>
       )}
 

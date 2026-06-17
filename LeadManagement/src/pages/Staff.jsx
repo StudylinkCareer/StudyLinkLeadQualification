@@ -95,6 +95,7 @@ function StaffModal({ staff, onClose, onSaved }) {
     role:               staff?.role               || '',
     password:           '',
     viewThreshold:      staff?.viewThreshold      ?? 20,
+    lqSelectable:       staff?.lqSelectable       ?? false,
     // ── Communication fields ──
     emailClient:        staff?.emailClient        || 'outlook',
     contactMobile:      staff?.contactMobile      || '',
@@ -159,6 +160,7 @@ function StaffModal({ staff, onClose, onSaved }) {
           fullName: form.fullName, email: form.email,
           position: form.position, role: form.role,
           viewThreshold: Number(form.viewThreshold),
+          lqSelectable: form.lqSelectable,
           ...commsPayload,
         });
       } else {
@@ -203,6 +205,12 @@ function StaffModal({ staff, onClose, onSaved }) {
             <label className="form-label">{t('staff.form.viewThreshold', language)}</label>
             <input className="form-input" type="number" min="1" max="500"
               value={form.viewThreshold} onChange={e=>set('viewThreshold',e.target.value)}/>
+          </div>
+          <div className="form-group">
+            <label className="form-label" style={{ display:'flex', alignItems:'center', gap:'0.5rem', cursor:'pointer' }}>
+              <input type="checkbox" checked={!!form.lqSelectable} onChange={e=>set('lqSelectable', e.target.checked)}/>
+              {language === 'vi' ? 'Hi\u1ec3n th\u1ecb tr\u00ean form LQ (danh s\u00e1ch t\u01b0 v\u1ea5n vi\u00ean)' : 'Show on LQ form (counsellor pick list)'}
+            </label>
           </div>
           {!isEdit && (
             <div className="form-group">

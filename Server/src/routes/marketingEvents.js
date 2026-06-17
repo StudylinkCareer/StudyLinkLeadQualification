@@ -1,31 +1,36 @@
 // server/src/routes/marketingEvents.js
 // ─────────────────────────────────────────────────────────────────────
-// CRUD for marketing events (lookup_values WHERE category='referral_source').
-// Restricted to Admin / Manager / Director roles for write operations.
+// Events admin — manages the `events` table (the event catalog), now in
+// FLAT format: a single Event Type + Event name (no Group → Type nesting).
+// Route mount unchanged: /api/marketing-events.
 //
-// Dates are stored in the `meta` JSONB column in ISO YYYY-MM-DD format:
-//   { startDate, endDate, manualShowDate, manualHideDate }
+// Event Type options are marketing-editable reference data
+// (lookup_values category='event_type', subcategory = NULL), served by
+// GET /event-types and extended via POST /event-types.
+//
+// Flat events store event_group = event_type (the group column is retained
+// for back-compat / NOT NULL + the existing UNIQUE(group,type,name); with
+// group mirrored to type, uniqueness is effectively (type, name)).
+//
+// Dates live in real columns. Manual visibility overrides live in meta JSONB
+// { manualShowDate, manualHideDate }. Optional display labels (label_en/
+// label_vi) and dedicated_counsellor are real columns (counsellor feeds the
+// event QR in R2b).
 //
 // VISIBILITY LIFECYCLE per event (computed, not stored):
-//   - manualHideDate === today              → hidden  (one-day force-hide override)
-//   - manualShowDate === today              → visible (one-day force-show override)
-//   - Otherwise auto:
-//     - Before startDate                    → hidden
-//     - startDate ≤ today ≤ endDate + 1 day → visible
-//     - After endDate + 1 day               → hidden
-//   - Both overrides are single-day. Tomorrow they're stale (no longer match
-//     today), so auto behavior resumes. User can re-set as often as required.
+//   - manualHideDate === today → hidden ; manualShowDate === today → visible
+//   - else auto: before start → hidden ; start ≤ today ≤ end+1 → visible ;
+//     after end+1 → hidden. Overrides are single-day.
 //
 // Routes:
-//   GET    /api/marketing-events/public  — PUBLIC, no auth. Non-hidden events
-//                                          only. Used by LQ Home + Personal
-//                                          Details dropdown.
-//   GET    /api/marketing-events         — Admin/Mgr/Dir. All events with
-//                                          computed `hidden` flag for admin UI.
-//   POST   /api/marketing-events         — Create or reactivate
-//   PUT    /api/marketing-events/:id     — Update labels, dates, OR override
-//                                          (manualShowDate / manualHideDate)
-//   DELETE /api/marketing-events/:id     — Soft delete
+//   GET    /event-types  — PUBLIC. Flat Event Type list.
+//   POST   /event-types  — Admin/Mgr/Dir. Add (or reactivate) an Event Type.
+//   GET    /taxonomy     — PUBLIC. (Legacy group→type; kept for current LQ.)
+//   GET    /public       — PUBLIC. Visible events (?eventType= optional).
+//   GET    /             — Admin/Mgr/Dir. All active events.
+//   POST   /             — Create / reactivate.
+//   PUT    /:id          — Update type/name/labels/counsellor/dates/override.
+//   DELETE /:id          — Soft delete.
 // ─────────────────────────────────────────────────────────────────────
 
 const express  = require('express');
@@ -37,7 +42,6 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-
 const ALLOWED_ROLES = new Set(['Admin', 'Manager', 'Director']);
 function requireMarketingRole(req, res, next) {
   if (!req.session?.staffId) return res.status(401).json({ success: false, error: 'Not authenticated' });
@@ -46,83 +50,139 @@ function requireMarketingRole(req, res, next) {
 }
 
 // ── Date helpers ─────────────────────────────────────────────
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);  // YYYY-MM-DD (UTC)
-}
-
+function todayISO() { return new Date().toISOString().slice(0, 10); }
 function addDays(dateStr, n) {
   if (!dateStr) return null;
   const d = new Date(dateStr + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
-
-/**
- * Compute the `hidden` flag for an event given its meta JSONB.
- * Pure function — relies only on input + today's date.
- *
- * Precedence:
- *   1. manualHideDate === today  → hidden (force-hide today only)
- *   2. manualShowDate === today  → visible (force-show today only)
- *   3. Auto-active window from startDate/endDate
- */
-function computeHidden(meta) {
-  const today          = todayISO();
-  const startDate      = meta?.startDate      || null;
-  const endDate        = meta?.endDate        || null;
+function computeHidden(startDate, endDate, meta) {
+  const today = todayISO();
   const manualShowDate = meta?.manualShowDate || null;
   const manualHideDate = meta?.manualHideDate || null;
-
-  // Manual overrides win, in priority order. Both are single-day.
   if (manualHideDate === today) return true;
   if (manualShowDate === today) return false;
-
-  // Auto window
   if (!startDate && !endDate) return false;
   if (startDate && today < startDate) return true;
   if (endDate && today > addDays(endDate, 1)) return true;
-
-  // In the auto-active window
   return false;
 }
+
+const COLS = `id, event_group, event_type, name, label_en, label_vi, dedicated_counsellor,
+              to_char(start_date, 'YYYY-MM-DD') AS start_date,
+              to_char(end_date,   'YYYY-MM-DD') AS end_date,
+              meta, is_active`;
 
 function shapeRow(r) {
   const meta = r.meta || {};
   return {
-    id:             r.id,
-    code:           r.code,
-    labelEn:        r.label_en,
-    labelVi:        r.label_vi,
-    sortOrder:      r.sort_order,
-    isActive:       r.is_active,
-    startDate:      meta.startDate      || null,
-    endDate:        meta.endDate        || null,
-    manualShowDate: meta.manualShowDate || null,
-    manualHideDate: meta.manualHideDate || null,
-    hidden:         computeHidden(meta),
+    id:                  r.id,
+    eventType:           r.event_type,
+    name:                r.name,
+    labelEn:             r.label_en || null,
+    labelVi:             r.label_vi || null,
+    dedicatedCounsellor: r.dedicated_counsellor || null,
+    startDate:           r.start_date || null,
+    endDate:             r.end_date   || null,
+    manualShowDate:      meta.manualShowDate || null,
+    manualHideDate:      meta.manualHideDate || null,
+    isActive:            r.is_active,
+    hidden:              computeHidden(r.start_date, r.end_date, meta),
   };
 }
 
+const norm = (v) => { const s = (v ?? '').toString().trim(); return s === '' ? null : s; };
 
-// ── PUBLIC list (no auth) — non-hidden events only ───────────
-router.get('/public', async (req, res) => {
+
+// ── Event Types (flat reference list) ────────────────────────
+router.get('/event-types', async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT id, code, label_en, label_vi, sort_order, meta
-         FROM lookup_values
-        WHERE category = 'referral_source' AND is_active = true
-        ORDER BY sort_order DESC, code ASC`
+      `SELECT code, label_en, label_vi FROM lookup_values
+        WHERE category='event_type' AND subcategory IS NULL AND is_active=true
+        ORDER BY sort_order ASC, code ASC`
     );
+    res.json({ success: true, data: r.rows.map(x => ({ code: x.code, labelEn: x.label_en, labelVi: x.label_vi })) });
+  } catch (err) {
+    console.error('[events] event-types failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load event types' });
+  }
+});
+
+router.post('/event-types', requireMarketingRole, async (req, res) => {
+  const code = norm(req.body.code);
+  if (!code) return res.status(400).json({ success: false, error: 'Type name is required' });
+  if (code.length > 100) return res.status(400).json({ success: false, error: 'Type name too long' });
+  try {
+    const hit = await pool.query(
+      `SELECT id, is_active FROM lookup_values WHERE category='event_type' AND subcategory IS NULL AND code=$1`, [code]);
+    if (hit.rowCount > 0) {
+      if (!hit.rows[0].is_active) await pool.query(`UPDATE lookup_values SET is_active=true WHERE id=$1`, [hit.rows[0].id]);
+      return res.json({ success: true, data: { code }, existed: true });
+    }
+    const ns = await pool.query(
+      `SELECT COALESCE(MAX(sort_order),-1)+1 AS n FROM lookup_values WHERE category='event_type' AND subcategory IS NULL`);
+    await pool.query(
+      `INSERT INTO lookup_values (category, subcategory, code, label_en, label_vi, sort_order, is_active)
+       VALUES ('event_type', NULL, $1, $1, $1, $2, true)`, [code, ns.rows[0].n]);
+    res.json({ success: true, data: { code } });
+  } catch (err) {
+    console.error('[events] add event-type failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to add event type' });
+  }
+});
+
+
+// ── Legacy taxonomy (kept for the current LQ form until R4) ───
+router.get('/taxonomy', async (req, res) => {
+  try {
+    const groups = await pool.query(
+      `SELECT code, label_en, label_vi FROM lookup_values
+        WHERE category='event_group' AND is_active=true ORDER BY sort_order ASC, code ASC`);
+    const types = await pool.query(
+      `SELECT subcategory, code, label_en, label_vi FROM lookup_values
+        WHERE category='event_type' AND subcategory IS NOT NULL AND is_active=true ORDER BY sort_order ASC, code ASC`);
+    const typesByGroup = {};
+    for (const r of types.rows) {
+      if (!typesByGroup[r.subcategory]) typesByGroup[r.subcategory] = [];
+      typesByGroup[r.subcategory].push({ code: r.code, labelEn: r.label_en, labelVi: r.label_vi });
+    }
+    res.json({ success: true, data: {
+      groups: groups.rows.map(r => ({ code: r.code, labelEn: r.label_en, labelVi: r.label_vi })),
+      typesByGroup,
+    }});
+  } catch (err) {
+    console.error('[events] taxonomy failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load taxonomy' });
+  }
+});
+
+
+// ── PUBLIC list (no auth) — visible events only ──────────────
+router.get('/public', async (req, res) => {
+  try {
+    const eventType = norm(req.query.eventType ?? req.query.type);
+    const conds = ['is_active = true'], params = [];
+    if (eventType) { params.push(eventType); conds.push(`event_type = $${params.length}`); }
+    const r = await pool.query(
+      `SELECT ${COLS} FROM events WHERE ${conds.join(' AND ')}
+        ORDER BY start_date DESC NULLS LAST, name ASC`, params);
     const visible = r.rows
-      .filter(row => !computeHidden(row.meta))
+      .filter(row => !computeHidden(row.start_date, row.end_date, row.meta))
       .map(row => ({
-        code:    row.code,
-        labelEn: row.label_en,
-        labelVi: row.label_vi,
+        id:        row.id,
+        eventType: row.event_type,
+        name:      row.name,
+        labelEn:   row.label_en || null,
+        labelVi:   row.label_vi || null,
+        startDate: row.start_date || null,
+        endDate:   row.end_date   || null,
+        dedicatedCounsellor: row.dedicated_counsellor || null,
       }));
     res.json({ success: true, data: visible });
   } catch (err) {
-    console.error('[marketingEvents] public list failed:', err);
+    console.error('[events] public list failed:', err);
     res.status(500).json({ success: false, error: 'Failed to load events' });
   }
 });
@@ -132,14 +192,11 @@ router.get('/public', async (req, res) => {
 router.get('/', requireMarketingRole, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT id, code, label_en, label_vi, sort_order, is_active, meta
-         FROM lookup_values
-        WHERE category = 'referral_source' AND is_active = true
-        ORDER BY sort_order DESC, code ASC`
-    );
+      `SELECT ${COLS} FROM events WHERE is_active = true
+        ORDER BY start_date DESC NULLS LAST, name ASC`);
     res.json({ success: true, data: r.rows.map(shapeRow) });
   } catch (err) {
-    console.error('[marketingEvents] list failed:', err);
+    console.error('[events] list failed:', err);
     res.status(500).json({ success: false, error: 'Failed to load events' });
   }
 });
@@ -147,119 +204,97 @@ router.get('/', requireMarketingRole, async (req, res) => {
 
 // ── Create / reactivate ─────────────────────────────────────
 router.post('/', requireMarketingRole, async (req, res) => {
-  const code      = (req.body.code      || '').trim();
-  const labelEn   = (req.body.labelEn   || '').trim() || null;
-  const labelVi   = (req.body.labelVi   || '').trim() || null;
-  const startDate = (req.body.startDate || '').trim() || null;
-  const endDate   = (req.body.endDate   || '').trim() || null;
+  const eventType  = norm(req.body.eventType ?? req.body.type);
+  const name       = norm(req.body.name);
+  const labelEn    = norm(req.body.labelEn);
+  const labelVi    = norm(req.body.labelVi);
+  const counsellor = norm(req.body.dedicatedCounsellor);
+  const startDate  = norm(req.body.startDate);
+  const endDate    = norm(req.body.endDate);
 
-  if (!code) {
-    return res.status(400).json({ success: false, error: 'Event name (code) is required' });
-  }
-  if (code.length > 200) {
-    return res.status(400).json({ success: false, error: 'Event name must be 200 characters or fewer' });
-  }
-
-  const meta = {};
-  if (startDate) meta.startDate = startDate;
-  if (endDate)   meta.endDate   = endDate;
+  if (!eventType || !name) return res.status(400).json({ success: false, error: 'Event type and event name are required' });
+  if (name.length > 200) return res.status(400).json({ success: false, error: 'Event name must be 200 characters or fewer' });
 
   try {
-    const nextRes = await pool.query(
-      `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next
-         FROM lookup_values WHERE category = 'referral_source'`
-    );
-    const nextSort = nextRes.rows[0].next;
-
     const ins = await pool.query(
-      `INSERT INTO lookup_values (category, code, label_en, label_vi, sort_order, is_active, meta)
-       VALUES ('referral_source', $1, $2, $3, $4, true, $5::jsonb)
-       RETURNING id, code, label_en, label_vi, sort_order, is_active, meta`,
-      [code, labelEn, labelVi, nextSort, JSON.stringify(meta)]
-    );
-
+      `INSERT INTO events (event_group, event_type, name, label_en, label_vi, dedicated_counsellor, start_date, end_date, meta, is_active)
+       VALUES ($1, $1, $2, $3, $4, $5, $6::date, $7::date, '{}'::jsonb, true)
+       RETURNING ${COLS}`,
+      [eventType, name, labelEn, labelVi, counsellor, startDate, endDate]);
     res.json({ success: true, data: shapeRow(ins.rows[0]) });
   } catch (err) {
     if (err.code === '23505') {
       try {
         const re = await pool.query(
-          `UPDATE lookup_values
-              SET is_active = true,
-                  label_en  = $1,
-                  label_vi  = $2,
-                  meta      = COALESCE(meta, '{}'::jsonb) || $3::jsonb
-            WHERE category = 'referral_source'
-              AND COALESCE(subcategory, '') = ''
-              AND code = $4
-            RETURNING id, code, label_en, label_vi, sort_order, is_active, meta`,
-          [labelEn, labelVi, JSON.stringify(meta), code]
-        );
-        if (re.rowCount > 0) {
-          return res.json({ success: true, data: shapeRow(re.rows[0]), reactivated: true });
-        }
-      } catch (e2) {
-        console.error('[marketingEvents] reactivation failed:', e2);
-      }
-      return res.status(409).json({ success: false, error: 'An event with that name already exists' });
+          `UPDATE events SET is_active=true, label_en=$3, label_vi=$4, dedicated_counsellor=$5,
+                  start_date=$6::date, end_date=$7::date
+            WHERE event_group=$1 AND event_type=$1 AND name=$2 RETURNING ${COLS}`,
+          [eventType, name, labelEn, labelVi, counsellor, startDate, endDate]);
+        if (re.rowCount > 0) return res.json({ success: true, data: shapeRow(re.rows[0]), reactivated: true });
+      } catch (e2) { console.error('[events] reactivation failed:', e2); }
+      return res.status(409).json({ success: false, error: 'That event already exists under this type' });
     }
-    console.error('[marketingEvents] create failed:', err);
+    console.error('[events] create failed:', err);
     res.status(500).json({ success: false, error: 'Failed to create event' });
   }
 });
 
 
-// ── Update (labels, dates, OR overrides) ────────────────────
-// Any subset of fields can be provided. The meta JSONB is merged
-// rather than replaced so we don't drop sibling keys.
+// ── Update ───────────────────────────────────────────────────
 router.put('/:id', requireMarketingRole, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id' });
 
-  const labelEn        = req.body.labelEn        !== undefined ? (String(req.body.labelEn).trim()        || null) : undefined;
-  const labelVi        = req.body.labelVi        !== undefined ? (String(req.body.labelVi).trim()        || null) : undefined;
-  const startDate      = req.body.startDate      !== undefined ? (String(req.body.startDate).trim()      || null) : undefined;
-  const endDate        = req.body.endDate        !== undefined ? (String(req.body.endDate).trim()      || null) : undefined;
-  const manualShowDate = req.body.manualShowDate !== undefined ? (String(req.body.manualShowDate).trim() || null) : undefined;
-  const manualHideDate = req.body.manualHideDate !== undefined ? (String(req.body.manualHideDate).trim() || null) : undefined;
+  const eventType      = req.body.eventType      !== undefined ? norm(req.body.eventType)
+                       : req.body.type           !== undefined ? norm(req.body.type) : undefined;
+  const name           = req.body.name           !== undefined ? norm(req.body.name) : undefined;
+  const labelEn        = req.body.labelEn         !== undefined ? norm(req.body.labelEn) : undefined;
+  const labelVi        = req.body.labelVi         !== undefined ? norm(req.body.labelVi) : undefined;
+  const counsellor     = req.body.dedicatedCounsellor !== undefined ? norm(req.body.dedicatedCounsellor) : undefined;
+  const startDate      = req.body.startDate      !== undefined ? norm(req.body.startDate) : undefined;
+  const endDate        = req.body.endDate        !== undefined ? norm(req.body.endDate) : undefined;
+  const manualShowDate = req.body.manualShowDate !== undefined ? norm(req.body.manualShowDate) : undefined;
+  const manualHideDate = req.body.manualHideDate !== undefined ? norm(req.body.manualHideDate) : undefined;
 
-  if (labelEn === undefined && labelVi === undefined
-      && startDate === undefined && endDate === undefined
+  if (eventType === undefined && name === undefined && labelEn === undefined && labelVi === undefined
+      && counsellor === undefined && startDate === undefined && endDate === undefined
       && manualShowDate === undefined && manualHideDate === undefined) {
     return res.status(400).json({ success: false, error: 'No fields to update' });
   }
+  if (name !== undefined && !name) return res.status(400).json({ success: false, error: 'Event name cannot be empty' });
+  if (eventType !== undefined && !eventType) return res.status(400).json({ success: false, error: 'Event type cannot be empty' });
 
   try {
-    const existing = await pool.query(
-      `SELECT meta FROM lookup_values WHERE id = $1 AND category = 'referral_source'`,
-      [id]
-    );
+    const existing = await pool.query(`SELECT meta FROM events WHERE id=$1`, [id]);
     if (existing.rowCount === 0) return res.status(404).json({ success: false, error: 'Event not found' });
 
     const meta = existing.rows[0].meta || {};
-    if (startDate      !== undefined) { if (startDate)      meta.startDate      = startDate;      else delete meta.startDate; }
-    if (endDate        !== undefined) { if (endDate)        meta.endDate        = endDate;        else delete meta.endDate; }
     if (manualShowDate !== undefined) { if (manualShowDate) meta.manualShowDate = manualShowDate; else delete meta.manualShowDate; }
     if (manualHideDate !== undefined) { if (manualHideDate) meta.manualHideDate = manualHideDate; else delete meta.manualHideDate; }
 
     const sets = [], vals = [];
-    if (labelEn !== undefined) { vals.push(labelEn); sets.push(`label_en = $${vals.length}`); }
-    if (labelVi !== undefined) { vals.push(labelVi); sets.push(`label_vi = $${vals.length}`); }
-    if (startDate !== undefined || endDate !== undefined
-        || manualShowDate !== undefined || manualHideDate !== undefined) {
+    if (eventType !== undefined) {                       // keep group mirrored to type
+      vals.push(eventType); const p = vals.length;
+      sets.push(`event_type = $${p}`); sets.push(`event_group = $${p}`);
+    }
+    if (name       !== undefined) { vals.push(name);       sets.push(`name = $${vals.length}`); }
+    if (labelEn    !== undefined) { vals.push(labelEn);    sets.push(`label_en = $${vals.length}`); }
+    if (labelVi    !== undefined) { vals.push(labelVi);    sets.push(`label_vi = $${vals.length}`); }
+    if (counsellor !== undefined) { vals.push(counsellor); sets.push(`dedicated_counsellor = $${vals.length}`); }
+    if (startDate  !== undefined) { vals.push(startDate);  sets.push(`start_date = $${vals.length}::date`); }
+    if (endDate    !== undefined) { vals.push(endDate);    sets.push(`end_date = $${vals.length}::date`); }
+    if (manualShowDate !== undefined || manualHideDate !== undefined) {
       vals.push(JSON.stringify(meta)); sets.push(`meta = $${vals.length}::jsonb`);
     }
     vals.push(id);
 
     const upd = await pool.query(
-      `UPDATE lookup_values SET ${sets.join(', ')}
-         WHERE id = $${vals.length} AND category = 'referral_source'
-         RETURNING id, code, label_en, label_vi, sort_order, is_active, meta`,
-      vals
-    );
+      `UPDATE events SET ${sets.join(', ')} WHERE id=$${vals.length} RETURNING ${COLS}`, vals);
     if (upd.rowCount === 0) return res.status(404).json({ success: false, error: 'Event not found' });
     res.json({ success: true, data: shapeRow(upd.rows[0]) });
   } catch (err) {
-    console.error('[marketingEvents] update failed:', err);
+    if (err.code === '23505') return res.status(409).json({ success: false, error: 'That event already exists under this type' });
+    console.error('[events] update failed:', err);
     res.status(500).json({ success: false, error: 'Failed to update event' });
   }
 });
@@ -269,18 +304,12 @@ router.put('/:id', requireMarketingRole, async (req, res) => {
 router.delete('/:id', requireMarketingRole, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id' });
-
   try {
-    const upd = await pool.query(
-      `UPDATE lookup_values SET is_active = false
-         WHERE id = $1 AND category = 'referral_source'
-         RETURNING id`,
-      [id]
-    );
+    const upd = await pool.query(`UPDATE events SET is_active=false WHERE id=$1 RETURNING id`, [id]);
     if (upd.rowCount === 0) return res.status(404).json({ success: false, error: 'Event not found' });
     res.json({ success: true });
   } catch (err) {
-    console.error('[marketingEvents] delete failed:', err);
+    console.error('[events] delete failed:', err);
     res.status(500).json({ success: false, error: 'Failed to delete event' });
   }
 });

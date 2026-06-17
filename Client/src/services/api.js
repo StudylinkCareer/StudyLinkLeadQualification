@@ -48,6 +48,7 @@ export const authAPI = {
 
 export const studentAPI = {
   register: (data) => api.post('/students/register', data),
+  addRegistration: (id, data) => api.post(`/students/${encodeURIComponent(id)}/add-registration`, data),
   getById: (id) => api.get(`/students/${encodeURIComponent(id)}`),
   getByEmail: (email) => api.get(`/students/by-email?email=${encodeURIComponent(email)}`),
   update: (id, data) => api.put(`/students/${encodeURIComponent(id)}`, data),

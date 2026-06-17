@@ -7,6 +7,7 @@ const { requireAuth, requireCounselor } = require('../middleware/authMiddleware'
 const studentController = require('../controllers/studentController');
 
 router.post('/register', requireAuth, studentController.register);
+router.post('/:id/add-registration', requireAuth, studentController.addRegistration);
 router.post('/deactivate', requireAuth, studentController.deactivateRecords);
 router.get('/search', requireAuth, requireCounselor, studentController.searchStudents);
 router.get('/check-duplicate', requireAuth, studentController.checkDuplicate);

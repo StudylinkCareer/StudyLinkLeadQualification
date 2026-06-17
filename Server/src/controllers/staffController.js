@@ -265,11 +265,13 @@ async function updateStaff(req, res, next) {
       fullName, email, position, role, isActive, viewThreshold,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
+      lqSelectable,
     } = req.body;
     const staff = await Staff.update(id, {
       fullName, email, position, role, isActive, viewThreshold,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
+      lqSelectable,
     });
     if (!staff) return res.status(404).json({ success: false, error: 'Staff member not found' });
     res.json({ success: true, data: staff });

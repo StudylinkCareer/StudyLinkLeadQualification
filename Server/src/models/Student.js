@@ -104,7 +104,12 @@ const COLUMNS = [
   { db: 'campaign_name',             js: 'campaignName' },
   { db: 'campaign_start',            js: 'campaignStart' },
   { db: 'campaign_end',              js: 'campaignEnd' },
-  { db: 'referral_source',           js: 'referralSource' },   // ← ADD THIS LINE
+  { db: 'referral_source',           js: 'referralSource' },
+  { db: 'source',                    js: 'source' },
+  { db: 'source_detail',             js: 'sourceDetail' },
+  { db: 'major',                     js: 'major' },
+  { db: 'school_attended',           js: 'schoolAttended' },
+  { db: 'ward',                      js: 'ward' },
 ];
 
 // Lookup maps built from COLUMNS
@@ -276,7 +281,12 @@ async function create(data) {
     campaignName:           data.campaignName           || '',
     campaignStart:          data.campaignStart          || null,
     campaignEnd:            data.campaignEnd            || null,
-    referralSource:         data.referralSource         || '',      // ← ADD THIS LINE
+    referralSource:         data.referralSource         || '',
+    source:                 data.source                 || '',
+    sourceDetail:           data.sourceDetail           || '',
+    major:                  data.major                  || '',
+    schoolAttended:         data.schoolAttended         || '',
+    ward:                   data.ward                   || '',
   };
 
   // Build INSERT using COLUMNS map to guarantee correct DB column order

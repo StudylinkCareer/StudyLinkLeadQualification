@@ -28,8 +28,8 @@ export default function OTPVerification() {
     email, phone, fullName, mode,
     selectedRecordId, recordsToDeactivate,
     yearOfBirth, placeOfResidence, studyPlan,
-    referralSource, preferredSocial, connectWithYou,
-    campaignType, campaignName, campaignStart, campaignEnd,
+    preferredSocial, connectWithYou,
+    sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
   } = location.state || {};
 
   const [code,           setCode]           = useState('');
@@ -118,8 +118,8 @@ export default function OTPVerification() {
           email, phone, fullName, mode,
           selectedRecordId, recordsToDeactivate,
           yearOfBirth, placeOfResidence, studyPlan,
-          referralSource, preferredSocial, connectWithYou,
-          campaignType, campaignName, campaignStart, campaignEnd,
+          preferredSocial, connectWithYou,
+          sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
         },
         replace: true,
       });

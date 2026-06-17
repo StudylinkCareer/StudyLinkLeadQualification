@@ -85,6 +85,12 @@ export default function Dashboard() {
   const locationCampaignName  = location.state?.campaignName;
   const locationCampaignStart = location.state?.campaignStart;
   const locationCampaignEnd   = location.state?.campaignEnd;
+  const locationSourceOfLead     = location.state?.sourceOfLead;
+  const locationSource           = location.state?.source;
+  const locationSourceDetail     = location.state?.sourceDetail;
+  const locationSourceUnverified = location.state?.sourceUnverified;
+  const locationCounsellor       = location.state?.counsellor;
+  const locationEventId          = location.state?.eventId;
 
   const [phone] = useState(() => {
     if (locationPhone) { sessionStorage.setItem('studylink_phone', locationPhone); return locationPhone; }
@@ -149,6 +155,31 @@ export default function Dashboard() {
   const [loginCampaignEnd] = useState(() => {
     if (locationCampaignEnd) { sessionStorage.setItem('studylink_campaignEnd', locationCampaignEnd); return locationCampaignEnd; }
     return sessionStorage.getItem('studylink_campaignEnd') || '';
+  });
+  const [loginSourceOfLead] = useState(() => {
+    if (locationSourceOfLead) { sessionStorage.setItem('studylink_sourceOfLead', locationSourceOfLead); return locationSourceOfLead; }
+    return sessionStorage.getItem('studylink_sourceOfLead') || '';
+  });
+  const [loginSource] = useState(() => {
+    if (locationSource) { sessionStorage.setItem('studylink_source', locationSource); return locationSource; }
+    return sessionStorage.getItem('studylink_source') || '';
+  });
+  const [loginSourceDetail] = useState(() => {
+    if (locationSourceDetail) { sessionStorage.setItem('studylink_sourceDetail', locationSourceDetail); return locationSourceDetail; }
+    return sessionStorage.getItem('studylink_sourceDetail') || '';
+  });
+  const [loginCounsellor] = useState(() => {
+    if (locationCounsellor) { sessionStorage.setItem('studylink_counsellor', locationCounsellor); return locationCounsellor; }
+    return sessionStorage.getItem('studylink_counsellor') || '';
+  });
+  const [loginSourceUnverified] = useState(() => {
+    if (locationSourceUnverified != null) { sessionStorage.setItem('studylink_sourceUnverified', String(locationSourceUnverified)); return locationSourceUnverified; }
+    return sessionStorage.getItem('studylink_sourceUnverified') === 'true';
+  });
+  const [loginEventId] = useState(() => {
+    if (locationEventId != null) { sessionStorage.setItem('studylink_eventId', String(locationEventId)); return locationEventId; }
+    const v = sessionStorage.getItem('studylink_eventId');
+    return v || null;
   });
 
   const { formData, updateField, saving, lastSaved, dirty, saveAll, discard } = useFormState(
@@ -252,6 +283,19 @@ export default function Dashboard() {
         const res = await studentAPI.getById(selectedRecordId);
         setStudentData(cleanTempData(res.data));
         setStudentId(res.data.uniqueId);
+        // Returning lead: append a new registration row (every submission counts).
+        if (loginSourceOfLead) {
+          try {
+            await studentAPI.addRegistration(selectedRecordId, {
+              sourceOfLead:     loginSourceOfLead,
+              source:           loginSource,
+              sourceDetail:     loginSourceDetail,
+              sourceUnverified: loginSourceUnverified,
+              counsellor:       loginCounsellor,
+              eventId:          loginEventId,
+            });
+          } catch (e) { console.warn('add-registration failed:', e); }
+        }
         sessionStorage.removeItem('studylink_selectedRecordId');
         return;
       }
@@ -293,6 +337,12 @@ export default function Dashboard() {
             campaignName:     loginCampaignName    || '',
             campaignStart:    loginCampaignStart   || null,
             campaignEnd:      loginCampaignEnd     || null,
+            sourceOfLead:     loginSourceOfLead    || '',
+            source:           loginSource          || '',
+            sourceDetail:     loginSourceDetail    || '',
+            sourceUnverified: loginSourceUnverified || false,
+            counsellor:       loginCounsellor      || '',
+            eventId:          loginEventId         || null,
           });
           setStudentData(cleanTempData(res.data));
           setStudentId(res.data.uniqueId);

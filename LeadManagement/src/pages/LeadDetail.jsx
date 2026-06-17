@@ -22,13 +22,14 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { studentAPI, staffAPI, notesAPI, auditAPI } from '../services/api';
+import { studentAPI, staffAPI, notesAPI, auditAPI, leadEventsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLookup } from '../contexts/LookupContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import Watermark from '../components/Watermark';
 import TrailBackButton from '../components/TrailBackButton';
+import LeadEventsSection from '../components/LeadEventsSection';
 import { FiArrowLeft, FiPlus, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
 
@@ -716,7 +717,7 @@ const OCEAN_QUESTIONS = [
 
 const FIELD_LABELS = {
   leadStatus:'Status', closeDate:'Close Date', confidence:'Confidence',
-  studyPlans:'Study Plans', leadSource:'Lead Source', interaction:'Interaction',
+  studyPlans:'Study Plans', leadSource:'Source of Lead', source:'Source', sourceDetail:'Source detail', interaction:'Interaction',
   destinationCountry:'Destination', timeline:'Timeline', schoolEvent:'School/Event',
   budget:'Budget', scholarshipDemand:'Scholarship Demand', englishLevel:'English Level',
   gpa:'GPA', immigrationHistory:'Immigration History', sponsorIncome:'Sponsor Income',
@@ -797,6 +798,28 @@ export default function LeadDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
   const { staff } = useAuth();
+
+  // ── Registrations (lead_events) ──
+  const [registrations, setRegistrations] = useState([]);
+  const [regLoading, setRegLoading]       = useState(false);
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    setRegLoading(true);
+    leadEventsAPI.list(id)
+      .then(r => { if (alive) setRegistrations(r.data || []); })
+      .catch(() => { if (alive) setRegistrations([]); })
+      .finally(() => { if (alive) setRegLoading(false); });
+    return () => { alive = false; };
+  }, [id]);
+  async function handleRegStatus(regId, status) {
+    try {
+      await leadEventsAPI.updateStatus(regId, status);
+      setRegistrations(rs => rs.map(r => r.id === regId ? { ...r, status } : r));
+    } catch (e) {
+      alert(e.message || 'Failed to update status');
+    }
+  }
   const { canDo, canDoOnLead, canEditField, scope } = usePermissions();
   const { push: pushTrail } = useNavTrail();
 
@@ -808,10 +831,34 @@ export default function LeadDetail() {
   const [saving, setSaving]     = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState({});
+  const [refOptions, setRefOptions] = useState({ channels: [], subagents: [], partners: [] });
+  useEffect(() => {
+    fetch('/api/lead-events/options', { credentials: 'include' })
+      .then(r => r.json())
+      .then(j => { if (j.success && j.data) setRefOptions({ channels: j.data.channels || [], subagents: j.data.subagents || [], partners: j.data.partners || [] }); })
+      .catch(() => {});
+  }, []);
   const [showHistory, setShowHistory]               = useState(false);
   const [showOceanQuestions, setShowOceanQuestions] = useState(false);
   const [assign, setAssign]     = useState({});
   const topicOptions = useLookup('note_topic');
+  // ── Source-of-Lead picker (mode-aware) ──
+  const solItems     = useLookup('source_of_lead');
+  const sourceList   = useLookup('source');
+  const b2bTypeList  = useLookup('b2b_type');
+  const b2bPartyList = useLookup('b2b_party');
+  const sourceOfLeadOpts = solItems.map(o => o.code);
+  const SOL_MODE = { 'Databases':'list', 'On-line':'list', 'Event/Campaign':'events', 'B2B referrals':'b2b', 'Personal referrals':'list_freetext' };
+  const modeOf = (code) => ((solItems.find(o => o.code === code) || {}).meta || {}).mode || SOL_MODE[code] || '';
+  const withCur = (opts, val) => opts ? [...new Set([...opts, val].filter(Boolean))] : undefined;
+  const sourceOptsFor = (sol) => {
+    const m = modeOf(sol);
+    if (m === 'list' || m === 'list_freetext') return sourceList.filter(o => o.subcategory === sol).map(o => o.code);
+    if (m === 'b2b') return b2bTypeList.map(o => o.code);
+    return undefined;
+  };
+  const sourceDetailOptsFor = (sol, src) =>
+    modeOf(sol) === 'b2b' ? b2bPartyList.filter(o => o.subcategory === src).map(o => o.code) : undefined;
   const [noteType,     setNoteType]     = useState('counselor');
   const [addingNote,   setAdding]       = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
@@ -917,7 +964,7 @@ export default function LeadDetail() {
     if (editMode) {
       const missing = [];
       // Always required
-      if (!editData.leadSource)  missing.push('Lead Source');
+      if (!editData.leadSource)  missing.push('Source of Lead');
       if (!editData.interaction) missing.push('Interaction');
       // Required only when status is not 'New'
       const status = editData.leadStatus || 'New';
@@ -959,7 +1006,6 @@ export default function LeadDetail() {
           studyPlans:         editData.studyPlans,
           destinationCountry: editData.destinationCountry,
           timeline:           editData.timeline,
-          schoolEvent:        editData.schoolEvent,
           leadSource:         editData.leadSource,
           interaction:        editData.interaction,
           budget:             editData.budget,
@@ -971,6 +1017,11 @@ export default function LeadDetail() {
           incomeEvidence:     editData.incomeEvidence,
           studyPlanGap:       editData.studyPlanGap,
           ultimateObjective:  editData.ultimateObjective,
+          major:              editData.major,
+          schoolAttended:     editData.schoolAttended,
+          ward:               editData.ward,
+          source:             editData.source,
+          sourceDetail:       editData.sourceDetail,
           motherFullName:      editData.motherFullName,
           motherEmail:         editData.motherEmail,
           motherPhone:         editData.motherPhone,
@@ -1117,7 +1168,7 @@ export default function LeadDetail() {
   // Close Date and Confidence are required for SAVE (when status != 'New')
   // but should NOT block note-taking. Notes only need Lead Source + Interaction.
   const notesRequired = {
-    'Lead Source':  lead.leadSource,
+    'Source of Lead':  lead.leadSource,
     'Interaction':  lead.interaction,
   };
   const notesMissing = Object.entries(notesRequired)
@@ -1213,26 +1264,18 @@ export default function LeadDetail() {
                   ? <EditField label="Phone" name="phone" value={d.phone} onChange={updateEdit}/>
                   : <Field label="Phone" value={lead.phone}/>}
                 <EditField label="Study Plans"     name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
+                <EditField label="Major"           name="major"              value={d.major}              onChange={updateEdit}/>
                 <EditField label="Destination"     name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
                 <EditField label="Timeline"        name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
-                <EditField label="School/Event"    name="schoolEvent"        value={d.schoolEvent}        onChange={updateEdit}/>
                 <EditField label="Year of Birth"   name="yearOfBirth"        value={d.yearOfBirth}        onChange={updateEdit}/>
+                <EditField label="School Attended" name="schoolAttended"     value={d.schoolAttended}     onChange={updateEdit}/>
                 <EditField label="Residency"       name="residency"          value={d.residency}          onChange={updateEdit}/>
+                <EditField label="Ward"            name="ward"               value={d.ward}               onChange={updateEdit}/>
                 {/* Stone Tier / Risk Score / Created / Updated are auto-calculated or system — read-only even in edit mode */}
                 <Field label="Stone Tier"    value={lead.stoneTier}/>
                 <Field label="Risk Score"    value={lead.riskScore}/>
                 <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
-                {/* Campaign / Event section header */}
-                <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
-                  <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
-                </div>
-                <EditField label="Campaign/Event" name="referralSource" value={d.referralSource} onChange={updateEdit}/>
-                <EditField label="Campaign Type"   name="campaignType"   value={d.campaignType}   onChange={updateEdit}/>
-                <EditField label="Campaign Name"   name="campaignName"   value={d.campaignName}   onChange={updateEdit}/>
-                <div/>
-                <EditField label="Event Start"     name="campaignStart" value={d.campaignStart ? String(d.campaignStart).slice(0,10) : ''} onChange={updateEdit} type="date"/>
-                <EditField label="Event End"       name="campaignEnd"   value={d.campaignEnd   ? String(d.campaignEnd).slice(0,10)   : ''} onChange={updateEdit} type="date"/>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
@@ -1286,23 +1329,62 @@ export default function LeadDetail() {
                 <Field label="Stone Tier"      value={lead.stoneTier}/>
                 <Field label="Risk Score"      value={lead.riskScore}/>
                 <Field label="Study Plans"     value={lead.studyPlans}/>
+                <Field label="Major"           value={lead.major}/>
                 <Field label="Destination"     value={lead.destinationCountry}/>
                 <Field label="Timeline"        value={lead.timeline}/>
-                <Field label="School/Event"    value={lead.schoolEvent}/>
                 <Field label="Year of Birth"   value={lead.yearOfBirth}/>
+                <Field label="School Attended" value={lead.schoolAttended}/>
                 <Field label="Residency"       value={lead.residency}/>
+                <Field label="Ward"            value={lead.ward}/>
                 <Field label="Created"         value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"         value={formatShortDate(lead.updatedAt)}/>
-                {/* ── Campaign / Event fields (read-only) ── */}
-                <div style={{ gridColumn:'1 / -1', borderTop:'1px solid var(--border)', paddingTop:'0.75rem', marginTop:'0.25rem' }}>
-                  <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Event / Campaign</span>
-                </div>
-                <Field label="Campaign/Event" value={lead.referralSource}/>
-                <Field label="Campaign Type"   value={lead.campaignType}/>
-                <Field label="Campaign Name"   value={lead.campaignName}/>
-                <div/>
-                <Field label="Event Start"     value={formatShortDate(lead.campaignStart)}/>
-                <Field label="Event End"       value={formatShortDate(lead.campaignEnd)}/>
+              </div>
+            )}
+          </div>
+
+          {/* Event Registrations */}
+          <div className="section-card">
+            <div className="section-header">
+              <span className="section-title">Event Registrations</span>
+            </div>
+            {regLoading ? (
+              <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.875rem' }}>Loading…</div>
+            ) : registrations.length === 0 ? (
+              <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.875rem' }}>No registrations yet.</div>
+            ) : (
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.85rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom:'1px solid var(--border)', textAlign:'left', color:'var(--text-secondary)' }}>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Source of Lead</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Source</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Event</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Start</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }}>End</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600, width:'150px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {registrations.map(r => (
+                      <tr key={r.id} style={{ borderBottom:'1px solid var(--border)' }}>
+                        <td style={{ padding:'0.5rem' }}>{r.sourceOfLead || '\u2014'}</td>
+                        <td style={{ padding:'0.5rem' }}>{r.source || '\u2014'}{r.sourceDetail ? ` \u00b7 ${r.sourceDetail}` : ''}</td>
+                        <td style={{ padding:'0.5rem' }}>{r.eventName || '\u2014'}</td>
+                        <td style={{ padding:'0.5rem' }}>{r.eventStart || '\u2014'}</td>
+                        <td style={{ padding:'0.5rem' }}>{r.eventEnd || '\u2014'}</td>
+                        <td style={{ padding:'0.5rem' }}>
+                          <select value={r.status || ''} onChange={e => handleRegStatus(r.id, e.target.value)}
+                                  style={{ padding:'0.25rem 0.5rem', borderRadius:'4px', border:'1px solid var(--border)', fontSize:'0.8rem' }}>
+                            <option value="">Set status</option>
+                            <option value="Confirmed">Confirmed</option>
+                            <option value="Uncertain">Uncertain</option>
+                            <option value="Declined">Declined</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -1335,7 +1417,9 @@ export default function LeadDetail() {
 
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <EditField label="Lead Source"         name="leadSource"        value={d.leadSource}        onChange={updateEdit} options={LEAD_SOURCE_OPTS}/>
+                <EditField label="Source of Lead"      name="leadSource"        value={d.leadSource}        onChange={updateEdit} options={withCur(sourceOfLeadOpts, d.leadSource)}/>
+                <EditField label="Source"              name="source"            value={d.source}            onChange={updateEdit} options={withCur(sourceOptsFor(d.leadSource), d.source)}/>
+                <EditField label="Source detail"       name="sourceDetail"      value={d.sourceDetail}      onChange={updateEdit} options={withCur(sourceDetailOptsFor(d.leadSource, d.source), d.sourceDetail)}/>
                 <EditField label="Interaction"         name="interaction"       value={d.interaction}       onChange={updateEdit} options={INTERACTION_OPTS}/>
                 <EditField label="Budget"              name="budget"            value={d.budget}            onChange={updateEdit} options={BUDGET_OPTIONS}/>
                 <EditField label="Scholarship Demand"  name="scholarshipDemand" value={d.scholarshipDemand} onChange={updateEdit} options={SCHOLARSHIP_OPTS}/>
@@ -1349,7 +1433,9 @@ export default function LeadDetail() {
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
-                <Field label="Lead Source"         value={lead.leadSource}/>
+                <Field label="Source of Lead"      value={lead.leadSource}/>
+                <Field label="Source"              value={lead.source}/>
+                <Field label="Source detail"       value={lead.sourceDetail}/>
                 <Field label="Interaction"         value={lead.interaction}/>
                 <Field label="Budget"              value={lead.budget}/>
                 <Field label="Scholarship Demand"  value={lead.scholarshipDemand}/>

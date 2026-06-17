@@ -11,13 +11,46 @@ const pool = new Pool({                                             // ← NEW
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false, // ← NEW
 });                                                                 // ← NEW
 
+// ── Registration helper ───────────────────────────────────────────────────────
+// Appends one lead_events registration row, then populates the lead-level
+// Source-of-Lead / Source / Source detail fields *only if empty* and
+// auto-assigns the counsellor if the lead currently has none.
+async function appendRegistration(studentId, f = {}) {
+  const sourceOfLead = (f.sourceOfLead || '').trim();
+  const source       = (f.source       || '').trim();
+  const sourceDetail = (f.sourceDetail || '').trim();
+  const counsellor   = (f.counsellor   || '').trim();
+  const eventId      = f.eventId || null;
+  const unverified   = !!f.sourceUnverified;
+
+  await pool.query(
+    `INSERT INTO lead_events
+       (student_id, event_id, source_of_lead, source, source_detail, source_unverified, status, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, now(), now())`,
+    [studentId, eventId, sourceOfLead || null, source || null, sourceDetail || null, unverified]
+  );
+
+  await pool.query(
+    `UPDATE students SET
+        lead_source   = CASE WHEN COALESCE(NULLIF(btrim(lead_source),''),'')   = '' THEN $2 ELSE lead_source   END,
+        source        = CASE WHEN COALESCE(NULLIF(btrim(source),''),'')        = '' THEN $3 ELSE source        END,
+        source_detail = CASE WHEN COALESCE(NULLIF(btrim(source_detail),''),'') = '' THEN $4 ELSE source_detail END,
+        counselor     = CASE WHEN COALESCE(NULLIF(btrim(counselor),''),'')     = '' THEN $5 ELSE counselor     END,
+        updated_at    = now()
+      WHERE unique_id = $1`,
+    [studentId, sourceOfLead, source, sourceDetail, counsellor]
+  );
+}
+
 async function register(req, res, next) {
   try {
     const { email, phone, fullName, contactMediums, studyPlans, leadSource,
             yearOfBirth, residency, schoolEvent, socialConsent,
             preferredSocial, phoneCountryCode, contactMedium1,
             campaignType, campaignName, campaignStart, campaignEnd, 
-            referralSource } = req.body;
+            referralSource,
+            sourceOfLead, source, sourceDetail, sourceUnverified,
+            counsellor, eventId } = req.body;
 
     if (email || phone) {
       const dupes = await Student.checkDuplicates(email, phone);
@@ -45,15 +78,22 @@ async function register(req, res, next) {
       contactMediums:   contactMediums   || [],
       contactDetails:   req.body.contactDetails || {},
       studyPlans:       studyPlans       || '',
-      leadSource:       leadSource       || '',
+      leadSource:       sourceOfLead     || leadSource || '',
       campaignType:     campaignType     || '',
       campaignName:     campaignName     || '',
       campaignStart:    campaignStart    || null,
       campaignEnd:      campaignEnd      || null,
-      referralSource:   referralSource   || '',   // ← ADD THIS LINE
+      referralSource:   referralSource   || '',
+      source:           source           || '',
+      sourceDetail:     sourceDetail     || '',
     });
 
     req.session.uniqueId = student.uniqueId;
+
+    // Append the registration row + populate-if-empty (counsellor auto-assign)
+    await appendRegistration(student.uniqueId, {
+      sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
+    });
     res.status(201).json({ success: true, data: student });
   } catch (err) {
     next(err);
@@ -579,8 +619,20 @@ async function exportExcel(req, res, next) {
 }
 
 
+// ── Add a registration to an existing (returning) lead ────────────────────────
+// POST /api/students/:id/add-registration
+async function addRegistration(req, res, next) {
+  try {
+    const { id } = req.params;
+    const existing = await Student.findById(id);
+    if (!existing) return res.status(404).json({ success: false, error: 'Student not found' });
+    await appendRegistration(id, req.body);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
 module.exports = {
-  register, getStudent, getByEmail, updateStudent, checkDuplicate,
+  register, addRegistration, getStudent, getByEmail, updateStudent, checkDuplicate,
   deactivateRecords, calculateRisk, calculateOcean, uploadPhotos, searchStudents,
   exportExcel,                                                      // ← NEW
 };

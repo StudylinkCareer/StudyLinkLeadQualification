@@ -136,6 +136,12 @@ export const studentAPI = {
   },
 };
 
+// ── Lead registrations (events) ───────────────────────────────
+export const leadEventsAPI = {
+  list:         (studentId)  => request('GET', `/api/lead-events/${encodeURIComponent(studentId)}`),
+  updateStatus: (id, status) => request('PUT', `/api/lead-events/${id}/status`, { status }),
+};
+
 // ── Notes ─────────────────────────────────────────────────────
 export const notesAPI = {
   list:   (studentId)                    => request('GET',    `/api/notes/${studentId}`),

@@ -16,6 +16,9 @@ const notesRoutes = require('./routes/notes');
 const lookupRoutes = require('./routes/lookups');
 const marketingEventsRoutes = require('./routes/marketingEvents');
 const reportsRoutes            = require('./routes/reports');
+const referralSourcesRoutes   = require('./routes/referralSources');
+const leadEventsRoutes        = require('./routes/leadEvents');
+const referenceDataRoutes     = require('./routes/referenceData');
 
 const app = express();
 
@@ -74,6 +77,9 @@ app.use('/api/notes', notesRoutes);
 app.use('/api/lookups', lookupRoutes);
 app.use('/api/marketing-events', marketingEventsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/referral-sources', referralSourcesRoutes);
+app.use('/api/lead-events', leadEventsRoutes);
+app.use('/api/reference-data', referenceDataRoutes);
 
 // Error handling
 app.use(errorHandler);

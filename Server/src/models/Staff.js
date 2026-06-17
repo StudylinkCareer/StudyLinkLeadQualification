@@ -11,7 +11,7 @@ const pool = new Pool({
 
 async function findAll() {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable
      FROM staff ORDER BY full_name ASC`
   );
   return result.rows.map(objectToCamelCase);
@@ -19,7 +19,7 @@ async function findAll() {
 
 async function findById(id) {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable
      FROM staff WHERE id = $1`,
     [id]
   );
@@ -48,7 +48,7 @@ async function findActiveByRole(role) {
 
 async function findAllActive() {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable
      FROM staff WHERE is_active = true ORDER BY full_name ASC`
   );
   return result.rows.map(objectToCamelCase);
@@ -64,7 +64,7 @@ async function create({ fullName, email, position, role, password,
        platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code,
        messenger_username, messenger_qr_code)
      VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-     RETURNING id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code`,
+     RETURNING id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable`,
     [fullName, email.toLowerCase(), position, role, passwordHash,
      emailClient || 'outlook', contactMobile || null,
      !!platformSms, !!platformZalo, !!platformWhatsapp, !!platformMessenger,
@@ -76,7 +76,7 @@ async function create({ fullName, email, position, role, password,
 
 async function update(id, { fullName, email, position, role, isActive, viewThreshold,
   emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp, platformMessenger,
-  zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode }) {
+  zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode, lqSelectable }) {
   const result = await pool.query(
     `UPDATE staff
      SET full_name          = COALESCE($1,  full_name),
@@ -95,9 +95,10 @@ async function update(id, { fullName, email, position, role, isActive, viewThres
          zalo_qr_code       = COALESCE($14, zalo_qr_code),
          whatsapp_qr_code   = COALESCE($15, whatsapp_qr_code),
          messenger_username = COALESCE($16, messenger_username),
-         messenger_qr_code  = COALESCE($17, messenger_qr_code)
-     WHERE id = $18
-     RETURNING id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code`,
+         messenger_qr_code  = COALESCE($17, messenger_qr_code),
+         lq_selectable      = COALESCE($18, lq_selectable)
+     WHERE id = $19
+     RETURNING id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable`,
     [fullName,
      email ? email.toLowerCase() : null,
      position, role, isActive, viewThreshold ?? null,
@@ -107,6 +108,7 @@ async function update(id, { fullName, email, position, role, isActive, viewThres
      zaloNumber         ?? null, zaloQrCode         ?? null,
      whatsappQrCode     ?? null, messengerUsername  ?? null,
      messengerQrCode    ?? null,
+     lqSelectable       ?? null,
      id]
   );
   return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
