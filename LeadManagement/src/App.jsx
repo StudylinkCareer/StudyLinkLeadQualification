@@ -45,6 +45,7 @@ import ClientFollowup from './pages/ClientFollowup';
 import WeeklyReport from './pages/WeeklyReport';
 import ReferralSources from './pages/ReferralSources';
 import ReferenceData from './pages/ReferenceData';
+import LeadDistribution from './pages/LeadDistribution';
 
 // Floating "expand" button shown when the sidebar is collapsed on DESKTOP only.
 // Hidden on mobile via CSS — the banner Menu button is the mobile equivalent.
@@ -127,6 +128,7 @@ export default function App() {
               <Route path="/leads"            element={<ProtectedLayout><Leads /></ProtectedLayout>} />
               <Route path="/leads/:id"        element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
               <Route path="/staff"            element={<ProtectedLayout><Staff /></ProtectedLayout>} />
+              <Route path="/distribution"     element={<ProtectedLayout><LeadDistribution /></ProtectedLayout>} />
               <Route path="/settings/columns" element={<ProtectedLayout><ColumnLayoutSettings /></ProtectedLayout>} />
               <Route path="/marketing-events" element={<ProtectedLayout><MarketingEvents/></ProtectedLayout>} />
               <Route path="/reports/activity" element={<ProtectedLayout><ActivityReport /></ProtectedLayout>} />

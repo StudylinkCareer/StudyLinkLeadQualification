@@ -16,7 +16,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -30,10 +30,11 @@ export default function Sidebar() {
 
   const isActive = (path) => location.pathname.startsWith(path);
 
-  const canManageStaff   = canDo('staff', 'manage');
-  const canManageColumns = canDo('column_config', 'manage');
-  const canViewReports   = canDo('reports', 'view');
-  const showAdminSection = canManageStaff || canManageColumns;
+  const canManageStaff        = canDo('staff', 'manage');
+  const canManageColumns      = canDo('column_config', 'manage');
+  const canViewReports        = canDo('reports', 'view');
+  const canManageDistribution = canDo('distribution', 'manage');
+  const showAdminSection      = canManageStaff || canManageDistribution;
 
   async function handleLogout() {
     await logout();
@@ -125,15 +126,25 @@ export default function Sidebar() {
           <FiLayout size={16} /> {t('sidebar.columnSettings', language)}
         </button>
 
-        {canManageStaff && (
+        {showAdminSection && (
           <>
             <span className="nav-section">{t('sidebar.section.admin', language)}</span>
-            <button
-              className={`nav-item ${isActive('/staff') ? 'active' : ''}`}
-              onClick={() => navigate('/staff')}
-            >
-              <FiUserCheck size={16} /> {t('sidebar.staff', language)}
-            </button>
+            {canManageStaff && (
+              <button
+                className={`nav-item ${isActive('/staff') ? 'active' : ''}`}
+                onClick={() => navigate('/staff')}
+              >
+                <FiUserCheck size={16} /> {t('sidebar.staff', language)}
+              </button>
+            )}
+            {canManageDistribution && (
+              <button
+                className={`nav-item ${isActive('/distribution') ? 'active' : ''}`}
+                onClick={() => navigate('/distribution')}
+              >
+                <FiShuffle size={16} /> {language === 'vi' ? 'Phân bổ Lead' : 'Lead Distribution'}
+              </button>
+            )}
           </>
         )}
       </nav>

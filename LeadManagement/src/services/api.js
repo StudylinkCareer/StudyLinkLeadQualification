@@ -215,6 +215,61 @@ export const auditAPI = {
   getRange:      (from, to)  => request('GET', `/api/staff/audit-range?from=${from}&to=${to}`),
 };
 
+// ── Lead Distribution ─────────────────────────────────────────
+// Admin/Manager/Director only (gated server-side on distribution.manage).
+export const distributionAPI = {
+  offices: ()                   => request('GET',  '/api/distribution/offices'),
+  pool:    ()                   => request('GET',  '/api/distribution/pool'),
+  preview: (office, perHead)    => request('POST', '/api/distribution/preview', { office, perHead }),
+  release: (office, perHead)    => request('POST', '/api/distribution/release', { office, perHead }),
+  recall:  (counsellor, dryRun) => request('POST', '/api/distribution/recall', { counsellor, dryRun }),
+
+  // Excel/CSV upload into the pool (file sent as base64)
+  upload:  (fileBase64, office)  => request('POST', '/api/distribution/upload', { fileBase64, office }),
+
+  // Download the .xlsx capture template (binary -> browser download)
+  downloadTemplate: async () => {
+    const res = await fetch(`${BASE_URL}/api/distribution/template`, { method: 'GET', credentials: 'include' });
+    if (!res.ok) throw new Error(`Template download failed (${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'lead_upload_template.xlsx';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  // Office-coverage management
+  staff:           ()                       => request('GET',    '/api/distribution/staff'),
+  coverage:        ()                       => request('GET',    '/api/distribution/coverage'),
+  addCoverage:     (staffId, office, weight)=> request('POST',   '/api/distribution/coverage', { staffId, office, weight }),
+  updateCoverage:  (id, weight)             => request('PATCH',  `/api/distribution/coverage/${id}`, { weight }),
+  removeCoverage:  (id)                      => request('DELETE', `/api/distribution/coverage/${id}`),
+
+  // Existing unassigned leads
+  unassigned:    ()                  => request('GET',  '/api/distribution/unassigned'),
+  poolExisting:  (residency, office) => request('POST', '/api/distribution/pool-existing', { residency, office }),
+
+  // Review staging
+  review:        ()                     => request('GET',  '/api/distribution/review'),
+  assignManual:  (uniqueIds, counselor) => request('POST', '/api/distribution/assign-manual', { uniqueIds, counselor }),
+  commitPool:    ()                     => request('POST', '/api/distribution/commit-pool'),
+  poolToReview:  (office)               => request('POST', '/api/distribution/pool-to-review', { office }),
+
+  // Notes bulk upload
+  uploadNotes:   (fileBase64)           => request('POST', '/api/distribution/upload-notes', { fileBase64 }),
+  downloadNotesTemplate: async () => {
+    const res = await fetch(`${BASE_URL}/api/distribution/notes-template`, { method: 'GET', credentials: 'include' });
+    if (!res.ok) throw new Error(`Template download failed (${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'notes_upload_template.xlsx';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  },
+};
+
 // Lookups use their own request helper because the category names
 // (`lead_status`, `ui_string`, etc.) are canonical identifiers and must NOT
 // be camelCased. The shared `request()` helper above would corrupt them.
