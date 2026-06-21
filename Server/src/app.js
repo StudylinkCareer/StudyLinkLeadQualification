@@ -20,6 +20,8 @@ const referralSourcesRoutes   = require('./routes/referralSources');
 const leadEventsRoutes        = require('./routes/leadEvents');
 const referenceDataRoutes     = require('./routes/referenceData');
 const distributionRoutes      = require('./routes/distribution');
+const eventConsoleRoutes      = require('./routes/eventConsole');
+const eventDeskRoutes         = require('./routes/eventDesk');
 
 const app = express();
 
@@ -82,6 +84,8 @@ app.use('/api/referral-sources', referralSourcesRoutes);
 app.use('/api/lead-events', leadEventsRoutes);
 app.use('/api/reference-data', referenceDataRoutes);
 app.use('/api/distribution', distributionRoutes);
+app.use('/api/event-console', eventConsoleRoutes);
+app.use('/api/event-desk', eventDeskRoutes);
 
 // Error handling
 app.use(errorHandler);

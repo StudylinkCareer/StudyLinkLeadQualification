@@ -1,6 +1,4 @@
 // client/src/services/api.js
-// CHANGES: Added authAPI.checkLogin(), studentAPI.deactivateRecords(), studentAPI.calculateOcean with language
-
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 async function request(method, endpoint, data) {
@@ -73,6 +71,37 @@ export const documentAPI = {
 export const lookupAPI = {
   getAll:         ()        => api.get('/lookups'),
   getByCategory:  (cat)     => api.get(`/lookups/${cat}`),
+};
+
+// ── Event desk (Phase 2.2) — public rep flow, Bearer-token auth ──
+async function deskRequest(method, endpoint, data, token) {
+  const options = { method, headers: {} };
+  if (token) options.headers['Authorization'] = `Bearer ${token}`;
+  if (data) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(data);
+  }
+  const res = await fetch(`${API_BASE}/event-desk${endpoint}`, options);
+  const text = await res.text();
+  let json;
+  try { json = text ? JSON.parse(text) : {}; }
+  catch { json = { error: `Server returned invalid JSON (${res.status})` }; }
+  if (!res.ok) {
+    const err = new Error(json.error || `${method} ${endpoint} failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+
+export const eventDeskAPI = {
+  login:       (token, pin)         => deskRequest('POST', '/login', { token, pin }),
+  me:          (auth)               => deskRequest('GET',  '/me', null, auth),
+  desks:       (auth)               => deskRequest('GET',  '/desks', null, auth),
+  signInDesk:  (auth, institutionId)=> deskRequest('POST', '/sign-in-desk', { institutionId }, auth),
+  signOutDesk: (auth)               => deskRequest('POST', '/sign-out-desk', {}, auth),
+  lookup:      (auth, code)         => deskRequest('POST', '/lookup', { attendanceToken: code }, auth),
+  visit:       (auth, body)         => deskRequest('POST', '/visit', body, auth),
 };
 
 export default api;

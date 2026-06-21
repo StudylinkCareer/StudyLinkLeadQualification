@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
 import OTPVerification from './pages/OTPVerification';
 import Dashboard from './pages/Dashboard';
+import DeskPage from './pages/DeskPage';
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <div className="app">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/desk" element={<DeskPage />} />
             <Route path="/verify" element={<OTPVerification />} />
             <Route
               path="/dashboard"

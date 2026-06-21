@@ -16,7 +16,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -82,6 +82,13 @@ export default function Sidebar() {
           onClick={() => navigate('/client-followup')}
         >
           <FiBell size={16} /> {language === 'vi' ? 'Theo dõi khách hàng' : 'Client Followup'}
+        </button>
+
+        <button
+          className={`nav-item ${isActive('/events') ? 'active' : ''}`}
+          onClick={() => navigate('/events')}
+        >
+          <FiCheckSquare size={16} /> {language === 'vi' ? 'Điểm danh sự kiện' : 'Event Check-in'}
         </button>
 
         {canViewReports && (

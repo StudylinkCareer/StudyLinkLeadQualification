@@ -142,6 +142,34 @@ export const leadEventsAPI = {
   updateStatus: (id, status) => request('PUT', `/api/lead-events/${id}/status`, { status }),
 };
 
+// ── Event Management console (Phase 1: roster + check-in) ──────
+// Backend mounts at /api/event-console. Responses are camelCased by request().
+export const eventConsoleAPI = {
+  listEvents: ()             => request('GET',  '/api/event-console/events'),
+  getEvent:   (id)           => request('GET',  `/api/event-console/events/${id}`),
+  roster:     (id, q)        => request('GET',  `/api/event-console/events/${id}/roster${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  checkin:    (id, uniqueId) => request('POST', `/api/event-console/events/${id}/checkin`, { uniqueId }),
+
+  // ── Desk setup (Phase 2.1) ──
+  listInstitutions: ()         => request('GET',    '/api/event-console/institutions'),
+  listEventDesks:   (id)       => request('GET',    `/api/event-console/events/${id}/institutions`),
+  addEventDesk:     (id, body) => request('POST',   `/api/event-console/events/${id}/institutions`, body),
+  regenDeskPin:     (id, eiId) => request('POST',   `/api/event-console/events/${id}/institutions/${eiId}/regen-pin`),
+  removeEventDesk:  (id, eiId) => request('DELETE', `/api/event-console/events/${id}/institutions/${eiId}`),
+
+// ── Event reps (Phase 2.2a) ──
+  listEventReps:  (id)             => request('GET',    `/api/event-console/events/${id}/reps`),
+  addEventRep:    (id, body)       => request('POST',   `/api/event-console/events/${id}/reps`, body),
+  updateEventRep: (id, repId, b)   => request('PATCH',  `/api/event-console/events/${id}/reps/${repId}`, b),
+  regenRepPin:    (id, repId)      => request('POST',   `/api/event-console/events/${id}/reps/${repId}/regen-pin`),
+  removeEventRep: (id, repId)      => request('DELETE', `/api/event-console/events/${id}/reps/${repId}`),
+
+// ── Qualification config (Admin only) ──
+  qualificationFields:     ()       => request('GET', '/api/event-console/qualification-fields'),
+  saveQualificationFields: (fields) => request('PUT', '/api/event-console/qualification-fields', { fields }),
+
+};
+
 // ── Notes ─────────────────────────────────────────────────────
 export const notesAPI = {
   list:   (studentId)                    => request('GET',    `/api/notes/${studentId}`),

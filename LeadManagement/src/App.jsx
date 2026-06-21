@@ -23,6 +23,7 @@
 // simplest place is here, inside App's tree.
 
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { FiMenu } from 'react-icons/fi';
 import { useAuth } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -46,6 +47,9 @@ import WeeklyReport from './pages/WeeklyReport';
 import ReferralSources from './pages/ReferralSources';
 import ReferenceData from './pages/ReferenceData';
 import LeadDistribution from './pages/LeadDistribution';
+
+// Event Management — lazy-loaded section so it stays out of the main bundle.
+const EventConsole = lazy(() => import('./pages/EventConsole'));
 
 // Floating "expand" button shown when the sidebar is collapsed on DESKTOP only.
 // Hidden on mobile via CSS — the banner Menu button is the mobile equivalent.
@@ -129,6 +133,7 @@ export default function App() {
               <Route path="/leads/:id"        element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
               <Route path="/staff"            element={<ProtectedLayout><Staff /></ProtectedLayout>} />
               <Route path="/distribution"     element={<ProtectedLayout><LeadDistribution /></ProtectedLayout>} />
+              <Route path="/events"           element={<ProtectedLayout><Suspense fallback={<div style={{ padding:24, color:'#6b7280' }}>Loading…</div>}><EventConsole /></Suspense></ProtectedLayout>} />
               <Route path="/settings/columns" element={<ProtectedLayout><ColumnLayoutSettings /></ProtectedLayout>} />
               <Route path="/marketing-events" element={<ProtectedLayout><MarketingEvents/></ProtectedLayout>} />
               <Route path="/reports/activity" element={<ProtectedLayout><ActivityReport /></ProtectedLayout>} />

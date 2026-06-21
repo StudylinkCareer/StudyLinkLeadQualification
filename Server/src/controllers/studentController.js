@@ -1,6 +1,7 @@
 // server/src/controllers/studentController.js
 
 const Student = require('../models/Student');
+const { issueAdvanceTokens } = require('../services/eventQualification');
 const { calculateRiskScore } = require('../utils/riskCalculator');
 const ExcelJS = require('exceljs');                                 // ← NEW
 const { Pool } = require('pg');                                     // ← NEW
@@ -36,10 +37,15 @@ async function appendRegistration(studentId, f = {}) {
         source        = CASE WHEN COALESCE(NULLIF(btrim(source),''),'')        = '' THEN $3 ELSE source        END,
         source_detail = CASE WHEN COALESCE(NULLIF(btrim(source_detail),''),'') = '' THEN $4 ELSE source_detail END,
         counselor     = CASE WHEN COALESCE(NULLIF(btrim(counselor),''),'')     = '' THEN $5 ELSE counselor     END,
+        
         updated_at    = now()
       WHERE unique_id = $1`,
     [studentId, sourceOfLead, source, sourceDetail, counsellor]
   );
+  
+  // Advance event QR: if this lead now qualifies, mint tokens for any future
+  // exhibitions they're registered for that don't have one yet (no-op otherwise).
+  await issueAdvanceTokens(pool, studentId);
 }
 
 async function register(req, res, next) {
@@ -126,6 +132,7 @@ async function updateStudent(req, res, next) {
   try {
     const { id } = req.params;
     const updated = await Student.update(id, req.body);
+    await issueAdvanceTokens(pool, id);
     res.json({ success: true, data: updated });
   } catch (err) {
     if (err.message === 'Student not found') return res.status(404).json({ success: false, error: err.message });

@@ -7,6 +7,7 @@ const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
 const { logChanges } = require('./auditController');
 const { assessOcean } = require('../utils/oceanCalculator');
 const permissionService = require('../services/permissionService');
+const { issueAdvanceTokens } = require('../services/eventQualification');
 
 // Local pool — matches the pattern used elsewhere in this codebase.
 // Used only by deleteStudents for the archive query + transactional delete.
@@ -608,6 +609,7 @@ async function updateStudent(req, res, next) {
       newData: req.body,
       source: 'staff_app',
     });
+    await issueAdvanceTokens(pool, id);   // auto-mint advance QR if this lead now qualifies
     await pool.end();
     res.json({ success: true });
   } catch (err) { next(err); }

@@ -998,7 +998,7 @@ export default function LeadDetail() {
     setSaving(true);
     try {
       if (editMode) {
-        await studentAPI.update(id, {
+        const studentRes = await studentAPI.update(id, {
           fullName:           editData.fullName,
           leadStatus:         editData.leadStatus,
           closeDate:          editData.closeDate || null,
@@ -1036,6 +1036,16 @@ export default function LeadDetail() {
             Array.from({length:15}, (_,i) => [`oceanQ${i+1}`, editData[`oceanQ${i+1}`] || null])
           ),
         });
+        // Only treat the save as done if the server actually accepted it.
+        // (A lapsed session returns success:false / 401 — without this guard the
+        // UI would clear edit mode and report "Saved successfully" while the DB
+        // kept the old values, silently losing the edits.)
+        if (!studentRes || studentRes.success === false) {
+          throw new Error(
+            (studentRes && studentRes.error) ||
+            'Save failed - you may have been logged out. Log in again and retry; your changes are still here.'
+          );
+        }
         setLead(l=>({...l,...editData}));
         setEditMode(false);
         setEditData({});
