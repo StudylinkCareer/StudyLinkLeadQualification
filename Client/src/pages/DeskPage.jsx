@@ -6,7 +6,7 @@
 // rating → saved as a stamped segment under the event topic. No LM login.
 // ─────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { eventDeskAPI } from '../services/api';
 import InlineQrScanner from '../components/Camera/InlineQrScanner';
 
@@ -20,12 +20,18 @@ const btn   = { width: '100%', padding: '14px', borderRadius: 10, border: 'none'
 const btnGhost = { padding: '10px 14px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff', fontSize: 14, cursor: 'pointer' };
 
 export default function DeskPage() {
-  const repToken = new URLSearchParams(window.location.search).get('rep') || '';
+  const repToken   = new URLSearchParams(window.location.search).get('rep') || '';
+  const pinFromUrl = new URLSearchParams(window.location.search).get('pin') || '';
 
   const [auth, setAuth]   = useState(() => sessionStorage.getItem(SS_KEY) || '');
   const [rep, setRep]     = useState(null);
   const [phase, setPhase] = useState('login');   // login | pickDesk | desk
   const [pin, setPin]     = useState('');
+  // One-click links carry &pin=. If present (and not already signed in), we
+  // sign in automatically and show a brief "Signing you in..." screen.
+  const [autoSigningIn, setAutoSigningIn] = useState(
+    () => Boolean(repToken && pinFromUrl && !sessionStorage.getItem(SS_KEY))
+  );
   const [desk, setDesk]   = useState(null);      // { institutionId, institutionName }
   const [desks, setDesks] = useState([]);
   const [student, setStudent] = useState(null);  // { studentUniqueId, fullName }
@@ -71,6 +77,34 @@ export default function DeskPage() {
       }
     })();
     return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One-click sign-in: if the link carries &pin= and we're not already signed
+  // in, log in automatically, then strip the PIN out of the URL.
+  const autoTried = useRef(false);
+  useEffect(() => {
+    if (autoTried.current) return;
+    if (auth || !repToken || !pinFromUrl) { setAutoSigningIn(false); return; }
+    autoTried.current = true;
+    (async () => {
+      setError('');
+      try {
+        const res = await eventDeskAPI.login(repToken, pinFromUrl);
+        const { authToken, rep: r } = res.data;
+        sessionStorage.setItem(SS_KEY, authToken);
+        setAuth(authToken); setRep(r);
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete('pin');
+          window.history.replaceState({}, '', u.pathname + u.search);
+        } catch { /* ignore */ }
+        await routeAfterLogin(authToken, r);
+      } catch (e) {
+        setError(e.message || 'Sign-in failed — enter your PIN to continue.');
+      } finally {
+        setAutoSigningIn(false);
+      }
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const doLogin = async () => {
@@ -129,6 +163,18 @@ export default function DeskPage() {
   const toastBox = toast && (
     <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '10px 14px', borderRadius: 10, marginBottom: 12, fontSize: 14, fontWeight: 600 }}>{toast}</div>
   );
+
+  // ── AUTO SIGN-IN (one-click link) ──
+  if (autoSigningIn) {
+    return (
+      <div style={wrap}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, margin: '8px 0 2px' }}>StudyLink — Desk sign-in</h1>
+        <div style={card}>
+          <p style={{ color: '#6b7280', margin: 0, fontSize: 14 }}>Signing you in…</p>
+        </div>
+      </div>
+    );
+  }
 
   // ── LOGIN ──
   if (phase === 'login') {

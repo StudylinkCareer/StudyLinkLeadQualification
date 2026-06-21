@@ -28,6 +28,8 @@ export default function RepsPanel({ eventId, selected }) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy]       = useState(false);
   const [error, setError]     = useState('');
+  const [notice, setNotice]   = useState('');
+  const [sendingId, setSendingId] = useState(null);
 
   // Add-rep form — reps are picked from existing staff.
   const [staffPool, setStaffPool]     = useState([]);
@@ -114,6 +116,18 @@ export default function RepsPanel({ eventId, selected }) {
   const copy = (text) => { try { navigator.clipboard.writeText(text); } catch { /* no-op */ } };
   const linkFor = (token) => `${LQ_BASE}/desk?rep=${token}`;
 
+  const handleEmailLink = async (repId) => {
+    setError(''); setNotice(''); setSendingId(repId);
+    try {
+      const res = await eventConsoleAPI.emailRepLink(eventId, repId, LQ_BASE);
+      setNotice(`Sign-in link sent to ${res?.data?.email || 'the rep'}.`);
+    } catch (e) {
+      setError(e.message || 'Failed to send sign-in link');
+    } finally {
+      setSendingId(null);
+    }
+  };
+
   // styles (match EventConsole)
   const card  = { background:'#fff', border:'1px solid #e5e7eb', borderRadius:10, padding:'16px 18px' };
   const th    = { textAlign:'left', fontSize:12, textTransform:'uppercase', letterSpacing:'0.04em', color:'#6b7280', padding:'10px 12px', borderBottom:'1px solid #e5e7eb' };
@@ -173,6 +187,12 @@ export default function RepsPanel({ eventId, selected }) {
         </div>
       )}
 
+      {notice && (
+        <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', color:'#15803d', padding:'10px 14px', borderRadius:8, marginBottom:12, fontSize:14 }}>
+          {notice}
+        </div>
+      )}
+
       {/* Reps list */}
       <div style={{ ...card, padding:0, overflow:'hidden' }}>
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
@@ -205,6 +225,16 @@ export default function RepsPanel({ eventId, selected }) {
                   <button style={ghost} onClick={() => copy(linkFor(r.eventLoginToken))} title={linkFor(r.eventLoginToken)}>
                     Copy link
                   </button>
+                  {r.isActive && r.sourceStaffId && (
+                    <button
+                      style={{ ...ghost, marginLeft:8 }}
+                      onClick={() => handleEmailLink(r.id)}
+                      disabled={sendingId === r.id}
+                      title="Email this rep their one-click sign-in link"
+                    >
+                      {sendingId === r.id ? 'Sending…' : 'Email link'}
+                    </button>
+                  )}
                 </td>
                 <td style={{ ...td, fontSize:12, color:'#6b7280', whiteSpace:'nowrap' }}>{fmtWindow(r.validFrom, r.validUntil)}</td>
                 <td style={{ ...td, textAlign:'right', whiteSpace:'nowrap' }}>
