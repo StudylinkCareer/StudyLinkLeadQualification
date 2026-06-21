@@ -27,6 +27,7 @@ const express = require('express');
 const crypto  = require('crypto');
 const { Pool } = require('pg');
 const { clearQualificationCache, checkStudent } = require('../services/eventQualification');
+const { sendEventQrEmail } = require('../services/emailService');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -112,6 +113,8 @@ router.get('/events/:id/roster', requireStaffAuth, async (req, res) => {
               le.status,
               ea.attended_at,
               ea.attendance_token,
+              ea.badge_emailed_at,
+              ea.badge_emailed_to,
               ea.checked_in_by,
               ci.full_name               AS checked_in_by_name
          FROM (
@@ -574,5 +577,71 @@ router.get('/qualification-check/:uniqueId', requireStaffAuth, async (req, res) 
     res.status(500).json({ success: false, error: 'Check failed' });
   }
 }); 
+
+// POST /email-badge -- email a rendered registration badge to a student.
+// The badge PNG is rendered client-side (shared badgeRenderer) and posted here
+// as base64. We resolve the real (unmasked) email from the students row unless
+// an override is supplied, send via the GAS relay, and stamp the attendee row.
+// Body: { uniqueId, eventId, badgePng (base64, no data: prefix), email? (override), badgeUrl? }
+router.post('/email-badge', requireStaffAuth, async (req, res) => {
+  const uniqueId      = String(req.body.uniqueId || '').trim();
+  const eventId       = parseInt(req.body.eventId, 10);
+  const badgePng      = String(req.body.badgePng || '').trim();
+  const overrideEmail = String(req.body.email || '').trim();
+  const badgeUrl      = String(req.body.badgeUrl || '').trim();
+
+  if (!uniqueId || isNaN(eventId) || !badgePng) {
+    return res.status(400).json({ success: false, error: 'uniqueId, eventId and badgePng are required' });
+  }
+
+  try {
+    // Must have an advance token for this (event, student) before we email a badge.
+    const att = await pool.query(
+      `SELECT attendance_token FROM event_attendees
+        WHERE event_id = $1 AND student_unique_id = $2 LIMIT 1`,
+      [eventId, uniqueId]
+    );
+    if (att.rowCount === 0 || !att.rows[0].attendance_token) {
+      return res.status(400).json({ success: false, error: 'No advance badge token for this student at this event' });
+    }
+
+    // Real (unmasked) name + email straight from the students row.
+    const sres = await pool.query(
+      `SELECT full_name, email FROM students WHERE unique_id = $1 LIMIT 1`,
+      [uniqueId]
+    );
+    if (sres.rowCount === 0) {
+      return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+    const studentName = sres.rows[0].full_name || '';
+    const recipient   = overrideEmail || String(sres.rows[0].email || '').trim();
+    if (!recipient) {
+      return res.status(400).json({ success: false, error: 'No email address on file; provide one to send to' });
+    }
+
+    const ev = await pool.query(`SELECT name FROM events WHERE id = $1 LIMIT 1`, [eventId]);
+    const eventName = ev.rowCount ? (ev.rows[0].name || '') : '';
+
+    await sendEventQrEmail(recipient, {
+      name: studentName,
+      eventName,
+      badgeUrl,
+      badgePngBase64: badgePng,
+    });
+
+    const upd = await pool.query(
+      `UPDATE event_attendees
+          SET badge_emailed_at = NOW(), badge_emailed_to = $3, updated_at = NOW()
+        WHERE event_id = $1 AND student_unique_id = $2
+        RETURNING badge_emailed_at, badge_emailed_to`,
+      [eventId, uniqueId, recipient]
+    );
+
+    res.json({ success: true, data: upd.rows[0] || { badge_emailed_to: recipient } });
+  } catch (err) {
+    console.error('[event-console] email-badge:', err);
+    res.status(500).json({ success: false, error: 'Failed to email badge' });
+  }
+});
 
 module.exports = router;

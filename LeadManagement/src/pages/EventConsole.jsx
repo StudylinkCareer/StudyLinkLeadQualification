@@ -15,6 +15,7 @@ import { eventConsoleAPI } from '../services/api';
 import RepsPanel from './RepsPanel';
 import QualificationPanel from './QualificationPanel';
 import { QRCodeSVG } from 'qrcode.react';
+import { renderBadgePng, dataUrlToBase64 } from '../utils/badgeRenderer';
 
 const fmtDate = (d) => { try { return d ? new Date(d).toLocaleDateString() : ''; } catch { return ''; } };
 const fmtTime = (d) => { try { return d ? new Date(d).toLocaleString()    : ''; } catch { return ''; } };
@@ -31,6 +32,13 @@ export default function EventConsole() {
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState(null);   // uniqueId being checked in
   const [qrStudent, setQrStudent] = useState(null); // roster row whose QR modal is open
+
+  // Badge email modal state
+  const [badgeStudent, setBadgeStudent] = useState(null); // roster row whose badge modal is open
+  const [badgePreview, setBadgePreview] = useState('');   // rendered badge data URL (also reused on send)
+  const [badgeEmail, setBadgeEmail]     = useState('');   // editable recipient
+  const [badgeBusy, setBadgeBusy]       = useState(false);// sending in progress
+  const [badgeMsg, setBadgeMsg]         = useState('');   // success / error line
 
   // Desks tab state
   const [desks, setDesks]             = useState([]);
@@ -104,6 +112,49 @@ export default function EventConsole() {
       setError(e.message || 'Check-in failed');
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // ── Badge email ──────────────────────────────────────────────────
+  // Open the modal and render the styled badge (same renderer as Marketing
+  // Events) encoding this student's attendance token. The preview doubles as
+  // an on-screen badge a walk-in can be shown immediately.
+  const openBadge = (r) => {
+    setBadgeStudent(r);
+    setBadgeEmail(r.email || '');
+    setBadgeMsg('');
+    setBadgePreview('');
+    const ev = events.find((e) => String(e.id) === String(eventId));
+    const dateStr = (ev && ev.startDate && ev.endDate)
+      ? `${fmtDate(ev.startDate)} - ${fmtDate(ev.endDate)}`
+      : (ev ? (fmtDate(ev.startDate) || fmtDate(ev.endDate) || '') : '');
+    renderBadgePng({
+      data: r.attendanceToken,
+      title: r.fullName || r.uniqueId,
+      metaLines: [ev && ev.name, dateStr].filter(Boolean),
+    })
+      .then((url) => setBadgePreview(url))
+      .catch((e) => setBadgeMsg(e.message || 'Failed to render badge'));
+  };
+
+  const sendBadge = async () => {
+    if (!badgeStudent || !badgePreview) return;
+    const to = badgeEmail.trim();
+    if (!to) { setBadgeMsg('Enter an email address.'); return; }
+    setBadgeBusy(true); setBadgeMsg('');
+    try {
+      await eventConsoleAPI.emailBadge({
+        uniqueId: badgeStudent.uniqueId,
+        eventId,
+        email: to,
+        badgePng: dataUrlToBase64(badgePreview),
+      });
+      setBadgeMsg(`Sent to ${to}.`);
+      await loadRoster(eventId, q);   // refresh so the emailed status updates
+    } catch (e) {
+      setBadgeMsg(e.message || 'Failed to send badge');
+    } finally {
+      setBadgeBusy(false);
     }
   };
 
@@ -279,6 +330,13 @@ export default function EventConsole() {
                             style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #2563eb', background:'#fff', color:'#2563eb', fontWeight:600, cursor:'pointer' }}
                           >Show QR</button>
                         )}
+                        {r.attendanceToken && (
+                          <button
+                            onClick={() => openBadge(r)}
+                            title={r.badgeEmailedAt ? `Emailed ${fmtTime(r.badgeEmailedAt)}${r.badgeEmailedTo ? ' to ' + r.badgeEmailedTo : ''}` : 'Email registration badge'}
+                            style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #c8102e', background:'#fff', color:'#c8102e', fontWeight:600, cursor:'pointer' }}
+                          >{r.badgeEmailedAt ? 'Badge (sent)' : 'Badge'}</button>
+                        )}
                         {!r.attendedAt && (
                           <button
                             onClick={() => handleCheckin(r.uniqueId)}
@@ -400,6 +458,59 @@ export default function EventConsole() {
               onClick={() => setQrStudent(null)}
               style={{ padding:'10px 20px', borderRadius:10, border:'none', background:'#2563eb', color:'#fff', fontWeight:700, cursor:'pointer' }}
             >Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Badge modal: render + email the styled registration badge ── */}
+      {badgeStudent && (
+        <div
+          onClick={() => setBadgeStudent(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background:'#fff', borderRadius:16, padding:24, textAlign:'center', maxWidth:360, width:'90%', maxHeight:'90vh', overflowY:'auto' }}
+          >
+            <div style={{ fontSize:18, fontWeight:800, marginBottom:2 }}>{badgeStudent.fullName || badgeStudent.uniqueId}</div>
+            <div style={{ color:'#9ca3af', fontSize:13, marginBottom:14 }}>Registration badge</div>
+
+            <div style={{ minHeight:160, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
+              {badgePreview
+                ? <img src={badgePreview} alt="Registration badge" style={{ width:240, maxWidth:'100%' }} />
+                : <span style={{ color:'#9ca3af', fontSize:14 }}>Generating...</span>}
+            </div>
+
+            {badgeStudent.badgeEmailedAt && (
+              <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>
+                Last emailed {fmtTime(badgeStudent.badgeEmailedAt)}{badgeStudent.badgeEmailedTo ? ` to ${badgeStudent.badgeEmailedTo}` : ''}
+              </div>
+            )}
+
+            <label style={{ display:'block', textAlign:'left', fontSize:13, fontWeight:600, marginBottom:4 }}>Send to</label>
+            <input
+              type="email"
+              value={badgeEmail}
+              onChange={(e) => setBadgeEmail(e.target.value)}
+              placeholder="email@example.com"
+              style={{ width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14, marginBottom:12 }}
+            />
+
+            {badgeMsg && (
+              <div style={{ fontSize:13, color: badgeMsg.startsWith('Sent') ? '#15803d' : '#b91c1c', marginBottom:12 }}>{badgeMsg}</div>
+            )}
+
+            <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
+              <button
+                onClick={() => setBadgeStudent(null)}
+                style={{ padding:'9px 16px', borderRadius:10, border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontWeight:600 }}
+              >Close</button>
+              <button
+                onClick={sendBadge}
+                disabled={badgeBusy || !badgePreview || !badgeEmail.trim()}
+                style={{ padding:'9px 18px', borderRadius:10, border:'none', background:'#c8102e', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
+              >{badgeBusy ? 'Sending...' : (badgeStudent.badgeEmailedAt ? 'Re-send' : 'Send badge')}</button>
+            </div>
           </div>
         </div>
       )}

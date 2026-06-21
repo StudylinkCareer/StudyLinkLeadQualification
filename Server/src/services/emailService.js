@@ -29,4 +29,48 @@ async function sendOTPEmail(to, otp) {
   return result;
 }
 
-module.exports = { sendOTPEmail };
+// Email a rendered event registration badge (PNG) via the same GAS relay.
+// The relay's doPost branches on type === 'event_badge'.
+//   to     - recipient email
+//   fields - { name, eventName, badgeUrl, badgePngBase64 }
+async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', badgePngBase64 = '' } = {}) {
+  const gasUrl = config.gas.sendOtpUrl;
+
+  if (!badgePngBase64) {
+    throw new Error('badgePngBase64 is required');
+  }
+
+  if (!gasUrl) {
+    console.log(`[DEV] event badge email for ${to} (${eventName || 'event'})`);
+    return { success: true, mode: 'dev-console' };
+  }
+
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'event_badge',
+      email: to,
+      name,
+      eventName,
+      badgeUrl,
+      badgePng: badgePngBase64,
+      from: 'info@studylink.org',
+    }),
+    redirect: 'follow',
+  });
+
+  if (!response.ok) {
+    throw new Error(`GAS badge email failed: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(result.error || 'GAS badge email sending failed');
+  }
+
+  console.log(`Event badge email sent to ${to} via GAS`);
+  return result;
+}
+
+module.exports = { sendOTPEmail, sendEventQrEmail };
