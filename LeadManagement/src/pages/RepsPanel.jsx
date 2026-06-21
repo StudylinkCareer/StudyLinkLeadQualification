@@ -29,8 +29,9 @@ export default function RepsPanel({ eventId, selected }) {
   const [busy, setBusy]       = useState(false);
   const [error, setError]     = useState('');
 
-  // Add-rep form
-  const [name, setName]               = useState('');
+  // Add-rep form — reps are picked from existing staff.
+  const [staffPool, setStaffPool]     = useState([]);
+  const [staffId, setStaffId]         = useState('');
   const [kind, setKind]               = useState('institution');   // 'institution' | 'studylink'
   const [institutionId, setInstId]    = useState('');
   const [validFrom, setValidFrom]     = useState('');
@@ -59,6 +60,14 @@ export default function RepsPanel({ eventId, selected }) {
 
   useEffect(() => { loadReps(eventId); loadDesks(eventId); }, [eventId, loadReps, loadDesks]);
 
+  // Staff pool for the rep picker (real staff only; global, load once).
+  useEffect(() => {
+    (async () => {
+      try { const res = await eventConsoleAPI.staffPool(); setStaffPool(res.data || []); }
+      catch { /* picker just stays empty */ }
+    })();
+  }, []);
+
   // Default the validity window to the event's dates when the event changes.
   useEffect(() => {
     if (!selected) return;
@@ -66,16 +75,15 @@ export default function RepsPanel({ eventId, selected }) {
     setValidUntil(toLocalInput(selected.endDate || selected.startDate, '18:00'));
   }, [selected]);
 
-  const resetForm = () => { setName(''); setKind('institution'); setInstId(''); };
+  const resetForm = () => { setStaffId(''); setKind('institution'); setInstId(''); };
 
   const handleAdd = async () => {
-    const fullName = name.trim();
-    if (!fullName) return;
+    if (!staffId) { setError('Pick a staff member.'); return; }
     if (kind === 'institution' && !institutionId) { setError('Pick an institution, or switch type to StudyLink (roving).'); return; }
     setBusy(true); setError('');
     try {
       await eventConsoleAPI.addEventRep(eventId, {
-        fullName,
+        staffId,
         kind,
         institutionId: kind === 'institution' ? institutionId : null,
         validFrom:  validFrom  ? new Date(validFrom).toISOString()  : null,
@@ -119,13 +127,19 @@ export default function RepsPanel({ eventId, selected }) {
       {/* Add rep */}
       <div style={{ ...card, marginBottom:12 }}>
         <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Rep name…"
+          <select
+            value={staffId}
+            onChange={(e) => setStaffId(e.target.value)}
             disabled={!eventId}
             style={{ ...input, flex:1, minWidth:200 }}
-          />
+          >
+            <option value="">Select staff member…</option>
+            {staffPool.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.fullName}{s.role ? ` — ${s.role}` : ''}
+              </option>
+            ))}
+          </select>
           <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...input }}>
             <option value="institution">Institution rep</option>
             <option value="studylink">StudyLink staff (roving)</option>
@@ -147,8 +161,8 @@ export default function RepsPanel({ eventId, selected }) {
           <input type="datetime-local" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} style={input} />
           <button
             onClick={handleAdd}
-            disabled={busy || !eventId || !name.trim()}
-            style={{ ...blue, opacity: (busy || !name.trim()) ? 0.6 : 1, marginLeft:'auto' }}
+            disabled={busy || !eventId || !staffId}
+            style={{ ...blue, opacity: (busy || !staffId) ? 0.6 : 1, marginLeft:'auto' }}
           >{busy ? 'Adding…' : 'Add rep'}</button>
         </div>
       </div>
