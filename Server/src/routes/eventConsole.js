@@ -365,13 +365,31 @@ const POSITION_BY_KIND = { institution: 'Institution rep', studylink: 'StudyLink
 async function repRow(repId) {
   const r = await pool.query(
     `SELECT s.id, s.full_name, s.position, s.institution_id, i.name AS institution_name,
-            s.event_login_token, s.event_pin, s.valid_from, s.valid_until, s.is_active
+            s.event_login_token, s.event_pin, s.valid_from, s.valid_until, s.is_active,
+            s.source_staff_id
        FROM staff s LEFT JOIN institutions i ON i.id = s.institution_id
       WHERE s.id = $1`,
     [repId]
   );
   return r.rows[0] || null;
 }
+
+// ── GET /staff-pool ── real staff selectable as event reps. Excludes the
+// synthetic event-staff rows (staff_type='event'); feeds the rep picker.
+router.get('/staff-pool', requireStaffAuth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, full_name, email, role, position, contact_mobile, zalo_number
+         FROM staff
+        WHERE staff_type <> 'event' AND is_active = true
+        ORDER BY full_name ASC`
+    );
+    res.json({ success: true, data: r.rows });
+  } catch (err) {
+    console.error('[event-console] staff-pool:', err);
+    res.status(500).json({ success: false, error: 'Failed to load staff' });
+  }
+});
 
 // ── GET /events/:id/reps ── list this event's reps.
 router.get('/events/:id/reps', requireStaffAuth, async (req, res) => {
@@ -380,7 +398,8 @@ router.get('/events/:id/reps', requireStaffAuth, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT s.id, s.full_name, s.position, s.institution_id, i.name AS institution_name,
-              s.event_login_token, s.event_pin, s.valid_from, s.valid_until, s.is_active
+              s.event_login_token, s.event_pin, s.valid_from, s.valid_until, s.is_active,
+              s.source_staff_id
          FROM staff s LEFT JOIN institutions i ON i.id = s.institution_id
         WHERE s.staff_type = 'event' AND s.event_id = $1
         ORDER BY s.is_active DESC, s.full_name ASC`,
@@ -394,23 +413,38 @@ router.get('/events/:id/reps', requireStaffAuth, async (req, res) => {
 });
 
 // ── POST /events/:id/reps ── create a rep (mints login token + PIN).
-// Body: { fullName, kind: 'institution'|'studylink', institutionId, validFrom, validUntil }.
+// Body: { staffId (preferred — picks a real staff member) | fullName (legacy),
+//         kind: 'institution'|'studylink', institutionId, validFrom, validUntil }.
 router.post('/events/:id/reps', requireDeskAdmin, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
 
-  const fullName      = (req.body.fullName || '').trim();
+  const staffId       = req.body.staffId ? parseInt(req.body.staffId, 10) : null;
+  let   fullName      = (req.body.fullName || '').trim();
   const kind          = req.body.kind === 'studylink' ? 'studylink' : 'institution';
   const institutionId = req.body.institutionId ? parseInt(req.body.institutionId, 10) : null;
   const validFrom     = (req.body.validFrom  || '').trim() || null;
   const validUntil    = (req.body.validUntil || '').trim() || null;
 
-  if (!fullName) return res.status(400).json({ success: false, error: 'Rep name is required' });
   if (kind === 'institution' && !institutionId) {
     return res.status(400).json({ success: false, error: 'Institution reps need an institution (or set type to StudyLink for roving)' });
   }
 
   try {
+    // Preferred: assign a real staff member. Copy their name onto the
+    // event-staff row and link back via source_staff_id (for email/phone/Zalo).
+    let sourceStaffId = null;
+    if (staffId) {
+      const s = await pool.query(
+        `SELECT full_name FROM staff WHERE id = $1 AND staff_type <> 'event' AND is_active = true`,
+        [staffId]
+      );
+      if (s.rowCount === 0) return res.status(404).json({ success: false, error: 'Staff member not found or not selectable' });
+      fullName = s.rows[0].full_name;
+      sourceStaffId = staffId;
+    }
+    if (!fullName) return res.status(400).json({ success: false, error: 'Pick a staff member' });
+
     if (institutionId) {
       const chk = await pool.query(`SELECT 1 FROM institutions WHERE id = $1`, [institutionId]);
       if (chk.rowCount === 0) return res.status(404).json({ success: false, error: 'Institution not found' });
@@ -422,10 +456,10 @@ router.post('/events/:id/reps', requireDeskAdmin, async (req, res) => {
     const ins = await pool.query(
       `INSERT INTO staff
          (full_name, email, position, role, staff_type, event_id, institution_id,
-          valid_from, valid_until, event_login_token, event_pin, is_active, created_at)
-       VALUES ($1, $2, $3, 'Event staff', 'event', $4, $5, $6, $7, $8, $9, true, NOW())
+          valid_from, valid_until, event_login_token, event_pin, source_staff_id, is_active, created_at)
+       VALUES ($1, $2, $3, 'Event staff', 'event', $4, $5, $6, $7, $8, $9, $10, true, NOW())
        RETURNING id`,
-      [fullName, email, POSITION_BY_KIND[kind], id, institutionId, validFrom, validUntil, token, pin]
+      [fullName, email, POSITION_BY_KIND[kind], id, institutionId, validFrom, validUntil, token, pin, sourceStaffId]
     );
     res.json({ success: true, data: await repRow(ins.rows[0].id) });
   } catch (err) {
