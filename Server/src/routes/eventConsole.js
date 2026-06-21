@@ -578,6 +578,30 @@ router.get('/qualification-check/:uniqueId', requireStaffAuth, async (req, res) 
   }
 }); 
 
+// GET /badge-image/:token -- PUBLIC (no auth). Serves the stored badge PNG so
+// it can be embedded as a single <img> in the badge email. Gmail's image proxy
+// fetches this when the student opens the email. Token is an unguessable UUID.
+router.get('/badge-image/:token', async (req, res) => {
+  try {
+    const token = String(req.params.token || '').trim();
+    if (!token) return res.status(400).send('Bad request');
+    const r = await pool.query(
+      `SELECT badge_png FROM event_attendees WHERE attendance_token = $1 LIMIT 1`,
+      [token]
+    );
+    if (r.rowCount === 0 || !r.rows[0].badge_png) {
+      return res.status(404).send('Not found');
+    }
+    const buf = Buffer.from(r.rows[0].badge_png, 'base64');
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(buf);
+  } catch (err) {
+    console.error('[event-console] badge-image:', err);
+    return res.status(500).send('Error');
+  }
+});
+
 // POST /email-badge -- email a rendered registration badge to a student.
 // The badge PNG is rendered client-side (shared badgeRenderer) and posted here
 // as base64. We resolve the real (unmasked) email from the students row unless
@@ -622,19 +646,27 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
     const ev = await pool.query(`SELECT name FROM events WHERE id = $1 LIMIT 1`, [eventId]);
     const eventName = ev.rowCount ? (ev.rows[0].name || '') : '';
 
+    // Public URL where Gmail will fetch the badge image when the student opens
+    // the email. Token is an unguessable UUID, so the route can be public.
+    const attToken = att.rows[0].attendance_token;
+    const PUBLIC_BASE = (process.env.PUBLIC_BASE_URL
+      || 'https://studylinkleadqualification-production.up.railway.app').replace(/\/+$/, '');
+    const badgeImageUrl = `${PUBLIC_BASE}/api/event-console/badge-image/${attToken}`;
+
     await sendEventQrEmail(recipient, {
       name: studentName,
       eventName,
       badgeUrl,
+      badgeImageUrl,
       badgePngBase64: badgePng,
     });
 
     const upd = await pool.query(
       `UPDATE event_attendees
-          SET badge_emailed_at = NOW(), badge_emailed_to = $3, updated_at = NOW()
+          SET badge_emailed_at = NOW(), badge_emailed_to = $3, badge_png = $4, updated_at = NOW()
         WHERE event_id = $1 AND student_unique_id = $2
         RETURNING badge_emailed_at, badge_emailed_to`,
-      [eventId, uniqueId, recipient]
+      [eventId, uniqueId, recipient, badgePng]
     );
 
     res.json({ success: true, data: upd.rows[0] || { badge_emailed_to: recipient } });
