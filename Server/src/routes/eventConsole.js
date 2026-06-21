@@ -27,7 +27,7 @@ const express = require('express');
 const crypto  = require('crypto');
 const { Pool } = require('pg');
 const { clearQualificationCache, checkStudent } = require('../services/eventQualification');
-const { sendEventQrEmail } = require('../services/emailService');
+const { sendEventQrEmail, sendRepLinkEmail } = require('../services/emailService');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -524,6 +524,51 @@ router.delete('/events/:id/reps/:repId', requireDeskAdmin, async (req, res) => {
   } catch (err) {
     console.error('[event-console] remove rep:', err);
     res.status(500).json({ success: false, error: 'Failed to remove rep' });
+  }
+});
+
+// ── POST /events/:id/reps/:repId/email-link ── email a rep their one-click
+// desk sign-in link. The link carries token + PIN (built server-side, so the
+// PIN never travels from the client). Requires source_staff_id so we have a
+// real inbox to send to. Body: { baseUrl } (the LQ app base, e.g. VITE_LQ_BASE_URL).
+router.post('/events/:id/reps/:repId/email-link', requireDeskAdmin, async (req, res) => {
+  const id    = parseInt(req.params.id, 10);
+  const repId = parseInt(req.params.repId, 10);
+  if (isNaN(id) || isNaN(repId)) return res.status(400).json({ success: false, error: 'Invalid id' });
+
+  const baseUrl = (req.body.baseUrl || '').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(baseUrl)) {
+    return res.status(400).json({ success: false, error: 'Missing or invalid base URL' });
+  }
+
+  try {
+    const r = await pool.query(
+      `SELECT id, full_name, event_login_token, event_pin, source_staff_id, is_active
+         FROM staff
+        WHERE id = $1 AND event_id = $2 AND staff_type = 'event' LIMIT 1`,
+      [repId, id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Rep not found' });
+    const rep = r.rows[0];
+    if (!rep.is_active) return res.status(400).json({ success: false, error: 'Rep is deactivated' });
+    if (!rep.source_staff_id) {
+      return res.status(400).json({ success: false, error: 'This rep is not linked to a staff member. Re-create them from the staff list to enable email.' });
+    }
+
+    const s = await pool.query(`SELECT email FROM staff WHERE id = $1`, [rep.source_staff_id]);
+    const email = s.rows[0] && s.rows[0].email;
+    if (!email) return res.status(400).json({ success: false, error: 'Linked staff member has no email on file' });
+
+    const ev = await pool.query(`SELECT name FROM events WHERE id = $1`, [id]);
+    const eventName = ev.rows[0] ? ev.rows[0].name : '';
+
+    const link = `${baseUrl}/desk?rep=${encodeURIComponent(rep.event_login_token)}&pin=${encodeURIComponent(rep.event_pin)}`;
+
+    await sendRepLinkEmail(email, { name: rep.full_name, eventName, link });
+    res.json({ success: true, data: { email } });
+  } catch (err) {
+    console.error('[event-console] email rep link:', err);
+    res.status(500).json({ success: false, error: 'Failed to send sign-in link' });
   }
 });
 

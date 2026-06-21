@@ -73,4 +73,47 @@ async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', 
   return result;
 }
 
-module.exports = { sendOTPEmail, sendEventQrEmail };
+module.exports = { sendOTPEmail, sendEventQrEmail, sendRepLinkEmail };
+
+// Email a rep their one-click desk sign-in link via the same GAS relay.
+// The relay's doPost branches on type === 'rep_link'.
+//   to     - the rep's real staff email
+//   fields - { name, eventName, link }
+async function sendRepLinkEmail(to, { name = '', eventName = '', link = '' } = {}) {
+  const gasUrl = config.gas.sendOtpUrl;
+
+  if (!link) {
+    throw new Error('link is required');
+  }
+
+  if (!gasUrl) {
+    console.log(`[DEV] rep link email for ${to}: ${link}`);
+    return { success: true, mode: 'dev-console' };
+  }
+
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'rep_link',
+      email: to,
+      name,
+      eventName,
+      link,
+      from: 'info@studylink.org',
+    }),
+    redirect: 'follow',
+  });
+
+  if (!response.ok) {
+    throw new Error(`GAS rep-link email failed: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(result.error || 'GAS rep-link email sending failed');
+  }
+
+  console.log(`Rep link email sent to ${to} via GAS`);
+  return result;
+}

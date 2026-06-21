@@ -161,6 +161,7 @@ export const eventConsoleAPI = {
 // ── Event reps (Phase 2.2a) ──
   listEventReps:  (id)             => request('GET',    `/api/event-console/events/${id}/reps`),
   staffPool:      ()               => request('GET',    `/api/event-console/staff-pool`),
+  emailRepLink:   (id, repId, baseUrl) => request('POST', `/api/event-console/events/${id}/reps/${repId}/email-link`, { baseUrl }),
   addEventRep:    (id, body)       => request('POST',   `/api/event-console/events/${id}/reps`, body),
   updateEventRep: (id, repId, b)   => request('PATCH',  `/api/event-console/events/${id}/reps/${repId}`, b),
   regenRepPin:    (id, repId)      => request('POST',   `/api/event-console/events/${id}/reps/${repId}/regen-pin`),
