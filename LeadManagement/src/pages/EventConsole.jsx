@@ -277,7 +277,7 @@ export default function EventConsole() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') loadRoster(eventId, q); }}
-              placeholder="Search name, email or phone…"
+              placeholder="Search name or phone…"
               style={{ flex:1, padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}
             />
             <button
