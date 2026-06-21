@@ -137,6 +137,23 @@ export default function EventConsole() {
       .catch((e) => setBadgeMsg(e.message || 'Failed to render badge'));
   };
 
+  // Build the "View your badge" link for the email. The page lives in the LQ
+  // (Client) app; name/event/dates ride in the query so it needs no lookup.
+  // Returns '' if VITE_LQ_BASE_URL is unset -> email omits the button.
+  const buildBadgeUrl = (r) => {
+    const base = (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, '');
+    if (!base || !r.attendanceToken) return '';
+    const ev = events.find((e) => String(e.id) === String(eventId));
+    const dateStr = (ev && ev.startDate && ev.endDate)
+      ? `${fmtDate(ev.startDate)} - ${fmtDate(ev.endDate)}`
+      : (ev ? (fmtDate(ev.startDate) || fmtDate(ev.endDate) || '') : '');
+    const p = new URLSearchParams();
+    if (r.fullName) p.set('n', r.fullName);
+    if (ev && ev.name) p.set('e', ev.name);
+    if (dateStr) p.set('d', dateStr);
+    return `${base}/badge/${encodeURIComponent(r.attendanceToken)}?${p.toString()}`;
+  };
+
   const sendBadge = async () => {
     if (!badgeStudent || !badgePreview) return;
     const to = badgeEmail.trim();
@@ -148,6 +165,7 @@ export default function EventConsole() {
         eventId,
         email: to,
         badgePng: dataUrlToBase64(badgePreview),
+        badgeUrl: buildBadgeUrl(badgeStudent),
       });
       setBadgeMsg(`Sent to ${to}.`);
       await loadRoster(eventId, q);   // refresh so the emailed status updates

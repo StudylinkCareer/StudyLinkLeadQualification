@@ -6,6 +6,7 @@ import Home from './pages/Home';
 import OTPVerification from './pages/OTPVerification';
 import Dashboard from './pages/Dashboard';
 import DeskPage from './pages/DeskPage';
+import BadgePage from './pages/BadgePage';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/desk" element={<DeskPage />} />
+            <Route path="/badge/:token" element={<BadgePage />} />
             <Route path="/verify" element={<OTPVerification />} />
             <Route
               path="/dashboard"
