@@ -251,6 +251,17 @@ export default function DeskPage() {
           <div style={label}>Student</div>
           <div style={{ fontSize: 22, fontWeight: 800, margin: '4px 0 14px' }}>{student.fullName}</div>
 
+          {student.profile && student.profile.length > 0 && (
+            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '8px 12px', margin: '0 0 16px' }}>
+              {student.profile.map((f, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0', fontSize: 14, borderTop: i ? '1px solid #eef0f2' : 'none' }}>
+                  <span style={{ color: '#6b7280' }}>{f.label}</span>
+                  <span style={{ fontWeight: 600, textAlign: 'right' }}>{f.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <label style={label}>Note</label>
           <textarea
             style={{ ...input, marginTop: 6, marginBottom: 14, minHeight: 120, resize: 'vertical' }}

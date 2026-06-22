@@ -201,13 +201,19 @@ function stampLine(repName, institutionName) {
   return `[${ts}] ${repName}${institutionName ? ' \u00b7 ' + institutionName : ''}`;
 }
 
-// ── POST /lookup ── resolve a scanned attendance token → student NAME ONLY.
+// ── POST /lookup ── resolve a scanned attendance token → student name +
+// the currently-required qualification fields (admin-configurable), minus the
+// contact identifiers. Display-only context for the booth operator; email,
+// phone and Zalo (preferred_social) NEVER leave this endpoint.
+const LOOKUP_EXCLUDE = ['email', 'phone', 'preferred_social'];
+function _present(v) { return v !== null && v !== undefined && String(v).trim() !== ''; }
+
 router.post('/lookup', requireRep, async (req, res) => {
   const code = (req.body.attendanceToken || req.body.code || '').trim();
   if (!code) return res.status(400).json({ success: false, error: 'Nothing scanned' });
   try {
     const r = await pool.query(
-      `SELECT ea.student_unique_id, s.full_name
+      `SELECT s.*
          FROM event_attendees ea
          JOIN students s ON s.unique_id = ea.student_unique_id
         WHERE ea.attendance_token = $1 AND ea.event_id = $2
@@ -217,8 +223,29 @@ router.post('/lookup', requireRep, async (req, res) => {
     if (r.rowCount === 0) {
       return res.status(404).json({ success: false, error: 'Not recognised — is the student checked in?' });
     }
-    // NAME ONLY — no email/phone/contact ever leaves this endpoint.
-    res.json({ success: true, data: { studentUniqueId: r.rows[0].student_unique_id, fullName: r.rows[0].full_name } });
+    const student = r.rows[0];
+
+    // Currently-required fields, minus contact identifiers. Read live so
+    // toggling fields in the Qualification tab changes the scan automatically.
+    let profile = [];
+    try {
+      const qf = await pool.query(
+        `SELECT field_key, label FROM event_qualification_fields
+          WHERE is_required = true ORDER BY sort_order`
+      );
+      profile = qf.rows
+        .filter((f) => !LOOKUP_EXCLUDE.includes(f.field_key) && _present(student[f.field_key]))
+        .map((f) => ({ label: f.label, value: String(student[f.field_key]).trim() }));
+    } catch (e) {
+      console.error('[event-desk] lookup profile:', e.message);   // non-fatal
+    }
+
+    // Name + required profile only — email/phone/Zalo never leave this endpoint.
+    res.json({ success: true, data: {
+      studentUniqueId: student.unique_id,
+      fullName: student.full_name,
+      profile,
+    } });
   } catch (err) {
     console.error('[event-desk] lookup:', err);
     res.status(500).json({ success: false, error: 'Lookup failed' });
