@@ -73,6 +73,12 @@ export const lookupAPI = {
   getByCategory:  (cat)     => api.get(`/lookups/${cat}`),
 };
 
+// ── Know-you-better student self-service (public, token-gated) ──
+export const profileAPI = {
+  get:  (token)         => api.get(`/event-console/profile/${encodeURIComponent(token)}`),
+  save: (token, fields) => api.post(`/event-console/profile/${encodeURIComponent(token)}`, { fields }),
+};
+
 // ── Event desk (Phase 2.2) — public rep flow, Bearer-token auth ──
 async function deskRequest(method, endpoint, data, token) {
   const options = { method, headers: {} };
