@@ -40,6 +40,13 @@ export default function EventConsole() {
   const [badgeBusy, setBadgeBusy]       = useState(false);// sending in progress
   const [badgeMsg, setBadgeMsg]         = useState('');   // success / error line
 
+  // Check-in form (gate) state
+  const [ciStudent, setCiStudent] = useState(null);  // roster row being checked in via the form
+  const [ciFields, setCiFields]   = useState([]);    // [{ fieldKey, label, type, options, value }]
+  const [ciValues, setCiValues]   = useState({});    // { fieldKey: value }
+  const [ciBusy, setCiBusy]       = useState(false);
+  const [ciError, setCiError]     = useState('');
+
   // Desks tab state
   const [desks, setDesks]             = useState([]);
   const [institutions, setInstitutions] = useState([]);  // master list (datalist)
@@ -103,15 +110,43 @@ export default function EventConsole() {
   // Load desks when the Desks tab is active for the selected event.
   useEffect(() => { if (tab === 'desks') loadDesks(eventId); }, [tab, eventId, loadDesks]);
 
-  const handleCheckin = async (uniqueId) => {
+  const handleCheckin = async (uniqueId, row) => {
     setBusyId(uniqueId); setError('');
     try {
-      await eventConsoleAPI.checkin(eventId, uniqueId);
-      await loadRoster(eventId, q);
+      // Ask the server what's required and whether this student already passes.
+      const res = await eventConsoleAPI.checkinFields(eventId, uniqueId);
+      const data = res.data || {};
+      if (data.qualified) {
+        await eventConsoleAPI.checkin(eventId, uniqueId);
+        await loadRoster(eventId, q);
+      } else {
+        // Open the form to fill the required fields before check-in completes.
+        const fields = data.fields || [];
+        const init = {};
+        fields.forEach((f) => { init[f.fieldKey] = f.value || ''; });
+        setCiFields(fields);
+        setCiValues(init);
+        setCiError('');
+        setCiStudent(row || { uniqueId });
+      }
     } catch (e) {
       setError(e.message || 'Check-in failed');
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const submitCheckin = async () => {
+    if (!ciStudent) return;
+    setCiBusy(true); setCiError('');
+    try {
+      await eventConsoleAPI.checkin(eventId, ciStudent.uniqueId, ciValues);
+      setCiStudent(null); setCiFields([]); setCiValues({});
+      await loadRoster(eventId, q);
+    } catch (e) {
+      setCiError(e.message || 'Some required fields are still missing');
+    } finally {
+      setCiBusy(false);
     }
   };
 
@@ -357,7 +392,7 @@ export default function EventConsole() {
                         )}
                         {!r.attendedAt && (
                           <button
-                            onClick={() => handleCheckin(r.uniqueId)}
+                            onClick={() => handleCheckin(r.uniqueId, r)}
                             disabled={busyId === r.uniqueId}
                             style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#16a34a', color:'#fff', fontWeight:600, cursor:'pointer', opacity: busyId === r.uniqueId ? 0.6 : 1 }}
                           >{busyId === r.uniqueId ? 'Checking in…' : 'Check in'}</button>
@@ -528,6 +563,65 @@ export default function EventConsole() {
                 disabled={badgeBusy || !badgePreview || !badgeEmail.trim()}
                 style={{ padding:'9px 18px', borderRadius:10, border:'none', background:'#c8102e', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
               >{badgeBusy ? 'Sending...' : (badgeStudent.badgeEmailedAt ? 'Re-send' : 'Send badge')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {ciStudent && (
+        <div
+          onClick={() => !ciBusy && setCiStudent(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background:'#fff', borderRadius:16, padding:24, maxWidth:480, width:'92%', maxHeight:'90vh', overflowY:'auto' }}
+          >
+            <div style={{ fontSize:18, fontWeight:800, marginBottom:2 }}>{ciStudent.fullName || ciStudent.uniqueId}</div>
+            <div style={{ color:'#9ca3af', fontSize:13, marginBottom:14 }}>Complete required fields to check in</div>
+
+            {ciFields.map((f) => {
+              const empty = !ciValues[f.fieldKey];
+              const bd = empty ? '#fca5a5' : '#d1d5db';
+              return (
+                <div key={f.fieldKey} style={{ marginBottom:12 }}>
+                  <label style={{ display:'block', fontSize:13, fontWeight:600, marginBottom:4 }}>
+                    {f.label}{empty && <span style={{ color:'#dc2626' }}> *</span>}
+                  </label>
+                  {f.type === 'select' ? (
+                    <select
+                      value={ciValues[f.fieldKey] || ''}
+                      onChange={(e) => setCiValues((v) => ({ ...v, [f.fieldKey]: e.target.value }))}
+                      style={{ width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:8, border:`1px solid ${bd}`, fontSize:14, background:'#fff' }}
+                    >
+                      <option value="">Select...</option>
+                      {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      value={ciValues[f.fieldKey] || ''}
+                      onChange={(e) => setCiValues((v) => ({ ...v, [f.fieldKey]: e.target.value }))}
+                      style={{ width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:8, border:`1px solid ${bd}`, fontSize:14 }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {ciError && (
+              <div style={{ fontSize:13, color:'#b91c1c', margin:'4px 0 12px' }}>{ciError}</div>
+            )}
+
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:8 }}>
+              <button
+                onClick={() => setCiStudent(null)}
+                disabled={ciBusy}
+                style={{ padding:'9px 16px', borderRadius:10, border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontWeight:600 }}
+              >Cancel</button>
+              <button
+                onClick={submitCheckin}
+                disabled={ciBusy || ciFields.some((f) => !ciValues[f.fieldKey])}
+                style={{ padding:'9px 18px', borderRadius:10, border:'none', background:'#16a34a', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(ciBusy || ciFields.some((f) => !ciValues[f.fieldKey])) ? 0.6 : 1 }}
+              >{ciBusy ? 'Saving...' : 'Save & check in'}</button>
             </div>
           </div>
         </div>

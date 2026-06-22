@@ -157,6 +157,33 @@ router.post('/events/:id/checkin', requireStaffAuth, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Student is not registered for this event' });
     }
 
+    // Optional: persist field values submitted from the check-in form. Keys are
+    // whitelisted against the qualification catalog so only known student
+    // columns can be written; values are parameterised.
+    const incoming = (req.body.fields && typeof req.body.fields === 'object') ? req.body.fields : null;
+    if (incoming) {
+      const cat = await pool.query(`SELECT field_key FROM event_qualification_fields`);
+      const allowed = new Set(cat.rows.map((r) => r.field_key));
+      const sets = [], vals = [];
+      let i = 1;
+      for (const [k, v] of Object.entries(incoming)) {
+        if (!allowed.has(k)) continue;
+        sets.push(`${k} = $${i++}`);
+        vals.push(v === '' ? null : v);
+      }
+      if (sets.length) {
+        vals.push(uniqueId);
+        await pool.query(`UPDATE students SET ${sets.join(', ')}, updated_at = NOW() WHERE unique_id = $${i}`, vals);
+      }
+    }
+
+    // HARD GATE: cannot complete check-in while any required field is missing.
+    const sres = await pool.query(`SELECT * FROM students WHERE unique_id = $1 LIMIT 1`, [uniqueId]);
+    const gate = await checkStudent(pool, sres.rows[0] || {});
+    if (!gate.qualified) {
+      return res.status(422).json({ success: false, error: 'Required fields incomplete', missing: gate.missing });
+    }
+
     // The checking-in staff member is the logged-in user.
     const checkedInBy = req.session.staffId;
 
@@ -595,6 +622,39 @@ async function listQualificationFields() {
   return r.rows;
 }
 
+// field_key → lookup_values.category. Most are identity; these two differ.
+const FIELD_LOOKUP_CATEGORY = { residency: 'vietnam_province', destination_country: 'country' };
+function lookupCategoryFor(k) { return FIELD_LOOKUP_CATEGORY[k] || k; }
+
+// Build the streamlined check-in form descriptor for a student: one entry per
+// CURRENTLY-required field, with options pulled from lookup_values (select) or
+// type 'text' when no list exists. Reads config live, so it tracks the toggles.
+async function buildCheckinFields(student) {
+  const qf = await pool.query(
+    `SELECT field_key, label FROM event_qualification_fields
+      WHERE is_required = true ORDER BY sort_order`
+  );
+  const out = [];
+  for (const f of qf.rows) {
+    const lv = await pool.query(
+      `SELECT code, COALESCE(NULLIF(label_en, ''), code) AS label
+         FROM lookup_values
+        WHERE category = $1 AND is_active = true
+        ORDER BY sort_order, label_en`,
+      [lookupCategoryFor(f.field_key)]
+    );
+    const options = lv.rows.map((x) => ({ value: x.code, label: x.label }));
+    out.push({
+      fieldKey: f.field_key,
+      label: f.label,
+      type: options.length ? 'select' : 'text',
+      options,
+      value: student[f.field_key] != null ? String(student[f.field_key]) : '',
+    });
+  }
+  return out;
+}
+
 // GET /qualification-fields — the full catalog (for the admin grid)
 router.get('/qualification-fields', requireAdminOnly, async (req, res) => {
   try {
@@ -656,6 +716,25 @@ router.get('/qualification-check/:uniqueId', requireStaffAuth, async (req, res) 
     res.status(500).json({ success: false, error: 'Check failed' });
   }
 }); 
+
+// GET /events/:id/checkin-fields/:uniqueId — the streamlined check-in form's
+// data: every currently-required field with its label, input type, options
+// (from lookup_values) and the student's current value, plus what's missing.
+router.get('/events/:id/checkin-fields/:uniqueId', requireStaffAuth, async (req, res) => {
+  const uid = String(req.params.uniqueId || '').trim();
+  if (!uid) return res.status(400).json({ success: false, error: 'uniqueId required' });
+  try {
+    const sres = await pool.query(`SELECT * FROM students WHERE unique_id = $1 LIMIT 1`, [uid]);
+    if (sres.rowCount === 0) return res.status(404).json({ success: false, error: 'Student not found' });
+    const student = sres.rows[0];
+    const fields = await buildCheckinFields(student);
+    const { qualified, missing } = await checkStudent(pool, student);
+    res.json({ success: true, data: { fields, missing, qualified } });
+  } catch (err) {
+    console.error('[event-console] checkin-fields:', err);
+    res.status(500).json({ success: false, error: 'Failed to load check-in fields' });
+  }
+});
 
 // GET /badge-image/:token -- PUBLIC (no auth). Serves the stored badge PNG so
 // it can be embedded as a single <img> in the badge email. Gmail's image proxy
