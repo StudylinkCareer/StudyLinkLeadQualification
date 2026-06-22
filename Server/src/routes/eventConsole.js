@@ -736,6 +736,68 @@ router.get('/events/:id/checkin-fields/:uniqueId', requireStaffAuth, async (req,
   }
 });
 
+// ── PUBLIC "Know you better" student self-service ────────────────────
+// Resolved by the badge's attendance_token (unguessable) — no login. Lets a
+// registered student answer the qualification questions before the event so
+// booths don't re-ask. Qualification fields only; contact details are never
+// editable here.
+const PROFILE_EXCLUDE = ['email', 'phone', 'preferred_social'];
+
+// GET /profile/:token — questions + the student's current answers.
+router.get('/profile/:token', async (req, res) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) return res.status(400).json({ success: false, error: 'Missing link code' });
+  try {
+    const r = await pool.query(
+      `SELECT s.*
+         FROM event_attendees ea JOIN students s ON s.unique_id = ea.student_unique_id
+        WHERE ea.attendance_token = $1 LIMIT 1`,
+      [token]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Link not recognised' });
+    const student = r.rows[0];
+    const all = await buildCheckinFields(student);
+    const fields = all.filter((f) => !PROFILE_EXCLUDE.includes(f.fieldKey));
+    res.json({ success: true, data: { fullName: student.full_name, fields } });
+  } catch (err) {
+    console.error('[event-console] profile get:', err);
+    res.status(500).json({ success: false, error: 'Failed to load your questions' });
+  }
+});
+
+// POST /profile/:token — save the student's answers back to their lead.
+router.post('/profile/:token', async (req, res) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) return res.status(400).json({ success: false, error: 'Missing link code' });
+  const incoming = (req.body.fields && typeof req.body.fields === 'object') ? req.body.fields : null;
+  if (!incoming) return res.status(400).json({ success: false, error: 'No answers submitted' });
+  try {
+    const r = await pool.query(
+      `SELECT student_unique_id FROM event_attendees WHERE attendance_token = $1 LIMIT 1`,
+      [token]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Link not recognised' });
+    const uid = r.rows[0].student_unique_id;
+
+    const cat = await pool.query(`SELECT field_key FROM event_qualification_fields`);
+    const allowed = new Set(cat.rows.map((x) => x.field_key).filter((k) => !PROFILE_EXCLUDE.includes(k)));
+    const sets = [], vals = [];
+    let i = 1;
+    for (const [k, v] of Object.entries(incoming)) {
+      if (!allowed.has(k)) continue;
+      sets.push(`${k} = $${i++}`);
+      vals.push(v === '' ? null : v);
+    }
+    if (!sets.length) return res.status(400).json({ success: false, error: 'Nothing to save' });
+    vals.push(uid);
+    await pool.query(`UPDATE students SET ${sets.join(', ')}, updated_at = NOW() WHERE unique_id = $${i}`, vals);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[event-console] profile save:', err);
+    res.status(500).json({ success: false, error: 'Failed to save your answers' });
+  }
+});
+
 // GET /badge-image/:token -- PUBLIC (no auth). Serves the stored badge PNG so
 // it can be embedded as a single <img> in the badge email. Gmail's image proxy
 // fetches this when the student opens the email. Token is an unguessable UUID.
