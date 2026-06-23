@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider } from './contexts/AuthContext';
 import { LookupProvider } from './contexts/LookupContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
