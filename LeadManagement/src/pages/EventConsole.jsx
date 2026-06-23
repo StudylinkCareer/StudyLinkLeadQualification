@@ -11,16 +11,19 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import { eventConsoleAPI } from '../services/api';
 import RepsPanel from './RepsPanel';
 import QualificationPanel from './QualificationPanel';
-import { QRCodeSVG } from 'qrcode.react';
 import { renderBadgePng, dataUrlToBase64 } from '../utils/badgeRenderer';
 
 const fmtDate = (d) => { try { return d ? new Date(d).toLocaleDateString() : ''; } catch { return ''; } };
 const fmtTime = (d) => { try { return d ? new Date(d).toLocaleString()    : ''; } catch { return ''; } };
 
 export default function EventConsole() {
+  const navigate = useNavigate();
+  const trailCtx = useNavTrail();
   const [events, setEvents]   = useState([]);
   const [eventId, setEventId] = useState('');
   const [tab, setTab]         = useState('roster');   // 'roster' | 'desks'
@@ -31,7 +34,6 @@ export default function EventConsole() {
   const [q, setQ]             = useState('');
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState(null);   // uniqueId being checked in
-  const [qrStudent, setQrStudent] = useState(null); // roster row whose QR modal is open
 
   // Badge email modal state
   const [badgeStudent, setBadgeStudent] = useState(null); // roster row whose badge modal is open
@@ -106,6 +108,9 @@ export default function EventConsole() {
 
   // Reload roster when the event changes (and clear any search).
   useEffect(() => { setQ(''); loadRoster(eventId, ''); }, [eventId, loadRoster]);
+
+  // Drop an "Event Check-in" crumb so a lead opened from the roster links back here.
+  useEffect(() => { trailCtx?.push?.({ label: 'Event Check-in', path: '/events' }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load desks when the Desks tab is active for the selected event.
   useEffect(() => { if (tab === 'desks') loadDesks(eventId); }, [tab, eventId, loadDesks]);
@@ -355,7 +360,11 @@ export default function EventConsole() {
                 {!loading && roster.map((r) => (
                   <tr key={r.uniqueId}>
                     <td style={td}>
-                      <div style={{ fontWeight:600 }}>{r.fullName || '—'}</div>
+                      <div
+                        onClick={() => navigate(`/leads/${r.uniqueId}`)}
+                        style={{ fontWeight:600, color:'#2563eb', cursor:'pointer' }}
+                        title="Open lead record"
+                      >{r.fullName || '—'}</div>
                       <div style={{ color:'#9ca3af', fontSize:12 }}>{r.uniqueId}</div>
                     </td>
                     <td style={td}>
@@ -372,17 +381,6 @@ export default function EventConsole() {
                     </td>
                     <td style={{ ...td, textAlign:'right' }}>
                       <div style={{ display:'inline-flex', gap:8, alignItems:'center', justifyContent:'flex-end', flexWrap:'wrap' }}>
-                        {r.attendedAt && (
-                          <span style={{ color:'#6b7280', fontSize:13 }}>
-                            Checked in{r.checkedInByName ? ` · ${r.checkedInByName}` : ''}
-                          </span>
-                        )}
-                        {r.attendanceToken && (
-                          <button
-                            onClick={() => setQrStudent(r)}
-                            style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #2563eb', background:'#fff', color:'#2563eb', fontWeight:600, cursor:'pointer' }}
-                          >Show QR</button>
-                        )}
                         {r.attendanceToken && (
                           <button
                             onClick={() => openBadge(r)}
@@ -396,6 +394,11 @@ export default function EventConsole() {
                             disabled={busyId === r.uniqueId}
                             style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#16a34a', color:'#fff', fontWeight:600, cursor:'pointer', opacity: busyId === r.uniqueId ? 0.6 : 1 }}
                           >{busyId === r.uniqueId ? 'Checking in…' : 'Check in'}</button>
+                        )}
+                        {r.attendedAt && (
+                          <span style={{ color:'#6b7280', fontSize:13 }}>
+                            Checked in{r.checkedInByName ? ` · ${r.checkedInByName}` : ''}
+                          </span>
                         )}
                       </div>
                     </td>
@@ -489,30 +492,6 @@ export default function EventConsole() {
 
       {tab === 'qualification' && (
         <QualificationPanel />
-      )}
-
-      {/* ── QR modal: render a student's attendance token for scanning ── */}
-      {qrStudent && (
-        <div
-          onClick={() => setQrStudent(null)}
-          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background:'#fff', borderRadius:16, padding:28, textAlign:'center', maxWidth:360, width:'90%' }}
-          >
-            <div style={{ fontSize:20, fontWeight:800, marginBottom:4 }}>{qrStudent.fullName}</div>
-            <div style={{ color:'#9ca3af', fontSize:13, marginBottom:18 }}>{qrStudent.uniqueId}</div>
-            <div style={{ display:'inline-block', padding:16, background:'#fff', border:'1px solid #e5e7eb', borderRadius:12 }}>
-              <QRCodeSVG value={qrStudent.attendanceToken || ''} size={220} level="M" includeMargin />
-            </div>
-            <div style={{ color:'#6b7280', fontSize:13, margin:'16px 0 18px' }}>Scan at any institution desk to log a visit.</div>
-            <button
-              onClick={() => setQrStudent(null)}
-              style={{ padding:'10px 20px', borderRadius:10, border:'none', background:'#2563eb', color:'#fff', fontWeight:700, cursor:'pointer' }}
-            >Close</button>
-          </div>
-        </div>
       )}
 
       {/* ── Badge modal: render + email the styled registration badge ── */}
