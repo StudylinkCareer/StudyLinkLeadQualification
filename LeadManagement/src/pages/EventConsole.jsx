@@ -395,9 +395,7 @@ export default function EventConsole() {
                     <td style={td}>
                       {r.attendedAt
                         ? <span style={{ color:'#15803d', fontWeight:600 }}>✓ {fmtTime(r.attendedAt)}</span>
-                        : r.badgeEmailedAt
-                          ? <span style={{ color:'#b45309', fontWeight:600 }}>Badge sent</span>
-                          : <span style={{ color:'#9ca3af' }}>—</span>}
+                        : <span style={{ color:'#9ca3af' }}>—</span>}
                     </td>
                     <td style={{ ...td, textAlign:'right' }}>
                       <div style={{ display:'inline-flex', gap:8, alignItems:'center', justifyContent:'flex-end', flexWrap:'wrap' }}>
