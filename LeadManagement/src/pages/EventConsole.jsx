@@ -159,18 +159,37 @@ export default function EventConsole() {
   // Open the modal and render the styled badge (same renderer as Marketing
   // Events) encoding this student's attendance token. The preview doubles as
   // an on-screen badge a walk-in can be shown immediately.
-  const openBadge = (r) => {
+  const openBadge = async (r) => {
     setBadgeStudent(r);
     setBadgeEmail(r.email || '');
     setBadgeMsg('');
     setBadgePreview('');
+
+    // Mint an advance token on demand if this registrant has none yet, so the
+    // badge QR and the form link have a token to encode. Idempotent server-side.
+    let row = r;
+    if (!row.attendanceToken) {
+      try {
+        const res = await eventConsoleAPI.issueToken(eventId, r.uniqueId);
+        const token = res && res.data && res.data.attendanceToken;
+        if (token) {
+          row = { ...row, attendanceToken: token };
+          setBadgeStudent(row);
+          setRoster((rows) => rows.map((x) => x.uniqueId === r.uniqueId ? { ...x, attendanceToken: token } : x));
+        }
+      } catch (e) {
+        setBadgeMsg(e.message || 'Could not issue a badge token');
+        return;
+      }
+    }
+
     const ev = events.find((e) => String(e.id) === String(eventId));
     const dateStr = (ev && ev.startDate && ev.endDate)
       ? `${fmtDate(ev.startDate)} - ${fmtDate(ev.endDate)}`
       : (ev ? (fmtDate(ev.startDate) || fmtDate(ev.endDate) || '') : '');
     renderBadgePng({
-      data: r.attendanceToken,
-      title: r.fullName || r.uniqueId,
+      data: row.attendanceToken,
+      title: row.fullName || row.uniqueId,
       metaLines: [ev && ev.name, dateStr].filter(Boolean),
     })
       .then((url) => setBadgePreview(url))
@@ -206,6 +225,7 @@ export default function EventConsole() {
         email: to,
         badgePng: dataUrlToBase64(badgePreview),
         badgeUrl: buildBadgeUrl(badgeStudent),
+        baseUrl: (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, ''),
       });
       setBadgeMsg(`Sent to ${to}.`);
       await loadRoster(eventId, q);   // refresh so the emailed status updates
@@ -375,19 +395,17 @@ export default function EventConsole() {
                     <td style={td}>
                       {r.attendedAt
                         ? <span style={{ color:'#15803d', fontWeight:600 }}>✓ {fmtTime(r.attendedAt)}</span>
-                        : r.attendanceToken
-                          ? <span style={{ color:'#b45309', fontWeight:600 }}>QR issued</span>
+                        : r.badgeEmailedAt
+                          ? <span style={{ color:'#b45309', fontWeight:600 }}>Badge sent</span>
                           : <span style={{ color:'#9ca3af' }}>—</span>}
                     </td>
                     <td style={{ ...td, textAlign:'right' }}>
                       <div style={{ display:'inline-flex', gap:8, alignItems:'center', justifyContent:'flex-end', flexWrap:'wrap' }}>
-                        {r.attendanceToken && (
-                          <button
-                            onClick={() => openBadge(r)}
-                            title={r.badgeEmailedAt ? `Emailed ${fmtTime(r.badgeEmailedAt)}${r.badgeEmailedTo ? ' to ' + r.badgeEmailedTo : ''}` : 'Email registration badge'}
-                            style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #c8102e', background:'#fff', color:'#c8102e', fontWeight:600, cursor:'pointer' }}
-                          >{r.badgeEmailedAt ? 'Badge (sent)' : 'Badge'}</button>
-                        )}
+                        <button
+                          onClick={() => openBadge(r)}
+                          title={r.badgeEmailedAt ? `Emailed ${fmtTime(r.badgeEmailedAt)}${r.badgeEmailedTo ? ' to ' + r.badgeEmailedTo : ''}` : 'Email badge + profile form'}
+                          style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #c8102e', background:'#fff', color:'#c8102e', fontWeight:600, cursor:'pointer' }}
+                        >{r.badgeEmailedAt ? 'Badge (sent)' : 'Badge'}</button>
                         {!r.attendedAt && (
                           <button
                             onClick={() => handleCheckin(r.uniqueId, r)}

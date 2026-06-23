@@ -150,6 +150,7 @@ export const eventConsoleAPI = {
   roster:     (id, q)        => request('GET',  `/api/event-console/events/${id}/roster${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   checkin:    (id, uniqueId, fields) => request('POST', `/api/event-console/events/${id}/checkin`, { uniqueId, fields }),
   checkinFields: (id, uniqueId) => request('GET', `/api/event-console/events/${id}/checkin-fields/${encodeURIComponent(uniqueId)}`),
+  issueToken: (id, uniqueId) => request('POST', `/api/event-console/events/${id}/issue-token/${encodeURIComponent(uniqueId)}`),
   emailBadge: (body)         => request('POST', '/api/event-console/email-badge', body),
 
   // ── Desk setup (Phase 2.1) ──
