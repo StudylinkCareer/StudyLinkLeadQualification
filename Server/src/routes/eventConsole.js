@@ -926,10 +926,10 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
 
     const upd = await pool.query(
       `UPDATE event_attendees
-          SET badge_emailed_at = NOW(), badge_emailed_to = $3, badge_png = $4, updated_at = NOW()
+          SET badge_emailed_at = NOW(), badge_emailed_to = $3, updated_at = NOW()
         WHERE event_id = $1 AND student_unique_id = $2
         RETURNING badge_emailed_at, badge_emailed_to`,
-      [eventId, uniqueId, recipient, badgePng]
+      [eventId, uniqueId, recipient]
     );
 
     res.json({ success: true, data: upd.rows[0] || { badge_emailed_to: recipient } });
