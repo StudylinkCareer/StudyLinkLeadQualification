@@ -822,6 +822,35 @@ router.get('/badge-image/:token', async (req, res) => {
   }
 });
 
+// POST /events/:id/issue-token/:uniqueId -- unconditionally mint (or return
+// the existing) advance attendance token for a registrant, so ANY registrant
+// can be sent their badge + form link. No qualification gate here —
+// qualification is enforced at check-in. Idempotent via COALESCE.
+router.post('/events/:id/issue-token/:uniqueId', requireStaffAuth, async (req, res) => {
+  const eventId  = parseInt(req.params.id, 10);
+  const uniqueId = String(req.params.uniqueId || '').trim();
+  if (isNaN(eventId) || !uniqueId) {
+    return res.status(400).json({ success: false, error: 'Invalid event id or student id' });
+  }
+  try {
+    const token = crypto.randomUUID();
+    const up = await pool.query(
+      `INSERT INTO event_attendees
+              (event_id, student_unique_id, registered_at, attendance_token)
+            VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (event_id, student_unique_id) DO UPDATE
+            SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
+                updated_at       = NOW()
+       RETURNING attendance_token`,
+      [eventId, uniqueId, token]
+    );
+    res.json({ success: true, data: { attendanceToken: up.rows[0].attendance_token } });
+  } catch (err) {
+    console.error('[event-console] issue-token:', err);
+    res.status(500).json({ success: false, error: 'Failed to issue token' });
+  }
+});
+
 // POST /email-badge -- email a rendered registration badge to a student.
 // The badge PNG is rendered client-side (shared badgeRenderer) and posted here
 // as base64. We resolve the real (unmasked) email from the students row unless
@@ -839,15 +868,20 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
   }
 
   try {
-    // Must have an advance token for this (event, student) before we email a badge.
+    // Mint an advance token if this student doesn't have one yet — any
+    // registrant can be sent their badge + form (qualification is enforced at
+    // check-in, not here). Idempotent: keeps an existing token via COALESCE.
+    const mintToken = crypto.randomUUID();
     const att = await pool.query(
-      `SELECT attendance_token FROM event_attendees
-        WHERE event_id = $1 AND student_unique_id = $2 LIMIT 1`,
-      [eventId, uniqueId]
+      `INSERT INTO event_attendees
+              (event_id, student_unique_id, registered_at, attendance_token)
+            VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (event_id, student_unique_id) DO UPDATE
+            SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
+                updated_at       = NOW()
+       RETURNING attendance_token`,
+      [eventId, uniqueId, mintToken]
     );
-    if (att.rowCount === 0 || !att.rows[0].attendance_token) {
-      return res.status(400).json({ success: false, error: 'No advance badge token for this student at this event' });
-    }
 
     // Real (unmasked) name + email straight from the students row.
     const sres = await pool.query(
@@ -873,12 +907,21 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
       || 'https://studylinkleadqualification-production.up.railway.app').replace(/\/+$/, '');
     const badgeImageUrl = `${PUBLIC_BASE}/api/event-console/badge-image/${attToken}`;
 
+    // Public "Know you better" form link — pre-fills known fields, lets the
+    // student complete the rest, Submit writes back to their lead. Base URL is
+    // the LQ/Client host, supplied by the caller (mirrors the rep-link route).
+    const lqBase = String(req.body.baseUrl || '').trim().replace(/\/+$/, '');
+    const profileUrl = /^https?:\/\//i.test(lqBase)
+      ? `${lqBase}/profile?t=${encodeURIComponent(attToken)}`
+      : '';
+
     await sendEventQrEmail(recipient, {
       name: studentName,
       eventName,
       badgeUrl,
       badgeImageUrl,
       badgePngBase64: badgePng,
+      profileUrl,
     });
 
     const upd = await pool.query(
