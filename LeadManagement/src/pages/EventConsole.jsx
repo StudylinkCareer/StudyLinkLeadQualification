@@ -225,7 +225,20 @@ export default function EventConsole() {
       setBadgeMsg('Sent via Zalo.');
       await loadRoster(eventId, q);
     } catch (e) {
-      setBadgeMsg(e.message || 'Failed to send via Zalo');
+      // Not configured (or failed): fall back to a manual deep link. Copy the
+      // badge link and open the student's Zalo chat so staff can paste + send.
+      const base  = (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, '');
+      const token = badgeStudent.attendanceToken || '';
+      const profileUrl = base && token ? base + '/profile?t=' + encodeURIComponent(token) : '';
+      const digits = String(badgeStudent.phone || '').replace(/[^0-9]/g, '');
+      const intl   = digits.startsWith('0') ? '84' + digits.slice(1) : digits;
+      if (profileUrl) { try { await navigator.clipboard.writeText(profileUrl); } catch (_) {} }
+      if (intl) {
+        window.open('https://zalo.me/' + intl, '_blank', 'noopener');
+        setBadgeMsg('Opened Zalo - badge link copied, paste it into the chat and send.');
+      } else {
+        setBadgeMsg(profileUrl ? ('No phone on file. Link copied: ' + profileUrl) : 'No phone or link available.');
+      }
     } finally {
       setBadgeBusy(false);
     }
@@ -563,7 +576,7 @@ export default function EventConsole() {
             />
 
             {badgeMsg && (
-              <div style={{ fontSize:13, color: badgeMsg.startsWith('Sent') ? '#15803d' : '#b91c1c', marginBottom:12 }}>{badgeMsg}</div>
+              <div style={{ fontSize:13, color: (badgeMsg.startsWith('Sent') || badgeMsg.startsWith('Opened')) ? '#15803d' : '#b91c1c', marginBottom:12 }}>{badgeMsg}</div>
             )}
 
             <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
