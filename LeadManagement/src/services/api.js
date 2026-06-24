@@ -35,15 +35,19 @@ async function request(method, path, body) {
 
   // ── Session expiry ───────────────────────────────────────────
   // A 401 means the staff session timed out (or the server restarted and
-  // dropped it). Fire a global event so the app can show the "session
-  // expired" modal over the current page (keeping unsaved edits), instead
-  // of surfacing a raw "Not authenticated" alert. Then stop here so callers
-  // don't proceed as if the call succeeded.
+  // dropped it). Fire a global event so the app shows the single "session
+  // expired" modal, then HALT the caller without throwing. Not throwing is
+  // deliberate: if we threw, each save handler's own catch would also pop a
+  // native "Not authenticated" alert, giving the user two messages. By
+  // returning a promise that never settles, the caller simply stops here
+  // (no success path, no error path, no alert). The modal handles the
+  // message and the redirect to /login; this dangling promise is discarded
+  // when the page reloads on login.
   if (res.status === 401) {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('session-expired'));
     }
-    throw new Error('Your session has expired. Please log in again.');
+    return new Promise(() => {});
   }
 
   // ── Safe response parsing ────────────────────────────────────
