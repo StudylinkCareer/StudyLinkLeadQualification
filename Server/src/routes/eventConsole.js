@@ -28,6 +28,7 @@ const crypto  = require('crypto');
 const { Pool } = require('pg');
 const { clearQualificationCache, checkStudent } = require('../services/eventQualification');
 const { sendEventQrEmail, sendRepLinkEmail } = require('../services/emailService');
+const { sendEventBadge } = require('../services/zaloService');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -936,6 +937,83 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
   } catch (err) {
     console.error('[event-console] email-badge:', err);
     res.status(500).json({ success: false, error: 'Failed to email badge' });
+  }
+});
+
+// ── POST /zalo-badge ── send a registration badge to a student via Zalo.
+// Mirrors /email-badge but delivers over Zalo (ZNS by phone, or OA message by
+// user_id) instead of email. No badgePng needed: the Zalo message carries a
+// link to the /profile?t=<token> page, which renders the badge QR itself.
+// Body: { uniqueId, eventId, baseUrl, method? ('zns'|'oa') }
+router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
+  const uniqueId = String(req.body.uniqueId || '').trim();
+  const eventId  = parseInt(req.body.eventId, 10);
+  const method   = String(req.body.method || '').trim().toLowerCase() || undefined;
+
+  if (!uniqueId || isNaN(eventId)) {
+    return res.status(400).json({ success: false, error: 'uniqueId and eventId are required' });
+  }
+
+  try {
+    const mintToken = crypto.randomUUID();
+    const att = await pool.query(
+      `INSERT INTO event_attendees
+              (event_id, student_unique_id, registered_at, attendance_token)
+            VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (event_id, student_unique_id) DO UPDATE
+            SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
+                updated_at       = NOW()
+       RETURNING attendance_token`,
+      [eventId, uniqueId, mintToken]
+    );
+
+    const sres = await pool.query(
+      `SELECT full_name, phone FROM students WHERE unique_id = $1 LIMIT 1`,
+      [uniqueId]
+    );
+    if (sres.rowCount === 0) {
+      return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+    const studentName = sres.rows[0].full_name || '';
+    const phone       = String(sres.rows[0].phone || '').trim();
+
+    const ev = await pool.query(`SELECT name FROM events WHERE id = $1 LIMIT 1`, [eventId]);
+    const eventName = ev.rowCount ? (ev.rows[0].name || '') : '';
+
+    const attToken = att.rows[0].attendance_token;
+    const lqBase = String(req.body.baseUrl || '').trim().replace(/\/+$/, '');
+    const profileUrl = /^https?:\/\//i.test(lqBase)
+      ? `${lqBase}/profile?t=${encodeURIComponent(attToken)}`
+      : '';
+
+    const result = await sendEventBadge({
+      method,
+      phone,
+      name: studentName,
+      eventName,
+      profileUrl,
+    });
+
+    if (!result.sent) {
+      return res.status(200).json({
+        success: false,
+        error: result.detail || 'Could not send via Zalo',
+        reason: result.reason,
+      });
+    }
+
+    const upd = await pool.query(
+      `UPDATE event_attendees
+          SET badge_zalo_sent_at = NOW(), updated_at = NOW()
+        WHERE event_id = $1 AND student_unique_id = $2
+        RETURNING badge_zalo_sent_at`,
+      [eventId, uniqueId]
+    );
+
+    res.json({ success: true, data: upd.rows[0] || { badge_zalo_sent_at: new Date().toISOString() } });
+  } catch (err) {
+    console.error('[event-console] zalo-badge:', err);
+    res.status(500).json({ success: false, error: 'Failed to send Zalo badge' });
   }
 });
 
