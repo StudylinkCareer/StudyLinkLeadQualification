@@ -1,13 +1,18 @@
 // C:/Users/rhod_/Documents/StudyLinkLeadQualification/Client/src/pages/ProfilePage.jsx
 // ---------------------------------------------------------------------
-// PUBLIC "Know you better" page. Reached from the badge email at
-// /profile?t=<attendance_token>. The student answers the qualification
-// questions (dropdowns from the lookup lists); submitting writes the
-// answers back to their lead. No login - the token is the credential.
+// PUBLIC "Know you better" page. Reached from the badge email (and, later,
+// the Zalo badge message) at /profile?t=<attendance_token>. Shows the
+// student's registration badge (QR) at the top so a single link serves as
+// both their check-in badge and their profile form. The student answers the
+// qualification questions (dropdowns from the lookup lists); submitting
+// writes the answers back to their lead. No login - the token is the
+// credential. The QR encodes ONLY the bare token, exactly like BadgePage,
+// so it scans identically at the desk.
 // ---------------------------------------------------------------------
 
 import { useState, useEffect } from 'react';
 import { profileAPI } from '../services/api';
+import { renderBadgePng } from '../utils/badgeRenderer';
 
 const wrap  = { maxWidth: 560, margin: '0 auto', padding: '16px', fontFamily: 'system-ui, sans-serif', color: '#1a1a1a' };
 const card  = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 18, marginBottom: 14 };
@@ -25,19 +30,28 @@ export default function ProfilePage() {
   const [busy, setBusy]         = useState(false);
   const [error, setError]       = useState('');
   const [done, setDone]         = useState(false);
+  const [badgeImg, setBadgeImg] = useState('');
 
   useEffect(() => {
-    if (!token) { setError('This link is missing its code. Please use the link from your registration email.'); setLoading(false); return; }
+    if (!token) { setError('This link is missing its code. Please use the link from your registration message.'); setLoading(false); return; }
     (async () => {
       try {
         const res = await profileAPI.get(token);
         const d = res.data || {};
-        setFullName(d.fullName || '');
+        const name = d.fullName || '';
+        setFullName(name);
         const fs = d.fields || [];
         setFields(fs);
         const init = {};
         fs.forEach((f) => { init[f.fieldKey] = f.value || ''; });
         setValues(init);
+
+        // Render the registration badge (QR encodes the bare token, same as
+        // BadgePage). The badge is a bonus on top of the form - never let a
+        // render hiccup block the page, so swallow its errors.
+        renderBadgePng({ data: token, title: name })
+          .then(setBadgeImg)
+          .catch(() => {});
       } catch (e) {
         setError(e.message || 'We could not find your registration for this link.');
       } finally {
@@ -60,6 +74,22 @@ export default function ProfilePage() {
     }
   };
 
+  // Badge block - shown once rendered, on both the form view and the
+  // post-submit "thank you" view so the student always keeps their QR.
+  const badgeBlock = badgeImg ? (
+    <div style={{ ...card, textAlign: 'center' }}>
+      <img
+        src={badgeImg}
+        alt="Your registration badge"
+        style={{ width: 280, maxWidth: '85%', height: 'auto' }}
+      />
+      <p style={{ color: '#6b7280', fontSize: 13, margin: '12px 0 0', lineHeight: 1.5 }}>
+        Show this QR at each institution desk to be scanned. Press and hold the
+        image to save it to your phone.
+      </p>
+    </div>
+  ) : null;
+
   if (loading) {
     return <div style={wrap}><div style={card}>Loading...</div></div>;
   }
@@ -67,6 +97,7 @@ export default function ProfilePage() {
   if (done) {
     return (
       <div style={wrap}>
+        {badgeBlock}
         <div style={{ ...card, textAlign: 'center', padding: 28 }}>
           <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, color: '#15803d' }}>Thank you!</div>
           <div style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.5 }}>
@@ -84,6 +115,8 @@ export default function ProfilePage() {
 
   return (
     <div style={wrap}>
+      {badgeBlock}
+
       <div style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, margin: '6px 0 8px' }}>
           Know you better{fullName ? `, ${fullName}` : ''}
