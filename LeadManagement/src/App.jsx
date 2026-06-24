@@ -33,7 +33,8 @@ import { LookupProvider } from './contexts/LookupContext';
 import { NavTrailProvider } from './contexts/NavTrailContext';
 import Sidebar from './components/Sidebar';
 import MobilePageNav from './components/MobilePageNav';
-import TrailBreadcrumb from './components/TrailBreadcrumb';
+import TrailBreadcrumb from './components/TrailBreadcrumb';
+import SessionExpiredModal from './components/SessionExpiredModal';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
@@ -142,6 +143,7 @@ export default function App() {
               <Route path="/reference-data" element={<ProtectedLayout><ReferenceData /></ProtectedLayout>} />
               <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
             </Routes>
+              <SessionExpiredModal />
             </NavTrailProvider>
           </LookupProvider>
         </PermissionsProvider>
