@@ -169,6 +169,7 @@ export const eventConsoleAPI = {
   checkinFields: (id, uniqueId) => request('GET', `/api/event-console/events/${id}/checkin-fields/${encodeURIComponent(uniqueId)}`),
   issueToken: (id, uniqueId) => request('POST', `/api/event-console/events/${id}/issue-token/${encodeURIComponent(uniqueId)}`),
   emailBadge: (body)         => request('POST', '/api/event-console/email-badge', body),
+  zaloBadge:  (body)         => request('POST', '/api/event-console/zalo-badge', body),
 
   // ── Desk setup (Phase 2.1) ──
   listInstitutions: ()         => request('GET',    '/api/event-console/institutions'),

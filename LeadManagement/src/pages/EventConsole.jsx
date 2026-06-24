@@ -213,6 +213,24 @@ export default function EventConsole() {
     return `${base}/badge/${encodeURIComponent(r.attendanceToken)}?${p.toString()}`;
   };
 
+  const sendZalo = async () => {
+    if (!badgeStudent) return;
+    setBadgeBusy(true); setBadgeMsg('');
+    try {
+      await eventConsoleAPI.zaloBadge({
+        uniqueId: badgeStudent.uniqueId,
+        eventId,
+        baseUrl: (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, ''),
+      });
+      setBadgeMsg('Sent via Zalo.');
+      await loadRoster(eventId, q);
+    } catch (e) {
+      setBadgeMsg(e.message || 'Failed to send via Zalo');
+    } finally {
+      setBadgeBusy(false);
+    }
+  };
+
   const sendBadge = async () => {
     if (!badgeStudent || !badgePreview) return;
     const to = badgeEmail.trim();
@@ -558,6 +576,11 @@ export default function EventConsole() {
                 disabled={badgeBusy || !badgePreview || !badgeEmail.trim()}
                 style={{ padding:'9px 18px', borderRadius:10, border:'none', background:'#c8102e', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
               >{badgeBusy ? 'Sending...' : (badgeStudent.badgeEmailedAt ? 'Re-send' : 'Send badge')}</button>
+              <button
+                onClick={sendZalo}
+                disabled={badgeBusy}
+                style={{ padding:'9px 14px', borderRadius:10, border:'none', background:'#0068FF', color:'#fff', fontWeight:700, cursor:'pointer', opacity: badgeBusy ? 0.6 : 1 }}
+              >{badgeBusy ? 'Sending...' : 'Send via Zalo'}</button>
             </div>
           </div>
         </div>
