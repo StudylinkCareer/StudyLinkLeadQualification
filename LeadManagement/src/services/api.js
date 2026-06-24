@@ -33,6 +33,19 @@ async function request(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
 
+  // ── Session expiry ───────────────────────────────────────────
+  // A 401 means the staff session timed out (or the server restarted and
+  // dropped it). Fire a global event so the app can show the "session
+  // expired" modal over the current page (keeping unsaved edits), instead
+  // of surfacing a raw "Not authenticated" alert. Then stop here so callers
+  // don't proceed as if the call succeeded.
+  if (res.status === 401) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('session-expired'));
+    }
+    throw new Error('Your session has expired. Please log in again.');
+  }
+
   // ── Safe response parsing ────────────────────────────────────
   // Read as text first so we never crash on an empty body or an HTML
   // error page (both of which cause res.json() to throw "Unexpected
