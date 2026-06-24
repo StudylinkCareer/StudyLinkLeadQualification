@@ -29,7 +29,7 @@ const app = express();
 let sessionStore;
 if (process.env.REDIS_URL) {
   try {
-    const RedisStore = connectRedis.default || connectRedis;
+    const RedisStore = connectRedis.RedisStore || connectRedis.default || connectRedis;
     const redisClient = createClient({ url: process.env.REDIS_URL });
     redisClient.connect().catch(console.error);
     sessionStore = new RedisStore({ client: redisClient });
