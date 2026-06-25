@@ -174,8 +174,8 @@ const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived'];
 // Labels for the Contracted period cards (kept local for now; can be moved
 // into i18n/en.js + vi.js later).
 const CONTRACTED_LABELS = {
-  en: { heading:'Contracts signed — backward-looking (actuals)', lastWeek:'Contracted last week', mtd:'Contracted MTD', qtd:'Contracted QTD', ytd:'Contracted YTD', reversed:'Contracted reversed' },
-  vi: { heading:'Hợp đồng đã ký — nhìn lại', lastWeek:'Hợp đồng tuần trước', mtd:'Hợp đồng tháng này', qtd:'Hợp đồng quý này', ytd:'Hợp đồng năm nay', reversed:'Hợp đồng bị đảo' },
+  en: { heading:'Contracts signed — backward-looking (actuals)', thisWeek:'Contracted this week', lastWeek:'Contracted last week', mtd:'Contracted MTD', qtd:'Contracted QTD', ytd:'Contracted YTD', reversed:'Contracted reversed' },
+  vi: { heading:'Hợp đồng đã ký — nhìn lại', thisWeek:'Hợp đồng tuần này', lastWeek:'Hợp đồng tuần trước', mtd:'Hợp đồng tháng này', qtd:'Hợp đồng quý này', ytd:'Hợp đồng năm nay', reversed:'Hợp đồng bị đảo' },
 };
 
 const COUNSELOR_STONES        = ['Diamond', 'Ruby', 'Sapphire', 'Agate', 'Quartz', 'Unscored'];
@@ -497,8 +497,11 @@ export default function Dashboard() {
   const _cl = CONTRACTED_LABELS[language] || CONTRACTED_LABELS.en;
   const pipelineRows = [
     { kind:'header', label: language==='vi'?'Đã ký — thực tế (nhìn lại)':'Signed — actual (backward)' },
-    { kind:'contracted', bucket:'lastWeek',    label: _cl.lastWeek, color:'#10B981' },
-    { kind:'contracted', bucket:'monthToDate', label: _cl.mtd,      color:'#10B981' },
+    { kind:'contracted', bucket:'thisWeek',      label: _cl.thisWeek, color:'#10B981' },
+    { kind:'contracted', bucket:'lastWeek',      label: _cl.lastWeek, color:'#10B981' },
+    { kind:'contracted', bucket:'monthToDate',   label: _cl.mtd,      color:'#10B981' },
+    { kind:'contracted', bucket:'quarterToDate', label: _cl.qtd,      color:'#10B981' },
+    { kind:'contracted', bucket:'yearToDate',    label: _cl.ytd,      color:'#10B981' },
     { kind:'header', label: language==='vi'?'Dự kiến ký — theo ngày chốt (nhìn tới)':'Projected — by close date (forward)' },
     { kind:'pipeline', key:'backlog',         label: language==='vi'?'Tồn đọng':'Backlog',           sub: language==='vi'?'trước hôm nay':'before today',                                            color:'#DC2626' },
     { kind:'pipeline', key:'thisWeek',        label: language==='vi'?'Tuần này':'This week',              sub: `${getWeekStart().toLocaleDateString()} – ${getWeekEnd().toLocaleDateString()}`,                       color:'#10B981' },

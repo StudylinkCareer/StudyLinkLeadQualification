@@ -384,6 +384,7 @@ async function contractedStats(req, res, next) {
 
     const nowMs = now.getTime();
     const b = {
+      thisWeek:      { count: 0, ids: [] },
       lastWeek:      { count: 0, ids: [] },
       monthToDate:   { count: 0, ids: [] },
       quarterToDate: { count: 0, ids: [] },
@@ -391,6 +392,7 @@ async function contractedStats(req, res, next) {
     };
     for (const r of rows) {
       const t = new Date(r.changed_at).getTime();
+      if (t >= thisWeekMon.getTime()   && t <= nowMs)               { b.thisWeek.count++;      b.thisWeek.ids.push(r.student_id); }
       if (t >= lastWeekStart.getTime() && t < lastWeekEnd.getTime()) { b.lastWeek.count++;      b.lastWeek.ids.push(r.student_id); }
       if (t >= monthStart.getTime()    && t <= nowMs)               { b.monthToDate.count++;   b.monthToDate.ids.push(r.student_id); }
       if (t >= quarterStart.getTime()  && t <= nowMs)               { b.quarterToDate.count++; b.quarterToDate.ids.push(r.student_id); }
