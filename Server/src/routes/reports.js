@@ -73,4 +73,28 @@ router.put(
   reportCtrl.saveRecommendation
 );
 
+// ── Monthly Targets tracker (Weekly Report) ──────────────────
+// View + edit are gated to manager-level scope inside each controller
+// (leads/assign = 'all'), mirroring mass-assign.
+router.get(
+  '/monthly-targets',
+  requireStaffAuth,
+  reportCtrl.monthlyTargets
+);
+router.put(
+  '/monthly-targets',
+  requireStaffAuth,
+  reportCtrl.saveMonthlyTarget
+);
+router.post(
+  '/tracked-staff',
+  requireStaffAuth,
+  reportCtrl.addTrackedStaff
+);
+router.delete(
+  '/tracked-staff/:staffId',
+  requireStaffAuth,
+  reportCtrl.removeTrackedStaff
+);
+
 module.exports = router;

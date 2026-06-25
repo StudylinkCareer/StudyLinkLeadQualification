@@ -749,4 +749,206 @@ async function saveRecommendation(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation };
+// ── Monthly Targets (Weekly Report tracker) ──────────────────────────────────
+// GET    /api/reports/monthly-targets        grid: tracked counsellors x months
+// PUT    /api/reports/monthly-targets         upsert one target (manager/admin)
+// POST   /api/reports/tracked-staff           add a counsellor to the tracker
+// DELETE /api/reports/tracked-staff/:staffId  remove a counsellor
+//
+// "Actual" = contracted signings in that month (audit_log, still-Contracted,
+// attributed by the `counselor` slot), using the SAME VN month boundaries and
+// changed_at comparison as contractedStats, so the numbers reconcile with the
+// Dashboard / Pipeline contracted figures. "Target" = the monthly_targets row
+// if one exists, else the staff.target fallback (flagged isFallback).
+
+// Manager-level write gate (mirrors mass-assign): leads/assign scope = 'all'.
+async function isManagerScope(req) {
+  const scope = await permissionService.getResourceScope(req.session.staffRole, 'leads', 'assign');
+  return scope === 'all';
+}
+
+// Months from Jan 2026 to the current month, in Vietnam local time (UTC+7).
+// Each month carries its half-open [startMs, endMs) window for bucketing.
+function buildTargetMonths() {
+  const VN = 7 * 60 * 60 * 1000;
+  const vnMidnightUTC = (y, m, d) => new Date(Date.UTC(y, m, d) - VN);
+  const vn = new Date(Date.now() + VN);
+  const curY = vn.getUTCFullYear(), curM = vn.getUTCMonth();
+  const months = [];
+  let y = 2026, m = 0;
+  while (y < curY || (y === curY && m <= curM)) {
+    const startMs = vnMidnightUTC(y, m, 1).getTime();
+    const endMs   = vnMidnightUTC(y, m + 1, 1).getTime();   // first of next month (exclusive)
+    const label   = `${y}-${String(m + 1).padStart(2, '0')}`;
+    months.push({ label, month: `${label}-01`, startMs, endMs });
+    m++; if (m > 11) { m = 0; y++; }
+  }
+  return { months, yearStartISO: vnMidnightUTC(2026, 0, 1).toISOString() };
+}
+
+async function monthlyTargets(req, res, next) {
+  try {
+    if (!(await isManagerScope(req))) {
+      return res.status(403).json({ success: false, error: 'Not authorised to view monthly targets' });
+    }
+
+    const { months, yearStartISO } = buildTargetMonths();
+
+    // Tracked counsellors, in display order, with their staff-level fallback target.
+    const tracked = (await pool.query(
+      `SELECT t.staff_id, t.sort_order, s.full_name, COALESCE(s.target, 0) AS fallback_target
+         FROM target_tracked_staff t
+         JOIN staff s ON s.id = t.staff_id
+        ORDER BY t.sort_order, s.full_name`
+    )).rows;
+    const names = tracked.map(r => r.full_name);
+
+    // Monthly target overrides for these staff (this year only).
+    const overrides = names.length ? (await pool.query(
+      `SELECT mt.staff_id, to_char(mt.month, 'YYYY-MM') AS label, mt.target
+         FROM monthly_targets mt
+         JOIN target_tracked_staff t ON t.staff_id = mt.staff_id
+        WHERE mt.month >= DATE '2026-01-01'`
+    )).rows : [];
+    const overrideMap = new Map();             // `${staffId}|${label}` -> target
+    for (const o of overrides) overrideMap.set(`${o.staff_id}|${o.label}`, o.target);
+
+    // Actuals: contracted signings (still-Contracted) by counsellor name, this year.
+    const actualRows = names.length ? (await pool.query(
+      `SELECT DISTINCT ON (a.student_id) a.student_id, a.changed_at, s.counselor
+         FROM audit_log a
+         JOIN students s ON s.unique_id = a.student_id
+        WHERE a.field_name = 'leadStatus'
+          AND a.new_value  = 'Contracted'
+          AND s.lead_status = 'Contracted'
+          AND s.counselor = ANY($1)
+          AND a.changed_at >= $2
+        ORDER BY a.student_id, a.changed_at DESC`,
+      [names, yearStartISO]
+    )).rows : [];
+
+    const actualMap = new Map();               // name -> { label -> count }
+    for (const r of actualRows) {
+      const t  = new Date(r.changed_at).getTime();
+      const mo = months.find(x => t >= x.startMs && t < x.endMs);
+      if (!mo) continue;
+      if (!actualMap.has(r.counselor)) actualMap.set(r.counselor, {});
+      const byMonth = actualMap.get(r.counselor);
+      byMonth[mo.label] = (byMonth[mo.label] || 0) + 1;
+    }
+
+    const rows = tracked.map(tr => {
+      const cells = {};
+      let ytdActual = 0, ytdTarget = 0;
+      const byMonth = actualMap.get(tr.full_name) || {};
+      for (const mo of months) {
+        const actual     = byMonth[mo.label] || 0;
+        const ov         = overrideMap.get(`${tr.staff_id}|${mo.label}`);
+        const isFallback = ov === undefined;
+        const target     = isFallback ? tr.fallback_target : ov;
+        cells[mo.label]  = { actual, target, isFallback };
+        ytdActual += actual;
+        ytdTarget += target;
+      }
+      return {
+        staffId:        tr.staff_id,
+        fullName:       tr.full_name,
+        sortOrder:      tr.sort_order,
+        fallbackTarget: tr.fallback_target,
+        cells,
+        ytd: { actual: ytdActual, target: ytdTarget },
+      };
+    });
+
+    res.json({
+      success: true,
+      data: { months: months.map(m => ({ month: m.month, label: m.label })), rows },
+    });
+  } catch (err) { next(err); }
+}
+
+async function saveMonthlyTarget(req, res, next) {
+  try {
+    if (!(await isManagerScope(req))) {
+      return res.status(403).json({ success: false, error: 'Not authorised to edit targets' });
+    }
+    const { staffId, month, target } = req.body || {};
+    if (!staffId || !/^\d+$/.test(String(staffId))) {
+      return res.status(400).json({ success: false, error: 'staffId is required' });
+    }
+    // Accept 'YYYY-MM' or 'YYYY-MM-01'; normalise to first-of-month.
+    const mm = String(month || '');
+    const monthDate = /^\d{4}-\d{2}$/.test(mm)    ? `${mm}-01`
+                    : /^\d{4}-\d{2}-01$/.test(mm) ? mm
+                    : null;
+    if (!monthDate) {
+      return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
+    }
+    const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+
+    // Empty target reverts this cell to the staff-level fallback (delete override).
+    if (target === '' || target === null || target === undefined) {
+      await pool.query(`DELETE FROM monthly_targets WHERE staff_id = $1 AND month = $2`, [staffId, monthDate]);
+      return res.json({ success: true, data: { staffId: Number(staffId), month: mm.slice(0, 7), reverted: true } });
+    }
+
+    const n = Number(target);
+    if (!Number.isInteger(n) || n < 0) {
+      return res.status(400).json({ success: false, error: 'target must be a non-negative integer' });
+    }
+
+    const r = await pool.query(
+      `INSERT INTO monthly_targets (staff_id, month, target, updated_by, updated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (staff_id, month)
+       DO UPDATE SET target = EXCLUDED.target, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+       RETURNING staff_id, to_char(month, 'YYYY-MM') AS month, target, updated_by, updated_at`,
+      [staffId, monthDate, n, updatedBy]
+    );
+    res.json({ success: true, data: r.rows[0] });
+  } catch (err) { next(err); }
+}
+
+async function addTrackedStaff(req, res, next) {
+  try {
+    if (!(await isManagerScope(req))) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const { staffId } = req.body || {};
+    if (!staffId || !/^\d+$/.test(String(staffId))) {
+      return res.status(400).json({ success: false, error: 'staffId is required' });
+    }
+    const exists = await pool.query(`SELECT id, full_name FROM staff WHERE id = $1`, [staffId]);
+    if (exists.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Staff member not found' });
+    }
+    const addedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+    await pool.query(
+      `INSERT INTO target_tracked_staff (staff_id, sort_order, added_by)
+            VALUES ($1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM target_tracked_staff), $2)
+       ON CONFLICT (staff_id) DO NOTHING`,
+      [staffId, addedBy]
+    );
+    res.json({ success: true, data: { staffId: Number(staffId), fullName: exists.rows[0].full_name } });
+  } catch (err) { next(err); }
+}
+
+async function removeTrackedStaff(req, res, next) {
+  try {
+    if (!(await isManagerScope(req))) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const staffId = req.params.staffId;
+    if (!staffId || !/^\d+$/.test(String(staffId))) {
+      return res.status(400).json({ success: false, error: 'staffId is required' });
+    }
+    // monthly_targets history is intentionally preserved so re-adding restores it.
+    await pool.query(`DELETE FROM target_tracked_staff WHERE staff_id = $1`, [staffId]);
+    res.json({ success: true, data: { staffId: Number(staffId), removed: true } });
+  } catch (err) { next(err); }
+}
+
+module.exports = {
+  notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation,
+  monthlyTargets, saveMonthlyTarget, addTrackedStaff, removeTrackedStaff,
+};
