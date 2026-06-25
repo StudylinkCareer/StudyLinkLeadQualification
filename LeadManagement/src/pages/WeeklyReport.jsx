@@ -14,13 +14,13 @@
 // Managers pick a view (All / By group / Selected / Individual) that scopes the
 // rows; the header totals never change. Crash-proof: error boundary + guards.
 
-import { useState, useEffect, useMemo, Component } from 'react';
+import { useState, useEffect, useMemo, useRef, Component } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
-import { reportsAPI } from '../services/api';
+import { reportsAPI, staffAPI } from '../services/api';
 
 function mondayOf(d) { const x = new Date(d); const o = (x.getDay() + 6) % 7; x.setDate(x.getDate() - o); x.setHours(0, 0, 0, 0); return x; }
 function lastCompletedMonday() { return new Date(mondayOf(new Date()).getTime() - 7 * 864e5); }
@@ -234,6 +234,16 @@ function WeeklyReportInner() {
   const [recoStatus, setRecoStatus]     = useState('idle');
   const recoDirty = recoContent !== recoBaseline;
 
+  // ── Monthly Targets state ───────────────────────────────────
+  const [targets, setTargets]               = useState(null);   // { months, rows }
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [roster, setRoster]                 = useState([]);     // active staff for the add-picker
+  const [editCell, setEditCell]             = useState(null);   // { staffId, month }
+  const [editVal, setEditVal]               = useState('');
+  const [showAdd, setShowAdd]               = useState(false);
+  const [addId, setAddId]                   = useState('');
+  const skipBlurRef                         = useRef(false);
+
   const viewResources = (mode === 'selected' || mode === 'individual') ? selected : [];
   const apiMode      = isManager ? mode : 'individual';
   const apiResources = isManager ? viewResources : [];
@@ -330,6 +340,40 @@ function WeeklyReportInner() {
       .then(r => { const d = r?.data || {}; setRecoBaseline(d.content ?? recoContent); setRecoInfo({ updatedBy: d.updatedBy || null, updatedAt: d.updatedAt || null }); setRecoStatus('saved'); })
       .catch(() => setRecoStatus('error'));
   };
+
+  // ── Monthly Targets: load + mutations (managers only) ───────
+  const cellColor = (a, t) =>
+    (t > 0 ? (a >= t ? '#10B981' : '#DC2626') : (a > 0 ? '#10B981' : 'var(--text-secondary,#9ca3af)'));
+
+  function reloadTargets() {
+    if (!isManager || typeof reportsAPI.monthlyTargets !== 'function') return;
+    setTargetsLoading(true);
+    reportsAPI.monthlyTargets()
+      .then(r => setTargets(r?.data || null))
+      .catch(() => setTargets(null))
+      .finally(() => setTargetsLoading(false));
+  }
+  useEffect(() => { reloadTargets(); }, [isManager]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isManager || typeof staffAPI.listActive !== 'function') return;
+    staffAPI.listActive().then(r => setRoster(r?.data || [])).catch(() => setRoster([]));
+  }, [isManager]);
+
+  function saveTarget(staffId, month, value) {
+    reportsAPI.saveMonthlyTarget(staffId, month, value)
+      .then(() => { setEditCell(null); reloadTargets(); })
+      .catch(() => setEditCell(null));
+  }
+  function addTracked() {
+    if (!addId) return;
+    reportsAPI.addTrackedStaff(Number(addId))
+      .then(() => { setAddId(''); setShowAdd(false); reloadTargets(); })
+      .catch(() => {});
+  }
+  function removeTracked(staffId) {
+    reportsAPI.removeTrackedStaff(staffId).then(() => reloadTargets()).catch(() => {});
+  }
 
   const currentViewLabel = !isManager
     ? (staff?.fullName || L('Me', 'Tôi'))
@@ -497,6 +541,99 @@ function WeeklyReportInner() {
             </div>
           </div>
         </>
+      )}
+
+      {isManager && (
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.6rem' }}>
+            <div>
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{L('Monthly Targets', 'Chỉ tiêu tháng')}</h2>
+              <span style={sub}>{L('Contracts per month — actual / target · click a target to edit', 'Hợp đồng mỗi tháng — thực tế / chỉ tiêu · nhấn để sửa')}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {showAdd ? (
+                <>
+                  <select value={addId} onChange={e => setAddId(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }}>
+                    <option value="">{L('— Select staff —', '— Chọn nhân viên —')}</option>
+                    {roster
+                      .filter(s => !(targets?.rows || []).some(r => r.staffId === s.id))
+                      .map(s => <option key={s.id} value={s.id}>{s.fullName}{s.role ? ` (${s.role})` : ''}</option>)}
+                  </select>
+                  <button className="btn" onClick={addTracked} disabled={!addId}>{L('Add', 'Thêm')}</button>
+                  <button className="btn" onClick={() => { setShowAdd(false); setAddId(''); }}>{L('Cancel', 'Hủy')}</button>
+                </>
+              ) : (
+                <button className="btn" onClick={() => setShowAdd(true)}>+ {L('Add counsellor', 'Thêm tư vấn')}</button>
+              )}
+            </div>
+          </div>
+
+          {targetsLoading && !targets && <div style={sub}>{L('Loading…', 'Đang tải…')}</div>}
+          {targets && targets.rows.length === 0 && (
+            <div style={sub}>{L('No counsellors tracked yet — use Add counsellor.', 'Chưa có tư vấn nào — dùng Thêm tư vấn.')}</div>
+          )}
+
+          {targets && targets.rows.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...th, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>2026</th>
+                    {targets.rows.map(r => (
+                      <th key={r.staffId} style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {r.fullName}
+                        <span onClick={() => removeTracked(r.staffId)} title={L('Remove', 'Xóa')}
+                          style={{ marginLeft: 6, cursor: 'pointer', color: 'var(--text-secondary,#9ca3af)' }}>×</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {targets.months.map(mo => (
+                    <tr key={mo.label}>
+                      <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{mo.label}</td>
+                      {targets.rows.map(r => {
+                        const c = r.cells[mo.label] || { actual: 0, target: 0, isFallback: true };
+                        const editing = editCell && editCell.staffId === r.staffId && editCell.month === mo.label;
+                        return (
+                          <td key={r.staffId} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: cellColor(c.actual, c.target), fontWeight: 600 }}>{c.actual}</span>
+                            <span style={{ color: 'var(--text-secondary,#9ca3af)' }}> / </span>
+                            {editing ? (
+                              <input type="number" min="0" value={editVal} autoFocus
+                                onChange={e => setEditVal(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter')  { skipBlurRef.current = true; saveTarget(r.staffId, mo.label, editVal); }
+                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
+                                }}
+                                onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } saveTarget(r.staffId, mo.label, editVal); }}
+                                style={{ width: 44, padding: '2px 4px', fontSize: '0.8rem', textAlign: 'right' }} />
+                            ) : (
+                              <span onClick={() => { setEditCell({ staffId: r.staffId, month: mo.label }); setEditVal(String(c.target)); }}
+                                title={c.isFallback ? L('Inherited staff target — click to set a monthly target', 'Chỉ tiêu mặc định — nhấn để đặt theo tháng') : L('Click to edit', 'Nhấn để sửa')}
+                                style={{ cursor: 'pointer', fontStyle: c.isFallback ? 'italic' : 'normal', color: c.isFallback ? 'var(--text-secondary,#9ca3af)' : 'inherit' }}>
+                                {c.target}
+                              </span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={{ ...td, fontWeight: 700, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{L('YTD', 'Năm')}</td>
+                    {targets.rows.map(r => (
+                      <td key={r.staffId} style={{ ...td, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        <span style={{ color: cellColor(r.ytd.actual, r.ytd.target) }}>{r.ytd.actual}</span>
+                        <span style={{ color: 'var(--text-secondary,#9ca3af)' }}> / {r.ytd.target}</span>
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

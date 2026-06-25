@@ -252,6 +252,10 @@ export const reportsAPI = {
     request('PUT', '/api/reports/weekly-recommendation', {
       weekStart, mode, resources: resources || [], content: content || '',
     }),
+  monthlyTargets:     ()                       => request('GET',    '/api/reports/monthly-targets'),
+  saveMonthlyTarget:  (staffId, month, target) => request('PUT',    '/api/reports/monthly-targets', { staffId, month, target }),
+  addTrackedStaff:    (staffId)                => request('POST',   '/api/reports/tracked-staff', { staffId }),
+  removeTrackedStaff: (staffId)                => request('DELETE', `/api/reports/tracked-staff/${staffId}`),
 };
 
 // ── Column Config ─────────────────────────────────────────────
