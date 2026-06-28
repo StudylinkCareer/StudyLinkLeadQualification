@@ -123,7 +123,8 @@ export const cleanupAPI = {
   preview:      (ids)     => request('POST', '/api/cleanup/preview', { ids }),
   apply:        (ids)     => request('POST', '/api/cleanup/apply', { ids, confirm: true }),
   orphans:      ()        => request('GET',  '/api/cleanup/orphans'),
-  purgeOrphans: ()        => request('POST', '/api/cleanup/orphans/purge', { confirm: true }),
+  orphanKeys:   ()        => request('GET',  '/api/cleanup/orphans/keys'),
+  purgeOrphans: (ids)     => request('POST', '/api/cleanup/orphans/purge', { confirm: true, ids: ids || null }),
   byPattern:    (pattern) => request('GET',  `/api/cleanup/by-pattern?pattern=${encodeURIComponent(pattern || '')}`),
   duplicates:   (by)      => request('GET',  `/api/cleanup/duplicates?by=${encodeURIComponent(by || 'email')}`),
 };

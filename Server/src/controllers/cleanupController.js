@@ -49,13 +49,22 @@ async function orphans(req, res, next) {
   } catch (err) { next(err); }
 }
 
-// POST /api/cleanup/orphans/purge  { confirm: true }  — delete the orphans.
+// GET /api/cleanup/orphans/keys — the distinct missing-student owners (selectable).
+async function orphanKeys(req, res, next) {
+  try {
+    const result = await svc.findOrphanKeys();
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+}
+
+// POST /api/cleanup/orphans/purge  { confirm: true, ids?: [...] }
+//   ids = selected missing-student owners to scope the purge; omit = all orphans.
 async function purgeOrphans(req, res, next) {
   try {
     if (req.body.confirm !== true) {
       return res.status(400).json({ success: false, error: 'confirm:true is required to purge orphans' });
     }
-    const result = await svc.purgeOrphans({ apply: true });
+    const result = await svc.purgeOrphans({ apply: true, ids: Array.isArray(req.body.ids) ? req.body.ids : null });
     if (!result.applied && result.error) {
       return res.status(500).json({ success: false, error: result.error, data: result });
     }
@@ -79,4 +88,4 @@ async function duplicates(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { getSchema, preview, apply, orphans, purgeOrphans, byPattern, duplicates };
+module.exports = { getSchema, preview, apply, orphans, orphanKeys, purgeOrphans, byPattern, duplicates };

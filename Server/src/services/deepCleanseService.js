@@ -172,29 +172,65 @@ async function findOrphans() {
   }
 }
 
-async function purgeOrphans({ apply = false } = {}) {
-  const preview = await findOrphans();
-  if (!apply) return { applied: false, ...preview };
-  if (preview.total === 0) return { applied: false, reason: 'nothing_to_purge', ...preview };
-
+// Distinct missing-student keys (the orphan "owners") with per-key row counts —
+// drives the selectable list. Aggregated across all child tables.
+async function findOrphanKeys({ limit = 2000 } = {}) {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
     const plan = await detectSchema(client);
+    const byKey = new Map();
+    for (const c of plan.children) {
+      const r = await client.query(
+        `SELECT x.${c.col} AS id, count(*)::int AS n FROM ${c.table} x
+          WHERE x.${c.col} IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM students s WHERE s.${plan.studentPk} = x.${c.col})
+          GROUP BY x.${c.col}`
+      );
+      for (const row of r.rows) {
+        const e = byKey.get(row.id) || { id: row.id, total: 0, tables: {} };
+        e.tables[c.table] = row.n; e.total += row.n;
+        byKey.set(row.id, e);
+      }
+    }
+    const keys = [...byKey.values()].sort((a, b) => b.total - a.total).slice(0, limit);
+    return { schema: plan.schema, count: byKey.size, keys };
+  } finally {
+    client.release();
+  }
+}
+
+// Purge orphaned child rows. If `ids` (missing-student keys) is given, scope the
+// purge to those owners; otherwise purge ALL orphans. Transactional; returns the
+// (optionally scoped) count when apply!==true.
+async function purgeOrphans({ apply = false, ids = null } = {}) {
+  const keys = (Array.isArray(ids) && ids.length) ? [...new Set(ids.map(String))] : null;
+  const client = await pool.connect();
+  try {
+    const plan = await detectSchema(client);
+    const cond = (c) =>
+      `x.${c.col} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM students s WHERE s.${plan.studentPk} = x.${c.col})`
+      + (keys ? ` AND x.${c.col} = ANY($1)` : '');
+    const params = keys ? [keys] : [];
+
+    const counts = {}; let total = 0;
+    for (const c of plan.children) {
+      const r = await client.query(`SELECT count(*)::int AS n FROM ${c.table} x WHERE ${cond(c)}`, params);
+      counts[c.table] = r.rows[0].n; total += r.rows[0].n;
+    }
+    if (!apply) return { applied: false, schema: plan.schema, counts, total, scoped: !!keys };
+    if (total === 0) return { applied: false, reason: 'nothing_to_purge', counts, total };
+
+    await client.query('BEGIN');
     const purged = {};
     const ordered = [...plan.children].sort((a, b) => (a.isLeads ? 1 : 0) - (b.isLeads ? 1 : 0));
     for (const c of ordered) {
-      const r = await client.query(
-        `DELETE FROM ${c.table} x
-          WHERE x.${c.col} IS NOT NULL
-            AND NOT EXISTS (SELECT 1 FROM students s WHERE s.${plan.studentPk} = x.${c.col})`
-      );
+      const r = await client.query(`DELETE FROM ${c.table} x WHERE ${cond(c)}`, params);
       purged[c.table] = r.rowCount;
     }
     await client.query('COMMIT');
-    return { applied: true, schema: plan.schema, purged };
+    return { applied: true, schema: plan.schema, purged, scoped: !!keys };
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch (_) {}
     return { applied: false, error: err.message };
   } finally {
     client.release();
@@ -257,7 +293,7 @@ async function schemaInfo() {
 module.exports = {
   detectSchema, schemaInfo, normalizeIds, pool,
   previewByIds, deleteByIds,        // targeted (by id) — also the engine for pattern/dedupe
-  findOrphans, purgeOrphans,        // orphan sweep
+  findOrphans, findOrphanKeys, purgeOrphans,  // orphan sweep (+ selectable missing-student keys + scoped purge)
   findByPattern,                    // pattern → ids (test-data bulk purge)
   findDuplicates,                   // dedupe detection (resolve via deleteByIds)
 };

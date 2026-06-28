@@ -29,8 +29,9 @@ router.use(requireStaffAuth, requireAdmin);
 // ── Read / preview (non-destructive) ──
 router.get ('/schema',      ctrl.getSchema);
 router.post('/preview',     ctrl.preview);       // { ids }
-router.get ('/orphans',     ctrl.orphans);
-router.get ('/by-pattern',  ctrl.byPattern);     // ?pattern=
+router.get ('/orphans',      ctrl.orphans);
+router.get ('/orphans/keys', ctrl.orphanKeys);   // selectable missing-student owners
+router.get ('/by-pattern',   ctrl.byPattern);    // ?pattern=
 router.get ('/duplicates',  ctrl.duplicates);    // ?by=email|phone
 
 // ── Destructive (require confirm:true in body) ──

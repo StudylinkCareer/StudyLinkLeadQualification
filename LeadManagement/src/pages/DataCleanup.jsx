@@ -15,7 +15,7 @@
 // Gated to Admin/Director here AND on the server. Every delete is confirmed.
 // ---------------------------------------------------------------------------
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { cleanupAPI, studentAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -62,8 +62,10 @@ export default function DataCleanup() {
   const [pattern, setPattern] = useState('TEST-UPLOAD-%');
   const [matches, setMatches] = useState(null);
 
-  // Orphans
-  const [orphans, setOrphans] = useState(null);
+  // Orphans — selectable list of missing-student "owners"
+  const [orphanKeys, setOrphanKeys] = useState(null);
+  const [orphanSel, setOrphanSel]   = useState(() => new Set());
+  const lastOrphanIdx = useRef(-1);
 
   // Duplicates
   const [dupBy, setDupBy] = useState('email');
@@ -72,7 +74,7 @@ export default function DataCleanup() {
   useEffect(() => {
     if (!isAdmin) return;
     cleanupAPI.schema().then(r => setSchema(r.data)).catch(e => setErr(e.message));
-    cleanupAPI.orphans().then(r => setOrphans(r.data)).catch(() => {});
+    cleanupAPI.orphanKeys().then(r => setOrphanKeys(r.data)).catch(() => {});
   }, [isAdmin]);
 
   if (!isAdmin) return (
@@ -94,7 +96,9 @@ export default function DataCleanup() {
     } catch (e) { setErr(e.message); }
   };
   const addPasted = () => {
-    const parsed = [...new Set(idText.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean))];
+    // One ID PER LINE — split on newlines only so IDs with spaces/commas
+    // (e.g. ',300-500M VND,,4') survive intact.
+    const parsed = [...new Set(idText.split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
     addSel(parsed.map(id => ({ id, name: '' })));
     setIdText('');
   };
@@ -110,19 +114,37 @@ export default function DataCleanup() {
     try {
       const r = await cleanupAPI.apply(ids);
       setResult(r.data); setPreview(null); setSelected([]);
-      cleanupAPI.orphans().then(x => setOrphans(x.data)).catch(() => {});
+      cleanupAPI.orphanKeys().then(x => setOrphanKeys(x.data)).catch(() => {});
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const doPattern = async () => {
     setErr(''); setMatches(null);
     try { const r = await cleanupAPI.byPattern(pattern); setMatches(r.data.matches || []); } catch (e) { setErr(e.message); }
   };
+  const orphanRowTotal = orphanKeys ? orphanKeys.keys.reduce((s, k) => s + k.total, 0) : 0;
+  const toggleOrphan = (id, idx, shift) => {
+    setOrphanSel(prev => {
+      const next = new Set(prev);
+      if (shift && lastOrphanIdx.current >= 0 && orphanKeys) {
+        const [a, b] = [lastOrphanIdx.current, idx].sort((x, y) => x - y);
+        for (let i = a; i <= b; i++) next.add(orphanKeys.keys[i].id);   // block select
+      } else if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
+    lastOrphanIdx.current = idx;
+  };
+  const allOrphansSelected = !!orphanKeys && orphanKeys.keys.length > 0 && orphanKeys.keys.every(k => orphanSel.has(k.id));
+  const toggleAllOrphans = () => setOrphanSel(allOrphansSelected ? new Set() : new Set((orphanKeys?.keys || []).map(k => k.id)));
   const doPurgeOrphans = async () => {
-    if (!orphans?.total) return;
-    if (!window.confirm(`Purge ${orphans.total} orphaned row(s)? This cannot be undone.`)) return;
+    const sel = [...orphanSel];
+    if (!orphanKeys?.count) return;
+    const label = sel.length ? `${sel.length} selected missing student(s)` : `ALL ${orphanKeys.count} missing students`;
+    if (!window.confirm(`Purge orphaned rows for ${label}? This cannot be undone.`)) return;
     setErr('');
-    try { await cleanupAPI.purgeOrphans(); const x = await cleanupAPI.orphans(); setOrphans(x.data); }
-    catch (e) { setErr(e.message); }
+    try {
+      await cleanupAPI.purgeOrphans(sel.length ? sel : null);
+      const x = await cleanupAPI.orphanKeys(); setOrphanKeys(x.data); setOrphanSel(new Set());
+    } catch (e) { setErr(e.message); }
   };
   const doDuplicates = async () => {
     setErr(''); setDups(null);
@@ -166,11 +188,11 @@ export default function DataCleanup() {
           </div>
         )}
 
-        {/* paste ids */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <input style={{ ...input, fontFamily: 'monospace' }} value={idText}
-            placeholder="…or paste IDs: 20260627-91, 20260627-92"
-            onChange={e => setIdText(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPasted()} />
+        {/* paste ids — ONE PER LINE so IDs with spaces/commas survive */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
+          <textarea style={{ ...input, fontFamily: 'monospace', minHeight: 56, resize: 'vertical' }} value={idText} rows={2}
+            placeholder={"…or paste student IDs, one per line:\n20260627-91\n,300-500M VND,,4"}
+            onChange={e => setIdText(e.target.value)} />
           <button onClick={addPasted} style={btn(false)}>Add IDs</button>
         </div>
 
@@ -230,23 +252,44 @@ export default function DataCleanup() {
         )}
       </div>
 
-      {/* 3. Orphan sweep */}
+      {/* 3. Orphan sweep — review & select missing students */}
       <div style={card}>
-        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>3. Orphaned data</h2>
-        <p style={{ color: '#6b7280', marginTop: 0 }}>Child rows left behind by past deletions (the student no longer exists).</p>
-        {!orphans ? <p style={{ color: '#6b7280' }}>Loading…</p> : orphans.total === 0 ? (
+        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>3. Orphaned data — review &amp; select</h2>
+        <p style={{ color: '#6b7280', marginTop: 0 }}>Child rows whose student no longer exists. Tick the missing students to purge (Shift-click for a block), or purge all.</p>
+        {!orphanKeys ? <p style={{ color: '#6b7280' }}>Loading…</p> : orphanKeys.count === 0 ? (
           <p style={{ color: '#16a34a', margin: 0 }}>No orphaned data. ✓</p>
         ) : (
           <>
-            <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 440 }}>
-              <tbody>
-                {Object.entries(orphans.counts).filter(([, v]) => v).map(([k, v]) => (
-                  <tr key={k}><td style={td}>{lbl(k)}</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{v}</td></tr>
-                ))}
-                <tr><td style={{ ...td, fontWeight: 700 }}>Total</td><td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{orphans.total}</td></tr>
-              </tbody>
-            </table>
-            <button onClick={doPurgeOrphans} style={{ ...btn(true, '#dc2626'), marginTop: 10 }}>Purge orphans</button>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8, fontSize: '.85rem' }}>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="checkbox" checked={allOrphansSelected} onChange={toggleAllOrphans} /> Select all
+              </label>
+              <span>{orphanKeys.count} missing students · {orphanRowTotal} orphan rows · <b>{orphanSel.size} selected</b></span>
+            </div>
+            <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid #eee', borderRadius: 8 }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead><tr>
+                  <th style={{ ...td, width: 30 }}></th>
+                  <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Missing student</th>
+                  <th style={{ ...td, textAlign: 'right', fontWeight: 700 }}>Rows</th>
+                  <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Breakdown</th>
+                </tr></thead>
+                <tbody>
+                  {orphanKeys.keys.map((k, idx) => (
+                    <tr key={k.id} style={{ background: orphanSel.has(k.id) ? '#eef2ff' : 'transparent' }}>
+                      <td style={td}><input type="checkbox" checked={orphanSel.has(k.id)}
+                        onClick={e => toggleOrphan(k.id, idx, e.shiftKey)} onChange={() => {}} /></td>
+                      <td style={td}><code>{k.id}</code></td>
+                      <td style={{ ...td, textAlign: 'right' }}>{k.total}</td>
+                      <td style={{ ...td, color: '#6b7280', fontSize: '.8rem' }}>{Object.entries(k.tables).map(([t, n]) => `${lbl(t)}: ${n}`).join(' · ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button onClick={doPurgeOrphans} style={{ ...btn(true, '#dc2626'), marginTop: 10 }}>
+              {orphanSel.size ? `Purge selected (${orphanSel.size})` : `Purge ALL (${orphanKeys.count})`}
+            </button>
           </>
         )}
       </div>
