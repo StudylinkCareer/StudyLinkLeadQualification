@@ -471,6 +471,14 @@ async function contractedBuckets(ctx, names) {
   return out;
 }
 
+// Per-person DAILY call targets by role (index 0=Mon … 6=Sun; Sunday = 0).
+//   Counsellors: Mon–Fri 10 new / 5 ongoing, Sat 5 / 2.
+//   Pre-Sales:   Mon–Fri 15 new / 10 ongoing, Sat 7 / 5.
+const CALL_TARGETS = {
+  Counselor:   { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5,  5,  5,  5,  5,  2, 0] },
+  'Pre-Sales': { new: [15, 15, 15, 15, 15, 7, 0], ongoing: [10, 10, 10, 10, 10, 5, 0] },
+};
+
 async function computeGroup(names, ctx, opts = {}) {
   const cc = rows => rows.map(objectToCamelCase);
   const { ws, we, monthStartISO, earliestISO, yearStartISO } = ctx;
@@ -553,8 +561,16 @@ async function computeGroup(names, ctx, opts = {}) {
     (isFirst ? newMap : ongoingMap).set(c.student_id, c.full_name);
   }
   const headcount = Math.max(0, names.length);
-  const dailyCalls = daily.map(d => ({ day: d.day, newLeads: d.newLeads.size, ongoing: d.ongoing.size,
-    targetNew: 10 * headcount, targetOngoing: 5 * headcount }));
+  // Role-aware, day-of-week-aware targets: sum each role's per-day target across
+  // the people in this group. Roles come from staff.role via ctx.counsellorSet /
+  // ctx.presalesSet (built in weeklyReport). Falls back to 0 if a name has no role.
+  const cSet = ctx.counsellorSet || new Set();
+  const pSet = ctx.presalesSet   || new Set();
+  const nC = names.filter(n => cSet.has(n)).length;
+  const nP = names.filter(n => pSet.has(n)).length;
+  const dailyCalls = daily.map((d, i) => ({ day: d.day, newLeads: d.newLeads.size, ongoing: d.ongoing.size,
+    targetNew:     nC * CALL_TARGETS.Counselor.new[i]     + nP * CALL_TARGETS['Pre-Sales'].new[i],
+    targetOngoing: nC * CALL_TARGETS.Counselor.ongoing[i] + nP * CALL_TARGETS['Pre-Sales'].ongoing[i] }));
   const newLeadItems = [...newMap].map(([studentId, fullName]) => ({ studentId, fullName }));
   const ongoingItems = [...ongoingMap].filter(([id]) => !newMap.has(id))
                                       .map(([studentId, fullName]) => ({ studentId, fullName }));
@@ -648,6 +664,9 @@ async function weeklyReport(req, res, next) {
     const counsellorNames = await namesByRole('Counselor');
     const presalesNames   = await namesByRole('Pre-Sales');
     const allNames = Array.from(new Set([...counsellorNames, ...presalesNames]));
+    // Expose role membership to computeGroup so daily call targets are role-aware.
+    ctx.counsellorSet = new Set(counsellorNames);
+    ctx.presalesSet   = new Set(presalesNames);
 
     const mode = req.query.mode || 'all';
     const resourcesParam = (req.query.resources || '').split(',').map(s => s.trim()).filter(Boolean);
