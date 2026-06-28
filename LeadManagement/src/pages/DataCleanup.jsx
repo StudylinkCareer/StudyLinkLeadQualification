@@ -7,7 +7,7 @@
 // Tools:
 //   1. Targeted purge  — build a record set (search-and-add OR paste IDs) →
 //                        preview per-table footprint → confirm cascade delete.
-//   2. By pattern      — find students whose id matches a LIKE (e.g. TEST-UPLOAD-%)
+//   2. Search          — partial, case-insensitive search across name/id/email/phone
 //                        → add them to the set.
 //   3. Orphan sweep    — count + purge child rows whose student no longer exists.
 //   4. Duplicates      — list persons sharing an email/phone → add the unwanted
@@ -58,8 +58,8 @@ export default function DataCleanup() {
   const [busy, setBusy]       = useState(false);
   const [result, setResult]   = useState(null);
 
-  // Pattern
-  const [pattern, setPattern] = useState('TEST-UPLOAD-%');
+  // Search (name / id / email / phone — partial, case-insensitive)
+  const [pattern, setPattern] = useState('');
   const [matches, setMatches] = useState(null);
 
   // Orphans — selectable list of missing-student "owners"
@@ -237,17 +237,51 @@ export default function DataCleanup() {
         )}
       </div>
 
-      {/* 2. By pattern */}
+      {/* 2. Search */}
       <div style={card}>
-        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>2. By pattern (bulk test-data)</h2>
+        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>2. Search students</h2>
+        <p style={{ color: '#6b7280', marginTop: 0 }}>
+          Partial word, not case-sensitive, no wildcards needed — searches name, student ID, email and phone.
+          Type e.g. <code>joyce</code>, <code>20260617</code>, <code>@gmail</code> or <code>0915</code>.
+          (Advanced: include a <code>%</code> for a literal SQL pattern such as <code>TEST-UPLOAD-%</code>.)
+        </p>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input style={{ ...input, fontFamily: 'monospace' }} value={pattern} onChange={e => setPattern(e.target.value)} placeholder="TEST-UPLOAD-%" />
-          <button onClick={doPattern} style={btn(false)}>Find</button>
+          <input style={input} value={pattern} onChange={e => setPattern(e.target.value)}
+                 onKeyDown={e => { if (e.key === 'Enter') doPattern(); }} placeholder="Search by name, ID, email or phone…" />
+          <button onClick={doPattern} style={btn(false)}>Search</button>
         </div>
         {matches && (
           <div style={{ marginTop: 10 }}>
-            <b>{matches.length}</b> match(es).
-            {matches.length > 0 && <button onClick={() => addSel(matches.map(m => ({ id: m.id, name: m.name })))} style={{ ...btn(false), marginLeft: 10 }}>Add all to selection</button>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+              <span><b>{matches.length}</b> match(es){matches.length >= 500 ? ' (showing first 500 — refine the search)' : ''}.</span>
+              {matches.length > 0 && <button onClick={() => addSel(matches.map(m => ({ id: m.id, name: m.name })))} style={btn(false)}>Add all to selection</button>}
+            </div>
+            {matches.length > 0 && (
+              <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid #eee', borderRadius: 8 }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                  <thead><tr>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Name</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Student ID</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Email</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Phone</th>
+                    <th style={{ ...td, width: 60 }}></th>
+                  </tr></thead>
+                  <tbody>
+                    {matches.map(m => (
+                      <tr key={m.id}>
+                        <td style={td}>{m.name || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={{ ...td, fontFamily: 'monospace' }}>{m.id}</td>
+                        <td style={td}>{m.email || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={td}>{m.phone || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={td}>
+                          <button onClick={() => addSel([{ id: m.id, name: m.name }])} style={btn(false)}>Add</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

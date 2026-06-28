@@ -237,22 +237,32 @@ async function purgeOrphans({ apply = false, ids = null } = {}) {
   }
 }
 
-// ── Pattern match (drives "bulk test-data" + targeted pattern purge) ────────
-// Returns students whose id matches a SQL LIKE pattern (e.g. 'TEST-UPLOAD-%').
-// Caller feeds the resulting ids into previewByIds / deleteByIds.
-async function findByPattern(pattern) {
-  const p = String(pattern || '').trim();
-  if (!p) return { schema: null, pattern: p, matches: [] };
+// ── Search (drives "bulk test-data" + targeted purge selection) ─────────────
+// Case-insensitive, partial-word search across the student id, full name, email
+// and phone — no wildcards required. The user can type "joyce", "20260617",
+// "@gmail" or "0915" and get hits. If they DO include SQL wildcards (% or _) the
+// term is used verbatim (advanced patterns like 'TEST-UPLOAD-%' still work);
+// otherwise it's auto-wrapped to %term% so any substring matches. Caller feeds
+// the resulting ids into previewByIds / deleteByIds.
+async function findByPattern(pattern, { limit = 500 } = {}) {
+  const raw = String(pattern || '').trim();
+  if (!raw) return { schema: null, pattern: raw, matches: [] };
+  const q = /[%_]/.test(raw) ? raw : `%${raw}%`;
   const client = await pool.connect();
   try {
     const plan = await detectSchema(client);
     const r = await client.query(
-      `SELECT ${plan.studentPk} AS id, full_name AS name
-         FROM students WHERE ${plan.studentPk} LIKE $1
-        ORDER BY ${plan.studentPk}`,
-      [p]
+      `SELECT ${plan.studentPk} AS id, full_name AS name, email, phone
+         FROM students
+        WHERE ${plan.studentPk}::text ILIKE $1
+           OR full_name ILIKE $1
+           OR email     ILIKE $1
+           OR phone     ILIKE $1
+        ORDER BY full_name NULLS LAST, ${plan.studentPk}
+        LIMIT $2`,
+      [q, limit]
     );
-    return { schema: plan.schema, pattern: p, matches: r.rows };
+    return { schema: plan.schema, pattern: raw, matches: r.rows };
   } finally {
     client.release();
   }
