@@ -16,7 +16,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -34,6 +34,7 @@ export default function Sidebar() {
   const canManageColumns      = canDo('column_config', 'manage');
   const canViewReports        = canDo('reports', 'view');
   const canManageDistribution = canDo('distribution', 'manage');
+  const canDeleteLeads        = canDo('leads', 'delete');
   const showAdminSection      = canManageStaff || canManageDistribution;
 
   async function handleLogout() {
@@ -150,6 +151,14 @@ export default function Sidebar() {
                 onClick={() => navigate('/distribution')}
               >
                 <FiShuffle size={16} /> {language === 'vi' ? 'Phân bổ Lead' : 'Lead Distribution'}
+              </button>
+            )}
+            {canDeleteLeads && (
+              <button
+                className={`nav-item ${isActive('/admin/cleanup') ? 'active' : ''}`}
+                onClick={() => navigate('/admin/cleanup')}
+              >
+                <FiTrash2 size={16} /> {language === 'vi' ? 'Dọn dữ liệu' : 'Deep Cleanse'}
               </button>
             )}
           </>

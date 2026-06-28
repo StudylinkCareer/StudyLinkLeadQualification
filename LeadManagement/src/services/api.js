@@ -116,6 +116,18 @@ export const variantsAPI = {
 };
 
 // ── Students ──────────────────────────────────────────────────
+// Deep Cleanse — schema-adaptive cleanup tool (Admin/Director only; destructive
+// calls carry confirm:true). Reads are non-destructive previews.
+export const cleanupAPI = {
+  schema:       ()        => request('GET',  '/api/cleanup/schema'),
+  preview:      (ids)     => request('POST', '/api/cleanup/preview', { ids }),
+  apply:        (ids)     => request('POST', '/api/cleanup/apply', { ids, confirm: true }),
+  orphans:      ()        => request('GET',  '/api/cleanup/orphans'),
+  purgeOrphans: ()        => request('POST', '/api/cleanup/orphans/purge', { confirm: true }),
+  byPattern:    (pattern) => request('GET',  `/api/cleanup/by-pattern?pattern=${encodeURIComponent(pattern || '')}`),
+  duplicates:   (by)      => request('GET',  `/api/cleanup/duplicates?by=${encodeURIComponent(by || 'email')}`),
+};
+
 export const studentAPI = {
   search:         (q)        => request('GET',  `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
   get:            (id)       => request('GET',  `/api/staff/students/${id}`),
