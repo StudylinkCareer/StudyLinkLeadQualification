@@ -113,7 +113,7 @@ async function main() {
     .filter(r => r.length === header.length)
     .map(r => ({
       stage:    r[idx('stage')],
-      uniqueId: r[idx('uniqueId')],
+      studentId: r[idx('studentId')],
       fullName: r[idx('fullName')],
       field:    r[idx('field')],
       oldValue: r[idx('oldValue')],
@@ -121,7 +121,7 @@ async function main() {
       action:   r[idx('action')],
       note:     r[idx('note')],
     }))
-    .filter(p => p.uniqueId);  // skip blank rows
+    .filter(p => p.studentId);  // skip blank rows
 
   console.log(`Plan loaded: ${plan.length} actions`);
 
@@ -140,7 +140,7 @@ async function main() {
 
   // ── Year-of-birth scan (PART 3 — query live) ─────────────────────
   const yobRes = await pool.query(
-    `SELECT unique_id, year_of_birth
+    `SELECT student_id, year_of_birth
      FROM students
      WHERE year_of_birth IS NOT NULL AND year_of_birth != ''`
   );
@@ -151,12 +151,12 @@ async function main() {
     const lower = v.toLowerCase();
     // 'chưa biết' (and ASCII variant 'chua biet')
     if (lower === 'chưa biết' || lower === 'chua biet') {
-      yobActions.push({ uniqueId: row.unique_id, oldValue: v, reason: 'chưa biết' });
+      yobActions.push({ studentId: row.student_id, oldValue: v, reason: 'chưa biết' });
       continue;
     }
     const num = parseInt(v, 10);
     if (!isNaN(num) && num < 1980) {
-      yobActions.push({ uniqueId: row.unique_id, oldValue: v, reason: `year < 1980 (${num})` });
+      yobActions.push({ studentId: row.student_id, oldValue: v, reason: `year < 1980 (${num})` });
     }
   }
   console.log(`year_of_birth cleanup: ${yobActions.length} row(s) will be cleared\n`);
@@ -166,12 +166,12 @@ async function main() {
 
   writeCsv(
     path.join(REPORT_DIR, 'applied-plan.csv'),
-    ['stage', 'uniqueId', 'fullName', 'field', 'oldValue', 'newValue', 'action', 'note'],
+    ['stage', 'studentId', 'fullName', 'field', 'oldValue', 'newValue', 'action', 'note'],
     plan
   );
   writeCsv(
     path.join(REPORT_DIR, 'year-of-birth-actions.csv'),
-    ['uniqueId', 'oldValue', 'reason'],
+    ['studentId', 'oldValue', 'reason'],
     yobActions
   );
 
@@ -233,18 +233,18 @@ async function main() {
       try {
         const newVal = p.action === 'clear' ? null : p.newValue;
         await client.query(
-          `UPDATE students SET ${p.field} = $1 WHERE unique_id = $2`,
-          [newVal, p.uniqueId]
+          `UPDATE students SET ${p.field} = $1 WHERE student_id = $2`,
+          [newVal, p.studentId]
         );
         await client.query(
           `INSERT INTO audit_log
              (student_id, changed_by, changed_at, field_name, old_value, new_value, change_source)
            VALUES ($1, $2, NOW(), $3, $4, $5, $6)`,
-          [p.uniqueId, 'cleanup_script', p.field, String(p.oldValue ?? ''), String(newVal ?? ''), 'data_cleanup']
+          [p.studentId, 'cleanup_script', p.field, String(p.oldValue ?? ''), String(newVal ?? ''), 'data_cleanup']
         );
         planApplied++;
       } catch (err) {
-        console.error(`  FAILED ${p.uniqueId} ${p.field}: ${err.message}`);
+        console.error(`  FAILED ${p.studentId} ${p.field}: ${err.message}`);
         failures++;
       }
     }
@@ -254,18 +254,18 @@ async function main() {
     for (const a of yobActions) {
       try {
         await client.query(
-          `UPDATE students SET year_of_birth = NULL WHERE unique_id = $1`,
-          [a.uniqueId]
+          `UPDATE students SET year_of_birth = NULL WHERE student_id = $1`,
+          [a.studentId]
         );
         await client.query(
           `INSERT INTO audit_log
              (student_id, changed_by, changed_at, field_name, old_value, new_value, change_source)
            VALUES ($1, $2, NOW(), $3, $4, $5, $6)`,
-          [a.uniqueId, 'cleanup_script', 'year_of_birth', a.oldValue, '', 'data_cleanup']
+          [a.studentId, 'cleanup_script', 'year_of_birth', a.oldValue, '', 'data_cleanup']
         );
         yobApplied++;
       } catch (err) {
-        console.error(`  FAILED yob ${a.uniqueId}: ${err.message}`);
+        console.error(`  FAILED yob ${a.studentId}: ${err.message}`);
         failures++;
       }
     }

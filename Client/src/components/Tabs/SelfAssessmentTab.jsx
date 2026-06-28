@@ -47,8 +47,8 @@ export default function SelfAssessmentTab({ formData, updateField, saving, lastS
       if (saveAll) await saveAll();
 
       let result;
-      if (formData?.uniqueId) {
-        const res = await studentAPI.calculateRisk(formData.uniqueId);
+      if (formData?.studentId) {
+        const res = await studentAPI.calculateRisk(formData.studentId);
         result = res.data;
       } else {
         result = liveScore;

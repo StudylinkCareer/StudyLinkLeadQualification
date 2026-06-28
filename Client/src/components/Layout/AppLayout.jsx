@@ -4,14 +4,14 @@ import TabBar from './TabBar';
 import './AppLayout.css';
 
 export default function AppLayout({ tabs, activeTab, onTabChange, disabledTabs = {}, children }) {
-  const { email, uniqueId, logout } = useAuth();
+  const { email, studentId, logout } = useAuth();
 
   return (
     <div className="app-layout">
       <header className="app-header">
         <div className="app-header-left">
           <h1 className="app-title">StudyLink</h1>
-          {uniqueId && <span className="app-student-id">ID: {uniqueId}</span>}
+          {studentId && <span className="app-student-id">ID: {studentId}</span>}
         </div>
         <div className="app-header-right">
           <span className="app-user-email">{email}</span>

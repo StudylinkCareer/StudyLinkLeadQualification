@@ -16,6 +16,20 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
+// Every table referencing a student, CHILD-FIRST, for a complete cleanse. Shared by
+// the delete cascade, the delete-preview, and the orphan sweep. (duplicate_reviews is
+// handled separately — its incoming_uid is a parked, not-yet-created person, so it
+// needs OR-matched_ids logic on delete and is NOT an orphan source.)
+const STUDENT_CHILD_TABLES = [
+  { table: 'event_desk_visits', key: 'student_unique_id', label: 'eventDeskVisits' },
+  { table: 'event_attendees',   key: 'student_unique_id', label: 'eventAttendees' },
+  { table: 'lead_events',       key: 'student_id',        label: 'leadEvents' },
+  { table: 'documents',         key: 'student_id',        label: 'documents' },
+  { table: 'audit_log',         key: 'student_id',        label: 'auditLog' },
+  { table: 'student_notes',     key: 'student_id',        label: 'notes' },
+  { table: 'leads',             key: 'person_id',         label: 'leads' },
+];
+
 // ── Auth ──────────────────────────────────────────────────────
 async function login(req, res, next) {
   try {
@@ -328,16 +342,19 @@ async function assignStaff(req, res, next) {
       role: req.session.staffRole,
       fullName: req.session.staffName,
     };
-    const targetLead = await pool.query(
-      `SELECT counselor, senior_counselor, presales, marketing_staff
-       FROM students WHERE unique_id = $1`, [studentId]
-    );
-    if (targetLead.rows.length === 0) {
+    const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived')`;
+    // Single-assign is keyed by student → it applies to the student's OPEN lead(s).
+    const beforeRows = (await pool.query(
+      `SELECT lead_id, counselor, senior_counselor, presales, marketing_staff
+         FROM leads WHERE person_id = $1 AND ${OPEN}
+        ORDER BY lead_id`, [studentId]
+    )).rows;
+    if (beforeRows.length === 0) {
       await pool.end();
-      return res.status(404).json({ success: false, error: 'Student not found' });
+      return res.status(404).json({ success: false, error: 'No open lead for this student' });
     }
     const canAssign = await permissionService.canAccessLead(
-      assignStaffCtx, objectToCamelCase(targetLead.rows[0]), 'assign'
+      assignStaffCtx, objectToCamelCase(beforeRows[0]), 'assign'
     );
     if (!canAssign) {
       await pool.end();
@@ -347,40 +364,44 @@ async function assignStaff(req, res, next) {
       });
     }
 
-    const before = objectToCamelCase(targetLead.rows[0]);
-
     const result = await pool.query(
-      `UPDATE students
+      `UPDATE leads
        SET counselor        = COALESCE($1, counselor),
            senior_counselor = COALESCE($2, senior_counselor),
            presales         = COALESCE($3, presales),
            marketing_staff  = COALESCE($4, marketing_staff),
            updated_at       = NOW()
-       WHERE unique_id = $5
-       RETURNING unique_id, counselor, senior_counselor, presales, marketing_staff`,
+       WHERE person_id = $5 AND ${OPEN}
+       RETURNING lead_id, counselor, senior_counselor, presales, marketing_staff`,
       [counselor, seniorCounselor, presales, marketingStaff, studentId]
     );
     await pool.end();
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Student not found' });
+      return res.status(404).json({ success: false, error: 'No open lead for this student' });
     }
 
-    // Record who/when for each assignment slot that actually changed.
-    const after = objectToCamelCase(result.rows[0]);
-    await logChanges({
-      studentId,
-      changedBy: req.session.staffName || req.session.staffEmail || 'unknown',
-      oldData: before,
-      newData: {
-        counselor:       after.counselor,
-        seniorCounselor: after.seniorCounselor,
-        presales:        after.presales,
-        marketingStaff:  after.marketingStaff,
-      },
-      source: 'staff_app',
-    });
+    // Lead-keyed audit: record who/when per open lead, for each slot that changed.
+    const changedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+    const beforeById = new Map(beforeRows.map(r => [r.lead_id, objectToCamelCase(r)]));
+    for (const row of result.rows) {
+      const after  = objectToCamelCase(row);
+      const before = beforeById.get(row.lead_id) || {};
+      await logChanges({
+        studentId,
+        leadId: row.lead_id,
+        changedBy,
+        oldData: before,
+        newData: {
+          counselor:       after.counselor,
+          seniorCounselor: after.seniorCounselor,
+          presales:        after.presales,
+          marketingStaff:  after.marketingStaff,
+        },
+        source: 'staff_app',
+      });
+    }
 
-    res.json({ success: true, data: after });
+    res.json({ success: true, data: objectToCamelCase(result.rows[0]) });
   } catch (err) { next(err); }
 }
 
@@ -410,26 +431,31 @@ async function massAssign(req, res, next) {
       return res.status(400).json({ success: false, error: 'studentIds array is required' });
     }
     const dbField = toSnakeCase(field);
+    const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived')`;
 
-    // Snapshot old values so we can record who/when per lead.
+    // Mass-assign applies to each selected student's OPEN leads (grouped by student).
+    // Snapshot old values per open lead so we can audit who/when per lead.
     const before = await pool.query(
-      `SELECT unique_id, ${dbField} AS old_val FROM students WHERE unique_id = ANY($1)`,
+      `SELECT lead_id, person_id, ${dbField} AS old_val FROM leads
+        WHERE person_id = ANY($1) AND ${OPEN}`,
       [studentIds]
     );
 
     await pool.query(
-      `UPDATE students SET ${dbField} = $1, updated_at = NOW() WHERE unique_id = ANY($2)`,
+      `UPDATE leads SET ${dbField} = $1, updated_at = NOW()
+        WHERE person_id = ANY($2) AND ${OPEN}`,
       [value, studentIds]
     );
     await pool.end();
 
-    // Log only the leads whose value actually changed.
+    // Lead-keyed audit for the leads whose value actually changed.
     const changedBy = req.session.staffName || req.session.staffEmail || 'unknown';
     const newVal = value === '' || value === null || value === undefined ? '' : value;
     for (const row of before.rows) {
       if (String(row.old_val ?? '') === String(newVal ?? '')) continue;
       await logChanges({
-        studentId: row.unique_id,
+        studentId: row.person_id,
+        leadId: row.lead_id,
         changedBy,
         oldData: { [field]: row.old_val },
         newData: { [field]: newVal },
@@ -450,18 +476,31 @@ async function searchStudents(req, res, next) {
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     });
     const { q } = req.query;
+    // Engagement (status/counsellor/etc.) lives on leads now; overlay the student's
+    // representative lead (prefer an open one) so the list shows source-of-truth
+    // values. The lateral l.* wins over the (vestigial / soon-dropped) s.* columns.
+    const OVERLAY = `
+      SELECT s.*, l.*
+        FROM students s
+        LEFT JOIN LATERAL (
+          SELECT counselor, senior_counselor, presales, marketing_staff, lead_status, close_date,
+                 confidence, distribution_status, office, prev_counselor, destination_country,
+                 timeline, study_plans, process_application, major
+            FROM leads WHERE person_id = s.student_id
+           ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id DESC
+           LIMIT 1
+        ) l ON true`;
     let query, params;
     if (!q || q.trim() === '') {
-      query  = `SELECT * FROM students ORDER BY created_at DESC NULLS LAST`;
+      query  = `${OVERLAY} ORDER BY s.created_at DESC NULLS LAST`;
       params = [];
     } else {
       const search = '%' + q.replace(/\*/g, '%').toLowerCase() + '%';
-      query = `
-        SELECT * FROM students
-        WHERE LOWER(full_name) LIKE $1
-           OR LOWER(email)     LIKE $1
-           OR phone             LIKE $1
-        ORDER BY created_at DESC NULLS LAST`;
+      query = `${OVERLAY}
+        WHERE LOWER(s.full_name) LIKE $1
+           OR LOWER(s.email)     LIKE $1
+           OR s.phone            LIKE $1
+        ORDER BY s.created_at DESC NULLS LAST`;
       params = [search];
     }
     const result = await pool.query(query, params);
@@ -494,6 +533,44 @@ async function searchStudents(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// Lead-level list — ONE ROW PER LEAD (engagement) joined to its person, in the same
+// shape as searchStudents so the PROD Leads.jsx renders it unchanged. l.* wins over
+// the vestigial s.* engagement; each row carries leadId + studentId.
+async function searchLeads(req, res, next) {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+    const { q } = req.query;
+    const base = `SELECT s.*, l.* FROM leads l JOIN students s ON s.student_id = l.person_id`;
+    let query, params;
+    if (!q || q.trim() === '') {
+      query = `${base} ORDER BY s.created_at DESC NULLS LAST`;
+      params = [];
+    } else {
+      const search = '%' + q.replace(/\*/g, '%').toLowerCase() + '%';
+      query = `${base}
+        WHERE LOWER(s.full_name) LIKE $1 OR LOWER(s.email) LIKE $1 OR s.phone LIKE $1
+        ORDER BY s.created_at DESC NULLS LAST`;
+      params = [search];
+    }
+    const result = await pool.query(query, params);
+    await pool.end();
+    const staff = { role: req.session.staffRole, fullName: req.session.staffName };
+    const scope = await permissionService.getResourceScope(staff.role, 'leads', 'view_list');
+    if (scope === 'none') return res.status(403).json({ success: false, error: 'You do not have permission to view leads.' });
+    let leads = result.rows.map(objectToCamelCase);
+    if (scope === 'own') leads = leads.filter(l => permissionService.isLeadAssignedTo(staff, l));
+    const masked = await permissionService.applyFieldPermissionsToList(staff, leads);
+    // Re-attach leadId/studentId — they aren't catalog fields, so masking may drop
+    // them, but the list needs them to navigate to /lead/:leadId or /students/:id.
+    const data = masked.map((m, i) => ({ ...m, leadId: leads[i].leadId, studentId: leads[i].studentId }));
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+}
+
 // ── Student Detail ────────────────────────────────────────────
 async function getStudent(req, res, next) {
   try {
@@ -505,7 +582,7 @@ async function getStudent(req, res, next) {
     });
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT * FROM students WHERE unique_id = $1`, [id]
+      `SELECT * FROM students WHERE student_id = $1`, [id]
     );
     await pool.end();
     if (result.rows.length === 0) {
@@ -562,9 +639,9 @@ async function updateStudent(req, res, next) {
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     });
     const { id } = req.params;
-    const READONLY = new Set(['uniqueId', 'createdAt', 'updatedAt']);
+    const READONLY = new Set(['studentId', 'createdAt', 'updatedAt']);
     const existing = await pool.query(
-      `SELECT * FROM students WHERE unique_id = $1`, [id]
+      `SELECT * FROM students WHERE student_id = $1`, [id]
     );
 
     if (existing.rows.length === 0) {
@@ -585,9 +662,17 @@ async function updateStudent(req, res, next) {
     const fields = [], values = [];
     let i = 1;
     const seen = new Set();
+    // Engagement fields live on leads now — never write them to students (they are
+    // dropped from that table); edits to these go through the lead endpoints.
+    const ENGAGEMENT = new Set([
+      'counselor', 'senior_counselor', 'presales', 'marketing_staff', 'lead_status',
+      'distribution_status', 'close_date', 'confidence', 'office', 'prev_counselor',
+      'destination_country', 'timeline', 'study_plans', 'process_application', 'major',
+    ]);
     for (const key of Object.keys(req.body)) {
       if (READONLY.has(key)) continue;
       const col = toSnakeCase(key);
+      if (ENGAGEMENT.has(col)) continue;
       if (seen.has(col)) continue;
       seen.add(col);
       fields.push(`${col} = $${i}`);
@@ -600,7 +685,7 @@ async function updateStudent(req, res, next) {
     i++;
     values.push(id);
     await pool.query(
-      `UPDATE students SET ${fields.join(', ')} WHERE unique_id = $${i}`, values
+      `UPDATE students SET ${fields.join(', ')} WHERE student_id = $${i}`, values
     );
     await logChanges({
       studentId: id,
@@ -654,7 +739,7 @@ async function calculateOceanStudent(req, res, next) {
     });
     const { id } = req.params;
     const existing = await pool.query(
-      `SELECT * FROM students WHERE unique_id = $1`, [id]
+      `SELECT * FROM students WHERE student_id = $1`, [id]
     );
     if (existing.rows.length === 0) {
       await pool.end();
@@ -686,7 +771,7 @@ async function calculateOceanStudent(req, res, next) {
         ocean_neuroticism       = $4,
         ocean_openness          = $5,
         updated_at              = NOW()
-       WHERE unique_id = $6`,
+       WHERE student_id = $6`,
       [
         assessment.scores.extraversion,
         assessment.scores.agreeableness,
@@ -813,7 +898,7 @@ function buildNotesArchive(student, notes, deletedBy) {
   lines.push('LEAD DELETION ARCHIVE');
   lines.push(sep);
   lines.push(`Lead:               ${student.full_name || '(no name)'}`);
-  lines.push(`Lead ID:            ${student.unique_id}`);
+  lines.push(`Lead ID:            ${student.student_id}`);
   if (student.email) lines.push(`Email:              ${student.email}`);
   if (student.phone) lines.push(`Phone:              ${student.phone}`);
   lines.push(`Status at deletion: ${student.lead_status || 'New'}`);
@@ -842,9 +927,9 @@ function buildNotesArchive(student, notes, deletedBy) {
 }
 
 async function deleteStudents(req, res, next) {
-  const { uniqueIds } = req.body;
-  if (!uniqueIds || !Array.isArray(uniqueIds) || uniqueIds.length === 0) {
-    return res.status(400).json({ success: false, error: 'uniqueIds array is required' });
+  const { studentIds } = req.body;
+  if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+    return res.status(400).json({ success: false, error: 'studentIds array is required' });
   }
 
   const deleteScope = await permissionService.getResourceScope(
@@ -860,9 +945,9 @@ async function deleteStudents(req, res, next) {
   const deletedBy = req.session?.staffName || req.session?.staffEmail || 'Unknown';
   const archiveResults = [];
 
-  for (const studentId of uniqueIds) {
+  for (const studentId of studentIds) {
     try {
-      const sRes = await pool.query(`SELECT * FROM students      WHERE unique_id = $1`, [studentId]);
+      const sRes = await pool.query(`SELECT * FROM students      WHERE student_id = $1`, [studentId]);
       const nRes = await pool.query(`SELECT * FROM student_notes WHERE student_id = $1 ORDER BY created_at`, [studentId]);
       const student = sRes.rows[0];
       const notes   = nRes.rows;
@@ -900,12 +985,19 @@ async function deleteStudents(req, res, next) {
     });
   }
 
+  const purged = {};
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`DELETE FROM audit_log     WHERE student_id = ANY($1)`, [uniqueIds]);
-    await client.query(`DELETE FROM student_notes WHERE student_id = ANY($1)`, [uniqueIds]);
-    await client.query(`DELETE FROM students      WHERE unique_id = ANY($1)`, [uniqueIds]);
+    // Child-first cleanse — leave no orphans (audit trail, leads, events, docs,
+    // parked duplicates), whatever each FK's delete rule happens to be. event_desk_visits
+    // references notes, so it goes before student_notes; everything before students/leads.
+    const wipe = async (label, sql) => { purged[label] = (await client.query(sql, [studentIds])).rowCount; };
+    for (const t of STUDENT_CHILD_TABLES) {
+      await wipe(t.label, `DELETE FROM ${t.table} WHERE ${t.key} = ANY($1)`);
+    }
+    await wipe('duplicateReviews', `DELETE FROM duplicate_reviews WHERE incoming_uid = ANY($1) OR matched_ids && $1::text[]`);
+    await wipe('students',         `DELETE FROM students          WHERE student_id = ANY($1)`);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -916,7 +1008,8 @@ async function deleteStudents(req, res, next) {
 
   res.json({
     success:  true,
-    deleted:  uniqueIds.length,
+    deleted:  studentIds.length,
+    purged,
     archives: archiveResults,
   });
 }
@@ -933,14 +1026,75 @@ async function getPermissions(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Data cleanup (Admin) — all require unrestricted leads.delete (mass-delete gate) ──
+async function requireFullDelete(req, res) {
+  const scope = await permissionService.getResourceScope(req.session.staffRole, 'leads', 'delete');
+  if (scope !== 'all') { res.status(403).json({ success: false, error: 'Unrestricted leads.delete permission required.' }); return false; }
+  return true;
+}
+
+// Read-only: exactly what a purge of these students would remove, per table.
+async function previewDeleteStudents(req, res, next) {
+  if (!(await requireFullDelete(req, res))) return;
+  const { studentIds } = req.body;
+  if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+    return res.status(400).json({ success: false, error: 'studentIds array is required' });
+  }
+  try {
+    const counts = {};
+    for (const t of STUDENT_CHILD_TABLES) {
+      counts[t.label] = (await pool.query(`SELECT count(*)::int n FROM ${t.table} WHERE ${t.key} = ANY($1)`, [studentIds])).rows[0].n;
+    }
+    counts.duplicateReviews = (await pool.query(`SELECT count(*)::int n FROM duplicate_reviews WHERE incoming_uid = ANY($1) OR matched_ids && $1::text[]`, [studentIds])).rows[0].n;
+    counts.students = (await pool.query(`SELECT count(*)::int n FROM students WHERE student_id = ANY($1)`, [studentIds])).rows[0].n;
+    res.json({ success: true, data: counts });
+  } catch (err) { next(err); }
+}
+
+const orphanSql = (t, verb) =>
+  `${verb} FROM ${t.table} x WHERE x.${t.key} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM students s WHERE s.student_id = x.${t.key})`;
+
+// Read-only: rows orphaned by past deletions (their student no longer exists).
+async function getOrphans(req, res, next) {
+  if (!(await requireFullDelete(req, res))) return;
+  try {
+    const counts = {}; let total = 0;
+    for (const t of STUDENT_CHILD_TABLES) {
+      const n = (await pool.query(orphanSql(t, 'SELECT count(*)::int n'))).rows[0].n;
+      counts[t.label] = n; total += n;
+    }
+    res.json({ success: true, data: { counts, total } });
+  } catch (err) { next(err); }
+}
+
+// Purge those orphans, transactionally, child-first.
+async function purgeOrphans(req, res, next) {
+  if (!(await requireFullDelete(req, res))) return;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const purged = {}; let total = 0;
+    for (const t of STUDENT_CHILD_TABLES) {
+      const n = (await client.query(orphanSql(t, 'DELETE'))).rowCount;
+      purged[t.label] = n; total += n;
+    }
+    await client.query('COMMIT');
+    res.json({ success: true, data: { purged, total } });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    next(err);
+  } finally { client.release(); }
+}
+
 module.exports = {
   login, logout, checkSession,
   listStaff, listActiveStaff, listRoles, listColumns,
   listVariants, createVariant, updateVariant, deleteVariant,
   getMe, createStaff, updateStaff, resetPassword, deactivateStaff,
-  assignStaff, massAssign, searchStudents, getStudent, updateStudent,
+  assignStaff, massAssign, searchStudents, searchLeads, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,
   setTarget, deleteStudents, exportExcel,
+  previewDeleteStudents, getOrphans, purgeOrphans,
   getPermissions,
 };

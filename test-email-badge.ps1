@@ -14,13 +14,13 @@ $login = Invoke-RestMethod -Uri "http://localhost:3001/api/staff/login" -Method 
 $login
 
 # If you get "No advance badge token for this student at this event",
-# pick a valid pair from pgAdmin and edit uniqueId + eventId below:
+# pick a valid pair from pgAdmin and edit studentId + eventId below:
 #   SELECT ea.student_unique_id, ea.event_id, s.full_name
-#   FROM event_attendees ea JOIN students s ON s.unique_id = ea.student_unique_id
+#   FROM event_attendees ea JOIN students s ON s.student_id = ea.student_unique_id
 #   WHERE ea.attendance_token IS NOT NULL ORDER BY ea.event_id DESC LIMIT 10;
 
 $badge = @{
-  uniqueId = "20260620-05"
+  studentId = "20260620-05"
   eventId  = 36
   email    = $email
   badgePng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="

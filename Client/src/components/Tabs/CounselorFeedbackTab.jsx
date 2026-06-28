@@ -156,12 +156,12 @@ export default function CareerFitTab({ formData, updateField, saveAll }) {
     setCalculating(true);
     try {
       if (saveAll) await saveAll();
-      const res = await studentAPI.calculateOcean(formData.uniqueId);
+      const res = await studentAPI.calculateOcean(formData.studentId);
       const scores = res.data.scores;
       const archetypeData = getArchetype(scores);
 
       if (archetypeData.archetype) {
-        await studentAPI.update(formData.uniqueId, { oceanArchetype: archetypeData.archetype.name });
+        await studentAPI.update(formData.studentId, { oceanArchetype: archetypeData.archetype.name });
         updateField('oceanArchetype', archetypeData.archetype.name);
       }
 

@@ -222,7 +222,7 @@ function Home() {
       switch (scenario) {
         case 'counselor': await sendOtpAndNavigate('counselor'); break;
         case 'no_match': await sendOtpAndNavigate('create'); break;
-        case 'single_active': await sendOtpAndNavigate('change', { selectedRecordId: activeRecord.uniqueId }); break;
+        case 'single_active': await sendOtpAndNavigate('change', { selectedRecordId: activeRecord.studentId }); break;
         case 'conflict': setDuplicateModal({ scenario: 'conflict', matches }); break;
         default: await sendOtpAndNavigate('create');
       }
@@ -236,8 +236,8 @@ function Home() {
 
   const handleSelectRecord = async (selectedId) => {
     const recordsToDeactivate = (duplicateModal?.matches || [])
-      .filter((m) => m.status === 'Active' && m.uniqueId !== selectedId)
-      .map((m) => m.uniqueId);
+      .filter((m) => m.status === 'Active' && m.studentId !== selectedId)
+      .map((m) => m.studentId);
     setDuplicateModal(null);
     setLoading(true);
     try {

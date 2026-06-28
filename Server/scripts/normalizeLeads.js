@@ -165,13 +165,13 @@ async function main() {
   const fieldsToRead = ONLY_FIELD ? [ONLY_FIELD] : Object.keys(FIELD_MAP);
   // Pull full_name too so the CSV report is human-readable.
   const studentsRes = await pool.query(
-    `SELECT unique_id, full_name, ${fieldsToRead.join(', ')} FROM students`
+    `SELECT student_id, full_name, ${fieldsToRead.join(', ')} FROM students`
   );
   console.log(`Scanning ${studentsRes.rows.length} student rows...\n`);
 
   // ── Plan changes ─────────────────────────────────────────────────
-  const changes = [];    // { uniqueId, fullName, field, category, oldValue, newValue }
-  const orphans = [];    // { uniqueId, fullName, field, category, value }
+  const changes = [];    // { studentId, fullName, field, category, oldValue, newValue }
+  const orphans = [];    // { studentId, fullName, field, category, value }
   let noopCount = 0;
 
   for (const row of studentsRes.rows) {
@@ -183,19 +183,19 @@ async function main() {
       if (multiValue) {
         const { newValue, orphans: orphPieces } = resolveMulti(oldVal, category);
         if (newValue !== oldVal && newValue != null) {
-          changes.push({ uniqueId: row.unique_id, fullName: row.full_name, field, category, oldValue: oldVal, newValue });
+          changes.push({ studentId: row.student_id, fullName: row.full_name, field, category, oldValue: oldVal, newValue });
         } else {
           noopCount++;
         }
         for (const op of orphPieces) {
-          orphans.push({ uniqueId: row.unique_id, fullName: row.full_name, field, category, value: op });
+          orphans.push({ studentId: row.student_id, fullName: row.full_name, field, category, value: op });
         }
       } else {
         const newVal = resolveSingle(oldVal, category);
         if (newVal === undefined) {
-          orphans.push({ uniqueId: row.unique_id, fullName: row.full_name, field, category, value: oldVal });
+          orphans.push({ studentId: row.student_id, fullName: row.full_name, field, category, value: oldVal });
         } else if (newVal !== oldVal) {
-          changes.push({ uniqueId: row.unique_id, fullName: row.full_name, field, category, oldValue: oldVal, newValue: newVal });
+          changes.push({ studentId: row.student_id, fullName: row.full_name, field, category, oldValue: oldVal, newValue: newVal });
         } else {
           noopCount++;
         }
@@ -218,11 +218,11 @@ async function main() {
   const summaryPath  = path.join(REPORT_DIR, 'normalize-summary.csv');
 
   writeCsv(changesPath,
-    ['uniqueId', 'fullName', 'field', 'category', 'oldValue', 'newValue'],
+    ['studentId', 'fullName', 'field', 'category', 'oldValue', 'newValue'],
     changes
   );
   writeCsv(orphansPath,
-    ['uniqueId', 'fullName', 'field', 'category', 'value'],
+    ['studentId', 'fullName', 'field', 'category', 'value'],
     orphans
   );
 
@@ -270,18 +270,18 @@ async function main() {
     for (const c of changes) {
       try {
         await client.query(
-          `UPDATE students SET ${c.field} = $1 WHERE unique_id = $2`,
-          [c.newValue, c.uniqueId]
+          `UPDATE students SET ${c.field} = $1 WHERE student_id = $2`,
+          [c.newValue, c.studentId]
         );
         await client.query(
           `INSERT INTO audit_log
              (student_id, changed_by, changed_at, field_name, old_value, new_value, change_source)
            VALUES ($1, $2, NOW(), $3, $4, $5, $6)`,
-          [c.uniqueId, 'cleanup_script', c.field, String(c.oldValue), String(c.newValue), 'data_cleanup']
+          [c.studentId, 'cleanup_script', c.field, String(c.oldValue), String(c.newValue), 'data_cleanup']
         );
         applied++;
       } catch (err) {
-        console.error(`  FAILED ${c.uniqueId} ${c.field}: ${err.message}`);
+        console.error(`  FAILED ${c.studentId} ${c.field}: ${err.message}`);
         failed++;
       }
     }

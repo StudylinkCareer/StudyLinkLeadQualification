@@ -23,7 +23,7 @@ const { Pool } = require('pg');
 const COLUMN_LABELS = [
   // Identity / core
   { code: 'fullName',            labelEn: 'Name',              labelVi: 'Họ và tên' },
-  { code: 'uniqueId',            labelEn: 'ID',                labelVi: 'Mã hồ sơ' },
+  { code: 'studentId',           labelEn: 'ID',                labelVi: 'Mã hồ sơ' },
   { code: 'email',               labelEn: 'Email',             labelVi: 'Email' },
   { code: 'phone',               labelEn: 'Phone',             labelVi: 'Số điện thoại' },
   { code: 'facebookProfile',     labelEn: 'Facebook',          labelVi: 'Facebook' },

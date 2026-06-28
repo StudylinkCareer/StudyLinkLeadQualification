@@ -1,21 +1,21 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { studentAPI } from '../services/api';
 
-export function useFormState(uniqueId, initialData = {}) {
+export function useFormState(studentId, initialData = {}) {
   const [formData, setFormData] = useState(initialData);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [errors, setErrors] = useState({});
-  const uniqueIdRef = useRef(uniqueId);
+  const studentIdRef = useRef(studentId);
   const initializedRef = useRef(false);
   const formDataRef = useRef(formData);
   const dirtyRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => {
-    uniqueIdRef.current = uniqueId;
-  }, [uniqueId]);
+    studentIdRef.current = studentId;
+  }, [studentId]);
 
   useEffect(() => {
     formDataRef.current = formData;
@@ -26,10 +26,10 @@ export function useFormState(uniqueId, initialData = {}) {
   }, [dirty]);
 
   // Sync initialData whenever it changes to a new student record.
-  // We track the uniqueId so switching students always reloads fresh data.
+  // We track the studentId so switching students always reloads fresh data.
   const prevUniqueId = useRef(null);
   useEffect(() => {
-    const incomingId = initialData?.uniqueId;
+    const incomingId = initialData?.studentId;
     const isNewStudent = incomingId && incomingId !== prevUniqueId.current;
     const isFirstLoad = !initializedRef.current && initialData && Object.keys(initialData).length > 0;
 
@@ -75,7 +75,7 @@ export function useFormState(uniqueId, initialData = {}) {
 
   // Write all in-memory data to Google Sheet
   const saveAll = useCallback(async () => {
-    const id = uniqueIdRef.current;
+    const id = studentIdRef.current;
     if (!id) return;
     try {
       setSaving(true);

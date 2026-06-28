@@ -42,7 +42,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { studentAPI, staffAPI, columnConfigAPI, variantsAPI, notesAPI } from '../services/api';
+import { studentAPI, leadAPI, staffAPI, columnConfigAPI, variantsAPI, notesAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLookup } from '../contexts/LookupContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -121,12 +121,31 @@ const EMPTY_FILTERS = {
   motherContactMedium:[], fatherContactMedium:[],
   // Campaign
   campaignType:[], campaignName:[],
+  // Per-column free-text "contains" filters — one entry per column that has no
+  // dedicated multi/date chip. Keyed by column id. e.g. { fullName:'tran' }
+  colText:{},
   // Date ranges
   dateFrom:'', dateTo:'', closeDateFrom:'', closeDateTo:'',
   campStartFrom:'', campStartTo:'', campEndFrom:'', campEndTo:'',
 };
 
 // ── Filter config — drives which filter controls render and for which column ──
+// Single source of truth for "how many filters are active" — used by BOTH the
+// breadcrumb label and the "Clear filters (N)" badge so they always agree.
+// NOTE: colText is an object that is ALWAYS present ({}), so it must be counted
+// by its non-empty entries, never by object truthiness.
+function countActiveFilters(filters) {
+  if (!filters) return 0;
+  let n = filters.search ? 1 : 0;
+  MULTI_KEYS.forEach(k => { if (filters[k]?.length > 0) n++; });
+  if (filters.dateFrom       || filters.dateTo)        n++;
+  if (filters.closeDateFrom  || filters.closeDateTo)   n++;
+  if (filters.campStartFrom  || filters.campStartTo)   n++;
+  if (filters.campEndFrom    || filters.campEndTo)     n++;
+  Object.values(filters.colText || {}).forEach(v => { if (String(v || '').trim()) n++; });
+  return n;
+}
+
 const FILTER_CONFIG = [
   // Lead management
   { colKey:'leadStatus',         label:'Status',          type:'multi',     filterKey:'leadStatus' },
@@ -531,7 +550,9 @@ export default function Leads() {
   // ── TanStack Table state ──
   // Each is the canonical shape TanStack expects, so it can be persisted
   // verbatim into a variant config.
-  const [sorting,          setSorting]          = useState([{ id: 'createdAt', desc: true }]);
+  // Default = grouped by student (so a person's leads sit together), newest lead
+  // first within each student. Users can re-sort any column; saved variants override.
+  const [sorting,          setSorting]          = useState([{ id: 'studentId', desc: false }, { id: 'leadId', desc: true }]);
   const [columnVisibility, setColumnVisibility] = useState({});
   const [columnOrder,      setColumnOrder]      = useState([]);
   const [columnSizing,     setColumnSizing]     = useState({});
@@ -587,7 +608,7 @@ export default function Leads() {
   // Counselor Note so there is an automatic record of the call attempt.
   function handleCallClick(lead) {
     const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-    notesAPI.add(lead.uniqueId, 'counselor', `📞 Called student — ${now}`)
+    notesAPI.add(lead.studentId, 'counselor', `📞 Called student — ${now}`)
       .catch(err => console.warn('Auto call note failed:', err));
   }
 
@@ -750,6 +771,8 @@ export default function Leads() {
       if (configRes.data && Array.isArray(configRes.data)) {
         configRes.data.forEach(c => { if (c.key && c.width) savedWidths[c.key] = c.width; });
       }
+      // leadId / studentId now come from the catalog (permission_fields) like every
+      // other column, so they appear in Column Settings too. No code prepend.
       const merged = catalog.map(c => ({ ...c, width: savedWidths[c.key] || c.width }));
       setColumns(merged);
       // Apply persisted widths to TanStack's columnSizing state
@@ -823,11 +846,9 @@ export default function Leads() {
   // they navigate back via the trail, the persisted filter state is
   // re-applied (same mechanism the old "back to leads" arrow used).
   useEffect(() => {
-    const activeFilterCount =
-      Object.values(filters || {}).filter(v => Array.isArray(v) ? v.length > 0 : v).length
-      + (drillIds.length > 0 ? 1 : 0);
-    const label = activeFilterCount > 0
-      ? `Leads (${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''})`
+    const count = countActiveFilters(filters);
+    const label = count > 0
+      ? `Leads (${count} filter${count > 1 ? 's' : ''})`
       : 'Leads';
     pushTrail({
       label,
@@ -839,7 +860,7 @@ export default function Leads() {
   async function loadLeads() {
     setLoading(true);
     try {
-      const data = await studentAPI.search('');
+      const data = await studentAPI.searchLeads('');   // one row per LEAD (person + engagement)
       setLeads(data.data || []);
     } catch(e) {
       console.error(e);
@@ -964,6 +985,11 @@ export default function Leads() {
     setFilters(f => ({ ...f, [key]: value }));
     setPagination(p => ({ ...p, pageIndex: 0 }));
   }
+  // Free-text "contains" filter for any column without a dedicated chip.
+  function setColText(colKey, value) {
+    setFilters(f => ({ ...f, colText: { ...(f.colText || {}), [colKey]: value } }));
+    setPagination(p => ({ ...p, pageIndex: 0 }));
+  }
   function clearFilters() {
     setFilters(EMPTY_FILTERS);
     setPagination(p => ({ ...p, pageIndex: 0 }));
@@ -1015,15 +1041,7 @@ export default function Leads() {
   );
 
   // ── Active filter count (for badge) ───────────────────────
-  const activeFilterCount = useMemo(() => {
-    let n = filters.search ? 1 : 0;
-    MULTI_KEYS.forEach(k => { if (filters[k]?.length > 0) n++; });
-    if (filters.dateFrom       || filters.dateTo)        n++;
-    if (filters.closeDateFrom  || filters.closeDateTo)   n++;
-    if (filters.campStartFrom  || filters.campStartTo)   n++;
-    if (filters.campEndFrom    || filters.campEndTo)     n++;
-    return n;
-  }, [filters]);
+  const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
 
   // SortIndicator — driven by TanStack header.column.getIsSorted()
   // Returns 'asc' | 'desc' | false. Always render an icon (subdued when inactive)
@@ -1144,7 +1162,8 @@ export default function Leads() {
     let r = leads;
 
     if (drillIds.length > 0) {
-      r = r.filter(l => drillIds.includes(l.uniqueId));
+      // Drill ids may be lead ids (int) or student ids (text) — they never collide.
+      r = r.filter(l => drillIds.includes(l.leadId) || drillIds.includes(l.studentId));
     }
 
     // Backend's role_permissions.view_list controls whether each role
@@ -1259,6 +1278,20 @@ export default function Leads() {
     if (filters.campEndFrom)   r = r.filter(l => l.campaignEnd   && new Date(l.campaignEnd)   >= new Date(filters.campEndFrom));
     if (filters.campEndTo)     r = r.filter(l => l.campaignEnd   && new Date(l.campaignEnd)   <= new Date(filters.campEndTo   + 'T23:59:59'));
 
+    // Generic per-column free-text "contains" filters — covers every column that
+    // doesn't have a dedicated multi/date chip. Matches against the raw value too.
+    const colText = filters.colText || {};
+    for (const [k, val] of Object.entries(colText)) {
+      const needle = String(val || '').trim().toLowerCase();
+      if (!needle) continue;
+      r = r.filter(l => {
+        const disp = l[k];
+        const raw  = l[`_raw_${k}`];
+        return String(disp ?? '').toLowerCase().includes(needle)
+            || String(raw  ?? '').toLowerCase().includes(needle);
+      });
+    }
+
     // No sort here — TanStack handles sorting via its sortedRowModel.
     return r;
   }, [leads, filters, drillIds]);
@@ -1307,12 +1340,15 @@ export default function Leads() {
     getPaginationRowModel:     getPaginationRowModel(),
     enableColumnResizing:      true,
     columnResizeMode:          'onChange',
-    getRowId:                  row => row.uniqueId,
+    // Rows are lead-level (one per lead). leadId is unique per row; studentId is
+    // NOT (a student can have many leads), so keying by studentId produced
+    // duplicate React keys and scrambled cells on sort/reorder.
+    getRowId:                  row => String(row.leadId ?? `s_${row.studentId}`),
   });
 
   function toggleSelect(id) { setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
   function toggleAll() {
-    const pageIds = table.getRowModel().rows.map(r => r.original.uniqueId);
+    const pageIds = table.getRowModel().rows.map(r => r.original.studentId);
     const allSel  = pageIds.every(id => selected.includes(id));
     setSelected(allSel ? selected.filter(id => !pageIds.includes(id)) : [...new Set([...selected, ...pageIds])]);
   }
@@ -1392,6 +1428,24 @@ export default function Leads() {
   function renderCellInner(col, lead) {
     const v = lead[col.key];
     switch(col.key) {
+      case 'leadId':
+        return v
+          ? <span
+              onClick={e => { e.stopPropagation(); navigate(`/lead/${v}`); }}
+              style={{ color:'var(--primary)', cursor:'pointer', fontWeight:600 }}
+              title="Open this lead">
+              {v}
+            </span>
+          : <MissingValue/>;
+      case 'studentId':
+        return v
+          ? <span
+              onClick={e => { e.stopPropagation(); navigate(`/students/${v}`); }}
+              style={{ color:'var(--primary)', cursor:'pointer' }}
+              title="Open student profile">
+              {v}
+            </span>
+          : <MissingValue/>;
       case 'fullName':              return v || <MissingValue/>;
       case 'leadStatus': {
         // Look up the cssClass and language-aware label from lookup data.
@@ -1486,7 +1540,7 @@ export default function Leads() {
   // can no longer hide a column the role is RBAC-allowed to see, nor show
   // a column the role is RBAC-forbidden to see. This removes the duplicate
   // configuration surface — RBAC tables are the single source of truth.
-  const visibleCols = columns.filter(c => fieldList(c.key) !== 'none' && c.visible !== false);
+  const visibleCols = columns.filter(c => c.key === 'leadId' || (fieldList(c.key) !== 'none' && c.visible !== false));
   const FIELD_LABELS = {
     counselor:'Counselor', seniorCounselor:'Senior Counselor',
     presales:'Pre-Sales', marketingStaff:'Marketing Staff',
@@ -1684,7 +1738,7 @@ export default function Leads() {
                       <th className="checkbox-col" style={{ width:'40px' }}>
                         <input
                           type="checkbox"
-                          checked={table.getRowModel().rows.length > 0 && table.getRowModel().rows.every(r => selected.includes(r.original.uniqueId))}
+                          checked={table.getRowModel().rows.length > 0 && table.getRowModel().rows.every(r => selected.includes(r.original.studentId))}
                           onChange={toggleAll}
                         />
                       </th>
@@ -1776,6 +1830,18 @@ export default function Leads() {
                             onChangeTo={v   => setFilter(fcDate.toKey, v)}
                           />
                         )}
+                        {!fcMulti && !fcDate && (
+                          <input
+                            type="text"
+                            value={(filters.colText && filters.colText[col.id]) || ''}
+                            onChange={e => setColText(col.id, e.target.value)}
+                            onClick={e => e.stopPropagation()}
+                            placeholder="filter…"
+                            style={{ width:'100%', minWidth:'70px', fontSize:'0.72rem', padding:'2px 6px',
+                                     border:'1px solid var(--border)', borderRadius:'4px',
+                                     background:'#fff', color:'var(--text)' }}
+                          />
+                        )}
                       </th>
                     );
                   })}
@@ -1793,15 +1859,11 @@ export default function Leads() {
                         opacity: canViewThisLead ? 1 : 0.55,
                       }}
                       onClick={() => {
-                        if (!canViewThisLead) {
-                          setAccessToast(`Access not authorised — ${lead.fullName || 'this lead'} is not assigned to you.`);
-                          return;
-                        }
-                        navigate(`/leads/${lead.uniqueId}`);
+                        if (lead.studentId) navigate(`/students/${lead.studentId}`);
                       }}>
                       {canMassAssign && (
-                        <td onClick={e => { e.stopPropagation(); toggleSelect(lead.uniqueId); }}>
-                          <input type="checkbox" checked={selected.includes(lead.uniqueId)} onChange={() => {}}/>
+                        <td onClick={e => { e.stopPropagation(); toggleSelect(lead.studentId); }}>
+                          <input type="checkbox" checked={selected.includes(lead.studentId)} onChange={() => {}}/>
                         </td>
                       )}
                       {row.getVisibleCells().map(cell => (
@@ -1825,7 +1887,7 @@ export default function Leads() {
             </table>
           </div>
 
-          <div className="table-pagination no-print">
+          <div className="table-pagination no-print" style={{ justifyContent: 'flex-start', gap: '1.5rem' }}>
             <span>{filtered.length} leads</span>
             <div className="pagination-controls">
               <button

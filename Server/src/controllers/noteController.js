@@ -66,18 +66,21 @@ async function addNote(req, res, next) {
     if (scope === 'own') {
       const leadRes = await pool.query(
         `SELECT counselor, senior_counselor, presales, marketing_staff
-         FROM students WHERE unique_id = $1`,
+         FROM leads WHERE person_id = $1`,
         [studentId]
       );
       if (leadRes.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Lead not found' });
       }
-      const lead = objectToCamelCase(leadRes.rows[0]);
-      const isAssigned =
-        lead.counselor       === staffName ||
-        lead.seniorCounselor === staffName ||
-        lead.presales        === staffName ||
-        lead.marketingStaff  === staffName;
+      const isAssigned = leadRes.rows.some((row) => {
+        const lead = objectToCamelCase(row);
+        return (
+          lead.counselor       === staffName ||
+          lead.seniorCounselor === staffName ||
+          lead.presales        === staffName ||
+          lead.marketingStaff  === staffName
+        );
+      });
       if (!isAssigned) {
         return res.status(403).json({
           success: false,
@@ -91,6 +94,84 @@ async function addNote(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+// ── Lead-level notes (attached to a specific lead; topic allowed) ────────────
+async function getLeadNotes(req, res, next) {
+  try {
+    const notes = await StudentNote.listByLead(req.params.leadId);
+    res.json({ success: true, data: notes });
+  } catch (err) { next(err); }
+}
+
+async function addLeadNote(req, res, next) {
+  try {
+    const { leadId } = req.params;
+    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation } = req.body;
+    const staffRole = req.session.staffRole;
+    const staffName = req.session.staffName;
+    const authorId  = req.session.staffId;
+
+    if (!noteType || !content) return res.status(400).json({ success: false, error: 'Note type and content are required' });
+    const ALLOWED_NOTE_TYPES = ['counselor', 'presales', 'management'];
+    if (!ALLOWED_NOTE_TYPES.includes(noteType)) return res.status(400).json({ success: false, error: 'Invalid note type' });
+
+    // The lead carries its own assignment + owning student.
+    const leadRes = await pool.query(
+      `SELECT person_id AS student_id, counselor, senior_counselor, presales, marketing_staff
+         FROM leads WHERE lead_id = $1`, [leadId]
+    );
+    if (leadRes.rows.length === 0) return res.status(404).json({ success: false, error: 'Lead not found' });
+    const lead = objectToCamelCase(leadRes.rows[0]);
+
+    const scope = await permissionService.getResourceScope(staffRole, 'notes', `write_${noteType}`);
+    if (!scope || scope === 'none') return res.status(403).json({ success: false, error: 'You do not have permission to write this note type.' });
+    if (scope === 'own') {
+      const ok = lead.counselor === staffName || lead.seniorCounselor === staffName || lead.presales === staffName || lead.marketingStaff === staffName;
+      if (!ok) return res.status(403).json({ success: false, error: 'You can only write notes on leads assigned to you.' });
+    }
+
+    const note = await StudentNote.create({ studentId: lead.studentId, leadId, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation });
+    res.status(201).json({ success: true, data: note });
+  } catch (err) { next(err); }
+}
+
+// ── Student-level notes (attached to the person, no lead; topic-less for now) ─
+async function getStudentLevelNotes(req, res, next) {
+  try {
+    const notes = await StudentNote.listStudentLevel(req.params.studentId);
+    res.json({ success: true, data: notes });
+  } catch (err) { next(err); }
+}
+
+async function addStudentLevelNote(req, res, next) {
+  try {
+    const { studentId } = req.params;
+    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation } = req.body;
+    const staffRole = req.session.staffRole;
+    const staffName = req.session.staffName;
+    const authorId  = req.session.staffId;
+
+    if (!noteType || !content) return res.status(400).json({ success: false, error: 'Note type and content are required' });
+    const ALLOWED_NOTE_TYPES = ['counselor', 'presales', 'management'];
+    if (!ALLOWED_NOTE_TYPES.includes(noteType)) return res.status(400).json({ success: false, error: 'Invalid note type' });
+
+    const scope = await permissionService.getResourceScope(staffRole, 'notes', `write_${noteType}`);
+    if (!scope || scope === 'none') return res.status(403).json({ success: false, error: 'You do not have permission to write this note type.' });
+    if (scope === 'own') {
+      const sRes = await pool.query(`SELECT counselor, senior_counselor, presales, marketing_staff FROM leads WHERE person_id = $1`, [studentId]);
+      if (sRes.rows.length === 0) return res.status(404).json({ success: false, error: 'Student not found' });
+      const ok = sRes.rows.some((row) => {
+        const s = objectToCamelCase(row);
+        return s.counselor === staffName || s.seniorCounselor === staffName || s.presales === staffName || s.marketingStaff === staffName;
+      });
+      if (!ok) return res.status(403).json({ success: false, error: 'You can only write notes on students assigned to you.' });
+    }
+
+    // Student-level notes carry no topic for now.
+    const note = await StudentNote.create({ studentId, leadId: null, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic: null, meetingLocation });
+    res.status(201).json({ success: true, data: note });
+  } catch (err) { next(err); }
 }
 
 async function deleteNote(req, res, next) {
@@ -183,10 +264,12 @@ async function appendToNote(req, res, next) {
       return res.status(403).json({ success: false, error: 'Permission denied' });
     }
     if (scope === 'own') {
-      const leadRes = await pool.query('SELECT counselor, senior_counselor, presales, marketing_staff FROM students WHERE unique_id = $1', [note.studentId]);
+      const leadRes = await pool.query('SELECT counselor, senior_counselor, presales, marketing_staff FROM leads WHERE person_id = $1', [note.studentId]);
       if (leadRes.rows.length === 0) return res.status(404).json({ success: false, error: 'Lead not found' });
-      const lead = objectToCamelCase(leadRes.rows[0]);
-      const isAssigned = lead.counselor === staffName || lead.seniorCounselor === staffName || lead.presales === staffName || lead.marketingStaff === staffName;
+      const isAssigned = leadRes.rows.some((row) => {
+        const lead = objectToCamelCase(row);
+        return lead.counselor === staffName || lead.seniorCounselor === staffName || lead.presales === staffName || lead.marketingStaff === staffName;
+      });
       if (!isAssigned) return res.status(403).json({ success: false, error: 'You can only append to notes on your own leads.' });
     }
 
@@ -196,4 +279,4 @@ async function appendToNote(req, res, next) {
     next(err);
   }
 }
-module.exports = { getNotes, addNote, deleteNote, updateReminder, getReminders, getCommunications, appendToNote };
+module.exports = { getNotes, addNote, getLeadNotes, addLeadNote, getStudentLevelNotes, addStudentLevelNote, deleteNote, updateReminder, getReminders, getCommunications, appendToNote };

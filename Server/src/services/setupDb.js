@@ -8,7 +8,7 @@ async function setupDatabase() {
 
     await pool.query(`
       CREATE TABLE students (
-        unique_id                 VARCHAR(20)   PRIMARY KEY,
+        student_id                 VARCHAR(20)   PRIMARY KEY,
         full_name                 VARCHAR(255),
         contact_medium1           VARCHAR(50),
         phone_country_code1       VARCHAR(20),
@@ -69,7 +69,7 @@ async function setupDatabase() {
     await pool.query(`
       CREATE TABLE documents (
         document_id   VARCHAR(50)  PRIMARY KEY,
-        student_id    VARCHAR(20)  REFERENCES students(unique_id),
+        student_id    VARCHAR(20)  REFERENCES students(student_id),
         type          VARCHAR(100),
         description   TEXT,
         file_name     VARCHAR(255),

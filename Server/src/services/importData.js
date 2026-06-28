@@ -39,7 +39,7 @@ const csvFile = csvArg
 
 const INSERT_SQL = `
   INSERT INTO students (
-    unique_id, full_name,
+    student_id, full_name,
     contact_medium1, phone_country_code1, contact_detail1,
     contact_medium2, phone_country_code2, contact_detail2,
     email, hidden_phone_country_code, phone,
@@ -63,7 +63,7 @@ const INSERT_SQL = `
     $42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,
     $56,$57
   )
-  ON CONFLICT (unique_id) DO NOTHING
+  ON CONFLICT (student_id) DO NOTHING
 `;
 
 function rowValues(row, office) {

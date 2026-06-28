@@ -5,6 +5,7 @@
 // api.js camelCases server keys -> read s.fullName, c.fullName (NOT full_name).
 
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { distributionAPI } from '../services/api';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -17,6 +18,7 @@ const btn = (primary) => ({ padding: '9px 16px', borderRadius: 8, fontWeight: 60
 const field = { padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8 };
 const tabBtn = (on) => ({ padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600,
   background: on ? '#2563eb' : '#eef2ff', color: on ? '#fff' : '#3730a3' });
+const btnSm = (color) => ({ padding: '5px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '.78rem', background: color, color: '#fff' });
 
 export default function LeadDistribution() {
   const { canDo, loading: permsLoading } = usePermissions();
@@ -30,6 +32,7 @@ export default function LeadDistribution() {
   const [coverage, setCoverage] = useState([]);
   const [staffList, setStaffList] = useState([]);
   const [unassigned, setUnassigned] = useState([]);
+  const [duplicates, setDuplicates] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -64,9 +67,10 @@ export default function LeadDistribution() {
   const loadAll = useCallback(async () => {
     try {
       setError('');
-      const [off, pl, cov, st, un, rv] = await Promise.all([
+      const [off, pl, cov, st, un, rv, dp] = await Promise.all([
         distributionAPI.offices(), distributionAPI.pool(), distributionAPI.coverage(),
         distributionAPI.staff(), distributionAPI.unassigned(), distributionAPI.review(),
+        distributionAPI.duplicates().catch(() => ({ data: [] })),   // resilient if migration not yet run
       ]);
       setOffices(off.data || []);
       setPool(pl.data || []);
@@ -74,6 +78,7 @@ export default function LeadDistribution() {
       setStaffList(st.data || []);
       setUnassigned(un.data || []);
       setReviewLeads(rv.data || []);
+      setDuplicates(dp.data || []);
       setOffice((c) => c || (off.data?.[0]?.code ?? ''));
       setNewOffice((c) => c || (off.data?.[0]?.code ?? ''));
     } catch (e) { setError(e.message); }
@@ -110,6 +115,10 @@ export default function LeadDistribution() {
     if (!fileB64) throw new Error(vi ? 'Chưa chọn tệp.' : 'No file selected.');
     const r = await distributionAPI.upload(fileB64, uploadOffice || null);
     setUploadResult(r.data); await loadAll();
+  });
+  const resolveDup = (id, action, studentId) => run(async () => {
+    await distributionAPI.resolveDuplicate(id, action, studentId || null);
+    await loadAll();
   });
 
   function onNotesFile(e) {
@@ -166,7 +175,7 @@ export default function LeadDistribution() {
   });
 
   const toggleReview = (uid) => setReviewSel((s) => s.includes(uid) ? s.filter((x) => x !== uid) : [...s, uid]);
-  const toggleReviewAll = () => setReviewSel((s) => s.length === reviewLeads.length ? [] : reviewLeads.map((l) => l.uniqueId));
+  const toggleReviewAll = () => setReviewSel((s) => s.length === reviewLeads.length ? [] : reviewLeads.map((l) => l.leadId));
   const handleAssignManual = () => run(async () => {
     if (reviewSel.length === 0) throw new Error(vi ? 'Chưa chọn lead.' : 'No leads selected.');
     if (!reviewCounselor) throw new Error(vi ? 'Chọn nhân viên.' : 'Pick a counsellor.');
@@ -193,6 +202,7 @@ export default function LeadDistribution() {
     ['upload', vi ? 'Tải Lead' : 'Upload Leads'],
     ['notes', vi ? 'Tải Ghi chú' : 'Upload Notes'],
     ['review', `${vi ? 'Xem xét' : 'Review'}${reviewLeads.length ? ` (${reviewLeads.length})` : ''}`],
+    ['duplicates', `${vi ? 'Trùng lặp' : 'Duplicates'}${duplicates.length ? ` (${duplicates.length})` : ''}`],
     ['release', vi ? 'Phát hành' : 'Release'],
     ['coverage', vi ? 'Phân công văn phòng' : 'Coverage'],
   ];
@@ -344,9 +354,9 @@ export default function LeadDistribution() {
                 </tr></thead>
                 <tbody>
                   {reviewLeads.map((l) => (
-                    <tr key={l.uniqueId} style={reviewSel.includes(l.uniqueId) ? { background: '#eff6ff' } : undefined}>
-                      <td style={td}><input type="checkbox" checked={reviewSel.includes(l.uniqueId)} onChange={() => toggleReview(l.uniqueId)} /></td>
-                      <td style={td}>{l.uniqueId}</td>
+                    <tr key={l.leadId} style={reviewSel.includes(l.leadId) ? { background: '#eff6ff' } : undefined}>
+                      <td style={td}><input type="checkbox" checked={reviewSel.includes(l.leadId)} onChange={() => toggleReview(l.leadId)} /></td>
+                      <td style={td}>{l.studentId}</td>
                       <td style={td}>{l.fullName}</td>
                       <td style={{ ...td, color: l.office ? undefined : '#b45309' }}>{l.office || (vi ? '(thiếu)' : '(none)')}</td>
                       <td style={td}>{l.stoneTier || '—'}</td>
@@ -361,6 +371,49 @@ export default function LeadDistribution() {
       )}
 
       {/* ───────── COVERAGE ───────── */}
+      {tab === 'duplicates' && (
+        <div style={card}>
+          <h2 style={{ fontSize: '1.05rem', margin: '0 0 .25rem' }}>{vi ? 'Trùng lặp cần xem xét' : 'Duplicates to review'}</h2>
+          <p style={{ color: '#6b7280', marginTop: 0 }}>{vi ? 'Dòng tải lên có email/số điện thoại trùng với người đã có. Chọn cách xử lý cho từng dòng.' : 'Upload rows whose email/phone matched an existing person. Choose how to handle each.'}</p>
+          {duplicates.length === 0 ? (
+            <p style={{ color: '#6b7280', margin: 0 }}>{vi ? 'Không có dòng trùng lặp.' : 'Nothing to review.'}</p>
+          ) : (
+            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <thead><tr>
+                <th style={th}>{vi ? 'Người mới (tải lên)' : 'Incoming'}</th>
+                <th style={th}>{vi ? 'Khớp' : 'Match'}</th>
+                <th style={th}>{vi ? 'Trùng với' : 'Existing person'}</th>
+                <th style={th}>{vi ? 'Xử lý' : 'Resolve'}</th>
+              </tr></thead>
+              <tbody>
+                {duplicates.map((d) => (
+                  <tr key={d.id}>
+                    <td style={td}>
+                      <div style={{ fontWeight: 600 }}>{d.fullName || d.incomingUid}</div>
+                      <div style={{ fontSize: '.78rem', color: '#6b7280' }}>{[d.email, d.phone].filter(Boolean).join(' · ') || d.incomingUid}</div>
+                    </td>
+                    <td style={td}><span style={{ fontSize: '.72rem', padding: '2px 8px', borderRadius: 10, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>{d.matchType}</span></td>
+                    <td style={td}>
+                      {(d.matches || []).length === 0 ? <span style={{ color: '#9ca3af' }}>—</span> :
+                        (d.matches || []).map((m) => (
+                          <div key={m.studentId}><Link to={`/students/${m.studentId}`} style={{ color: '#2563eb' }}>{m.fullName || m.studentId}</Link></div>
+                        ))}
+                    </td>
+                    <td style={td}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button disabled={busy || !(d.matches && d.matches[0])} onClick={() => resolveDup(d.id, 'link', d.matches?.[0]?.studentId)} style={btnSm('#16a34a')} title={vi ? 'Tạo lead mới cho người đã có' : 'Create a new lead for the existing person'}>{vi ? 'Thêm lead' : 'Add as new lead'}</button>
+                        <button disabled={busy} onClick={() => resolveDup(d.id, 'new_person')} style={btnSm('#6b7280')} title={vi ? 'Tạo hồ sơ người riêng' : 'Create as a separate person'}>{vi ? 'Người riêng' : 'Separate person'}</button>
+                        <button disabled={busy} onClick={() => { if (window.confirm(vi ? 'Bỏ qua dòng này?' : 'Dismiss this row?')) resolveDup(d.id, 'dismiss'); }} style={btnSm('#dc2626')}>{vi ? 'Bỏ qua' : 'Dismiss'}</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
       {tab === 'coverage' && (
         <>
           <div style={card}>

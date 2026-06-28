@@ -1,6 +1,6 @@
 // server/src/services/verifyLeadIds.js
 //
-// Checks whether a fixed list of unique_ids exists in the students table.
+// Checks whether a fixed list of student_ids exists in the students table.
 // Reports: count present, count missing, and lists any missing IDs.
 //
 // USAGE:  node verifyLeadIds.js
@@ -1124,16 +1124,16 @@ const IDS_TO_CHECK = [
 ];
 
 async function main() {
-  console.log(`\n📋 Checking ${IDS_TO_CHECK.length} unique_ids against the students table…\n`);
+  console.log(`\n📋 Checking ${IDS_TO_CHECK.length} student_ids against the students table…\n`);
 
   const { rows } = await pool.query(
-    `SELECT unique_id, full_name, created_at
+    `SELECT student_id, full_name, created_at
      FROM students
-     WHERE unique_id = ANY($1::varchar[])`,
+     WHERE student_id = ANY($1::varchar[])`,
     [IDS_TO_CHECK]
   );
 
-  const found = new Set(rows.map(r => r.unique_id));
+  const found = new Set(rows.map(r => r.student_id));
   const missing = IDS_TO_CHECK.filter(id => !found.has(id));
 
   console.log('=== RESULTS ===');
@@ -1142,11 +1142,11 @@ async function main() {
   console.log('');
 
   if (missing.length > 0) {
-    console.log('--- Missing unique_ids ---');
+    console.log('--- Missing student_ids ---');
     for (const id of missing) console.log(`  ${id}`);
     console.log('');
   } else {
-    console.log('✅ All unique_ids are in the database.\n');
+    console.log('✅ All student_ids are in the database.\n');
   }
 
   // Bonus: created_at distribution by date

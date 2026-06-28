@@ -33,7 +33,7 @@ export default function EventConsole() {
   const [roster, setRoster]   = useState([]);
   const [q, setQ]             = useState('');
   const [loading, setLoading] = useState(false);
-  const [busyId, setBusyId]   = useState(null);   // uniqueId being checked in
+  const [busyId, setBusyId]   = useState(null);   // studentId being checked in
 
   // Badge email modal state
   const [badgeStudent, setBadgeStudent] = useState(null); // roster row whose badge modal is open
@@ -115,14 +115,14 @@ export default function EventConsole() {
   // Load desks when the Desks tab is active for the selected event.
   useEffect(() => { if (tab === 'desks') loadDesks(eventId); }, [tab, eventId, loadDesks]);
 
-  const handleCheckin = async (uniqueId, row) => {
-    setBusyId(uniqueId); setError('');
+  const handleCheckin = async (studentId, row) => {
+    setBusyId(studentId); setError('');
     try {
       // Ask the server what's required and whether this student already passes.
-      const res = await eventConsoleAPI.checkinFields(eventId, uniqueId);
+      const res = await eventConsoleAPI.checkinFields(eventId, studentId);
       const data = res.data || {};
       if (data.qualified) {
-        await eventConsoleAPI.checkin(eventId, uniqueId);
+        await eventConsoleAPI.checkin(eventId, studentId);
         await loadRoster(eventId, q);
       } else {
         // Open the form to fill the required fields before check-in completes.
@@ -132,7 +132,7 @@ export default function EventConsole() {
         setCiFields(fields);
         setCiValues(init);
         setCiError('');
-        setCiStudent(row || { uniqueId });
+        setCiStudent(row || { studentId });
       }
     } catch (e) {
       setError(e.message || 'Check-in failed');
@@ -145,7 +145,7 @@ export default function EventConsole() {
     if (!ciStudent) return;
     setCiBusy(true); setCiError('');
     try {
-      await eventConsoleAPI.checkin(eventId, ciStudent.uniqueId, ciValues);
+      await eventConsoleAPI.checkin(eventId, ciStudent.studentId, ciValues);
       setCiStudent(null); setCiFields([]); setCiValues({});
       await loadRoster(eventId, q);
     } catch (e) {
@@ -170,12 +170,12 @@ export default function EventConsole() {
     let row = r;
     if (!row.attendanceToken) {
       try {
-        const res = await eventConsoleAPI.issueToken(eventId, r.uniqueId);
+        const res = await eventConsoleAPI.issueToken(eventId, r.studentId);
         const token = res && res.data && res.data.attendanceToken;
         if (token) {
           row = { ...row, attendanceToken: token };
           setBadgeStudent(row);
-          setRoster((rows) => rows.map((x) => x.uniqueId === r.uniqueId ? { ...x, attendanceToken: token } : x));
+          setRoster((rows) => rows.map((x) => x.studentId === r.studentId ? { ...x, attendanceToken: token } : x));
         }
       } catch (e) {
         setBadgeMsg(e.message || 'Could not issue a badge token');
@@ -189,7 +189,7 @@ export default function EventConsole() {
       : (ev ? (fmtDate(ev.startDate) || fmtDate(ev.endDate) || '') : '');
     renderBadgePng({
       data: row.attendanceToken,
-      title: row.fullName || row.uniqueId,
+      title: row.fullName || row.studentId,
       metaLines: [ev && ev.name, dateStr].filter(Boolean),
     })
       .then((url) => setBadgePreview(url))
@@ -218,7 +218,7 @@ export default function EventConsole() {
     setBadgeBusy(true); setBadgeMsg('');
     try {
       await eventConsoleAPI.zaloBadge({
-        uniqueId: badgeStudent.uniqueId,
+        studentId: badgeStudent.studentId,
         eventId,
         baseUrl: (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, ''),
       });
@@ -251,7 +251,7 @@ export default function EventConsole() {
     setBadgeBusy(true); setBadgeMsg('');
     try {
       await eventConsoleAPI.emailBadge({
-        uniqueId: badgeStudent.uniqueId,
+        studentId: badgeStudent.studentId,
         eventId,
         email: to,
         badgePng: dataUrlToBase64(badgePreview),
@@ -409,14 +409,14 @@ export default function EventConsole() {
                   </td></tr>
                 )}
                 {!loading && roster.map((r) => (
-                  <tr key={r.uniqueId}>
+                  <tr key={r.studentId}>
                     <td style={td}>
                       <div
-                        onClick={() => navigate(`/leads/${r.uniqueId}`)}
+                        onClick={() => navigate(`/leads/${r.studentId}`)}
                         style={{ fontWeight:600, color:'#2563eb', cursor:'pointer' }}
                         title="Open lead record"
                       >{r.fullName || '—'}</div>
-                      <div style={{ color:'#9ca3af', fontSize:12 }}>{r.uniqueId}</div>
+                      <div style={{ color:'#9ca3af', fontSize:12 }}>{r.studentId}</div>
                     </td>
                     <td style={td}>
                       <div>{r.email || '—'}</div>
@@ -437,10 +437,10 @@ export default function EventConsole() {
                         >{r.badgeEmailedAt ? 'Badge (sent)' : 'Badge'}</button>
                         {!r.attendedAt && (
                           <button
-                            onClick={() => handleCheckin(r.uniqueId, r)}
-                            disabled={busyId === r.uniqueId}
-                            style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#16a34a', color:'#fff', fontWeight:600, cursor:'pointer', opacity: busyId === r.uniqueId ? 0.6 : 1 }}
-                          >{busyId === r.uniqueId ? 'Checking in…' : 'Check in'}</button>
+                            onClick={() => handleCheckin(r.studentId, r)}
+                            disabled={busyId === r.studentId}
+                            style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#16a34a', color:'#fff', fontWeight:600, cursor:'pointer', opacity: busyId === r.studentId ? 0.6 : 1 }}
+                          >{busyId === r.studentId ? 'Checking in…' : 'Check in'}</button>
                         )}
                         {r.attendedAt && (
                           <span style={{ color:'#6b7280', fontSize:13 }}>
@@ -551,7 +551,7 @@ export default function EventConsole() {
             onClick={(e) => e.stopPropagation()}
             style={{ background:'#fff', borderRadius:16, padding:24, textAlign:'center', maxWidth:360, width:'90%', maxHeight:'90vh', overflowY:'auto' }}
           >
-            <div style={{ fontSize:18, fontWeight:800, marginBottom:2 }}>{badgeStudent.fullName || badgeStudent.uniqueId}</div>
+            <div style={{ fontSize:18, fontWeight:800, marginBottom:2 }}>{badgeStudent.fullName || badgeStudent.studentId}</div>
             <div style={{ color:'#9ca3af', fontSize:13, marginBottom:14 }}>Registration badge</div>
 
             <div style={{ minHeight:160, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
@@ -607,7 +607,7 @@ export default function EventConsole() {
             onClick={(e) => e.stopPropagation()}
             style={{ background:'#fff', borderRadius:16, padding:24, maxWidth:480, width:'92%', maxHeight:'90vh', overflowY:'auto' }}
           >
-            <div style={{ fontSize:18, fontWeight:800, marginBottom:2 }}>{ciStudent.fullName || ciStudent.uniqueId}</div>
+            <div style={{ fontSize:18, fontWeight:800, marginBottom:2 }}>{ciStudent.fullName || ciStudent.studentId}</div>
             <div style={{ color:'#9ca3af', fontSize:13, marginBottom:14 }}>Complete required fields to check in</div>
 
             {ciFields.map((f) => {

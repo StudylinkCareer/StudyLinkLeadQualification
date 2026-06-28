@@ -166,10 +166,10 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
       for (let i = 1; i <= 15; i++) {
         questionData[`oceanQ${i}`] = responses[i] || null;
       }
-      await studentAPI.update(formData.uniqueId, questionData);
+      await studentAPI.update(formData.studentId, questionData);
 
       // Pass language so server generates narrative in the right language
-      const res = await studentAPI.calculateOcean(formData.uniqueId, language);
+      const res = await studentAPI.calculateOcean(formData.studentId, language);
       const scores    = res.data.scores;
       const narrative = res.data.narrative || '';
 

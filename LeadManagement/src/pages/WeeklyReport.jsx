@@ -298,9 +298,9 @@ function WeeklyReportInner() {
     { key: 'let_final', label: L('Final', 'Cuối'),   value: g => g.finalLetters?.count, leads: g => g.finalLetters?.items, cols: [name, { key: 'destinationCountry', label: L('Destination', 'Điểm đến') }] },
   ] };
   const leadsSection = { title: L('Leads', 'Khách hàng'), color: '#2563eb', metrics: [
-    { key: 'l_in',   label: L('Leads in', 'Nhận vào'),      value: g => g.leadsIn?.count,         leads: g => g.leadsIn?.leads,         cols: [name, { key: 'studentId', label: L('Lead ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
-    { key: 'l_out',  label: L('Leads out', 'Chuyển đi'),    value: g => g.leadsOut?.count,        leads: g => g.leadsOut?.leads,        cols: [name, { key: 'studentId', label: L('Lead ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'movedTo', label: L('Moved to', 'Chuyển đến') }] },
-    { key: 'l_prog', label: L('In progress', 'Đang xử lý'), value: g => g.leadsInProgress?.count, leads: g => g.leadsInProgress?.leads, cols: [name, { key: 'studentId', label: L('Lead ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
+    { key: 'l_in',   label: L('Leads in', 'Nhận vào'),      value: g => g.leadsIn?.count,         leads: g => g.leadsIn?.leads,         cols: [name, { key: 'studentId', label: L('Student ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
+    { key: 'l_out',  label: L('Leads out', 'Chuyển đi'),    value: g => g.leadsOut?.count,        leads: g => g.leadsOut?.leads,        cols: [name, { key: 'studentId', label: L('Student ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'movedTo', label: L('Moved to', 'Chuyển đến') }] },
+    { key: 'l_prog', label: L('In progress', 'Đang xử lý'), value: g => g.leadsInProgress?.count, leads: g => g.leadsInProgress?.leads, cols: [name, { key: 'studentId', label: L('Student ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
   ] };
   const callsSection = { title: L('Calls', 'Cuộc gọi'), color: '#8b5cf6', subtitle: L('prior week only', 'chỉ tuần trước'), metrics: [
     { key: 'call_new', label: L('New clients', 'Khách mới'),       value: g => g.calls?.totals?.newLeads, leads: g => g.calls?.newLeadItems, cols: [name] },
@@ -316,7 +316,51 @@ function WeeklyReportInner() {
   const openLead = (studentId) => {
     if (!studentId) return;
     if (drill) { try { sessionStorage.setItem('weekly-drill', JSON.stringify({ weekStart, mode, selected, secTitle: drill.secTitle, metricKey: drill.metricKey, groupLabel: drill.groupLabel })); } catch { /* ignore */ } }
-    navigate(`/leads/${studentId}`);
+    navigate(`/students/${studentId}`);   // rows are people here → open the Student record
+  };
+
+  // "Drill down to list of records" — open the full Leads list filtered to exactly
+  // the records in this drill panel (by studentId; the list matches lead/student ids).
+  const openDrillAsList = () => {
+    const ids = (drill?.items || []).map(it => it.studentId).filter(Boolean);
+    if (!ids.length) return;
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
+  };
+
+  // Resizable drill panel (drag its left border). Persisted for the session.
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const v = Number(typeof sessionStorage !== 'undefined' && sessionStorage.getItem('wr-panel-width'));
+    return v >= 300 && v <= 900 ? v : 380;
+  });
+  const startPanelResize = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidth;
+    let latest = startW;
+    // Grip is on the panel's RIGHT edge → drag right widens, drag left narrows.
+    const onMove = (ev) => { latest = Math.min(1200, Math.max(300, startW + (ev.clientX - startX))); setPanelWidth(latest); };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      try { sessionStorage.setItem('wr-panel-width', String(latest)); } catch { /* ignore */ }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // Per-column widths for the drill list (drag a column's right edge to widen it
+  // so long values stop overflowing). Keyed by column key; defaults below.
+  const [colWidths, setColWidths] = useState({});
+  const colWidthFor = (key, idx) => colWidths[key] || (idx === 0 ? 160 : 130);
+  const startColResize = (e, key, currentW) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = currentW;
+    const onMove = (ev) => { setColWidths(w => ({ ...w, [key]: Math.max(60, startW + (ev.clientX - startX)) })); };
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   };
 
   useEffect(() => {
@@ -385,11 +429,11 @@ function WeeklyReportInner() {
   return (
     <div style={{ maxWidth: 1280, margin: '0 auto', padding: '1rem' }}>
       <style>{`
-        .wr-split{display:flex;gap:1rem;align-items:flex-start;}
-        .wr-cards{flex:1;min-width:0;}
+        .wr-split{display:flex;gap:1rem;align-items:flex-start;overflow-x:auto;}
+        .wr-cards{flex:1;min-width:640px;}
         .wr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;align-items:start;margin-bottom:1rem;}
         .wr-detail{width:380px;flex-shrink:0;position:sticky;top:1rem;align-self:flex-start;}
-        @media (max-width:1000px){.wr-split{flex-direction:column;}.wr-detail{width:100%;position:static;}}
+        @media (max-width:1000px){.wr-split{flex-direction:column;overflow-x:visible;}.wr-cards{min-width:0;}.wr-detail{width:100%;position:static;}}
         @media (max-width:760px){.wr-grid{grid-template-columns:1fr;}}
       `}</style>
 
@@ -481,27 +525,61 @@ function WeeklyReportInner() {
             </div>
 
             {/* RIGHT: drill-down panel — scrolls, ends above Recommendations */}
-            <aside className="wr-detail">
+            <aside className="wr-detail" style={{ width: panelWidth, position: 'relative', paddingRight: 12 }}>
+              {/* Visible drag handle on the panel's RIGHT edge — drag it RIGHT to
+                  extend the panel's right boundary (the area scrolls horizontally
+                  once it runs out of room). Sits in a 12px gutter so it clears the
+                  list's vertical scrollbar. */}
+              <div onMouseDown={startPanelResize}
+                   title={L('Drag right to widen this panel', 'Kéo sang phải để mở rộng bảng')}
+                   onMouseEnter={e => { e.currentTarget.firstChild.style.background = 'var(--primary,#2563eb)'; }}
+                   onMouseLeave={e => { e.currentTarget.firstChild.style.background = 'var(--border,#cbd5e1)'; }}
+                   style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 12, cursor: 'col-resize', zIndex: 20,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 4, borderRadius: 3, height: 56, background: 'var(--border,#cbd5e1)', transition: 'background 0.12s' }} />
+              </div>
               <div style={{ ...card, marginBottom: 0, padding: 0, maxHeight: 'calc(100vh - 2rem)', overflow: 'auto' }}>
                 {drill ? (
                   <>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border,#e5e7eb)', position: 'sticky', top: 0, background: 'var(--bg-primary,#fff)' }}>
                       <button onClick={closeDrill} style={{ background: 'transparent', border: 'none', color: 'var(--primary,#2563eb)', cursor: 'pointer', fontSize: '0.85rem', padding: 0 }}>← {L('Back', 'Quay lại')}</button>
-                      <button onClick={closeDrill} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-secondary,#6b7280)', fontSize: '1rem' }}>✕</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button onClick={openDrillAsList}
+                          style={{ background: 'var(--primary,#2563eb)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, padding: '4px 10px', borderRadius: 6 }}>
+                          {L('Open as list', 'Mở dạng danh sách')} →
+                        </button>
+                        <button onClick={closeDrill} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-secondary,#6b7280)', fontSize: '1rem' }}>✕</button>
+                      </div>
                     </div>
                     <div style={{ padding: '0.6rem 1rem 0' }}>
                       <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>{drill.title} <span style={sub}>({drill.items.length})</span></h3>
                     </div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.4rem' }}>
-                      <thead><tr>{drill.cols.map(c => <th key={c.key} style={th}>{c.label}</th>)}</tr></thead>
+                    <table style={{ tableLayout: 'fixed', width: drill.cols.reduce((s, c, ci) => s + colWidthFor(c.key, ci), 0), borderCollapse: 'collapse', marginTop: '0.4rem' }}>
+                      <thead><tr>{drill.cols.map((c, ci) => {
+                        const w = colWidthFor(c.key, ci);
+                        return (
+                          <th key={c.key} style={{ ...th, width: w, position: 'relative', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {c.label}
+                            {/* drag the right edge to resize this column */}
+                            <span onMouseDown={(e) => startColResize(e, c.key, w)}
+                              style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 7, cursor: 'col-resize' }} />
+                          </th>
+                        );
+                      })}</tr></thead>
                       <tbody>
                         {drill.items.map((it, i) => (
                           <tr key={it.studentId || i} onClick={() => openLead(it.studentId)} style={{ cursor: 'pointer' }}
                             onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-secondary,#f8fafc)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
-                            {drill.cols.map((c, ci) => (
-                              <td key={c.key} style={{ ...td, ...(ci === 0 ? { fontWeight: 600, color: 'var(--primary,#2563eb)' } : {}) }}>{it[c.key] || '—'}</td>
-                            ))}
+                            {drill.cols.map((c, ci) => {
+                              const w = colWidthFor(c.key, ci);
+                              return (
+                                <td key={c.key} title={String(it[c.key] ?? '')}
+                                  style={{ ...td, width: w, maxWidth: w, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...(ci === 0 ? { fontWeight: 600, color: 'var(--primary,#2563eb)' } : {}) }}>
+                                  {it[c.key] || '—'}
+                                </td>
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>

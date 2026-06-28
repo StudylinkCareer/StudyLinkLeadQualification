@@ -96,10 +96,38 @@ function isEventQualified(student, requiredFields, options = {}) {
   return { qualified: missing.length === 0, missing };
 }
 
+// Academic/target qualification fields moved to the leads table. Overlay the
+// student's representative lead (prefer an open lead) so the gate sees them.
+const LEAD_QUAL_FIELDS = ['destination_country', 'major', 'process_application', 'study_plans', 'timeline'];
+
+async function overlayLeadQualFields(pool, student) {
+  const sid = student && (student.student_id || student.studentId);
+  if (!sid) return student;
+  try {
+    const r = await pool.query(
+      `SELECT destination_country, major, process_application, study_plans, timeline
+         FROM leads WHERE person_id = $1
+        ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id DESC
+        LIMIT 1`, [sid]);
+    if (!r.rows.length) return student;
+    const lead = r.rows[0];
+    const out = { ...student };
+    for (const f of LEAD_QUAL_FIELDS) {
+      const lv = lead[f];
+      if (lv !== null && lv !== undefined && String(lv).trim() !== '') out[f] = lv;          // lead is source of truth
+      else if (out[f] === undefined || out[f] === null)                out[f] = lv;          // post-drop: students lacks the column
+    }
+    return out;
+  } catch (e) {
+    return student; // never block qualification on a merge hiccup
+  }
+}
+
 // Convenience: load the config + run the check in one call.
 async function checkStudent(pool, student, options = {}) {
   const fields = await loadRequiredFields(pool);
-  return isEventQualified(student, fields, options);
+  const merged = await overlayLeadQualFields(pool, student);
+  return isEventQualified(merged, fields, options);
 }
 
 // ── Advance token issuance ───────────────────────────────────────────
@@ -113,7 +141,7 @@ async function issueAdvanceTokens(pool, studentUniqueId) {
     const uid = String(studentUniqueId || '').trim();
     if (!uid) return [];
 
-    const sres = await pool.query(`SELECT * FROM students WHERE unique_id = $1 LIMIT 1`, [uid]);
+    const sres = await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [uid]);
     if (sres.rowCount === 0) return [];
     const student = sres.rows[0];
 

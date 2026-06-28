@@ -6,7 +6,7 @@ export const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [email, setEmail] = useState('');
-  const [uniqueId, setUniqueId] = useState('');
+  const [studentId, setUniqueId] = useState('');
   const [isCounselor, setIsCounselor] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -19,7 +19,7 @@ export function AuthProvider({ children }) {
         const safeEmail = (data.email && data.email.includes('@studylink.temp'))
           ? '' : (data.email || '');
         setEmail(safeEmail);
-        setUniqueId(data.uniqueId || '');
+        setUniqueId(data.studentId || '');
         setIsCounselor(data.isCounselor || false);
       } else {
         setIsAuthenticated(false);
@@ -59,7 +59,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      isAuthenticated, email, uniqueId, isCounselor, loading,
+      isAuthenticated, email, studentId, isCounselor, loading,
       login, logout, setStudentId, checkSession,
     }}>
       {children}

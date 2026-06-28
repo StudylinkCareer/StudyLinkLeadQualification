@@ -118,11 +118,15 @@ export const variantsAPI = {
 // ── Students ──────────────────────────────────────────────────
 export const studentAPI = {
   search:         (q)        => request('GET',  `/api/staff/students/search?q=${encodeURIComponent(q || '')}`),
+  searchLeads:    (q)        => request('GET',  `/api/staff/lead-list?q=${encodeURIComponent(q || '')}`),
   get:            (id)       => request('GET',  `/api/staff/students/${id}`),
   update:         (id, data) => request('PUT',  `/api/staff/students/${id}`, data),
   calculateRisk:  (id)       => request('POST', `/api/staff/students/${id}/calculate-risk`),
   calculateOcean: (id)       => request('POST', `/api/staff/students/${id}/calculate-ocean`),
-  deleteRecords:  (ids)      => request('DELETE', '/api/staff/students', { uniqueIds: ids }),
+  deleteRecords:  (ids)      => request('DELETE', '/api/staff/students', { studentIds: ids }),
+  deletePreview:  (ids)      => request('POST', '/api/staff/students/delete-preview', { studentIds: ids }),
+  getOrphans:     ()         => request('GET',  '/api/staff/cleanup/orphans'),
+  purgeOrphans:   ()         => request('POST', '/api/staff/cleanup/orphans/purge'),
 
   // ── Excel export ──────────────────────────────────────────
   // Returns the binary .xlsx file; we trigger a browser download here.
@@ -153,10 +157,19 @@ export const studentAPI = {
   },
 };
 
+// ── Leads (engagements) — many per student ────────────────────
+export const leadAPI = {
+  listAll:        ()             => request('GET',  '/api/leads'),
+  listForStudent: (studentId)    => request('GET',  `/api/leads/student/${encodeURIComponent(studentId)}`),
+  get:            (leadId)       => request('GET',  `/api/leads/${leadId}`),
+  create:         (studentId, d) => request('POST', `/api/leads/student/${encodeURIComponent(studentId)}`, d || {}),
+  update:         (leadId, d)    => request('PUT',  `/api/leads/${leadId}`, d || {}),
+};
+
 // ── Lead registrations (events) ───────────────────────────────
 export const leadEventsAPI = {
-  list:         (studentId)  => request('GET', `/api/lead-events/${encodeURIComponent(studentId)}`),
-  updateStatus: (id, status) => request('PUT', `/api/lead-events/${id}/status`, { status }),
+  list:         (studentId)  => request('GET', `/api/lead-events?studentId=${encodeURIComponent(studentId)}`),
+  updateStatus: (id, status) => request('PUT', `/api/lead-events/${id}`, { status }),
 };
 
 // ── Event Management console (Phase 1: roster + check-in) ──────
@@ -165,9 +178,9 @@ export const eventConsoleAPI = {
   listEvents: ()             => request('GET',  '/api/event-console/events'),
   getEvent:   (id)           => request('GET',  `/api/event-console/events/${id}`),
   roster:     (id, q)        => request('GET',  `/api/event-console/events/${id}/roster${q ? `?q=${encodeURIComponent(q)}` : ''}`),
-  checkin:    (id, uniqueId, fields) => request('POST', `/api/event-console/events/${id}/checkin`, { uniqueId, fields }),
-  checkinFields: (id, uniqueId) => request('GET', `/api/event-console/events/${id}/checkin-fields/${encodeURIComponent(uniqueId)}`),
-  issueToken: (id, uniqueId) => request('POST', `/api/event-console/events/${id}/issue-token/${encodeURIComponent(uniqueId)}`),
+  checkin:    (id, studentId, fields) => request('POST', `/api/event-console/events/${id}/checkin`, { studentId, fields }),
+  checkinFields: (id, studentId) => request('GET', `/api/event-console/events/${id}/checkin-fields/${encodeURIComponent(studentId)}`),
+  issueToken: (id, studentId) => request('POST', `/api/event-console/events/${id}/issue-token/${encodeURIComponent(studentId)}`),
   emailBadge: (body)         => request('POST', '/api/event-console/email-badge', body),
   zaloBadge:  (body)         => request('POST', '/api/event-console/zalo-badge', body),
 
@@ -197,6 +210,27 @@ export const eventConsoleAPI = {
 export const notesAPI = {
   list:   (studentId)                    => request('GET',    `/api/notes/${studentId}`),
 
+  // Lead-level notes (topic allowed).
+  listForLead: (leadId) => request('GET', `/api/notes/lead/${leadId}`),
+  addForLead:  (leadId, noteType, content, extra = {}) =>
+    request('POST', `/api/notes/lead/${leadId}`, {
+      noteType, content,
+      topic:           extra.topic           || null,
+      followUpDate:    extra.followUpDate    || null,
+      contactPlatform: extra.contactPlatform || null,
+      meetingLocation: extra.meetingLocation || null,
+    }),
+
+  // Student-level notes (topic-less for now).
+  listStudentLevel: (studentId) => request('GET', `/api/notes/student-level/${encodeURIComponent(studentId)}`),
+  addStudentLevel:  (studentId, noteType, content, extra = {}) =>
+    request('POST', `/api/notes/student-level/${encodeURIComponent(studentId)}`, {
+      noteType, content,
+      followUpDate:    extra.followUpDate    || null,
+      contactPlatform: extra.contactPlatform || null,
+      meetingLocation: extra.meetingLocation || null,
+    }),
+
   // extra = { topic, followUpDate, reminderStatus, rescheduledDate, contactPlatform }
   add:    (studentId, noteType, content, extra = {}) =>
     request('POST', `/api/notes/${studentId}`, {
@@ -217,6 +251,14 @@ export const notesAPI = {
   getReminders:      ()             => request('GET',    '/api/notes/reminders'),
   getCommunications: ()             => request('GET',    '/api/notes/communications'),
   updateReminder:    (id, data)     => request('PATCH',  `/api/notes/${id}/reminder`, data),
+};
+
+// ── Documents ─────────────────────────────────────────────────
+export const documentsAPI = {
+  listForLead:      (leadId)        => request('GET',  `/api/documents/lead/${leadId}`),
+  uploadForLead:    (leadId, d)     => request('POST', `/api/documents/lead/${leadId}/upload`, d),
+  listStudentLevel: (studentId)     => request('GET',  `/api/documents/student-level/${encodeURIComponent(studentId)}`),
+  uploadForStudent: (studentId, d)  => request('POST', `/api/documents/${encodeURIComponent(studentId)}/upload`, d),
 };
 
 // ── Reports ───────────────────────────────────────────────────
@@ -307,9 +349,13 @@ export const distributionAPI = {
 
   // Review staging
   review:        ()                     => request('GET',  '/api/distribution/review'),
-  assignManual:  (uniqueIds, counselor) => request('POST', '/api/distribution/assign-manual', { uniqueIds, counselor }),
+  assignManual:  (leadIds, counselor) => request('POST', '/api/distribution/assign-manual', { leadIds, counselor }),
   commitPool:    ()                     => request('POST', '/api/distribution/commit-pool'),
   poolToReview:  (office)               => request('POST', '/api/distribution/pool-to-review', { office }),
+
+  // Duplicates to review
+  duplicates:        ()                       => request('GET',  '/api/distribution/duplicates'),
+  resolveDuplicate:  (id, action, studentId)  => request('POST', `/api/distribution/duplicates/${id}/resolve`, { action, studentId }),
 
   // Notes bulk upload
   uploadNotes:   (fileBase64)           => request('POST', '/api/distribution/upload-notes', { fileBase64 }),

@@ -112,7 +112,7 @@ async function saveDocument(studentId, docData) {
 // ── Helper ───────────────────────────────────────────────────────────────────
 function rowToCamelCase(row) {
   return {
-    uniqueId:  row.unique_id,
+    studentId:  row.unique_id,
     fullName:  row.full_name,
     email:     row.email,
     phone:     row.phone,

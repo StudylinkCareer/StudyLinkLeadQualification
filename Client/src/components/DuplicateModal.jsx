@@ -22,15 +22,15 @@ export default function DuplicateModal({ scenario, matches, onSelectRecord, onCa
               const matchedBy = (m._matchedBy || []).join(' & ');
               return (
                 <label
-                  key={m.uniqueId}
-                  className={`modal-match-row modal-match-row--selectable ${selectedId === m.uniqueId ? 'modal-match-row--selected' : ''}`}
+                  key={m.studentId}
+                  className={`modal-match-row modal-match-row--selectable ${selectedId === m.studentId ? 'modal-match-row--selected' : ''}`}
                 >
                   <input
                     type="radio"
                     name="selectedRecord"
-                    value={m.uniqueId}
-                    checked={selectedId === m.uniqueId}
-                    onChange={() => setSelectedId(m.uniqueId)}
+                    value={m.studentId}
+                    checked={selectedId === m.studentId}
+                    onChange={() => setSelectedId(m.studentId)}
                   />
                   <div className="modal-match-info">
                     <div className="modal-match-name">
@@ -42,7 +42,7 @@ export default function DuplicateModal({ scenario, matches, onSelectRecord, onCa
                     </div>
                     <div className="modal-match-meta">
                       {t('matchedBy', language)}: {matchedBy}
-                      {' · '}ID: {m.uniqueId}
+                      {' · '}ID: {m.studentId}
                     </div>
                   </div>
                   <span className="modal-match-status modal-match-status--active">

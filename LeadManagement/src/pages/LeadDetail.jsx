@@ -21,8 +21,8 @@
 //       canWriteNote.<kind>  → canDo('notes', 'write_<kind>')
 
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { studentAPI, staffAPI, notesAPI, auditAPI, leadEventsAPI } from '../services/api';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { studentAPI, leadAPI, staffAPI, notesAPI, auditAPI, leadEventsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLookup } from '../contexts/LookupContext';
 import { usePermissions } from '../contexts/PermissionsContext';
@@ -797,21 +797,16 @@ function PhotoThumb({ url, label, isRound }) {
 export default function LeadDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
+  const location  = useLocation();
+  const isStudentView = location.pathname.startsWith('/students');   // /students/:id = person view; /lead/:id = engagement view
   const { staff } = useAuth();
 
   // ── Registrations (lead_events) ──
   const [registrations, setRegistrations] = useState([]);
   const [regLoading, setRegLoading]       = useState(false);
-  useEffect(() => {
-    if (!id) return;
-    let alive = true;
-    setRegLoading(true);
-    leadEventsAPI.list(id)
-      .then(r => { if (alive) setRegistrations(r.data || []); })
-      .catch(() => { if (alive) setRegistrations([]); })
-      .finally(() => { if (alive) setRegLoading(false); });
-    return () => { alive = false; };
-  }, [id]);
+  const [studentLeads, setStudentLeads]   = useState([]);   // all leads for this person
+  // Registrations (lead_events) are person-level; they're loaded by the main
+  // fetch below once the owning student id is known.
   async function handleRegStatus(regId, status) {
     try {
       await leadEventsAPI.updateStatus(regId, status);
@@ -876,7 +871,7 @@ export default function LeadDetail() {
 
   async function handleContactSave({ noteText, topic, followUpDate, contactPlatform }) {
     try {
-      const data = await notesAPI.add(id, 'counselor', noteText, {
+      const data = await notesAPI.addForLead(id, 'counselor', noteText, {
         topic,
         followUpDate,
         contactPlatform,
@@ -892,59 +887,79 @@ export default function LeadDetail() {
   }
 
 
+  // id (route param) is the LEAD id. Load the lead, then its owning student, and
+  // MERGE into one object so the (unchanged) render sees person + engagement.
   useEffect(() => {
-    Promise.all([
-      studentAPI.get(id),
-      notesAPI.list(id),
-      staffAPI.listActive(),
-      auditAPI.getForStudent(id),
-    ]).then(([ld, nt, st, al]) => {
-      const l = ld.data;
-      setLead(l);
-      setNotes(nt.data || []);
-      setStaff(st.data || []);
-      setAuditLog(al.data || []);
-      setAssign({
-        counselor:       l.counselor      || '',
-        seniorCounselor: l.seniorCounselor || '',
-        presales:        l.presales        || '',
-        marketingStaff:  l.marketingStaff  || '',
-      });
-      if (l.oceanExtraversion) {
-        const scores = {
-          extraversion:      l.oceanExtraversion,
-          agreeableness:     l.oceanAgreeableness,
-          conscientiousness: l.oceanConscientiousness,
-          neuroticism:       l.oceanNeuroticism,
-          openness:          l.oceanOpenness,
-        };
-        setOceanResult({
-          scores,
-          narrative: l.oceanNarrative || '',
-          ...getArchetype(scores),
+    if (!id) return;
+    let alive = true;
+    setLoading(true);
+    (async () => {
+      try {
+        let ld = {};
+        let sid = id;                                  // /students/:id => id IS the student id
+        if (!isStudentView) {
+          const leadRes = await leadAPI.get(id);
+          ld  = leadRes.data;
+          sid = ld.studentId;
+        }
+        const [stu, nt, st, al, regs, sleads] = await Promise.all([
+          studentAPI.get(sid),
+          isStudentView ? Promise.resolve({ data: [] }) : notesAPI.listForLead(id),
+          staffAPI.listActive(),
+          auditAPI.getForStudent(sid),
+          leadEventsAPI.list(sid).catch(() => ({ data: [] })),
+          leadAPI.listForStudent(sid).catch(() => ({ data: [] })),
+        ]);
+        if (!alive) return;
+        const l = { ...stu.data, ...ld, studentId: sid, leadId: isStudentView ? null : id };   // lead wins on overlap
+        setLead(l);
+        setNotes(nt.data || []);
+        setStaff(st.data || []);
+        setAuditLog(al.data || []);
+        setRegistrations(regs.data || []);
+        setStudentLeads(sleads.data || []);
+        setRegLoading(false);
+        setAssign({
+          counselor:       l.counselor       || '',
+          seniorCounselor: l.seniorCounselor || '',
+          presales:        l.presales        || '',
+          marketingStaff:  l.marketingStaff  || '',
         });
+        if (l.oceanExtraversion) {
+          const scores = {
+            extraversion:      l.oceanExtraversion,
+            agreeableness:     l.oceanAgreeableness,
+            conscientiousness: l.oceanConscientiousness,
+            neuroticism:       l.oceanNeuroticism,
+            openness:          l.oceanOpenness,
+          };
+          setOceanResult({ scores, narrative: l.oceanNarrative || '', ...getArchetype(scores) });
+        }
+      } catch (e) {
+        // Backend returns 403 with this phrasing when a Counselor opens a lead
+        // they're not assigned to.
+        if (e?.message && /access denied|do not have permission|assigned to another/i.test(e.message)) {
+          if (alive) setAccessDenied(true);
+        } else {
+          console.error(e);
+        }
+      } finally {
+        if (alive) setLoading(false);
       }
-    }).catch(e => {
-      // Backend's getStudent returns 403 with this exact phrasing when a
-      // Counselor tries to open a lead they're not assigned to.
-      if (e?.message && /access denied|do not have permission|assigned to another/i.test(e.message)) {
-        setAccessDenied(true);
-      } else {
-        console.error(e);
-      }
-    }).finally(() => setLoading(false));
-  }, [id]);
+    })();
+    return () => { alive = false; };
+  }, [id, isStudentView]);
 
   // Push a trail entry once the lead has loaded. push() de-dupes by path,
   // so re-renders after data fetches don't grow the stack.
   useEffect(() => {
     if (lead?.fullName) {
       pushTrail({
-        label: `Lead: ${lead.fullName}`,
-        path:  `/leads/${id}`,
+        label: isStudentView ? `Student: ${lead.fullName}` : `Lead ${id}: ${lead.fullName}`,
+        path:  isStudentView ? `/students/${id}` : `/lead/${id}`,
       });
     }
-  }, [lead?.fullName, id, pushTrail]);
+  }, [lead?.fullName, id, isStudentView, pushTrail]);
 
   function enterEdit() {
     // Seed edit data with raw (unmasked) values where the server provided
@@ -959,18 +974,31 @@ export default function LeadDetail() {
   function cancelEdit() { setEditData({}); setEditMode(false); }
   function updateEdit(name, value) { setEditData(d=>({...d,[name]:value})); }
 
+  // Create a fresh lead for this student and jump straight to it.
+  async function createNewLead() {
+    try {
+      const res = await leadAPI.create(lead.studentId, {});
+      const newId = res?.data?.leadId;
+      if (newId) navigate(`/lead/${newId}`);
+      else alert('Lead created, but no id was returned.');
+    } catch (e) { alert(e.message); }
+  }
+
   async function saveAll() {
     // ── Mandatory fields before save (when in edit mode) ──
     if (editMode) {
       const missing = [];
-      // Always required
-      if (!editData.leadSource)  missing.push('Source of Lead');
-      if (!editData.interaction) missing.push('Interaction');
-      // Required only when status is not 'New'
-      const status = editData.leadStatus || 'New';
-      if (status !== 'New') {
-        if (!editData.closeDate)  missing.push('Close Date');
-        if (!editData.confidence) missing.push('Confidence');
+      if (isStudentView) {
+        // Source of Lead + Interaction are person-level — enforced on the Student record.
+        if (!editData.leadSource)  missing.push('Source of Lead');
+        if (!editData.interaction) missing.push('Interaction');
+      } else {
+        // Lead-level mandatory fields only — required once the lead is past 'New'.
+        const status = editData.leadStatus || 'New';
+        if (status !== 'New') {
+          if (!editData.closeDate)  missing.push('Close Date');
+          if (!editData.confidence) missing.push('Confidence');
+        }
       }
       if (missing.length) {
         alert(`Please complete the following before saving:\n\n• ${missing.join('\n• ')}`);
@@ -998,14 +1026,22 @@ export default function LeadDetail() {
     setSaving(true);
     try {
       if (editMode) {
-        const studentRes = await studentAPI.update(id, {
-          fullName:           editData.fullName,
+        // Engagement fields -> the lead; person fields -> the student.
+        const leadRes = isStudentView ? null : await leadAPI.update(id, {
           leadStatus:         editData.leadStatus,
           closeDate:          editData.closeDate || null,
           confidence:         editData.confidence,
+          intake:             editData.intake,
+          degreeLevel:        editData.degreeLevel,
+          targetInstitution:  editData.targetInstitution,
+          rationale:          editData.rationale,
           studyPlans:         editData.studyPlans,
           destinationCountry: editData.destinationCountry,
           timeline:           editData.timeline,
+          major:              editData.major,
+        });
+        const studentRes = await studentAPI.update(lead.studentId, {
+          fullName:           editData.fullName,
           leadSource:         editData.leadSource,
           interaction:        editData.interaction,
           budget:             editData.budget,
@@ -1017,7 +1053,6 @@ export default function LeadDetail() {
           incomeEvidence:     editData.incomeEvidence,
           studyPlanGap:       editData.studyPlanGap,
           ultimateObjective:  editData.ultimateObjective,
-          major:              editData.major,
           schoolAttended:     editData.schoolAttended,
           ward:               editData.ward,
           source:             editData.source,
@@ -1040,9 +1075,9 @@ export default function LeadDetail() {
         // (A lapsed session returns success:false / 401 — without this guard the
         // UI would clear edit mode and report "Saved successfully" while the DB
         // kept the old values, silently losing the edits.)
-        if (!studentRes || studentRes.success === false) {
+        if ((!studentRes || studentRes.success === false) || (leadRes && leadRes.success === false)) {
           throw new Error(
-            (studentRes && studentRes.error) ||
+            (studentRes && studentRes.error) || (leadRes && leadRes.error) ||
             'Save failed - you may have been logged out. Log in again and retry; your changes are still here.'
           );
         }
@@ -1050,8 +1085,8 @@ export default function LeadDetail() {
         setEditMode(false);
         setEditData({});
       }
-      if (canDoOnLead('leads', 'assign', lead)) {
-        await staffAPI.assign(id, {
+      if (!isStudentView && canDoOnLead('leads', 'assign', lead)) {
+        await leadAPI.update(id, {
           counselor:       assign.counselor,
           seniorCounselor: assign.seniorCounselor,
           presales:        assign.presales,
@@ -1059,7 +1094,7 @@ export default function LeadDetail() {
         });
         setLead(l=>({...l,...assign}));
       }
-      const al = await auditAPI.getForStudent(id);
+      const al = await auditAPI.getForStudent(lead.studentId);
       setAuditLog(al.data || []);
       alert('Saved successfully');
     } catch(e) { alert(e.message); }
@@ -1069,7 +1104,7 @@ export default function LeadDetail() {
   async function handleRecalculateRisk() {
     setRecalculating(true);
     try {
-      const res = await studentAPI.calculateRisk(id);
+      const res = await studentAPI.calculateRisk(lead.studentId);
       setLead(l => ({ ...l, riskScore: String(res.data.totalScore), stoneTier: res.data.stoneTier }));
       alert(`Risk recalculated: ${res.data.stoneTier} (${res.data.totalScore})`);
     } catch(e) { alert(e.message); }
@@ -1079,7 +1114,7 @@ export default function LeadDetail() {
   async function handleRecalculateOcean() {
     setRecalcOcean(true);
     try {
-      const res = await studentAPI.calculateOcean(id);
+      const res = await studentAPI.calculateOcean(lead.studentId);
       const scores = res.data.scores;
       const archetypeData = getArchetype(scores);
       setOceanResult({ ...res.data, ...archetypeData });
@@ -1093,7 +1128,7 @@ export default function LeadDetail() {
         oceanArchetype:         archetypeData.archetype?.name || '',
       }));
       if (archetypeData.archetype) {
-        await studentAPI.update(id, { oceanArchetype: archetypeData.archetype.name });
+        await studentAPI.update(lead.studentId, { oceanArchetype: archetypeData.archetype.name });
       }
       alert('Career Fit profile updated successfully');
     } catch(e) { alert(e.message); }
@@ -1113,7 +1148,7 @@ export default function LeadDetail() {
         '\nReason:\n' + reason,
         '\nFollow-up Date: ' + followUpDate,
       ];
-      const data = await notesAPI.add(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null });
+      const data = await notesAPI.addForLead(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null });
       setNotes(n=>[data.data,...n]);
     } catch(e) { alert(e.message); }
     finally { setAdding(false); }
@@ -1167,9 +1202,16 @@ export default function LeadDetail() {
     </div>
   );
 
-  const canEdit   = canDoOnLead('leads', 'edit',        lead);
-  const canAssign = canDoOnLead('leads', 'assign',      lead);
-  const canRecalc = canDoOnLead('leads', 'recalculate', lead);
+  // Terminal lockdown: a closed lead (Lost / Archived / Contracted) is
+  // display-only for everyone except Admin/Director, who can "re-open" it.
+  // Only applies on the Lead view (the Student record has no lead_status).
+  const TERMINAL_STATUSES = ['Lost', 'Archived', 'Contracted'];
+  const isAdminRole = ['Admin', 'Director'].includes(staff?.role);
+  const leadLocked  = !isStudentView && TERMINAL_STATUSES.includes(lead.leadStatus) && !isAdminRole;
+
+  const canEdit   = canDoOnLead('leads', 'edit',        lead) && !leadLocked;
+  const canAssign = canDoOnLead('leads', 'assign',      lead) && !leadLocked;
+  const canRecalc = canDoOnLead('leads', 'recalculate', lead) && !leadLocked;
   const d         = editMode ? editData : lead;
 
   const oceanAnsweredCount = Array.from({length:15}, (_,i) => lead[`oceanQ${i+1}`]).filter(Boolean).length;
@@ -1184,7 +1226,10 @@ export default function LeadDetail() {
   const notesMissing = Object.entries(notesRequired)
     .filter(([_, v]) => !v)
     .map(([k]) => k);
-  const canAddNotes = notesMissing.length === 0;
+  // Source of Lead + Interaction are person-level, entered on the Student record.
+  // The lock therefore applies only on the Student view (where lead.* === the
+  // student's values); Lead notes are never blocked by these person fields.
+  const canAddNotes = isStudentView ? notesMissing.length === 0 : true;
 
   return (
     <>
@@ -1195,9 +1240,12 @@ export default function LeadDetail() {
       <div className="page-header">
         <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
           <TrailBackButton />
-          <span className="page-title">{lead.fullName || 'Lead Detail'}</span>
+          <span style={{ fontSize:'0.6875rem', fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase', padding:'2px 8px', borderRadius:'4px', background: isStudentView ? '#7c3aed' : '#2563eb', color:'#fff' }}>
+            {isStudentView ? 'Student' : 'Lead'}
+          </span>
+          <span className="page-title">{lead.fullName || (isStudentView ? 'Student Detail' : 'Lead Detail')}</span>
           <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>
-            {lead.uniqueId}
+            {lead.studentId}
           </span>
         </div>
         <div style={{ display:'flex', gap:'0.5rem' }}>
@@ -1219,12 +1267,22 @@ export default function LeadDetail() {
         </div>
       </div>
 
+      {leadLocked && (
+        <div className="page-body" style={{ paddingTop:0, paddingBottom:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.75rem 1rem',
+                        background:'#fef3c7', border:'1px solid #f59e0b', borderRadius:'8px',
+                        color:'#92400e', fontSize:'0.875rem', marginBottom:'0.25rem' }}>
+            🔒 This lead is <strong>&nbsp;{lead.leadStatus}&nbsp;</strong> and locked for editing. Ask an Admin to re-open it for any belated changes.
+          </div>
+        </div>
+      )}
+
       <div className="page-body" style={{ display:'grid', gridTemplateColumns:'1fr 380px', gap:'1rem', alignItems:'start' }}>
 
         {/* ── Left column ── */}
         <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
 
-          {/* Lead Status */}
+          {!isStudentView && (
           <div className="section-card">
             <div className="section-header"><span className="section-title">Lead Status</span></div>
             {editMode ? (
@@ -1241,18 +1299,21 @@ export default function LeadDetail() {
               </div>
             )}
           </div>
+          )}
 
           {/* Student Information */}
           <div className="section-card">
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
               <div style={{ flex: 1 }}>
-                <span className="section-title">Student Information</span>
+                <span className="section-title">{isStudentView ? 'Student Information' : 'Lead — Academic & Target'}</span>
                 {editMode ? (
                   <div style={{ marginTop:'0.5rem', maxWidth:'400px' }}>
                     <EditField label="Full Name" name="fullName" value={d.fullName} onChange={updateEdit}/>
                   </div>
                 ) : (
-                  <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem' }}>
+                  <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem', cursor: !isStudentView && lead.studentId ? 'pointer' : 'default' }}
+                       title={!isStudentView ? 'Open student profile' : undefined}
+                       onClick={() => { if (!isStudentView && lead.studentId) navigate(`/students/${lead.studentId}`); }}>
                     {lead.fullName || '—'}
                   </div>
                 )}
@@ -1273,17 +1334,27 @@ export default function LeadDetail() {
                 {canEditField('phone')
                   ? <EditField label="Phone" name="phone" value={d.phone} onChange={updateEdit}/>
                   : <Field label="Phone" value={lead.phone}/>}
-                <EditField label="Study Plans"     name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
+                {!isStudentView && (<>
+                <EditField label="Intake"          name="intake"             value={d.intake}             onChange={updateEdit}/>
+                <EditField label="Degree"          name="degreeLevel"        value={d.degreeLevel}        onChange={updateEdit}/>
+                <EditField label="Institution"     name="targetInstitution"  value={d.targetInstitution}  onChange={updateEdit}/>
                 <EditField label="Major"           name="major"              value={d.major}              onChange={updateEdit}/>
+                <EditField label="Study Plans"     name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
                 <EditField label="Destination"     name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
                 <EditField label="Timeline"        name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
+                <EditField label="Rationale"       name="rationale"          value={d.rationale}          onChange={updateEdit}/>
+                </>)}
+                {isStudentView && (<>
                 <EditField label="Year of Birth"   name="yearOfBirth"        value={d.yearOfBirth}        onChange={updateEdit}/>
                 <EditField label="School Attended" name="schoolAttended"     value={d.schoolAttended}     onChange={updateEdit}/>
                 <EditField label="Residency"       name="residency"          value={d.residency}          onChange={updateEdit}/>
                 <EditField label="Ward"            name="ward"               value={d.ward}               onChange={updateEdit}/>
-                {/* Stone Tier / Risk Score / Created / Updated are auto-calculated or system — read-only even in edit mode */}
+                </>)}
+                {/* Stone Tier / Risk Score are person-derived — student view only (lead shows them in the right-hand Summary) */}
+                {isStudentView && (<>
                 <Field label="Stone Tier"    value={lead.stoneTier}/>
                 <Field label="Risk Score"    value={lead.riskScore}/>
+                </>)}
                 <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
               </div>
@@ -1336,22 +1407,33 @@ export default function LeadDetail() {
                     </div>
                   )}
                 </div>
+                {isStudentView && (<>
                 <Field label="Stone Tier"      value={lead.stoneTier}/>
                 <Field label="Risk Score"      value={lead.riskScore}/>
-                <Field label="Study Plans"     value={lead.studyPlans}/>
+                </>)}
+                {!isStudentView && (<>
+                <Field label="Intake"          value={lead.intake}/>
+                <Field label="Degree"          value={lead.degreeLevel}/>
+                <Field label="Institution"     value={lead.targetInstitution}/>
                 <Field label="Major"           value={lead.major}/>
+                <Field label="Study Plans"     value={lead.studyPlans}/>
                 <Field label="Destination"     value={lead.destinationCountry}/>
                 <Field label="Timeline"        value={lead.timeline}/>
+                <Field label="Rationale"       value={lead.rationale}/>
+                </>)}
+                {isStudentView && (<>
                 <Field label="Year of Birth"   value={lead.yearOfBirth}/>
                 <Field label="School Attended" value={lead.schoolAttended}/>
                 <Field label="Residency"       value={lead.residency}/>
                 <Field label="Ward"            value={lead.ward}/>
+                </>)}
                 <Field label="Created"         value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"         value={formatShortDate(lead.updatedAt)}/>
               </div>
             )}
           </div>
 
+          {isStudentView && (<>
           {/* Event Registrations */}
           <div className="section-card">
             <div className="section-header">
@@ -1681,6 +1763,7 @@ export default function LeadDetail() {
               </div>
             </div>
           </div>
+          </>)}
 
           {/* Notes */}
           <div className="section-card">
@@ -1775,6 +1858,37 @@ export default function LeadDetail() {
             </div>
           </div>
 
+          {isStudentView && (
+          <div className="section-card">
+            <div className="section-header" style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span className="section-title">Leads for this student ({studentLeads.length})</span>
+              {canEdit && (
+                <button className="btn btn--secondary btn--sm" onClick={createNewLead} title="Add a new lead for this student">
+                  <FiPlus size={13}/> New Lead
+                </button>
+              )}
+            </div>
+            <table style={{ width:'100%', borderCollapse:'collapse' }}>
+              <thead><tr>
+                {['Lead','Intake','Institution','Status'].map(h => (
+                  <th key={h} style={{ textAlign:'left', padding:'0.5rem 0.75rem', borderBottom:'1px solid var(--border)', fontSize:'0.75rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.03em' }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {studentLeads.map(sl => (
+                  <tr key={sl.leadId} onClick={()=>navigate(`/lead/${sl.leadId}`)}
+                    style={{ cursor:'pointer', background: String(sl.leadId)===String(id) ? 'var(--bg-secondary)' : 'transparent' }}>
+                    <td style={{ padding:'0.5rem 0.75rem', borderBottom:'1px solid var(--border)', fontWeight:600 }}>{sl.leadId}</td>
+                    <td style={{ padding:'0.5rem 0.75rem', borderBottom:'1px solid var(--border)' }}>{sl.intake || '—'}</td>
+                    <td style={{ padding:'0.5rem 0.75rem', borderBottom:'1px solid var(--border)' }}>{sl.targetInstitution || '—'}</td>
+                    <td style={{ padding:'0.5rem 0.75rem', borderBottom:'1px solid var(--border)' }}>{sl.leadStatus || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          )}
+
           {/* Change History */}
           <div className="section-card">
             <div className="section-header" style={{ cursor:'pointer' }}
@@ -1846,7 +1960,7 @@ export default function LeadDetail() {
           </div>
 
           {/* Staff Assignment */}
-          {canAssign && (
+          {!isStudentView && canAssign && (
             <div className="section-card" style={{ maxHeight:'380px', overflowY:'auto' }}>
               <div className="section-header"><span className="section-title">Staff Assignment</span></div>
               <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>

@@ -70,7 +70,7 @@ async function getActiveCounts(client, office, names) {
   const global = {};
   const a = await client.query(
     `SELECT counselor, COUNT(*)::int AS cnt
-       FROM students
+       FROM leads
       WHERE office = $1 AND counselor = ANY($2) AND ${ACTIVE_STATUS_SQL}
       GROUP BY counselor`,
     [office, names]
@@ -78,7 +78,7 @@ async function getActiveCounts(client, office, names) {
   a.rows.forEach((r) => { inOffice[r.counselor] = r.cnt; });
   const g = await client.query(
     `SELECT counselor, COUNT(*)::int AS cnt
-       FROM students
+       FROM leads
       WHERE counselor = ANY($1) AND ${ACTIVE_STATUS_SQL}
       GROUP BY counselor`,
     [names]
@@ -113,17 +113,19 @@ async function releaseTranche(opts) {
 
     // Pool for this office, ordered tier-high-first then oldest-first.
     const poolRes = await client.query(
-      `SELECT unique_id, stone_tier, prev_counselor, created_at
-         FROM students
-        WHERE office = $1 AND distribution_status = 'pool'`,
+      `SELECT l.lead_id, l.person_id AS student_id, s.stone_tier, l.prev_counselor, l.created_at
+         FROM leads l
+         JOIN students s ON s.student_id = l.person_id
+        WHERE l.office = $1 AND l.distribution_status = 'pool'
+          AND l.lead_status NOT IN ('Contracted','Lost','Archived')`,
       [office]
     );
     const poolLeads = poolRes.rows
-      .map((r) => ({ uniqueId: r.unique_id, tier: r.stone_tier || null, prevCounsellor: r.prev_counselor || null, createdAt: r.created_at }))
+      .map((r) => ({ leadId: r.lead_id, studentId: r.student_id, tier: r.stone_tier || null, prevCounsellor: r.prev_counselor || null, createdAt: r.created_at }))
       .sort((a, b) =>
         tierRank(b.tier) - tierRank(a.tier) ||
         new Date(a.createdAt) - new Date(b.createdAt) ||
-        String(a.uniqueId).localeCompare(String(b.uniqueId))
+        (a.leadId - b.leadId)
       );
 
     // Per-counsellor run state.
@@ -154,7 +156,8 @@ async function releaseTranche(opts) {
       const normLoad = (pick.base + pick.taken) / pick.weight;
       pick.taken += 1;
       assignments.push({
-        uniqueId: lead.uniqueId,
+        leadId: lead.leadId,
+        studentId: lead.studentId,
         tier: lead.tier,
         prevCounsellor: lead.prevCounsellor,
         counsellor: pick.name,
@@ -186,17 +189,23 @@ async function releaseTranche(opts) {
     try {
       for (const a of assignments) {
         await client.query(
-          `UPDATE students
+          `UPDATE leads
               SET counselor = $1, distribution_status = 'assigned', prev_counselor = NULL, updated_at = NOW()
-            WHERE unique_id = $2`,
-          [a.counsellor, a.uniqueId]
+            WHERE lead_id = $2`,
+          [a.counsellor, a.leadId]
+        );
+        // Lead-keyed audit of the counsellor assignment (reports read this trail).
+        await client.query(
+          `INSERT INTO audit_log (student_id, lead_id, changed_by, changed_at, field_name, old_value, new_value, change_source)
+           VALUES ($1, $2, $3, NOW(), 'counselor', $4, $5, 'distribution')`,
+          [a.studentId, a.leadId, assignedBy, a.prevCounsellor || '', a.counsellor]
         );
         await client.query(
           `INSERT INTO lead_distribution_log
              (unique_id, office, stone_tier, counselor, weight_at_assign,
               normalized_load, source, batch_id, assigned_by, from_counselor)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-          [a.uniqueId, office, a.tier, a.counsellor, a.weight,
+          [a.studentId, office, a.tier, a.counsellor, a.weight,
            a.normalizedLoad, (a.prevCounsellor ? 'reassign' : source), batchId, assignedBy, a.prevCounsellor || null]
         );
       }
@@ -220,13 +229,13 @@ async function recallCounsellorLeads(counsellorName, { dryRun = false } = {}) {
   const client = await pool.connect();
   try {
     const sel = await client.query(
-      `SELECT unique_id, office FROM students
+      `SELECT lead_id, office FROM leads
         WHERE counselor = $1 AND ${ACTIVE_STATUS_SQL}`,
       [counsellorName]
     );
     if (dryRun) return { counsellor: counsellorName, wouldRecall: sel.rowCount, dryRun: true };
     const upd = await client.query(
-      `UPDATE students
+      `UPDATE leads
           SET distribution_status = 'review', prev_counselor = counselor, counselor = '', updated_at = NOW()
         WHERE counselor = $1 AND ${ACTIVE_STATUS_SQL}`,
       [counsellorName]
@@ -242,11 +251,12 @@ async function getPoolSummary() {
   const client = await pool.connect();
   try {
     const { rows } = await client.query(
-      `SELECT COALESCE(office,'(untagged)') AS office,
-              COALESCE(NULLIF(stone_tier,''),'(untiered)') AS tier,
+      `SELECT COALESCE(l.office,'(untagged)') AS office,
+              COALESCE(NULLIF(s.stone_tier,''),'(untiered)') AS tier,
               COUNT(*)::int AS cnt
-         FROM students
-        WHERE distribution_status = 'pool'
+         FROM leads l
+         JOIN students s ON s.student_id = l.person_id
+        WHERE l.distribution_status = 'pool'
         GROUP BY 1, 2
         ORDER BY 1, 2`
     );

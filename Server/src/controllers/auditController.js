@@ -108,7 +108,9 @@ async function logView({ studentId, viewedBy, req }) {
 }
 
 // ── Log a batch of field changes ─────────────────────────────────────────────
-async function logChanges({ studentId, changedBy, oldData, newData, source = 'staff_app' }) {
+// leadId is optional: set when the change is to a specific lead (engagement),
+// NULL for person-level (identity) changes. Reports key the engagement trail by lead_id.
+async function logChanges({ studentId, leadId = null, changedBy, oldData, newData, source = 'staff_app' }) {
   const entries = [];
   for (const key of Object.keys(newData)) {
     const oldVal = String(oldData[key] ?? '');
@@ -120,13 +122,13 @@ async function logChanges({ studentId, changedBy, oldData, newData, source = 'st
 
   const values = [];
   const placeholders = entries.map((e, i) => {
-    const base = i * 6;
-    values.push(studentId, changedBy, e.field, e.oldVal, e.newVal, source);
-    return `($${base+1}, $${base+2}, NOW(), $${base+3}, $${base+4}, $${base+5}, $${base+6})`;
+    const base = i * 7;
+    values.push(studentId, leadId, changedBy, e.field, e.oldVal, e.newVal, source);
+    return `($${base+1}, $${base+2}, $${base+3}, NOW(), $${base+4}, $${base+5}, $${base+6}, $${base+7})`;
   });
 
   await pool.query(
-    `INSERT INTO audit_log (student_id, changed_by, changed_at, field_name, old_value, new_value, change_source)
+    `INSERT INTO audit_log (student_id, lead_id, changed_by, changed_at, field_name, old_value, new_value, change_source)
      VALUES ${placeholders.join(', ')}`,
     values
   );

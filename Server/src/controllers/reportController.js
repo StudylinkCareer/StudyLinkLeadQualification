@@ -102,12 +102,12 @@ async function notesActivity(req, res, next) {
       // Restrict to leads where the caller is assigned in any of the four slots.
       params.push(staffName);
       const p = `$${params.length}`;
-      where.push(`(s.counselor = ${p} OR s.senior_counselor = ${p} OR s.presales = ${p} OR s.marketing_staff = ${p})`);
+      where.push(`(l.counselor = ${p} OR l.senior_counselor = ${p} OR l.presales = ${p} OR l.marketing_staff = ${p})`);
     }
     if (filterStaff) {
       params.push(filterStaff);
       const p = `$${params.length}`;
-      where.push(`(s.counselor = ${p} OR s.senior_counselor = ${p} OR s.presales = ${p} OR s.marketing_staff = ${p})`);
+      where.push(`(l.counselor = ${p} OR l.senior_counselor = ${p} OR l.presales = ${p} OR l.marketing_staff = ${p})`);
     }
     if (filterTier) {
       params.push(filterTier);
@@ -115,7 +115,7 @@ async function notesActivity(req, res, next) {
     }
     if (filterStatus) {
       params.push(filterStatus);
-      where.push(`s.lead_status = $${params.length}`);
+      where.push(`l.lead_status = $${params.length}`);
     }
     if (filterNoteType) {
       params.push(filterNoteType);
@@ -133,13 +133,14 @@ async function notesActivity(req, res, next) {
         n.created_at,
         s.full_name       AS lead_name,
         s.stone_tier,
-        s.lead_status,
-        s.counselor,
-        s.senior_counselor,
-        s.presales,
-        s.marketing_staff
+        l.lead_status,
+        l.counselor,
+        l.senior_counselor,
+        l.presales,
+        l.marketing_staff
       FROM student_notes n
-      INNER JOIN students s ON s.unique_id = n.student_id
+      INNER JOIN students s ON s.student_id = n.student_id
+      LEFT JOIN  leads    l ON l.lead_id    = n.lead_id
       WHERE ${where.join(' AND ')}
       ORDER BY n.created_at DESC
     `;
@@ -161,12 +162,13 @@ async function notesActivity(req, res, next) {
     if (scope === 'own') {
       leadParams.push(staffName);
       const p = `$${leadParams.length}`;
-      leadWhere.push(`(counselor = ${p} OR senior_counselor = ${p} OR presales = ${p} OR marketing_staff = ${p})`);
+      leadWhere.push(`(l.counselor = ${p} OR l.senior_counselor = ${p} OR l.presales = ${p} OR l.marketing_staff = ${p})`);
     }
     const leadSql = `
-      SELECT unique_id, full_name, stone_tier, lead_status,
-             counselor, senior_counselor, presales, marketing_staff
-      FROM students
+      SELECT l.person_id AS student_id, s.full_name, s.stone_tier, l.lead_status,
+             l.counselor, l.senior_counselor, l.presales, l.marketing_staff
+      FROM leads l
+      JOIN students s ON s.student_id = l.person_id
       ${leadWhere.length ? `WHERE ${leadWhere.join(' AND ')}` : ''}
     `;
     const leadResult = await pool.query(leadSql, leadParams);
@@ -313,7 +315,7 @@ async function notesActivity(req, res, next) {
         // compute "total leads in this drill context" at every level.
         // Keep this lean — used for totals only, not for rendering.
         allLeads: allLeads.map(l => ({
-          studentId:    l.uniqueId,
+          studentId:    l.studentId,
           stoneTier:    l.stoneTier,
           leadStatus:   l.leadStatus,
           primaryStaff: l.primaryStaff,
@@ -359,8 +361,8 @@ async function contractedStats(req, res, next) {
     const counselorParam = (req.query.counselor || '').trim();
     const byCounselor = !!counselorParam && scope === 'all';
     const buildScope = (idx) => {
-      if (byCounselor)     return { sql: `AND s.counselor = $${idx}`, val: counselorParam };
-      if (scope === 'own') return { sql: `AND (s.counselor = $${idx} OR s.senior_counselor = $${idx} OR s.presales = $${idx} OR s.marketing_staff = $${idx})`, val: name };
+      if (byCounselor)     return { sql: `AND l.counselor = $${idx}`, val: counselorParam };
+      if (scope === 'own') return { sql: `AND (l.counselor = $${idx} OR l.senior_counselor = $${idx} OR l.presales = $${idx} OR l.marketing_staff = $${idx})`, val: name };
       return { sql: '', val: null };
     };
 
@@ -370,15 +372,15 @@ async function contractedStats(req, res, next) {
     const scopeSql = periodScope.sql;
 
     const { rows } = await pool.query(
-      `SELECT DISTINCT ON (a.student_id) a.student_id, a.changed_at
+      `SELECT DISTINCT ON (a.lead_id) a.lead_id, a.student_id, a.changed_at
          FROM audit_log a
-         JOIN students s ON s.unique_id = a.student_id
+         JOIN leads l ON l.lead_id = a.lead_id
         WHERE a.field_name = 'leadStatus'
           AND a.new_value  = 'Contracted'
-          AND s.lead_status = 'Contracted'   -- only leads STILL contracted today
+          AND l.lead_status = 'Contracted'   -- only leads STILL contracted today
           AND a.changed_at >= $1
           ${scopeSql}
-        ORDER BY a.student_id, a.changed_at DESC`,
+        ORDER BY a.lead_id, a.changed_at DESC`,
       params
     );
 
@@ -392,26 +394,26 @@ async function contractedStats(req, res, next) {
     };
     for (const r of rows) {
       const t = new Date(r.changed_at).getTime();
-      if (t >= thisWeekMon.getTime()   && t <= nowMs)               { b.thisWeek.count++;      b.thisWeek.ids.push(r.student_id); }
-      if (t >= lastWeekStart.getTime() && t < lastWeekEnd.getTime()) { b.lastWeek.count++;      b.lastWeek.ids.push(r.student_id); }
-      if (t >= monthStart.getTime()    && t <= nowMs)               { b.monthToDate.count++;   b.monthToDate.ids.push(r.student_id); }
-      if (t >= quarterStart.getTime()  && t <= nowMs)               { b.quarterToDate.count++; b.quarterToDate.ids.push(r.student_id); }
-      if (t >= yearStart.getTime()     && t <= nowMs)               { b.yearToDate.count++;    b.yearToDate.ids.push(r.student_id); }
+      if (t >= thisWeekMon.getTime()   && t <= nowMs)               { b.thisWeek.count++;      b.thisWeek.ids.push(r.lead_id); }
+      if (t >= lastWeekStart.getTime() && t < lastWeekEnd.getTime()) { b.lastWeek.count++;      b.lastWeek.ids.push(r.lead_id); }
+      if (t >= monthStart.getTime()    && t <= nowMs)               { b.monthToDate.count++;   b.monthToDate.ids.push(r.lead_id); }
+      if (t >= quarterStart.getTime()  && t <= nowMs)               { b.quarterToDate.count++; b.quarterToDate.ids.push(r.lead_id); }
+      if (t >= yearStart.getTime()     && t <= nowMs)               { b.yearToDate.count++;    b.yearToDate.ids.push(r.lead_id); }
     }
 
     // Reversed: leads set to Contracted at some point but no longer Contracted.
     const revScope = buildScope(1);
     const reversedRes = await pool.query(
-      `SELECT DISTINCT a.student_id
+      `SELECT DISTINCT a.lead_id
          FROM audit_log a
-         JOIN students s ON s.unique_id = a.student_id
+         JOIN leads l ON l.lead_id = a.lead_id
         WHERE a.field_name = 'leadStatus'
           AND a.new_value  = 'Contracted'
-          AND s.lead_status <> 'Contracted'
+          AND l.lead_status <> 'Contracted'
           ${revScope.sql}`,
       revScope.val !== null ? [revScope.val] : []
     );
-    b.reversed = { count: reversedRes.rows.length, ids: reversedRes.rows.map(r => r.student_id) };
+    b.reversed = { count: reversedRes.rows.length, ids: reversedRes.rows.map(r => r.lead_id) };
 
     res.json({ success: true, data: b });
   } catch (err) { next(err); }
@@ -440,19 +442,21 @@ function normalizeMode(platform) {
 // only, with names for drill-down. names = array → scope to those staff;
 // names = null → company-wide total (used for the page-header KPIs).
 async function contractedBuckets(ctx, names) {
-  const filt    = names ? `AND (s.counselor = ANY($2) OR s.presales = ANY($2))` : '';
+  const filt    = names ? `AND (l.counselor = ANY($2) OR l.presales = ANY($2))` : '';
   const ctrPar  = names ? [ctx.earliestISO, names] : [ctx.earliestISO];
   const ctr = (await pool.query(
-    `SELECT DISTINCT ON (a.student_id) a.student_id, a.changed_at, s.full_name, s.destination_country
-       FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+    `SELECT DISTINCT ON (a.lead_id) a.lead_id, l.person_id AS student_id, a.changed_at, s.full_name, l.destination_country
+       FROM audit_log a
+       JOIN leads l    ON l.lead_id    = a.lead_id
+       JOIN students s ON s.student_id = l.person_id
       WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted'
-        AND s.lead_status = 'Contracted'
+        AND l.lead_status = 'Contracted'
         AND a.changed_at >= $1 ${filt}
-      ORDER BY a.student_id, a.changed_at DESC`, ctrPar)).rows;
+      ORDER BY a.lead_id, a.changed_at DESC`, ctrPar)).rows;
   const mkBucket = () => ({ count: 0, ids: [], items: [] });
   const out = { lastWeek: mkBucket(), monthToDate: mkBucket(), quarterToDate: mkBucket(), yearToDate: mkBucket() };
-  const push = (bk, r) => { bk.count++; bk.ids.push(r.student_id);
-    bk.items.push({ studentId: r.student_id, fullName: r.full_name, country: r.destination_country }); };
+  const push = (bk, r) => { bk.count++; bk.ids.push(r.lead_id);
+    bk.items.push({ leadId: r.lead_id, studentId: r.student_id, fullName: r.full_name, country: r.destination_country }); };
   for (const r of ctr) {
     const t = new Date(r.changed_at).getTime();
     if (t >= ctx.lwStartMs && t < ctx.lwEndMs)     push(out.lastWeek, r);
@@ -462,14 +466,24 @@ async function contractedBuckets(ctx, names) {
   }
   const revPar = names ? [ctx.yearStartISO, names] : [ctx.yearStartISO];
   const rev = (await pool.query(
-    `SELECT DISTINCT a.student_id, s.full_name
-       FROM audit_log a JOIN students s ON s.unique_id = a.student_id
-      WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted' AND s.lead_status <> 'Contracted'
+    `SELECT DISTINCT a.lead_id, l.person_id AS student_id, s.full_name
+       FROM audit_log a
+       JOIN leads l    ON l.lead_id    = a.lead_id
+       JOIN students s ON s.student_id = l.person_id
+      WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted' AND l.lead_status <> 'Contracted'
         AND a.changed_at >= $1 ${filt}`, revPar)).rows;
-  out.reversed = { count: rev.length, ids: rev.map(r => r.student_id),
-    items: rev.map(r => ({ studentId: r.student_id, fullName: r.full_name })) };
+  out.reversed = { count: rev.length, ids: rev.map(r => r.lead_id),
+    items: rev.map(r => ({ leadId: r.lead_id, studentId: r.student_id, fullName: r.full_name })) };
   return out;
 }
+
+// Per-person DAILY call targets by role (index 0=Mon … 6=Sun; Sunday = 0).
+//   Counsellors: Mon–Fri 10 new / 5 ongoing, Sat 5 / 2.
+//   Pre-Sales:   Mon–Fri 15 new / 10 ongoing, Sat 7 / 5.
+const CALL_TARGETS = {
+  Counselor:   { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5,  5,  5,  5,  5,  2, 0] },
+  'Pre-Sales': { new: [15, 15, 15, 15, 15, 7, 0], ongoing: [10, 10, 10, 10, 10, 5, 0] },
+};
 
 async function computeGroup(names, ctx, opts = {}) {
   const cc = rows => rows.map(objectToCamelCase);
@@ -477,35 +491,41 @@ async function computeGroup(names, ctx, opts = {}) {
 
   // -- Leads in: assignment audit events (or created_at fallback) in the week --
   const leadsIn = cc((await pool.query(
-    `SELECT q.student_id, q.full_name, q.lead_source, q.lead_status FROM (
-       (SELECT DISTINCT ON (a.student_id) a.student_id, s.full_name, s.lead_source, s.lead_status, a.changed_at AS eff
-          FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+    `SELECT q.lead_id, q.student_id, q.full_name, q.lead_source, q.lead_status FROM (
+       (SELECT DISTINCT ON (a.lead_id) a.lead_id, l.person_id AS student_id, s.full_name, s.lead_source, l.lead_status, a.changed_at AS eff
+          FROM audit_log a
+          JOIN leads l    ON l.lead_id    = a.lead_id
+          JOIN students s ON s.student_id = l.person_id
          WHERE a.field_name IN ('counselor','presales') AND a.new_value = ANY($1)
            AND a.changed_at >= $2 AND a.changed_at < $3
-         ORDER BY a.student_id, a.changed_at DESC)
+         ORDER BY a.lead_id, a.changed_at DESC)
        UNION
-       (SELECT s.unique_id, s.full_name, s.lead_source, s.lead_status, s.created_at AS eff
-          FROM students s
-         WHERE (s.counselor = ANY($1) OR s.presales = ANY($1))
-           AND s.created_at >= $2 AND s.created_at < $3
+       (SELECT l.lead_id, l.person_id AS student_id, s.full_name, s.lead_source, l.lead_status, l.created_at AS eff
+          FROM leads l
+          JOIN students s ON s.student_id = l.person_id
+         WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
+           AND l.created_at >= $2 AND l.created_at < $3
            AND NOT EXISTS (SELECT 1 FROM audit_log a2
-                           WHERE a2.student_id = s.unique_id AND a2.field_name IN ('counselor','presales')))
+                           WHERE a2.lead_id = l.lead_id AND a2.field_name IN ('counselor','presales')))
      ) q`, [names, ws, we])).rows);
 
   const leadsOut = cc((await pool.query(
-    `SELECT DISTINCT ON (a.student_id) a.student_id, s.full_name, s.lead_source, a.new_value AS moved_to
-       FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+    `SELECT DISTINCT ON (a.lead_id) a.lead_id, l.person_id AS student_id, s.full_name, s.lead_source, a.new_value AS moved_to
+       FROM audit_log a
+       JOIN leads l    ON l.lead_id    = a.lead_id
+       JOIN students s ON s.student_id = l.person_id
       WHERE a.field_name IN ('counselor','presales') AND a.old_value = ANY($1)
         AND COALESCE(a.new_value,'') <> ALL($1)
         AND a.changed_at >= $2 AND a.changed_at < $3
-      ORDER BY a.student_id, a.changed_at DESC`, [names, ws, we])).rows);
+      ORDER BY a.lead_id, a.changed_at DESC`, [names, ws, we])).rows);
 
   // -- Leads in progress: currently-assigned, non-terminal leads (a stock, not week-bound) --
   const leadsInProgress = cc((await pool.query(
-    `SELECT s.unique_id AS student_id, s.full_name, s.lead_source, s.lead_status
-       FROM students s
-      WHERE (s.counselor = ANY($1) OR s.presales = ANY($1))
-        AND s.lead_status NOT IN ('Contracted','Lost','Archived')
+    `SELECT l.person_id AS student_id, l.lead_id, s.full_name, s.lead_source, l.lead_status
+       FROM leads l
+       JOIN students s ON s.student_id = l.person_id
+      WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
+        AND l.lead_status NOT IN ('Contracted','Lost','Archived')
       ORDER BY s.full_name`, [names])).rows);
 
   // -- Calls (prior week). RECONCILED with the Activity Report: a note is a call
@@ -517,7 +537,7 @@ async function computeGroup(names, ctx, opts = {}) {
 
   const weekNoteRows = (await pool.query(
     `SELECT sn.student_id, sn.contact_platform, sn.content, sn.created_at, s.full_name
-       FROM student_notes sn JOIN students s ON s.unique_id = sn.student_id
+       FROM student_notes sn JOIN students s ON s.student_id = sn.student_id
       WHERE sn.author_name = ANY($1) AND sn.created_at >= $2 AND sn.created_at < $3`,
     [names, ws, we])).rows;
   const weekCalls = weekNoteRows.filter(isCall);
@@ -553,8 +573,16 @@ async function computeGroup(names, ctx, opts = {}) {
     (isFirst ? newMap : ongoingMap).set(c.student_id, c.full_name);
   }
   const headcount = Math.max(0, names.length);
-  const dailyCalls = daily.map(d => ({ day: d.day, newLeads: d.newLeads.size, ongoing: d.ongoing.size,
-    targetNew: 10 * headcount, targetOngoing: 5 * headcount }));
+  // Role-aware, day-of-week-aware targets: sum each role's per-day target across
+  // the people in this group. Roles come from staff.role via ctx.counsellorSet /
+  // ctx.presalesSet (built in weeklyReport). Falls back to 0 if a name has no role.
+  const cSet = ctx.counsellorSet || new Set();
+  const pSet = ctx.presalesSet   || new Set();
+  const nC = names.filter(n => cSet.has(n)).length;
+  const nP = names.filter(n => pSet.has(n)).length;
+  const dailyCalls = daily.map((d, i) => ({ day: d.day, newLeads: d.newLeads.size, ongoing: d.ongoing.size,
+    targetNew:     nC * CALL_TARGETS.Counselor.new[i]     + nP * CALL_TARGETS['Pre-Sales'].new[i],
+    targetOngoing: nC * CALL_TARGETS.Counselor.ongoing[i] + nP * CALL_TARGETS['Pre-Sales'].ongoing[i] }));
   const newLeadItems = [...newMap].map(([studentId, fullName]) => ({ studentId, fullName }));
   const ongoingItems = [...ongoingMap].filter(([id]) => !newMap.has(id))
                                       .map(([studentId, fullName]) => ({ studentId, fullName }));
@@ -562,8 +590,10 @@ async function computeGroup(names, ctx, opts = {}) {
 
   const lettersFor = async (topic) => {
     const week = cc((await pool.query(
-      `SELECT sn.student_id, s.full_name, s.destination_country
-         FROM student_notes sn JOIN students s ON s.unique_id = sn.student_id
+      `SELECT sn.student_id, s.full_name, l.destination_country
+         FROM student_notes sn
+         JOIN students s ON s.student_id = sn.student_id
+         LEFT JOIN leads l ON l.lead_id = sn.lead_id
         WHERE sn.author_name = ANY($1) AND sn.topic = $2 AND sn.created_at >= $3 AND sn.created_at < $4`,
       [names, topic, ws, we])).rows);
     const mtd = (await pool.query(
@@ -576,16 +606,18 @@ async function computeGroup(names, ctx, opts = {}) {
 
   const meetings = cc((await pool.query(
     `SELECT sn.student_id, s.full_name, sn.topic, sn.meeting_location
-       FROM student_notes sn JOIN students s ON s.unique_id = sn.student_id
+       FROM student_notes sn JOIN students s ON s.student_id = sn.student_id
       WHERE sn.author_name = ANY($1)
         AND sn.topic IN ('First Meeting','Second Meeting','Office Visit')
         AND sn.created_at >= $2 AND sn.created_at < $3`, [names, ws, we])).rows);
 
   const contracts = cc((await pool.query(
-    `SELECT DISTINCT a.student_id, s.full_name, s.destination_country
-       FROM audit_log a JOIN students s ON s.unique_id = a.student_id
+    `SELECT DISTINCT a.lead_id, l.person_id AS student_id, s.full_name, l.destination_country
+       FROM audit_log a
+       JOIN leads l    ON l.lead_id    = a.lead_id
+       JOIN students s ON s.student_id = l.person_id
       WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted'
-        AND (s.counselor = ANY($1) OR s.presales = ANY($1))
+        AND (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND a.changed_at >= $2 AND a.changed_at < $3`, [names, ws, we])).rows);
 
   const contracted = await contractedBuckets(ctx, opts.companyWideContracted ? null : names);
@@ -648,6 +680,9 @@ async function weeklyReport(req, res, next) {
     const counsellorNames = await namesByRole('Counselor');
     const presalesNames   = await namesByRole('Pre-Sales');
     const allNames = Array.from(new Set([...counsellorNames, ...presalesNames]));
+    // Expose role membership to computeGroup so daily call targets are role-aware.
+    ctx.counsellorSet = new Set(counsellorNames);
+    ctx.presalesSet   = new Set(presalesNames);
 
     const mode = req.query.mode || 'all';
     const resourcesParam = (req.query.resources || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -815,15 +850,15 @@ async function monthlyTargets(req, res, next) {
 
     // Actuals: contracted signings (still-Contracted) by counsellor name, this year.
     const actualRows = names.length ? (await pool.query(
-      `SELECT DISTINCT ON (a.student_id) a.student_id, a.changed_at, s.counselor
+      `SELECT DISTINCT ON (a.lead_id) a.lead_id, a.changed_at, l.counselor
          FROM audit_log a
-         JOIN students s ON s.unique_id = a.student_id
+         JOIN leads l ON l.lead_id = a.lead_id
         WHERE a.field_name = 'leadStatus'
           AND a.new_value  = 'Contracted'
-          AND s.lead_status = 'Contracted'
-          AND s.counselor = ANY($1)
+          AND l.lead_status = 'Contracted'
+          AND l.counselor = ANY($1)
           AND a.changed_at >= $2
-        ORDER BY a.student_id, a.changed_at DESC`,
+        ORDER BY a.lead_id, a.changed_at DESC`,
       [names, yearStartISO]
     )).rows : [];
 

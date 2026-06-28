@@ -49,16 +49,17 @@ async function getNextSeq(studentId) {
   return max + 1;
 }
 
-async function create({ studentId, type, description, fileName, driveFileId, viewUrl }) {
+// leadId is optional: set for lead-level documents, NULL for student-level.
+async function create({ studentId, leadId, type, description, fileName, driveFileId, viewUrl }) {
   const seq = await getNextSeq(studentId);
   const documentId = `${studentId}-${String(seq).padStart(3, '0')}`;
 
   const result = await pool.query(
     `INSERT INTO documents
-      (document_id, student_id, type, description, file_name, drive_file_id, view_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+      (document_id, student_id, lead_id, type, description, file_name, drive_file_id, view_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [documentId, studentId, type || '', description, fileName, driveFileId, viewUrl]
+    [documentId, studentId, leadId || null, type || '', description, fileName, driveFileId, viewUrl]
   );
 
   return rowToObj(result.rows[0]);
@@ -72,10 +73,29 @@ async function listByStudent(studentId) {
   return result.rows.map(rowToObj);
 }
 
+// Lead-level documents (study / finance / lead-specific).
+async function listByLead(leadId) {
+  const result = await pool.query(
+    `SELECT * FROM documents WHERE lead_id = $1 ORDER BY created_at ASC`,
+    [leadId]
+  );
+  return result.rows.map(rowToObj);
+}
+
+// Student-level documents (family / identity) — not tied to any lead.
+async function listStudentLevel(studentId) {
+  const result = await pool.query(
+    `SELECT * FROM documents WHERE student_id = $1 AND lead_id IS NULL ORDER BY created_at ASC`,
+    [studentId]
+  );
+  return result.rows.map(rowToObj);
+}
+
 function rowToObj(row) {
   return {
     documentId:  row.document_id,
     studentId:   row.student_id,
+    leadId:      row.lead_id,
     type:        row.type,
     description: row.description,
     fileName:    row.file_name,
@@ -85,4 +105,4 @@ function rowToObj(row) {
   };
 }
 
-module.exports = { create, listByStudent };
+module.exports = { create, listByStudent, listByLead, listStudentLevel };

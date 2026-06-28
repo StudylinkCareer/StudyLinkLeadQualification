@@ -30,6 +30,36 @@ const { clearQualificationCache, checkStudent } = require('../services/eventQual
 const { sendEventQrEmail, sendRepLinkEmail } = require('../services/emailService');
 const { sendEventBadge } = require('../services/zaloService');
 
+// Engagement qualification fields collected at check-in belong to the lead, not the
+// person; everything else stays on students.
+const LEAD_QUAL_FIELDS = new Set(['destination_country', 'major', 'process_application', 'study_plans', 'timeline']);
+
+// Persist whitelisted qualification answers, routing engagement fields to the
+// student's representative lead (prefer an open lead) and person fields to students.
+async function persistQualificationFields(db, studentId, incoming, allowed) {
+  const sSets = [], sVals = [], lSets = [], lVals = [];
+  let si = 1, li = 1;
+  for (const [k, v] of Object.entries(incoming)) {
+    if (!allowed.has(k)) continue;
+    const val = v === '' ? null : v;
+    if (LEAD_QUAL_FIELDS.has(k)) { lSets.push(`${k} = $${li++}`); lVals.push(val); }
+    else                        { sSets.push(`${k} = $${si++}`); sVals.push(val); }
+  }
+  if (sSets.length) {
+    sVals.push(studentId);
+    await db.query(`UPDATE students SET ${sSets.join(', ')}, updated_at = NOW() WHERE student_id = $${sVals.length}`, sVals);
+  }
+  if (lSets.length) {
+    lVals.push(studentId);
+    await db.query(
+      `UPDATE leads SET ${lSets.join(', ')}, updated_at = NOW()
+        WHERE lead_id = (SELECT lead_id FROM leads WHERE person_id = $${lVals.length}
+                          ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id DESC
+                          LIMIT 1)`, lVals);
+  }
+  return sSets.length + lSets.length;
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -107,7 +137,7 @@ router.get('/events/:id/roster', requireStaffAuth, async (req, res) => {
 
   try {
     const r = await pool.query(
-      `SELECT le.student_id              AS unique_id,
+      `SELECT le.student_id              AS student_id,
               s.full_name,
               s.email,
               s.phone,
@@ -124,7 +154,7 @@ router.get('/events/:id/roster', requireStaffAuth, async (req, res) => {
                 WHERE event_id = $1
                 ORDER BY student_id, created_at ASC
               ) le
-         JOIN students s              ON s.unique_id = le.student_id
+         JOIN students s              ON s.student_id = le.student_id
          LEFT JOIN event_attendees ea ON ea.event_id = $1 AND ea.student_unique_id = le.student_id
          LEFT JOIN staff ci           ON ci.id = ea.checked_in_by
         WHERE TRUE ${search}
@@ -140,19 +170,19 @@ router.get('/events/:id/roster', requireStaffAuth, async (req, res) => {
 
 // ── POST /events/:id/checkin ─────────────────────────────────────────
 // Mark a registered lead attended and mint a QR token. Idempotent: a
-// re-check-in keeps the original attended_at and token. Body: { uniqueId }.
+// re-check-in keeps the original attended_at and token. Body: { studentId }.
 router.post('/events/:id/checkin', requireStaffAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
 
-  const uniqueId = (req.body.uniqueId || req.body.unique_id || '').trim();
-  if (!uniqueId) return res.status(400).json({ success: false, error: 'uniqueId is required' });
+  const studentId = (req.body.studentId || req.body.unique_id || '').trim();
+  if (!studentId) return res.status(400).json({ success: false, error: 'studentId is required' });
 
   try {
     // Must be on this event's roster (registered in lead_events).
     const reg = await pool.query(
       `SELECT 1 FROM lead_events WHERE event_id = $1 AND student_id = $2 LIMIT 1`,
-      [id, uniqueId]
+      [id, studentId]
     );
     if (reg.rowCount === 0) {
       return res.status(404).json({ success: false, error: 'Student is not registered for this event' });
@@ -165,21 +195,11 @@ router.post('/events/:id/checkin', requireStaffAuth, async (req, res) => {
     if (incoming) {
       const cat = await pool.query(`SELECT field_key FROM event_qualification_fields`);
       const allowed = new Set(cat.rows.map((r) => r.field_key));
-      const sets = [], vals = [];
-      let i = 1;
-      for (const [k, v] of Object.entries(incoming)) {
-        if (!allowed.has(k)) continue;
-        sets.push(`${k} = $${i++}`);
-        vals.push(v === '' ? null : v);
-      }
-      if (sets.length) {
-        vals.push(uniqueId);
-        await pool.query(`UPDATE students SET ${sets.join(', ')}, updated_at = NOW() WHERE unique_id = $${i}`, vals);
-      }
+      await persistQualificationFields(pool, studentId, incoming, allowed);
     }
 
     // HARD GATE: cannot complete check-in while any required field is missing.
-    const sres = await pool.query(`SELECT * FROM students WHERE unique_id = $1 LIMIT 1`, [uniqueId]);
+    const sres = await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [studentId]);
     const gate = await checkStudent(pool, sres.rows[0] || {});
     if (!gate.qualified) {
       return res.status(422).json({ success: false, error: 'Required fields incomplete', missing: gate.missing });
@@ -199,7 +219,7 @@ router.post('/events/:id/checkin', requireStaffAuth, async (req, res) => {
                 attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
                 updated_at       = NOW()
        RETURNING *`,
-      [id, uniqueId, checkedInBy, token]
+      [id, studentId, checkedInBy, token]
     );
     res.json({ success: true, data: up.rows[0] });
   } catch (err) {
@@ -702,30 +722,30 @@ router.put('/qualification-fields', requireAdminOnly, async (req, res) => {
   }
 });
 
-// GET /qualification-check/:uniqueId — dry-run the gate against a real student.
+// GET /qualification-check/:studentId — dry-run the gate against a real student.
 // Read-only diagnostic: returns { qualified, missing } using the current config.
-router.get('/qualification-check/:uniqueId', requireStaffAuth, async (req, res) => {
-  const uid = String(req.params.uniqueId || '').trim();
-  if (!uid) return res.status(400).json({ success: false, error: 'uniqueId required' });
+router.get('/qualification-check/:studentId', requireStaffAuth, async (req, res) => {
+  const uid = String(req.params.studentId || '').trim();
+  if (!uid) return res.status(400).json({ success: false, error: 'studentId required' });
   try {
-    const r = await pool.query(`SELECT * FROM students WHERE unique_id = $1 LIMIT 1`, [uid]);
+    const r = await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [uid]);
     if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Student not found' });
     const result = await checkStudent(pool, r.rows[0]);
-    res.json({ success: true, data: { uniqueId: uid, ...result } });
+    res.json({ success: true, data: { studentId: uid, ...result } });
   } catch (err) {
     console.error('[event-console] qualification-check:', err);
     res.status(500).json({ success: false, error: 'Check failed' });
   }
 }); 
 
-// GET /events/:id/checkin-fields/:uniqueId — the streamlined check-in form's
+// GET /events/:id/checkin-fields/:studentId — the streamlined check-in form's
 // data: every currently-required field with its label, input type, options
 // (from lookup_values) and the student's current value, plus what's missing.
-router.get('/events/:id/checkin-fields/:uniqueId', requireStaffAuth, async (req, res) => {
-  const uid = String(req.params.uniqueId || '').trim();
-  if (!uid) return res.status(400).json({ success: false, error: 'uniqueId required' });
+router.get('/events/:id/checkin-fields/:studentId', requireStaffAuth, async (req, res) => {
+  const uid = String(req.params.studentId || '').trim();
+  if (!uid) return res.status(400).json({ success: false, error: 'studentId required' });
   try {
-    const sres = await pool.query(`SELECT * FROM students WHERE unique_id = $1 LIMIT 1`, [uid]);
+    const sres = await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [uid]);
     if (sres.rowCount === 0) return res.status(404).json({ success: false, error: 'Student not found' });
     const student = sres.rows[0];
     const fields = await buildCheckinFields(student);
@@ -751,7 +771,7 @@ router.get('/profile/:token', async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT s.*
-         FROM event_attendees ea JOIN students s ON s.unique_id = ea.student_unique_id
+         FROM event_attendees ea JOIN students s ON s.student_id = ea.student_unique_id
         WHERE ea.attendance_token = $1 LIMIT 1`,
       [token]
     );
@@ -782,16 +802,8 @@ router.post('/profile/:token', async (req, res) => {
 
     const cat = await pool.query(`SELECT field_key FROM event_qualification_fields`);
     const allowed = new Set(cat.rows.map((x) => x.field_key).filter((k) => !PROFILE_EXCLUDE.includes(k)));
-    const sets = [], vals = [];
-    let i = 1;
-    for (const [k, v] of Object.entries(incoming)) {
-      if (!allowed.has(k)) continue;
-      sets.push(`${k} = $${i++}`);
-      vals.push(v === '' ? null : v);
-    }
-    if (!sets.length) return res.status(400).json({ success: false, error: 'Nothing to save' });
-    vals.push(uid);
-    await pool.query(`UPDATE students SET ${sets.join(', ')}, updated_at = NOW() WHERE unique_id = $${i}`, vals);
+    const saved = await persistQualificationFields(pool, uid, incoming, allowed);
+    if (!saved) return res.status(400).json({ success: false, error: 'Nothing to save' });
     res.json({ success: true });
   } catch (err) {
     console.error('[event-console] profile save:', err);
@@ -823,14 +835,14 @@ router.get('/badge-image/:token', async (req, res) => {
   }
 });
 
-// POST /events/:id/issue-token/:uniqueId -- unconditionally mint (or return
+// POST /events/:id/issue-token/:studentId -- unconditionally mint (or return
 // the existing) advance attendance token for a registrant, so ANY registrant
 // can be sent their badge + form link. No qualification gate here —
 // qualification is enforced at check-in. Idempotent via COALESCE.
-router.post('/events/:id/issue-token/:uniqueId', requireStaffAuth, async (req, res) => {
+router.post('/events/:id/issue-token/:studentId', requireStaffAuth, async (req, res) => {
   const eventId  = parseInt(req.params.id, 10);
-  const uniqueId = String(req.params.uniqueId || '').trim();
-  if (isNaN(eventId) || !uniqueId) {
+  const studentId = String(req.params.studentId || '').trim();
+  if (isNaN(eventId) || !studentId) {
     return res.status(400).json({ success: false, error: 'Invalid event id or student id' });
   }
   try {
@@ -843,7 +855,7 @@ router.post('/events/:id/issue-token/:uniqueId', requireStaffAuth, async (req, r
             SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
                 updated_at       = NOW()
        RETURNING attendance_token`,
-      [eventId, uniqueId, token]
+      [eventId, studentId, token]
     );
     res.json({ success: true, data: { attendanceToken: up.rows[0].attendance_token } });
   } catch (err) {
@@ -856,16 +868,16 @@ router.post('/events/:id/issue-token/:uniqueId', requireStaffAuth, async (req, r
 // The badge PNG is rendered client-side (shared badgeRenderer) and posted here
 // as base64. We resolve the real (unmasked) email from the students row unless
 // an override is supplied, send via the GAS relay, and stamp the attendee row.
-// Body: { uniqueId, eventId, badgePng (base64, no data: prefix), email? (override), badgeUrl? }
+// Body: { studentId, eventId, badgePng (base64, no data: prefix), email? (override), badgeUrl? }
 router.post('/email-badge', requireStaffAuth, async (req, res) => {
-  const uniqueId      = String(req.body.uniqueId || '').trim();
+  const studentId      = String(req.body.studentId || '').trim();
   const eventId       = parseInt(req.body.eventId, 10);
   const badgePng      = String(req.body.badgePng || '').trim();
   const overrideEmail = String(req.body.email || '').trim();
   const badgeUrl      = String(req.body.badgeUrl || '').trim();
 
-  if (!uniqueId || isNaN(eventId) || !badgePng) {
-    return res.status(400).json({ success: false, error: 'uniqueId, eventId and badgePng are required' });
+  if (!studentId || isNaN(eventId) || !badgePng) {
+    return res.status(400).json({ success: false, error: 'studentId, eventId and badgePng are required' });
   }
 
   try {
@@ -881,13 +893,13 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
             SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
                 updated_at       = NOW()
        RETURNING attendance_token`,
-      [eventId, uniqueId, mintToken]
+      [eventId, studentId, mintToken]
     );
 
     // Real (unmasked) name + email straight from the students row.
     const sres = await pool.query(
-      `SELECT full_name, email FROM students WHERE unique_id = $1 LIMIT 1`,
-      [uniqueId]
+      `SELECT full_name, email FROM students WHERE student_id = $1 LIMIT 1`,
+      [studentId]
     );
     if (sres.rowCount === 0) {
       return res.status(404).json({ success: false, error: 'Student not found' });
@@ -930,7 +942,7 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
           SET badge_emailed_at = NOW(), badge_emailed_to = $3, updated_at = NOW()
         WHERE event_id = $1 AND student_unique_id = $2
         RETURNING badge_emailed_at, badge_emailed_to`,
-      [eventId, uniqueId, recipient]
+      [eventId, studentId, recipient]
     );
 
     res.json({ success: true, data: upd.rows[0] || { badge_emailed_to: recipient } });
@@ -944,14 +956,14 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
 // Mirrors /email-badge but delivers over Zalo (ZNS by phone, or OA message by
 // user_id) instead of email. No badgePng needed: the Zalo message carries a
 // link to the /profile?t=<token> page, which renders the badge QR itself.
-// Body: { uniqueId, eventId, baseUrl, method? ('zns'|'oa') }
+// Body: { studentId, eventId, baseUrl, method? ('zns'|'oa') }
 router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
-  const uniqueId = String(req.body.uniqueId || '').trim();
+  const studentId = String(req.body.studentId || '').trim();
   const eventId  = parseInt(req.body.eventId, 10);
   const method   = String(req.body.method || '').trim().toLowerCase() || undefined;
 
-  if (!uniqueId || isNaN(eventId)) {
-    return res.status(400).json({ success: false, error: 'uniqueId and eventId are required' });
+  if (!studentId || isNaN(eventId)) {
+    return res.status(400).json({ success: false, error: 'studentId and eventId are required' });
   }
 
   try {
@@ -964,12 +976,12 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
             SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
                 updated_at       = NOW()
        RETURNING attendance_token`,
-      [eventId, uniqueId, mintToken]
+      [eventId, studentId, mintToken]
     );
 
     const sres = await pool.query(
-      `SELECT full_name, phone FROM students WHERE unique_id = $1 LIMIT 1`,
-      [uniqueId]
+      `SELECT full_name, phone FROM students WHERE student_id = $1 LIMIT 1`,
+      [studentId]
     );
     if (sres.rowCount === 0) {
       return res.status(404).json({ success: false, error: 'Student not found' });
@@ -1007,7 +1019,7 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
           SET badge_zalo_sent_at = NOW(), updated_at = NOW()
         WHERE event_id = $1 AND student_unique_id = $2
         RETURNING badge_zalo_sent_at`,
-      [eventId, uniqueId]
+      [eventId, studentId]
     );
 
     res.json({ success: true, data: upd.rows[0] || { badge_zalo_sent_at: new Date().toISOString() } });

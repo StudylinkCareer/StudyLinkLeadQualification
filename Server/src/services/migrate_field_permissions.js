@@ -107,7 +107,7 @@ const FIELDS = {
   schoolEvent:            'campaign',
 
   // ─ other (catch-all) ────────────────────────────────────────────────
-  uniqueId:               'other',
+  studentId:               'other',
   studyPlans:             'other',
   interaction:            'other',
   destinationCountry:     'other',

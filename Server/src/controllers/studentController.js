@@ -1,6 +1,7 @@
 // server/src/controllers/studentController.js
 
 const Student = require('../models/Student');
+const Lead    = require('../models/Lead');
 const { issueAdvanceTokens } = require('../services/eventQualification');
 const { calculateRiskScore } = require('../utils/riskCalculator');
 const ExcelJS = require('exceljs');                                 // ← NEW
@@ -31,16 +32,17 @@ async function appendRegistration(studentId, f = {}) {
     [studentId, eventId, sourceOfLead || null, source || null, sourceDetail || null, unverified]
   );
 
+  // lead_source / source / source_detail are STUDENT-level (Source & Marketing) and
+  // stay on students. The counsellor auto-assign is engagement and now lives on the
+  // lead (set at Lead.create in register()), so it is no longer written here.
   await pool.query(
     `UPDATE students SET
         lead_source   = CASE WHEN COALESCE(NULLIF(btrim(lead_source),''),'')   = '' THEN $2 ELSE lead_source   END,
         source        = CASE WHEN COALESCE(NULLIF(btrim(source),''),'')        = '' THEN $3 ELSE source        END,
         source_detail = CASE WHEN COALESCE(NULLIF(btrim(source_detail),''),'') = '' THEN $4 ELSE source_detail END,
-        counselor     = CASE WHEN COALESCE(NULLIF(btrim(counselor),''),'')     = '' THEN $5 ELSE counselor     END,
-        
         updated_at    = now()
-      WHERE unique_id = $1`,
-    [studentId, sourceOfLead, source, sourceDetail, counsellor]
+      WHERE student_id = $1`,
+    [studentId, sourceOfLead, source, sourceDetail]
   );
   
   // Advance event QR: if this lead now qualifies, mint tokens for any future
@@ -94,10 +96,20 @@ async function register(req, res, next) {
       sourceDetail:     sourceDetail     || '',
     });
 
-    req.session.uniqueId = student.uniqueId;
+    req.session.studentId = student.studentId;
 
-    // Append the registration row + populate-if-empty (counsellor auto-assign)
-    await appendRegistration(student.uniqueId, {
+    // Create the initial engagement (lead) for this registration. Academic/target
+    // fields are filled in later by staff; at intake we set status = New, carry the
+    // study plans, and auto-assign the counsellor if one was provided (else the lead
+    // is left unassigned and surfaces in Distribution).
+    await Lead.create(student.studentId, {
+      leadStatus: 'New',
+      studyPlans: studyPlans || '',
+      counselor:  (counsellor || '').trim() || null,
+    });
+
+    // Append the registration event row + populate student-level Source if empty.
+    await appendRegistration(student.studentId, {
       sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
     });
     res.status(201).json({ success: true, data: student });
@@ -123,7 +135,7 @@ async function getByEmail(req, res, next) {
     if (!email) return res.status(400).json({ success: false, error: 'Email query parameter required' });
     const result = await Student.findByEmail(email);
     if (!result) return res.status(404).json({ success: false, error: 'Student not found' });
-    req.session.uniqueId = result.data.uniqueId;
+    req.session.studentId = result.data.studentId;
     res.json({ success: true, data: result.data });
   } catch (err) { next(err); }
 }
@@ -150,10 +162,10 @@ async function checkDuplicate(req, res, next) {
 
 async function deactivateRecords(req, res, next) {
   try {
-    const { uniqueIds } = req.body;
-    if (!uniqueIds || !Array.isArray(uniqueIds) || uniqueIds.length === 0)
-      return res.status(400).json({ success: false, error: 'uniqueIds array is required' });
-    const result = await Student.deactivateRecords(uniqueIds);
+    const { studentIds } = req.body;
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0)
+      return res.status(400).json({ success: false, error: 'studentIds array is required' });
+    const result = await Student.deactivateRecords(studentIds);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 }
@@ -334,7 +346,7 @@ async function searchStudents(req, res, next) {
 
 // Pretty header labels for the .xlsx output. Keys must be DB snake_case.
 const FIELD_LABELS = {
-  unique_id:                'Unique ID',
+  student_id:                'Unique ID',
   full_name:                'Name',
   email:                    'Email',
   phone:                    'Phone',
@@ -397,7 +409,7 @@ const ALLOWED_FIELDS = new Set(Object.keys(FIELD_LABELS));
 
 // camelCase (frontend) → snake_case (DB column)
 const JS_TO_DB = {
-  uniqueId:               'unique_id',
+  studentId:               'student_id',
   fullName:               'full_name',
   email:                  'email',
   phone:                  'phone',
@@ -452,6 +464,14 @@ const JS_TO_DB = {
   status:                 'status',
 };
 
+// Engagement columns (snake_case) that now live on the leads table; everything else
+// in ALLOWED_FIELDS stays on students. Used to qualify the export SELECT/JOIN.
+const EXPORT_ENGAGEMENT = new Set([
+  'lead_status', 'study_plans', 'destination_country', 'timeline',
+  'counselor', 'senior_counselor', 'presales', 'marketing_staff',
+  'close_date', 'confidence',
+]);
+
 async function exportExcel(req, res, next) {
   try {
     const {
@@ -478,27 +498,39 @@ async function exportExcel(req, res, next) {
       return res.status(400).json({ success: false, error: 'No valid fields after filtering' });
     }
 
-    // Always lead with unique_id
-    const selectCols = ['unique_id', ...dbFields.filter(c => c !== 'unique_id')];
+    // Always lead with student_id
+    const selectCols = ['student_id', ...dbFields.filter(c => c !== 'student_id')];
+
+    // Engagement columns live on leads now; person columns stay on students. Qualify
+    // each requested column to the right table and join a representative lead (prefer
+    // an open lead, else the most recent) so the export stays one row per student.
+    const qual = (c) => EXPORT_ENGAGEMENT.has(c) ? `l.${c}` : `s.${c}`;
+    const dateColQual = qual(dateCol);
 
     // ── Build WHERE clause ──
     const where  = [];
     const params = [];
     if (startDate) {
       params.push(startDate);
-      where.push(`${dateCol} >= $${params.length}`);
+      where.push(`${dateColQual} >= $${params.length}`);
     }
     if (endDate) {
       params.push(endDate);
-      where.push(`${dateCol} < ($${params.length}::date + INTERVAL '1 day')`);
+      where.push(`${dateColQual} < ($${params.length}::date + INTERVAL '1 day')`);
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const sql = `
-      SELECT ${selectCols.join(', ')}
-      FROM students
+      SELECT ${selectCols.map(c => `${qual(c)} AS ${c}`).join(', ')}
+      FROM students s
+      LEFT JOIN LATERAL (
+        SELECT * FROM leads
+         WHERE person_id = s.student_id
+         ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id DESC
+         LIMIT 1
+      ) l ON true
       ${whereSql}
-      ORDER BY ${dateCol} DESC NULLS LAST
+      ORDER BY ${dateColQual} DESC NULLS LAST
     `;
 
     const { rows } = await pool.query(sql, params);
@@ -506,15 +538,15 @@ async function exportExcel(req, res, next) {
     // ── Fetch notes for these leads (if requested) ──            // ← NEW
     let noteRows = [];                                              // ← NEW
     if (includeNotes && rows.length > 0) {                          // ← NEW
-      const uniqueIds = rows.map(r => r.unique_id);                 // ← NEW
+      const studentIds = rows.map(r => r.student_id);                 // ← NEW
       const noteResult = await pool.query(
         `SELECT n.student_id, s.full_name, n.note_type, n.content,
                 n.author_name, n.created_at
          FROM student_notes n
-         JOIN students s ON s.unique_id = n.student_id
+         JOIN students s ON s.student_id = n.student_id
          WHERE n.student_id = ANY($1::varchar[])
          ORDER BY s.full_name, n.created_at DESC`,
-        [uniqueIds]
+        [studentIds]
       );
       noteRows = noteResult.rows;                                   // ← NEW
     }                                                               // ← NEW

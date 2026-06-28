@@ -215,7 +215,7 @@ router.post('/lookup', requireRep, async (req, res) => {
     const r = await pool.query(
       `SELECT s.*
          FROM event_attendees ea
-         JOIN students s ON s.unique_id = ea.student_unique_id
+         JOIN students s ON s.student_id = ea.student_unique_id
         WHERE ea.attendance_token = $1 AND ea.event_id = $2
         LIMIT 1`,
       [code, req.rep.event_id]
@@ -242,7 +242,7 @@ router.post('/lookup', requireRep, async (req, res) => {
 
     // Name + required profile only — email/phone/Zalo never leave this endpoint.
     res.json({ success: true, data: {
-      studentUniqueId: student.unique_id,
+      studentUniqueId: student.student_id,
       fullName: student.full_name,
       profile,
     } });

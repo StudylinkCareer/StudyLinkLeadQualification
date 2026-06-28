@@ -334,7 +334,7 @@ export default function Dashboard() {
       won,
       active,
       thisMonth:    thisMonthLeads.length,
-      thisMonthIds: thisMonthLeads.map(l => l.uniqueId),
+      thisMonthIds: thisMonthLeads.map(l => l.studentId),
     };
   }, [scopedLeads]);
 
@@ -453,7 +453,7 @@ export default function Dashboard() {
           }
           return l[filterKey] === filterValue;
         })
-        .map(l => l.uniqueId);
+        .map(l => l.studentId);
       navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
       return;
     }
@@ -461,7 +461,7 @@ export default function Dashboard() {
   }
   function drillPipeline(leads) {
     const list = isCounselor ? leads.filter(ownsLead) : leads;
-    navigate('/leads', { state: { drillFilter: { key: '_ids', value: list.map(l => l.uniqueId) } } });
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: list.map(l => l.studentId) } } });
   }
   // Drill straight into a server-provided id list (already scope-correct).
   function drillIds(ids) {
@@ -474,14 +474,14 @@ export default function Dashboard() {
     const ids = leads
       .filter(l => (l.counselor || 'Unassigned') === counselor
                 && (l.stoneTier || 'Unscored')   === stone)
-      .map(l => l.uniqueId);
+      .map(l => l.studentId);
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
   }
   function drillCounselorStatus(counselor, status) {
     const ids = leads
       .filter(l => (l.counselor || 'Unassigned') === counselor
                 && (l.leadStatus || 'New')       === status)
-      .map(l => l.uniqueId);
+      .map(l => l.studentId);
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
   }
 

@@ -36,7 +36,7 @@ async function searchStudents(query) {
      WHERE full_name ILIKE $1 
         OR email     ILIKE $1 
         OR phone     ILIKE $1 
-        OR unique_id ILIKE $1
+        OR student_id ILIKE $1
      ORDER BY created_at DESC`,
     [q]
   );
@@ -113,7 +113,7 @@ async function saveDocument(studentId, docData) {
 // ── Helper ───────────────────────────────────────────────────────────────────
 function rowToCamelCase(row) {
   return {
-    uniqueId:  row.unique_id,
+    studentId:  row.student_id,
     fullName:  row.full_name,
     email:     row.email,
     phone:     row.phone,

@@ -65,7 +65,7 @@ async function checkLogin(req, res, next) {
     const safeMatches = matches
       .filter((m) => (m.status || 'Active') === 'Active')
       .map((m) => ({
-        uniqueId: m.uniqueId,
+        studentId: m.studentId,
         fullName: m.fullName,
         email: m.email,
         phone: m.phone,
@@ -156,7 +156,7 @@ async function verifyOTP(req, res, next) {
     req.session.authenticated = true;
     req.session.email = email.toLowerCase();
     req.session.isCounselor = isCounselorFlag;
-    delete req.session.uniqueId;
+    delete req.session.studentId;
 
     res.json({
       success: true,
@@ -175,7 +175,7 @@ async function checkSession(req, res) {
       success: true,
       authenticated: true,
       email: req.session.email,
-      uniqueId: req.session.uniqueId || null,
+      studentId: req.session.studentId || null,
       isCounselor: req.session.isCounselor || false,
     });
   } else {
@@ -204,7 +204,7 @@ async function qrLogin(req, res, next) {
     req.session.authenticated = true;
     req.session.email = cleanEmail;
     req.session.isCounselor = false;
-    delete req.session.uniqueId;
+    delete req.session.studentId;
 
     res.json({ success: true, email: cleanEmail });
   } catch (err) {

@@ -56,7 +56,7 @@ export const studentAPI = {
     if (phone) params.set('phone', phone);
     return api.get(`/students/check-duplicate?${params}`);
   },
-  deactivateRecords: (uniqueIds) => api.post('/students/deactivate', { uniqueIds }),
+  deactivateRecords: (studentIds) => api.post('/students/deactivate', { studentIds }),
   search: (query) => api.get(`/students/search?q=${encodeURIComponent(query || '')}`),
   calculateRisk: (id) => api.post(`/students/${encodeURIComponent(id)}/calculate-risk`),
   calculateOcean: (id, language = 'en') => api.post(`/students/${encodeURIComponent(id)}/calculate-ocean?language=${language}`),

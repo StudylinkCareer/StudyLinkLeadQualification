@@ -37,7 +37,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export default function DocumentsTab({ formData, updateField, saving, lastSaved }) {
   const { language } = useLanguage();
-  const studentId = formData.uniqueId || '';
+  const studentId = formData.studentId || '';
 
   const [documents, setDocuments] = useState([]);
   const [folderUrl, setFolderUrl] = useState('');

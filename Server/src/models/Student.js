@@ -16,7 +16,7 @@ const pool = new Pool({
 // ── Complete column map: DB snake_case ↔ JS camelCase ─────────
 // Explicit mapping avoids edge cases (e.g. motherContactCC, oceanQ1-15)
 const COLUMNS = [
-  { db: 'unique_id',                 js: 'uniqueId' },
+  { db: 'student_id',                 js: 'studentId' },
   { db: 'full_name',                 js: 'fullName' },
   { db: 'contact_medium1',           js: 'contactMedium1' },
   { db: 'phone_country_code1',       js: 'phoneCountryCode1' },
@@ -27,12 +27,8 @@ const COLUMNS = [
   { db: 'email',                     js: 'email' },
   { db: 'hidden_phone_country_code', js: 'hiddenPhoneCountryCode' },
   { db: 'phone',                     js: 'phone' },
-  { db: 'study_plans',               js: 'studyPlans' },
   { db: 'lead_source',               js: 'leadSource' },
   { db: 'interaction',               js: 'interaction' },
-  { db: 'destination_country',       js: 'destinationCountry' },
-  { db: 'timeline',                  js: 'timeline' },
-  { db: 'process_application',       js: 'processApplication' },
   { db: 'residency',                 js: 'residency' },
   { db: 'year_of_birth',             js: 'yearOfBirth' },
   { db: 'preferred_social',          js: 'preferredSocial' },
@@ -71,13 +67,7 @@ const COLUMNS = [
   { db: 'created_at',                js: 'createdAt' },
   { db: 'updated_at',                js: 'updatedAt' },
   { db: 'status',                    js: 'status' },
-  { db: 'counselor',                 js: 'counselor' },
-  { db: 'senior_counselor',          js: 'seniorCounselor' },
-  { db: 'presales',                  js: 'presales' },
-  { db: 'marketing_staff',           js: 'marketingStaff' },
-  { db: 'lead_status',               js: 'leadStatus' },
-  { db: 'close_date',                js: 'closeDate' },
-  { db: 'confidence',                js: 'confidence' },
+  { db: 'student_status',            js: 'studentStatus' },
   { db: 'ocean_q1',                  js: 'oceanQ1' },
   { db: 'ocean_q2',                  js: 'oceanQ2' },
   { db: 'ocean_q3',                  js: 'oceanQ3' },
@@ -107,7 +97,6 @@ const COLUMNS = [
   { db: 'referral_source',           js: 'referralSource' },
   { db: 'source',                    js: 'source' },
   { db: 'source_detail',             js: 'sourceDetail' },
-  { db: 'major',                     js: 'major' },
   { db: 'school_attended',           js: 'schoolAttended' },
   { db: 'ward',                      js: 'ward' },
 ];
@@ -170,13 +159,13 @@ async function generateUniqueId() {
 
   // Find the highest sequence number used today
   const result = await pool.query(
-    `SELECT unique_id FROM students WHERE unique_id LIKE $1 ORDER BY unique_id DESC LIMIT 1`,
+    `SELECT student_id FROM students WHERE student_id LIKE $1 ORDER BY student_id DESC LIMIT 1`,
     [`${prefix}-%`]
   );
 
   let seq = 1;
   if (result.rows.length > 0) {
-    const parts = result.rows[0].unique_id.split('-');
+    const parts = result.rows[0].student_id.split('-');
     seq = parseInt(parts[parts.length - 1], 10) + 1;
   }
 
@@ -188,12 +177,12 @@ async function create(data) {
   const errors = validate(data);
   if (errors.length) throw new Error(errors.join(', '));
 
-  const uniqueId = await generateUniqueId();
+  const studentId = await generateUniqueId();
   const now = toIndochinaISO();
 
   // Build full JS record with defaults
   const record = {
-    uniqueId,
+    studentId,
     fullName:               data.fullName               || '',
     contactMedium1:         data.contactMedium1         || '',
     phoneCountryCode1:      data.phoneCountryCode1      || '',
@@ -313,23 +302,23 @@ async function findByEmail(email) {
 }
 
 // ── FIND BY ID ────────────────────────────────────────────────
-async function findById(uniqueId) {
+async function findById(studentId) {
   const result = await pool.query(
-    `SELECT * FROM students WHERE unique_id = $1 LIMIT 1`,
-    [uniqueId]
+    `SELECT * FROM students WHERE student_id = $1 LIMIT 1`,
+    [studentId]
   );
   if (!result.rows.length) return null;
   return { data: rowToJs(result.rows[0]) };
 }
 
 // ── UPDATE ────────────────────────────────────────────────────
-async function update(uniqueId, data) {
+async function update(studentId, data) {
   const setClauses = [];
   const values     = [];
   let   paramIdx   = 1;
 
   for (const [jsKey, value] of Object.entries(data)) {
-    if (jsKey === 'uniqueId' || jsKey === 'createdAt' || jsKey === 'updatedAt') continue;
+    if (jsKey === 'studentId' || jsKey === 'createdAt' || jsKey === 'updatedAt') continue;
     const dbCol = JS_TO_DB[jsKey];
     if (!dbCol) continue; // ignore unknown fields
 
@@ -345,7 +334,7 @@ async function update(uniqueId, data) {
 
   if (!setClauses.length) {
     // Nothing to update — fetch and return current record
-    return (await findById(uniqueId))?.data;
+    return (await findById(studentId))?.data;
   }
 
   // Always bump updated_at
@@ -353,10 +342,10 @@ async function update(uniqueId, data) {
   values.push(toIndochinaISO());
   paramIdx++;
 
-  values.push(uniqueId); // WHERE clause param
+  values.push(studentId); // WHERE clause param
 
   const result = await pool.query(
-    `UPDATE students SET ${setClauses.join(', ')} WHERE unique_id = $${paramIdx} RETURNING *`,
+    `UPDATE students SET ${setClauses.join(', ')} WHERE student_id = $${paramIdx} RETURNING *`,
     values
   );
 
@@ -389,21 +378,21 @@ async function checkDuplicates(email, phone) {
 }
 
 // ── DEACTIVATE RECORDS ────────────────────────────────────────
-async function deactivateRecords(uniqueIds) {
-  const placeholders = uniqueIds.map((_, i) => `$${i + 1}`);
+async function deactivateRecords(studentIds) {
+  const placeholders = studentIds.map((_, i) => `$${i + 1}`);
   await pool.query(
     `UPDATE students SET status = 'Inactive', updated_at = NOW()
-     WHERE unique_id IN (${placeholders.join(', ')})`,
-    uniqueIds
+     WHERE student_id IN (${placeholders.join(', ')})`,
+    studentIds
   );
-  return { deactivated: uniqueIds };
+  return { deactivated: studentIds };
 }
 
 // ── UPLOAD PHOTOS ─────────────────────────────────────────────
 // Stores base64 data URLs directly in DB text columns.
 // These render fine in <img src="..."> tags.
 // TODO: migrate to cloud storage (S3/Cloudinary) for production efficiency.
-async function uploadPhotos(uniqueId, { headshot, qrCodeImage }) {
+async function uploadPhotos(studentId, { headshot, qrCodeImage }) {
   const setClauses = [];
   const values     = [];
 
@@ -418,10 +407,10 @@ async function uploadPhotos(uniqueId, { headshot, qrCodeImage }) {
 
   if (!setClauses.length) return {};
 
-  values.push(uniqueId);
+  values.push(studentId);
   const result = await pool.query(
     `UPDATE students SET ${setClauses.join(', ')}, updated_at = NOW()
-     WHERE unique_id = $${values.length}
+     WHERE student_id = $${values.length}
      RETURNING headshot_url, qr_code_image_url`,
     values
   );
@@ -448,7 +437,7 @@ async function search(query) {
      WHERE full_name  ILIKE $1
         OR email      ILIKE $1
         OR phone      ILIKE $1
-        OR unique_id  ILIKE $1
+        OR student_id  ILIKE $1
      ORDER BY created_at DESC`,
     [q]
   );

@@ -14,6 +14,11 @@ function requireStaffAuth(req, res, next) {
 
 router.get('/reminders',        requireStaffAuth, noteCtrl.getReminders);
 router.get('/communications',    requireStaffAuth, noteCtrl.getCommunications);
+// Lead-level + student-level notes (multi-segment paths declared before /:studentId)
+router.get ('/lead/:leadId',            requireStaffAuth, noteCtrl.getLeadNotes);
+router.post('/lead/:leadId',            requireStaffAuth, noteCtrl.addLeadNote);
+router.get ('/student-level/:studentId', requireStaffAuth, noteCtrl.getStudentLevelNotes);
+router.post('/student-level/:studentId', requireStaffAuth, noteCtrl.addStudentLevelNote);
 router.get('/:studentId',        requireStaffAuth, noteCtrl.getNotes);
 router.post('/:studentId',      requireStaffAuth, noteCtrl.addNote);
 router.delete('/:id',           requireStaffAuth, noteCtrl.deleteNote);

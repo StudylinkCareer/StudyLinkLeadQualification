@@ -5,14 +5,14 @@
 //
 // USAGE:  node checkImport.js
 //
-// Optional: pass a unique_id to drill into one lead's notes
+// Optional: pass a student_id to drill into one lead's notes
 //   node checkImport.js 20260420-573
 
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const pool = require('./db');
 
 async function main() {
-  const drillId = process.argv[2]; // optional unique_id to inspect
+  const drillId = process.argv[2]; // optional student_id to inspect
 
   // ── Totals ───────────────────────────────────────────────────
   const { rows: [leadCount] } = await pool.query(
@@ -31,7 +31,7 @@ async function main() {
     `SELECT n.id, n.student_id, s.full_name, n.note_type, n.author_name,
             n.created_at, LEFT(n.content, 60) AS content_preview
      FROM student_notes n
-     JOIN students s ON s.unique_id = n.student_id
+     JOIN students s ON s.student_id = n.student_id
      ORDER BY n.id DESC
      LIMIT 20`
   );
@@ -70,13 +70,13 @@ async function main() {
   if (drillId) {
     console.log(`\n=== ALL NOTES FOR LEAD ${drillId} ===`);
     const { rows: leadInfo } = await pool.query(
-      `SELECT unique_id, full_name FROM students WHERE unique_id = $1`,
+      `SELECT student_id, full_name FROM students WHERE student_id = $1`,
       [drillId]
     );
     if (!leadInfo.length) {
       console.log(`  ⚠  Lead ${drillId} not found in DB`);
     } else {
-      console.log(`  Lead: ${leadInfo[0].full_name} (${leadInfo[0].unique_id})\n`);
+      console.log(`  Lead: ${leadInfo[0].full_name} (${leadInfo[0].student_id})\n`);
       const { rows: notes } = await pool.query(
         `SELECT id, note_type, content, author_name, created_at
          FROM student_notes WHERE student_id = $1
@@ -97,7 +97,7 @@ async function main() {
       }
     }
   } else {
-    console.log('\n💡  Tip: pass a unique_id to see all notes for that lead, e.g.:');
+    console.log('\n💡  Tip: pass a student_id to see all notes for that lead, e.g.:');
     console.log('       node checkImport.js 20260420-573\n');
   }
 

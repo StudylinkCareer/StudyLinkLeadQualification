@@ -53,7 +53,7 @@ const TAB_ICONS = {
 ];
 
 export default function Dashboard() {
-  const { email, uniqueId, setStudentId, isCounselor } = useAuth();
+  const { email, studentId, setStudentId, isCounselor } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { language } = useLanguage();
@@ -183,12 +183,12 @@ export default function Dashboard() {
   });
 
   const { formData, updateField, saving, lastSaved, dirty, saveAll, discard } = useFormState(
-    studentData?.uniqueId,
+    studentData?.studentId,
     studentData || {}
   );
 
   const [counselorSearchMode, setCounselorSearchMode] = useState(
-    (isCounselor || mode === 'counselor') && !uniqueId
+    (isCounselor || mode === 'counselor') && !studentId
   );
 
   const tabs = TAB_KEYS
@@ -204,7 +204,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (counselorSearchMode) { setLoading(false); return; }
     loadStudent();
-  }, [email, uniqueId, counselorSearchMode]);
+  }, [email, studentId, counselorSearchMode]);
 
   const deactivationDone = useRef(false);
   useEffect(() => {
@@ -217,7 +217,7 @@ export default function Dashboard() {
   }, [locationRecordsToDeactivate]);
 
   useEffect(() => {
-    if (!studentData?.uniqueId) return;
+    if (!studentData?.studentId) return;
 
     const qrContactRaw = sessionStorage.getItem('studylink_qr_contact');
     if (qrContactRaw) {
@@ -266,7 +266,7 @@ export default function Dashboard() {
     if (headshot) { setPendingHeadshot(headshot); sessionStorage.removeItem('studylink_headshot'); }
     const qrImage = sessionStorage.getItem('studylink_qr_image');
     if (qrImage) { setPendingQrImage(qrImage); sessionStorage.removeItem('studylink_qr_image'); }
-  }, [studentData?.uniqueId]);
+  }, [studentData?.studentId]);
 
   const cleanTempData = (data) => {
     if (data && data.email && data.email.includes('@studylink.temp')) return { ...data, email: '' };
@@ -282,7 +282,7 @@ export default function Dashboard() {
       if (selectedRecordId) {
         const res = await studentAPI.getById(selectedRecordId);
         setStudentData(cleanTempData(res.data));
-        setStudentId(res.data.uniqueId);
+        setStudentId(res.data.studentId);
         // Returning lead: append a new registration row (every submission counts).
         if (loginSourceOfLead) {
           try {
@@ -299,8 +299,8 @@ export default function Dashboard() {
         sessionStorage.removeItem('studylink_selectedRecordId');
         return;
       }
-      if (uniqueId) {
-        const res = await studentAPI.getById(uniqueId);
+      if (studentId) {
+        const res = await studentAPI.getById(studentId);
         setStudentData(cleanTempData(res.data));
         return;
       }
@@ -308,14 +308,14 @@ export default function Dashboard() {
         try {
           const res = await studentAPI.getByEmail(email);
           setStudentData(cleanTempData(res.data));
-          setStudentId(res.data.uniqueId);
+          setStudentId(res.data.studentId);
           return;
         } catch (err) {
           if (err.status !== 404) throw err;
         }
       }
       if (isCounselor) { setCounselorSearchMode(true); return; }
-      if (mode === 'create' || !uniqueId) {
+      if (mode === 'create' || !studentId) {
         try {
           const safeEmail = (email && !email.includes('@studylink.temp')) ? email : '';
           const spaceIdx = (phone || '').indexOf(' ');
@@ -345,11 +345,11 @@ export default function Dashboard() {
             eventId:          loginEventId         || null,
           });
           setStudentData(cleanTempData(res.data));
-          setStudentId(res.data.uniqueId);
+          setStudentId(res.data.studentId);
         } catch (regErr) {
           if (regErr.status === 409 && regErr.data?.existing) {
             setStudentData(cleanTempData(regErr.data.existing));
-            setStudentId(regErr.data.existing.uniqueId);
+            setStudentId(regErr.data.existing.studentId);
           } else {
             throw regErr;
           }
@@ -376,7 +376,7 @@ export default function Dashboard() {
         if (pendingHeadshot) photos.headshot = pendingHeadshot;
         if (pendingQrImage) photos.qrCodeImage = pendingQrImage;
         if (additionalQrImages.length > 0) photos.additionalQrImages = additionalQrImages;
-        const uploadRes = await studentAPI.uploadPhotos(studentData.uniqueId, photos);
+        const uploadRes = await studentAPI.uploadPhotos(studentData.studentId, photos);
         if (uploadRes.data) {
           if (uploadRes.data.headshotUrl) updateField('headshotUrl', uploadRes.data.headshotUrl);
           if (uploadRes.data.qrCodeImageUrl) updateField('qrCodeImageUrl', uploadRes.data.qrCodeImageUrl);

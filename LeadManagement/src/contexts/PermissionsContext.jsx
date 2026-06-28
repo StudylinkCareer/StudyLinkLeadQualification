@@ -158,16 +158,16 @@ export function PermissionsProvider({ children }) {
         norm(lead.marketingStaff)  === me
       );
       // One-time log per lead to help diagnose data mismatches. Remove after verified.
-      if (!matches && typeof window !== 'undefined' && !window.__perm_logged?.[lead.uniqueId]) {
+      if (!matches && typeof window !== 'undefined' && !window.__perm_logged?.[lead.studentId]) {
         window.__perm_logged = window.__perm_logged || {};
-        window.__perm_logged[lead.uniqueId] = true;
+        window.__perm_logged[lead.studentId] = true;
         console.log('[canDoOnLead] OWN check failed:', {
           staff:    staff.fullName,
           counselor:       lead.counselor,
           seniorCounselor: lead.seniorCounselor,
           presales:        lead.presales,
           marketingStaff:  lead.marketingStaff,
-          leadId: lead.uniqueId,
+          leadId: lead.studentId,
         });
       }
       return matches;

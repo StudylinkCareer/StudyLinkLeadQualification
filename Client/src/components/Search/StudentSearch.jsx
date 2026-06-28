@@ -80,9 +80,9 @@ export default function StudentSearch({ onSelect }) {
               <div className="student-search-list">
                 {results.map((s) => (
                   <button
-                    key={s.uniqueId}
+                    key={s.studentId}
                     className="student-search-item"
-                    onClick={() => onSelect(s.uniqueId)}
+                    onClick={() => onSelect(s.studentId)}
                   >
                     <div className="student-search-item-icon">
                       <FiUser />
@@ -92,7 +92,7 @@ export default function StudentSearch({ onSelect }) {
                         {s.fullName || '(No name)'}
                       </div>
                       <div className="student-search-item-details">
-                        <span>{s.uniqueId}</span>
+                        <span>{s.studentId}</span>
                         {s.email && <span>{s.email}</span>}
                         {s.phone && <span>{s.phone}</span>}
                       </div>

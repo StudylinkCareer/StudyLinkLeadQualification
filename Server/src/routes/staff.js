@@ -89,12 +89,16 @@ router.delete('/variants/:id', requireStaffAuth, staffCtrl.deleteVariant);
 // Mass delete is gated here at the route layer (leads.delete).
 // Export is gated on leads.export permission.
 router.get('/students/search',               requireStaffAuth,                                            staffCtrl.searchStudents);
+router.get('/lead-list',                     requireStaffAuth,                                            staffCtrl.searchLeads);
 router.post('/students/export-excel',        requireStaffAuth, requirePermission('leads', 'export'),      staffCtrl.exportExcel);
 router.get('/students/:id',                  requireStaffAuth,                                            staffCtrl.getStudent);
 router.put('/students/:id',                  requireStaffAuth,                                            staffCtrl.updateStudent);
 router.post('/students/:id/calculate-risk',  requireStaffAuth, requirePermission('leads', 'recalculate'), staffCtrl.calculateRisk);
 router.post('/students/:id/calculate-ocean', requireStaffAuth, requirePermission('leads', 'recalculate'), staffCtrl.calculateOceanStudent);
 router.delete('/students',                   requireStaffAuth, requirePermission('leads', 'delete'),      staffCtrl.deleteStudents);
+router.post('/students/delete-preview',      requireStaffAuth, requirePermission('leads', 'delete'),      staffCtrl.previewDeleteStudents);
+router.get('/cleanup/orphans',               requireStaffAuth, requirePermission('leads', 'delete'),      staffCtrl.getOrphans);
+router.post('/cleanup/orphans/purge',        requireStaffAuth, requirePermission('leads', 'delete'),      staffCtrl.purgeOrphans);
 
 // ── Audit log routes ──────────────────────────────────────────
 // Per-lead audit log is visible to anyone who can view the lead

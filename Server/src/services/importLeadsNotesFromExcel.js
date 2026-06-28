@@ -65,8 +65,8 @@ function normalizeName(s) {
   return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-function deriveCreatedAt(uniqueId) {
-  const m = /^(\d{4})(\d{2})(\d{2})/.exec(String(uniqueId || ''));
+function deriveCreatedAt(studentId) {
+  const m = /^(\d{4})(\d{2})(\d{2})/.exec(String(studentId || ''));
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
 }
 
@@ -148,16 +148,16 @@ async function main() {
 
   // ── Load existing DB state ───────────────────────────────────
   const { rows: existingLeads } = await pool.query(
-    'SELECT unique_id, full_name FROM students'
+    'SELECT student_id, full_name FROM students'
   );
-  const existingIds = new Set(existingLeads.map(r => r.unique_id));
+  const existingIds = new Set(existingLeads.map(r => r.student_id));
 
   const namesByNorm = new Map();
   for (const r of existingLeads) {
     const k = normalizeName(r.full_name);
     if (!k) continue;
     if (!namesByNorm.has(k)) namesByNorm.set(k, []);
-    namesByNorm.get(k).push(r.unique_id);
+    namesByNorm.get(k).push(r.student_id);
   }
 
   const { rows: staffRows } = await pool.query('SELECT id, full_name FROM staff');
@@ -312,7 +312,7 @@ async function main() {
     try {
       const created = deriveCreatedAt(r.unique_id) || new Date();
       await pool.query(
-        `INSERT INTO students (unique_id, full_name, status, created_at, updated_at)
+        `INSERT INTO students (student_id, full_name, status, created_at, updated_at)
          VALUES ($1, $2, 'Active', $3, $3)`,
         [r.unique_id, r.full_name, created]
       );

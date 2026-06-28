@@ -22,6 +22,7 @@ const referenceDataRoutes     = require('./routes/referenceData');
 const distributionRoutes      = require('./routes/distribution');
 const eventConsoleRoutes      = require('./routes/eventConsole');
 const eventDeskRoutes         = require('./routes/eventDesk');
+const leadRoutes              = require('./routes/leads');
 
 const app = express();
 
@@ -36,6 +37,23 @@ if (process.env.REDIS_URL) {
     console.log('[SESSION] Using Redis session store');
   } catch (err) {
     console.error('[SESSION] Redis setup failed:', err.message);
+  }
+} else if (config.nodeEnv !== 'production') {
+  // Dev: file-backed store so nodemon restarts don't log staff out.
+  // Guarded — if the package isn't installed yet, fall back to MemoryStore
+  // rather than crash. Install once with:  npm install session-file-store
+  try {
+    const FileStore = require('session-file-store')(session);
+    const path = require('path');
+    sessionStore = new FileStore({
+      path: path.join(__dirname, '..', '.sessions'),
+      retries: 1,
+      ttl: Math.floor((config.session.maxAge || 86400000) / 1000), // seconds
+      logFn: () => {},                                              // quiet
+    });
+    console.log('[SESSION] Using file session store (dev) — survives restarts');
+  } catch (err) {
+    console.warn('[SESSION] session-file-store not installed — using MemoryStore. Run: npm install session-file-store');
   }
 } else {
   console.warn('[SESSION] No REDIS_URL found — using MemoryStore (dev only)');
@@ -86,6 +104,7 @@ app.use('/api/reference-data', referenceDataRoutes);
 app.use('/api/distribution', distributionRoutes);
 app.use('/api/event-console', eventConsoleRoutes);
 app.use('/api/event-desk', eventDeskRoutes);
+app.use('/api/leads', leadRoutes);
 
 // Error handling
 app.use(errorHandler);

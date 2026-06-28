@@ -41,4 +41,8 @@ router.post('/pool-to-review', ctrl.poolToReview);
 router.get('/notes-template', ctrl.downloadNotesTemplate);
 router.post('/upload-notes', ctrl.uploadNotes);
 
+// Duplicates to review (parked on upload when email/phone collides with a person)
+router.get('/duplicates', ctrl.listDuplicates);
+router.post('/duplicates/:id/resolve', ctrl.resolveDuplicate);
+
 module.exports = router;
