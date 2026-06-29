@@ -32,6 +32,8 @@ export default function EventConsole() {
   // Roster tab state
   const [roster, setRoster]   = useState([]);
   const [q, setQ]             = useState('');
+  const [fStatus, setFStatus]     = useState('all'); // 'all' | Confirmed | Uncertain | Declined
+  const [fAttended, setFAttended] = useState('all'); // 'all' | 'yes' | 'no'
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId]   = useState(null);   // studentId being checked in
 
@@ -123,7 +125,7 @@ export default function EventConsole() {
       const data = res.data || {};
       if (data.qualified) {
         await eventConsoleAPI.checkin(eventId, studentId);
-        await loadRoster(eventId, q);
+        await loadRoster(eventId, '');
       } else {
         // Open the form to fill the required fields before check-in completes.
         const fields = data.fields || [];
@@ -147,7 +149,7 @@ export default function EventConsole() {
     try {
       await eventConsoleAPI.checkin(eventId, ciStudent.studentId, ciValues);
       setCiStudent(null); setCiFields([]); setCiValues({});
-      await loadRoster(eventId, q);
+      await loadRoster(eventId, '');
     } catch (e) {
       setCiError(e.message || 'Some required fields are still missing');
     } finally {
@@ -223,7 +225,7 @@ export default function EventConsole() {
         baseUrl: (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, ''),
       });
       setBadgeMsg('Sent via Zalo.');
-      await loadRoster(eventId, q);
+      await loadRoster(eventId, '');
     } catch (e) {
       // Not configured (or failed): fall back to a manual deep link. Copy the
       // badge link and open the student's Zalo chat so staff can paste + send.
@@ -259,7 +261,7 @@ export default function EventConsole() {
         baseUrl: (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, ''),
       });
       setBadgeMsg(`Sent to ${to}.`);
-      await loadRoster(eventId, q);   // refresh so the emailed status updates
+      await loadRoster(eventId, '');   // refresh so the emailed status updates
     } catch (e) {
       setBadgeMsg(e.message || 'Failed to send badge');
     } finally {
@@ -307,6 +309,26 @@ export default function EventConsole() {
 
   const selected      = events.find(ev => String(ev.id) === String(eventId));
   const attendedCount = roster.filter(r => r.attendedAt).length;
+  // Summary counts come from the FULL roster (not the filtered view) so they stay
+  // stable while the operator filters the list.
+  const countStatus    = (s) => roster.filter(r => (r.status || '') === s).length;
+  const confirmedCount = countStatus('Confirmed');
+  const uncertainCount = countStatus('Uncertain');
+  const declinedCount  = countStatus('Declined');
+
+  // Client-side filtering: name/phone/email text + status + attended.
+  const filteredRoster = roster.filter(r => {
+    if (fStatus !== 'all' && (r.status || '') !== fStatus) return false;
+    if (fAttended === 'yes' && !r.attendedAt) return false;
+    if (fAttended === 'no'  &&  r.attendedAt) return false;
+    if (q.trim()) {
+      const needle = q.trim().toLowerCase();
+      const hay = `${r.fullName || ''} ${r.phone || ''} ${r.email || ''} ${r.studentId || ''}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
+  const anyFilter = !!q.trim() || fStatus !== 'all' || fAttended !== 'all';
 
   // ── inline styles (kept self-contained; restyle to match later) ──
   const card = { background:'#fff', border:'1px solid #e5e7eb', borderRadius:10, padding:'16px 18px' };
@@ -340,6 +362,9 @@ export default function EventConsole() {
           <span style={{ color:'#6b7280', fontSize:13 }}>
             {fmtDate(selected.startDate)}{selected.endDate ? ` – ${fmtDate(selected.endDate)}` : ''}
             {'  ·  '}<strong>{selected.registeredCount}</strong> registered
+            {'  ·  '}<strong>{confirmedCount}</strong> confirmed
+            {'  ·  '}<strong>{uncertainCount}</strong> uncertain
+            {'  ·  '}<strong>{declinedCount}</strong> declined
             {'  ·  '}<strong>{attendedCount}</strong> attended
           </span>
         )}
@@ -363,29 +388,45 @@ export default function EventConsole() {
       {tab === 'roster' && (
         <>
           {/* Search */}
-          <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+          <div style={{ display:'flex', gap:8, marginBottom:12, flexWrap:'wrap' }}>
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') loadRoster(eventId, q); }}
-              placeholder="Search name or phone…"
-              style={{ flex:1, padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}
+              placeholder="Filter by name, phone or email…"
+              style={{ flex:1, minWidth:220, padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}
             />
+            <select
+              value={fStatus}
+              onChange={(e) => setFStatus(e.target.value)}
+              title="Filter by registration status"
+              style={{ padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}
+            >
+              <option value="all">All statuses</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Uncertain">Uncertain</option>
+              <option value="Declined">Declined</option>
+            </select>
+            <select
+              value={fAttended}
+              onChange={(e) => setFAttended(e.target.value)}
+              title="Filter by attendance"
+              style={{ padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}
+            >
+              <option value="all">All</option>
+              <option value="yes">Attended</option>
+              <option value="no">Not attended</option>
+            </select>
             <button
-              onClick={() => loadRoster(eventId, q)}
-              style={{ padding:'9px 16px', borderRadius:8, border:'none', background:'#2563eb', color:'#fff', fontWeight:600, cursor:'pointer' }}
-            >Search</button>
-            <button
-              onClick={() => loadRoster(eventId, q)}
+              onClick={() => loadRoster(eventId, '')}
               disabled={loading || !eventId}
-              title="Re-pull the latest roster status (e.g. after QR codes are issued elsewhere)"
+              title="Re-pull the latest roster from the server"
               style={{ padding:'9px 16px', borderRadius:8, border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontWeight:600, color:'#374151', opacity:(loading || !eventId) ? 0.6 : 1 }}
             >{loading ? 'Refreshing...' : 'Refresh'}</button>
-            {q && (
+            {anyFilter && (
               <button
-                onClick={() => { setQ(''); loadRoster(eventId, ''); }}
+                onClick={() => { setQ(''); setFStatus('all'); setFAttended('all'); }}
                 style={{ padding:'9px 16px', borderRadius:8, border:'1px solid #d1d5db', background:'#fff', cursor:'pointer' }}
-              >Clear</button>
+              >Clear filters</button>
             )}
           </div>
 
@@ -403,12 +444,12 @@ export default function EventConsole() {
               </thead>
               <tbody>
                 {loading && <tr><td style={td} colSpan={5}>Loading…</td></tr>}
-                {!loading && roster.length === 0 && (
+                {!loading && filteredRoster.length === 0 && (
                   <tr><td style={{ ...td, color:'#6b7280' }} colSpan={5}>
-                    No registered students{q ? ' match your search' : ''}.
+                    {roster.length === 0 ? 'No registered students.' : 'No students match your filters.'}
                   </td></tr>
                 )}
-                {!loading && roster.map((r) => (
+                {!loading && filteredRoster.map((r) => (
                   <tr key={r.studentId}>
                     <td style={td}>
                       <div

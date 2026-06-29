@@ -719,7 +719,27 @@ async function calculateRisk(req, res, next) {
       });
     }
 
-    const riskResult = calculateRiskScore(result.data);
+    // Post-split, two scored fields live ONLY on the lead: destinationCountry and
+    // timeline. (leadSource, interaction, residency + all self-assessment stay on
+    // the student.) So risk must be scored against the person's FIRST ACTIVE lead
+    // for those two — not the student record alone, which would leave them blank
+    // and understate the score. Pick the earliest non-terminal lead (fallback:
+    // earliest lead if none are active) and overlay only its lead-only fields.
+    const leadRow = (await pool.query(
+      `SELECT destination_country, timeline, lead_status, lead_id
+         FROM leads WHERE person_id = $1
+        ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id ASC
+        LIMIT 1`,
+      [id]
+    )).rows[0];
+    const firstActiveLead = leadRow ? objectToCamelCase(leadRow) : {};
+    const riskInput = { ...result.data };
+    for (const f of ['destinationCountry', 'timeline']) {
+      const v = firstActiveLead[f];
+      if (v !== undefined && v !== null && v !== '') riskInput[f] = v;
+    }
+
+    const riskResult = calculateRiskScore(riskInput);
 
     await Student.update(id, {
       riskScore: String(riskResult.totalScore),

@@ -138,7 +138,7 @@ const en = {
   'leads.col.seniorCounselor':      'Sr. Counselor',
   'leads.col.presales':             'Pre-Sales',
   'leads.col.marketingStaff':       'Marketing',
-  'leads.col.closeDate':            'Close Date',
+  'leads.col.closeDate':            'Projected close date',
   'leads.col.confidence':           'Confidence',
   'leads.col.budget':               'Budget',
   'leads.col.scholarshipDemand':    'Scholarship',
@@ -227,7 +227,7 @@ const en = {
 
   // Validation messages (Apr 30 — items #3 and #4)
   'leadDetail.validation.requiredFields': 'These fields are required when the status is not "New":',
-  'leadDetail.validation.closeDateLater': 'Counselors cannot move Close Date to a later date. This must be updated by a manager.',
+  'leadDetail.validation.closeDateLater': 'Counselors cannot move Projected close date to a later date. This must be updated by a manager.',
 
   'leadDetail.section.leadStatus':    'Lead Status',
   'leadDetail.section.studentInfo':   'Student Information',
@@ -241,7 +241,7 @@ const en = {
   'leadDetail.section.eventCampaign': 'Event / Campaign',
 
   'leadDetail.field.status':            'Status',
-  'leadDetail.field.closeDate':         'Close Date',
+  'leadDetail.field.closeDate':         'Projected close date',
   'leadDetail.field.confidence':        'Confidence',
   'leadDetail.field.email':             'Email',
   'leadDetail.field.phone':             'Phone',
@@ -389,7 +389,7 @@ const en = {
   'filter.campaignType':            'Campaign Type',
   'filter.campaign':                'Campaign',
   'filter.created':                 'Created',
-  'filter.closeDate':               'Close Date',
+  'filter.closeDate':               'Projected close date',
   'filter.campStart':               'Camp. Start',
   'filter.campEnd':                 'Camp. End',
 };

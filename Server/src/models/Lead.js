@@ -134,15 +134,41 @@ async function findById(leadId) {
   return result.rows.length ? rowToJs(result.rows[0]) : null;
 }
 
+// Target / "Academic & Target" fields a NEW lead inherits from the person's
+// most-recent prior lead (seed-on-create). Deliberately excludes workflow/status
+// fields (lead_status, confidence, close_date, assignments) and the
+// Student-level Self-Assessment fields — only the academic target preferences
+// carry forward, and each stays editable per-lead.
+const SEED_FIELDS = [
+  'destinationCountry', 'studyPlans', 'timeline',
+  'intake', 'degreeLevel', 'major', 'targetInstitution', 'rationale',
+];
+
 // ── Create a new lead for a student (lead_id auto-assigned) ───────────────────
-// Self Assessment is Student-level only, so a new lead carries only what is
-// passed in `data` (Intake / Degree / Institution / Rationale etc.).
+// Seed-on-create: the new lead inherits its target fields from this person's
+// most-recent PRIOR lead, so a repeat lead doesn't start blank. The FIRST lead
+// has no prior, so it keeps whatever the LQ-app intake passed in `data`.
+// Anything explicitly provided in `data` overrides the inherited value.
 async function create(studentId, data = {}) {
   const now = toIndochinaISO();
+
+  let seed = {};
+  const prior = await pool.query(
+    `SELECT * FROM leads WHERE person_id = $1 ORDER BY created_at DESC, lead_id DESC LIMIT 1`,
+    [studentId]
+  );
+  if (prior.rows.length) {
+    const p = rowToJs(prior.rows[0]);
+    for (const f of SEED_FIELDS) {
+      if (p[f] !== null && p[f] !== undefined && p[f] !== '') seed[f] = p[f];
+    }
+  }
+  const merged = { ...seed, ...data }; // explicit data wins over inherited
+
   const cols = ['person_id', 'created_at', 'updated_at'];
   const vals = [studentId, now, now];
 
-  for (const [jsKey, value] of Object.entries(data)) {
+  for (const [jsKey, value] of Object.entries(merged)) {
     if (READONLY.has(jsKey)) continue;
     const dbCol = JS_TO_DB[jsKey];
     if (!dbCol) continue; // ignore unknown fields

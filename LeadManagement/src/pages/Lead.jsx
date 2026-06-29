@@ -30,7 +30,7 @@ const iconBtn = { display: 'inline-flex', alignItems: 'center', gap: 6 };
 
 const SECTIONS = [
   { title: 'Status', fields: [
-    ['leadStatus', 'Status'], ['confidence', 'Confidence'], ['closeDate', 'Close Date', 'date'], ['distributionStatus', 'Distribution'],
+    ['leadStatus', 'Status'], ['confidence', 'Confidence'], ['closeDate', 'Projected close date', 'date'], ['distributionStatus', 'Distribution'],
   ] },
   { title: 'Assignment', fields: [
     ['counselor', 'Counsellor'], ['seniorCounselor', 'Senior Counsellor'], ['presales', 'Pre-Sales'], ['marketingStaff', 'Marketing'],

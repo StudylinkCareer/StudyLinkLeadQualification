@@ -716,7 +716,7 @@ const OCEAN_QUESTIONS = [
 ];
 
 const FIELD_LABELS = {
-  leadStatus:'Status', closeDate:'Close Date', confidence:'Confidence',
+  leadStatus:'Status', closeDate:'Projected close date', confidence:'Confidence',
   studyPlans:'Study Plans', leadSource:'Source of Lead', source:'Source', sourceDetail:'Source detail', interaction:'Interaction',
   destinationCountry:'Destination', timeline:'Timeline', schoolEvent:'School/Event',
   budget:'Budget', scholarshipDemand:'Scholarship Demand', englishLevel:'English Level',
@@ -762,6 +762,54 @@ function EditField({ label, name, value, onChange, type='text', options }) {
         </select>
       ) : (
         <input className="form-input" type={type} value={value||''} onChange={e=>onChange(name,e.target.value)}/>
+      )}
+    </div>
+  );
+}
+
+// ── Multi-select dropdown for comma-separated fields (e.g. Destination) ───────
+// Mirrors the LQ app's country picker: choose up to `max` from a fixed list,
+// stored as a comma-separated string. Tolerant of pre-existing values that are
+// not in the option list (legacy data) so they can still be seen/removed.
+function MultiSelectField({ label, name, value, onChange, options, max = 3 }) {
+  const [open, setOpen] = useState(false);
+  const selected = String(value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const allOpts  = [...options, ...selected.filter(s => !options.includes(s))];
+  const toggle = (opt) => {
+    const next = selected.includes(opt)
+      ? selected.filter(s => s !== opt)
+      : (selected.length >= max ? selected : [...selected, opt]);
+    onChange(name, next.join(', '));
+  };
+  return (
+    <div className="form-group" style={{ margin:0, position:'relative' }}>
+      <label className="form-label">{label}</label>
+      <button type="button" className="form-select" onClick={() => setOpen(o => !o)}
+              style={{ textAlign:'left', cursor:'pointer', width:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+        {selected.length ? selected.join(', ') : '—'}
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
+          <div style={{ position:'absolute', zIndex:41, top:'100%', left:0, right:0, maxHeight:240, overflowY:'auto',
+                        background:'var(--bg-primary,#fff)', border:'1px solid var(--border)', borderRadius:6,
+                        boxShadow:'0 4px 12px rgba(0,0,0,0.15)', marginTop:4, padding:'4px 0' }}>
+            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', padding:'4px 10px' }}>
+              Select up to {max} ({selected.length}/{max})
+            </div>
+            {allOpts.map(opt => {
+              const on = selected.includes(opt);
+              const disabled = !on && selected.length >= max;
+              return (
+                <label key={opt} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 10px',
+                          cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1, fontSize:'0.85rem' }}>
+                  <input type="checkbox" checked={on} disabled={disabled} onChange={() => toggle(opt)} />
+                  {opt}
+                </label>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
@@ -842,6 +890,8 @@ export default function LeadDetail() {
   const sourceList   = useLookup('source');
   const b2bTypeList  = useLookup('b2b_type');
   const b2bPartyList = useLookup('b2b_party');
+  const countries    = useLookup('country');
+  const countryOpts  = countries.map(c => c.code).filter(Boolean);
   const sourceOfLeadOpts = solItems.map(o => o.code);
   const SOL_MODE = { 'Databases':'list', 'On-line':'list', 'Event/Campaign':'events', 'B2B referrals':'b2b', 'Personal referrals':'list_freetext' };
   const modeOf = (code) => ((solItems.find(o => o.code === code) || {}).meta || {}).mode || SOL_MODE[code] || '';
@@ -955,7 +1005,7 @@ export default function LeadDetail() {
   useEffect(() => {
     if (lead?.fullName) {
       pushTrail({
-        label: isStudentView ? `Student: ${lead.fullName}` : `Lead ${id}: ${lead.fullName}`,
+        label: isStudentView ? `Sales: ${lead.fullName}` : `Lead ${id}: ${lead.fullName}`,
         path:  isStudentView ? `/students/${id}` : `/lead/${id}`,
       });
     }
@@ -1241,9 +1291,9 @@ export default function LeadDetail() {
         <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
           <TrailBackButton />
           <span style={{ fontSize:'0.6875rem', fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase', padding:'2px 8px', borderRadius:'4px', background: isStudentView ? '#7c3aed' : '#2563eb', color:'#fff' }}>
-            {isStudentView ? 'Student' : 'Lead'}
+            {isStudentView ? 'Sales' : 'Lead'}
           </span>
-          <span className="page-title">{lead.fullName || (isStudentView ? 'Student Detail' : 'Lead Detail')}</span>
+          <span className="page-title">{lead.fullName || (isStudentView ? 'Sales Detail' : 'Lead Detail')}</span>
           <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>
             {lead.studentId}
           </span>
@@ -1288,13 +1338,13 @@ export default function LeadDetail() {
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
                 <EditField label="Status"     name="leadStatus" value={d.leadStatus} onChange={updateEdit} options={LEAD_STATUSES}/>
-                <EditField label="Close Date" name="closeDate"  value={d.closeDate?d.closeDate.split('T')[0]:''} onChange={updateEdit} type="date"/>
+                <EditField label="Projected close date" name="closeDate"  value={d.closeDate?d.closeDate.split('T')[0]:''} onChange={updateEdit} type="date"/>
                 <EditField label="Confidence" name="confidence" value={d.confidence} onChange={updateEdit} options={CONFIDENCE_OPTS}/>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
                 <Field label="Status"     value={lead.leadStatus||'New'}/>
-                <Field label="Close Date" value={formatShortDate(lead.closeDate)}/>
+                <Field label="Projected close date" value={formatShortDate(lead.closeDate)}/>
                 <Field label="Confidence" value={lead.confidence}/>
               </div>
             )}
@@ -1305,7 +1355,7 @@ export default function LeadDetail() {
           <div className="section-card">
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)' }}>
               <div style={{ flex: 1 }}>
-                <span className="section-title">{isStudentView ? 'Student Information' : 'Lead — Academic & Target'}</span>
+                <span className="section-title">{isStudentView ? 'Sales Information' : 'Lead — Academic & Target'}</span>
                 {editMode ? (
                   <div style={{ marginTop:'0.5rem', maxWidth:'400px' }}>
                     <EditField label="Full Name" name="fullName" value={d.fullName} onChange={updateEdit}/>
@@ -1340,7 +1390,7 @@ export default function LeadDetail() {
                 <EditField label="Institution"     name="targetInstitution"  value={d.targetInstitution}  onChange={updateEdit}/>
                 <EditField label="Major"           name="major"              value={d.major}              onChange={updateEdit}/>
                 <EditField label="Study Plans"     name="studyPlans"         value={d.studyPlans}         onChange={updateEdit} options={STUDY_PLAN_OPTS}/>
-                <EditField label="Destination"     name="destinationCountry" value={d.destinationCountry} onChange={updateEdit}/>
+                <MultiSelectField label="Destination" name="destinationCountry" value={d.destinationCountry} onChange={updateEdit} options={countryOpts} max={3}/>
                 <EditField label="Timeline"        name="timeline"           value={d.timeline}           onChange={updateEdit} options={TIMELINE_OPTS}/>
                 <EditField label="Rationale"       name="rationale"          value={d.rationale}          onChange={updateEdit}/>
                 </>)}
@@ -1461,9 +1511,9 @@ export default function LeadDetail() {
                       <tr key={r.id} style={{ borderBottom:'1px solid var(--border)' }}>
                         <td style={{ padding:'0.5rem' }}>{r.sourceOfLead || '\u2014'}</td>
                         <td style={{ padding:'0.5rem' }}>{r.source || '\u2014'}{r.sourceDetail ? ` \u00b7 ${r.sourceDetail}` : ''}</td>
-                        <td style={{ padding:'0.5rem' }}>{r.eventName || '\u2014'}</td>
-                        <td style={{ padding:'0.5rem' }}>{r.eventStart || '\u2014'}</td>
-                        <td style={{ padding:'0.5rem' }}>{r.eventEnd || '\u2014'}</td>
+                        <td style={{ padding:'0.5rem' }}>{r.name || '\u2014'}</td>
+                        <td style={{ padding:'0.5rem' }}>{r.startDate || '\u2014'}</td>
+                        <td style={{ padding:'0.5rem' }}>{r.endDate || '\u2014'}</td>
                         <td style={{ padding:'0.5rem' }}>
                           <select value={r.status || ''} onChange={e => handleRegStatus(r.id, e.target.value)}
                                   style={{ padding:'0.25rem 0.5rem', borderRadius:'4px', border:'1px solid var(--border)', fontSize:'0.8rem' }}>

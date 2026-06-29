@@ -35,6 +35,7 @@ import Sidebar from './components/Sidebar';
 import MobilePageNav from './components/MobilePageNav';
 import TrailBreadcrumb from './components/TrailBreadcrumb';
 import SessionExpiredModal from './components/SessionExpiredModal';
+import DevBadge from './components/DevBadge';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
@@ -151,6 +152,7 @@ export default function App() {
               <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
             </Routes>
               <SessionExpiredModal />
+              <DevBadge />
             </NavTrailProvider>
           </LookupProvider>
         </PermissionsProvider>

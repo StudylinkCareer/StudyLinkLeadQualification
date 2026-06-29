@@ -298,9 +298,9 @@ function WeeklyReportInner() {
     { key: 'let_final', label: L('Final', 'Cuối'),   value: g => g.finalLetters?.count, leads: g => g.finalLetters?.items, cols: [name, { key: 'destinationCountry', label: L('Destination', 'Điểm đến') }] },
   ] };
   const leadsSection = { title: L('Leads', 'Khách hàng'), color: '#2563eb', metrics: [
-    { key: 'l_in',   label: L('Leads in', 'Nhận vào'),      value: g => g.leadsIn?.count,         leads: g => g.leadsIn?.leads,         cols: [name, { key: 'studentId', label: L('Student ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
-    { key: 'l_out',  label: L('Leads out', 'Chuyển đi'),    value: g => g.leadsOut?.count,        leads: g => g.leadsOut?.leads,        cols: [name, { key: 'studentId', label: L('Student ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'movedTo', label: L('Moved to', 'Chuyển đến') }] },
-    { key: 'l_prog', label: L('In progress', 'Đang xử lý'), value: g => g.leadsInProgress?.count, leads: g => g.leadsInProgress?.leads, cols: [name, { key: 'studentId', label: L('Student ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
+    { key: 'l_in',   label: L('Leads in', 'Nhận vào'),      value: g => g.leadsIn?.count,         leads: g => g.leadsIn?.leads,         cols: [name, { key: 'studentId', label: L('Sales ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
+    { key: 'l_out',  label: L('Leads out', 'Chuyển đi'),    value: g => g.leadsOut?.count,        leads: g => g.leadsOut?.leads,        cols: [name, { key: 'studentId', label: L('Sales ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'movedTo', label: L('Moved to', 'Chuyển đến') }] },
+    { key: 'l_prog', label: L('In progress', 'Đang xử lý'), value: g => g.leadsInProgress?.count, leads: g => g.leadsInProgress?.leads, cols: [name, { key: 'studentId', label: L('Sales ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
   ] };
   const callsSection = { title: L('Calls', 'Cuộc gọi'), color: '#8b5cf6', subtitle: L('prior week only', 'chỉ tuần trước'), metrics: [
     { key: 'call_new', label: L('New clients', 'Khách mới'),       value: g => g.calls?.totals?.newLeads, leads: g => g.calls?.newLeadItems, cols: [name] },

@@ -44,7 +44,7 @@ const FIELD_GROUPS = [
       { key: 'seniorCounselor',    label: 'Sr. Counselor' },
       { key: 'presales',           label: 'Pre-Sales' },
       { key: 'marketingStaff',     label: 'Marketing' },
-      { key: 'closeDate',          label: 'Close Date' },
+      { key: 'closeDate',          label: 'Projected close date' },
       { key: 'confidence',         label: 'Confidence' },
     ],
   },
@@ -109,7 +109,7 @@ const DEFAULT_FIELDS = [
 const DATE_FIELD_OPTIONS = [
   { value: 'createdAt',     label: 'Created Date' },
   { value: 'updatedAt',     label: 'Last Updated' },
-  { value: 'closeDate',     label: 'Close Date' },
+  { value: 'closeDate',     label: 'Projected close date' },
   { value: 'campaignStart', label: 'Campaign Start' },
   { value: 'campaignEnd',   label: 'Campaign End' },
 ];
