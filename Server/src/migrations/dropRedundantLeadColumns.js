@@ -63,6 +63,31 @@ async function main() {
       throw new Error('Table "leads" does not exist — run renameApplicationsToLeads.js first.');
     }
 
+    // --- SAFETY TRIPWIRE (pre-drop): students must already hold every value that
+    //     leads has for these columns. If any value lives ONLY on leads, ABORT
+    //     (transaction rolls back) rather than silently lose it — a human must
+    //     reconcile first. Measured 0 on the 2026-06-30 prod snapshot
+    //     (measure_drift.ps1); this enforces it against PROD's live data at cutover.
+    if (!RESET) {
+      const colsOn = async (t) => new Set((await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND table_schema='public'`, [t]
+      )).rows.map(x => x.column_name));
+      const onLeads = await colsOn('leads');
+      const onStudents = await colsOn('students');
+      let strictLoss = 0;
+      for (const [col] of DROP_COLS) {
+        if (!onLeads.has(col) || !onStudents.has(col)) continue; // already dropped / absent → nothing to check
+        const n = (await client.query(
+          `SELECT count(*)::int n FROM leads l JOIN students s ON s.student_id = l.person_id
+            WHERE COALESCE(l.${col}::text,'') <> '' AND COALESCE(s.${col}::text,'') = ''`)).rows[0].n;
+        if (n) { console.log(`  ⚠ ${col}: ${n} value(s) only on leads`); strictLoss += n; }
+      }
+      if (strictLoss) {
+        throw new Error(`ABORT: ${strictLoss} value(s) exist only on leads — reconcile before dropping. Nothing changed.`);
+      }
+      console.log('Pre-drop safety tripwire: 0 values exist only on leads — drop is lossless.\n');
+    }
+
     for (const [col, type] of DROP_COLS) {
       if (RESET) {
         await client.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${col} ${type}`);
