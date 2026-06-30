@@ -1488,7 +1488,7 @@ export default function Leads() {
           ? <span
               onClick={e => { e.stopPropagation(); navigate(`/students/${v}`); }}
               style={{ color:'var(--primary)', cursor:'pointer' }}
-              title="Open student profile">
+              title="Open Sales profile">
               {v}
             </span>
           : <MissingValue/>;

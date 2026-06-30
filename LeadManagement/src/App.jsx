@@ -41,7 +41,6 @@ import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
 import LeadsList from './pages/LeadsList';
 import LeadDetail from './pages/LeadDetail';
-import StudentDetail from './pages/StudentDetail';
 import Lead from './pages/Lead';
 import Staff from './pages/Staff';
 import ColumnLayoutSettings from './pages/ColumnLayoutSettings';

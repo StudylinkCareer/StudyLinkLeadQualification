@@ -230,7 +230,7 @@ const en = {
   'leadDetail.validation.closeDateLater': 'Counselors cannot move Projected close date to a later date. This must be updated by a manager.',
 
   'leadDetail.section.leadStatus':    'Lead Status',
-  'leadDetail.section.studentInfo':   'Student Information',
+  'leadDetail.section.studentInfo':   'Sales Information',
   'leadDetail.section.selfAssessment':'Self Assessment',
   'leadDetail.section.careerFit':     'Career Fit — OCEAN Profile',
   'leadDetail.section.familyContacts':'Family Contacts',

@@ -1366,7 +1366,7 @@ export default function LeadDetail() {
                   </div>
                 ) : (
                   <div style={{ fontSize:'1.25rem', fontWeight:600, color:'var(--primary)', marginTop:'0.25rem', cursor: !isStudentView && lead.studentId ? 'pointer' : 'default' }}
-                       title={!isStudentView ? 'Open student profile' : undefined}
+                       title={!isStudentView ? 'Open Sales profile' : undefined}
                        onClick={() => { if (!isStudentView && lead.studentId) navigate(`/students/${lead.studentId}`); }}>
                     {lead.fullName || '—'}
                   </div>

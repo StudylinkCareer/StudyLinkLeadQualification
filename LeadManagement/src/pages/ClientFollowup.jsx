@@ -886,7 +886,7 @@ export default function ClientFollowup() {
   const hasAllScope = scope('leads', 'view_list') === 'all';
 
   useEffect(() => {
-    pushTrail({ label: language==='vi' ? 'Theo dõi khách hàng' : 'Sales Followup', path:'/client-followup' });
+    pushTrail({ label: language==='vi' ? 'Theo dõi Sales' : 'Sales Followup', path:'/client-followup' });
   }, [pushTrail, language]);
 
   useEffect(() => {
@@ -925,7 +925,7 @@ export default function ClientFollowup() {
     <>
       <Watermark/>
       <div className="page-header">
-        <span className="page-title">{language==='vi' ? 'Theo dõi khách hàng' : 'Sales Followup'}</span>
+        <span className="page-title">{language==='vi' ? 'Theo dõi Sales' : 'Sales Followup'}</span>
       </div>
       <div className="page-body">
 

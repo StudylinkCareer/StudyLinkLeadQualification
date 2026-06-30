@@ -26,7 +26,7 @@ const btn  = (primary, color = '#2563eb') => ({ padding: '9px 16px', borderRadiu
   border: primary ? 'none' : `1px solid ${color}`, background: primary ? color : '#fff', color: primary ? '#fff' : color });
 
 const LABELS = {
-  students: 'Students (people)', leads: 'Leads', student_notes: 'Notes', documents: 'Documents',
+  students: 'Sales (people)', leads: 'Leads', student_notes: 'Notes', documents: 'Documents',
   lead_events: 'Event registrations', event_attendees: 'Event attendees', event_desk_visits: 'Event desk visits',
   audit_log: 'Audit-log entries', duplicate_reviews: 'Parked duplicates',
 };
@@ -138,7 +138,7 @@ export default function DataCleanup() {
   const doPurgeOrphans = async () => {
     const sel = [...orphanSel];
     if (!orphanKeys?.count) return;
-    const label = sel.length ? `${sel.length} selected missing student(s)` : `ALL ${orphanKeys.count} missing students`;
+    const label = sel.length ? `${sel.length} selected missing record(s)` : `ALL ${orphanKeys.count} missing records`;
     if (!window.confirm(`Purge orphaned rows for ${label}? This cannot be undone.`)) return;
     setErr('');
     try {
@@ -191,7 +191,7 @@ export default function DataCleanup() {
         {/* paste ids — ONE PER LINE so IDs with spaces/commas survive */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
           <textarea style={{ ...input, fontFamily: 'monospace', minHeight: 56, resize: 'vertical' }} value={idText} rows={2}
-            placeholder={"…or paste student IDs, one per line:\n20260627-91\n,300-500M VND,,4"}
+            placeholder={"…or paste Sales IDs, one per line:\n20260627-91\n,300-500M VND,,4"}
             onChange={e => setIdText(e.target.value)} />
           <button onClick={addPasted} style={btn(false)}>Add IDs</button>
         </div>
@@ -226,12 +226,12 @@ export default function DataCleanup() {
                 ))}
               </tbody>
             </table>
-            {!preview.students && <p style={{ color: '#b45309', marginTop: 8 }}>No matching students — check the IDs.</p>}
+            {!preview.students && <p style={{ color: '#b45309', marginTop: 8 }}>No matching records — check the IDs.</p>}
           </div>
         )}
         {result && (
           <div style={{ ...card, marginTop: 12, marginBottom: 0, borderColor: '#86efac', background: '#f0fdf4' }}>
-            Deleted <b>{result.deleted?.students || 0}</b> students + dependents
+            Deleted <b>{result.deleted?.students || 0}</b> Sales records + dependents
             {result.deleted && <span style={{ color: '#6b7280' }}> ({Object.entries(result.deleted).filter(([k, v]) => v && k !== 'students').map(([k, v]) => `${v} ${lbl(k)}`).join(', ')})</span>}.
           </div>
         )}
@@ -239,9 +239,9 @@ export default function DataCleanup() {
 
       {/* 2. Search */}
       <div style={card}>
-        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>2. Search students</h2>
+        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>2. Search records</h2>
         <p style={{ color: '#6b7280', marginTop: 0 }}>
-          Partial word, not case-sensitive, no wildcards needed — searches name, student ID, email and phone.
+          Partial word, not case-sensitive, no wildcards needed — searches name, Sales ID, email and phone.
           Type e.g. <code>joyce</code>, <code>20260617</code>, <code>@gmail</code> or <code>0915</code>.
           (Advanced: include a <code>%</code> for a literal SQL pattern such as <code>TEST-UPLOAD-%</code>.)
         </p>
@@ -261,7 +261,7 @@ export default function DataCleanup() {
                 <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <thead><tr>
                     <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Name</th>
-                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Student ID</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Sales ID</th>
                     <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Email</th>
                     <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Phone</th>
                     <th style={{ ...td, width: 60 }}></th>
@@ -286,10 +286,10 @@ export default function DataCleanup() {
         )}
       </div>
 
-      {/* 3. Orphan sweep — review & select missing students */}
+      {/* 3. Orphan sweep — review & select missing records */}
       <div style={card}>
         <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>3. Orphaned data — review &amp; select</h2>
-        <p style={{ color: '#6b7280', marginTop: 0 }}>Child rows whose student no longer exists. Tick the missing students to purge (Shift-click for a block), or purge all.</p>
+        <p style={{ color: '#6b7280', marginTop: 0 }}>Child rows whose Sales record no longer exists. Tick the missing records to purge (Shift-click for a block), or purge all.</p>
         {!orphanKeys ? <p style={{ color: '#6b7280' }}>Loading…</p> : orphanKeys.count === 0 ? (
           <p style={{ color: '#16a34a', margin: 0 }}>No orphaned data. ✓</p>
         ) : (
@@ -298,13 +298,13 @@ export default function DataCleanup() {
               <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
                 <input type="checkbox" checked={allOrphansSelected} onChange={toggleAllOrphans} /> Select all
               </label>
-              <span>{orphanKeys.count} missing students · {orphanRowTotal} orphan rows · <b>{orphanSel.size} selected</b></span>
+              <span>{orphanKeys.count} missing records · {orphanRowTotal} orphan rows · <b>{orphanSel.size} selected</b></span>
             </div>
             <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid #eee', borderRadius: 8 }}>
               <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                 <thead><tr>
                   <th style={{ ...td, width: 30 }}></th>
-                  <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Missing student</th>
+                  <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Missing record</th>
                   <th style={{ ...td, textAlign: 'right', fontWeight: 700 }}>Rows</th>
                   <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Breakdown</th>
                 </tr></thead>

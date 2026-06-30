@@ -82,7 +82,7 @@ export default function Sidebar() {
           className={`nav-item ${isActive('/client-followup') ? 'active' : ''}`}
           onClick={() => navigate('/client-followup')}
         >
-          <FiBell size={16} /> {language === 'vi' ? 'Theo dõi khách hàng' : 'Sales Followup'}
+          <FiBell size={16} /> {language === 'vi' ? 'Theo dõi Sales' : 'Sales Followup'}
         </button>
 
         <button

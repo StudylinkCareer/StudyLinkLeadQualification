@@ -241,7 +241,7 @@ const vi = {
   'leadDetail.validation.closeDateLater': 'Tư vấn viên không thể dời Ngày chốt sang ngày muộn hơn. Việc này phải do quản lý cập nhật.',
 
   'leadDetail.section.leadStatus':    'Trạng thái khách hàng',
-  'leadDetail.section.studentInfo':   'Thông tin học sinh',
+  'leadDetail.section.studentInfo':   'Thông tin Sales',
   'leadDetail.section.selfAssessment':'Tự đánh giá',
   'leadDetail.section.careerFit':     'Phù hợp nghề nghiệp — Hồ sơ OCEAN',
   'leadDetail.section.familyContacts':'Liên hệ gia đình',
