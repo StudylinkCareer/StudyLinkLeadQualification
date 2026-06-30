@@ -853,6 +853,10 @@ export default function LeadDetail() {
   const [registrations, setRegistrations] = useState([]);
   const [regLoading, setRegLoading]       = useState(false);
   const [studentLeads, setStudentLeads]   = useState([]);   // all leads for this person
+  const [eventOptions, setEventOptions]   = useState([]);   // event catalog for the "add event" picker
+  const [addEventId, setAddEventId]       = useState('');
+  const [addEventStatus, setAddEventStatus] = useState('');
+  const [addingEvent, setAddingEvent]     = useState(false);
   // Registrations (lead_events) are person-level; they're loaded by the main
   // fetch below once the owning student id is known.
   async function handleRegStatus(regId, status) {
@@ -863,6 +867,28 @@ export default function LeadDetail() {
       alert(e.message || 'Failed to update status');
     }
   }
+  // Load the event catalog once (Sales view only) so the "add event" picker has options.
+  useEffect(() => {
+    if (!isStudentView) return;
+    leadEventsAPI.options().then(r => setEventOptions(r.data?.events || [])).catch(() => {});
+  }, [isStudentView]);
+  // Link a new event registration to this person, then reload the list.
+  async function addRegistration() {
+    const sid = lead?.studentId;
+    if (!addEventId || !sid) return;
+    setAddingEvent(true);
+    try {
+      await leadEventsAPI.add({ studentId: sid, eventId: Number(addEventId), status: addEventStatus || null });
+      const regs = await leadEventsAPI.list(sid);
+      setRegistrations(regs.data || []);
+      setAddEventId(''); setAddEventStatus('');
+    } catch (e) {
+      alert(e.message || 'Failed to add event');
+    } finally {
+      setAddingEvent(false);
+    }
+  }
+  const availableEvents = eventOptions.filter(ev => !registrations.some(r => r.eventId === ev.id));
   const { canDo, canDoOnLead, canEditField, scope } = usePermissions();
   const { push: pushTrail } = useNavTrail();
 
@@ -1535,6 +1561,29 @@ export default function LeadDetail() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {!regLoading && (
+              <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', padding:'0.75rem 0', borderTop: registrations.length ? '1px solid var(--border)' : 'none', marginTop: registrations.length ? 4 : 0 }}>
+                <select value={addEventId} onChange={e => setAddEventId(e.target.value)}
+                        style={{ padding:'0.4rem 0.6rem', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.85rem', minWidth:260 }}>
+                  <option value="">+ add an event…</option>
+                  {availableEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.group ? `${ev.group} · ` : ''}{ev.name}</option>)}
+                </select>
+                <select value={addEventStatus} onChange={e => setAddEventStatus(e.target.value)}
+                        style={{ padding:'0.4rem 0.6rem', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.85rem' }}>
+                  <option value="">Set status</option>
+                  <option value="Confirmed">Confirmed</option>
+                  <option value="Uncertain">Uncertain</option>
+                  <option value="Declined">Declined</option>
+                </select>
+                <button onClick={addRegistration} disabled={!addEventId || addingEvent}
+                        style={{ padding:'0.4rem 0.9rem', borderRadius:6, border:'none', background:'var(--primary)', color:'#fff', fontWeight:600, fontSize:'0.82rem', cursor:(!addEventId||addingEvent)?'not-allowed':'pointer', opacity:(!addEventId||addingEvent)?0.6:1 }}>
+                  {addingEvent ? 'Adding…' : 'Add event'}
+                </button>
+                {eventOptions.length > 0 && availableEvents.length === 0 && (
+                  <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>All events already linked.</span>
+                )}
               </div>
             )}
           </div>
