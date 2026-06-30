@@ -21,6 +21,8 @@
 // change, just env vars.
 // ---------------------------------------------------------------------
 
+const tokenManager = require('./zaloTokenManager');
+
 // ---- Config (all read at call time so Railway env changes take effect on
 // the next request without a code change) -----------------------------------
 function cfg() {
@@ -36,8 +38,16 @@ function cfg() {
   };
 }
 
-// Returns the OA access token, or '' if none. (Wiring slot: add refresh here.)
-function getOaAccessToken() {
+// Returns a valid OA access token via the auto-refresh manager (DB-persisted,
+// rotates the refresh token). Falls back to the raw env token if the manager is
+// unavailable (e.g. zalo_oauth_tokens not migrated yet) so dev sends still work.
+async function getOaAccessToken() {
+  try {
+    const t = await tokenManager.getAccessToken();
+    if (t) return t;
+  } catch (e) {
+    console.warn('[zalo] token manager unavailable, using env token:', e.message);
+  }
   return cfg().oaAccessToken;
 }
 
@@ -72,7 +82,7 @@ function normalizeVnPhone(raw) {
 }
 
 // ---- ZNS path: send a template to a phone number ---------------------------
-async function sendBadgeViaZns({ phone, name, eventName, profileUrl }) {
+async function sendBadgeViaZns({ phone, name, eventName, registrationCode, token }) {
   const c = cfg();
   const to = normalizeVnPhone(phone);
   if (!to || to.length < 9) {
@@ -80,16 +90,24 @@ async function sendBadgeViaZns({ phone, name, eventName, profileUrl }) {
   }
 
   // template_data keys MUST match the parameter names defined in the approved
-  // ZNS template (template id c.znsTemplateId). Adjust these to your template
-  // when wiring. Common pattern: a name field, an event field, and a URL the
-  // template's CTA button points at (your /profile?t=... page).
+  // ZNS template (template id c.znsTemplateId). These are the four blanks in the
+  // StudyLink "Event Badge" template:
+  //   customer_name     - recipient's name                     [title greeting]
+  //   event_name        - event title                          [table row]
+  //   registration_code - the student's Sales ID (the "Mã đăng ký" identifier
+  //                       that satisfies Zalo's transaction-reference rule)
+  //   token             - the attendance token; the template's "View Badge"
+  //                       button URL is fixed as
+  //                       https://slcareerguidance.netlify.app/profile?t=<token>
+  //                       so we pass ONLY the token here, not the whole URL.
   const body = {
     phone: to,
     template_id: c.znsTemplateId,
     template_data: {
-      name: name || '',
-      event: eventName || '',
-      url: profileUrl || '',
+      customer_name: name || '',
+      event_name: eventName || '',
+      registration_code: registrationCode || '',
+      token: token || '',
     },
     tracking_id: `badge_${Date.now()}`,
   };
@@ -99,7 +117,7 @@ async function sendBadgeViaZns({ phone, name, eventName, profileUrl }) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        access_token: getOaAccessToken(),
+        access_token: await getOaAccessToken(),
       },
       body: JSON.stringify(body),
     });
@@ -139,7 +157,7 @@ async function sendBadgeViaOa({ zaloUserId, name, eventName, profileUrl }) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        access_token: getOaAccessToken(),
+        access_token: await getOaAccessToken(),
       },
       body: JSON.stringify(body),
     });
@@ -158,7 +176,7 @@ async function sendBadgeViaOa({ zaloUserId, name, eventName, profileUrl }) {
 //   { sent: true, via, to, ... }                  on success
 //   { sent: false, reason, detail }               otherwise
 // The route should stamp badge_zalo_sent_at ONLY when sent === true.
-async function sendEventBadge({ method, phone, zaloUserId, name = '', eventName = '', profileUrl = '' } = {}) {
+async function sendEventBadge({ method, phone, zaloUserId, name = '', eventName = '', profileUrl = '', registrationCode = '', token = '' } = {}) {
   const m = (method || cfg().method || 'zns').toLowerCase();
 
   if (!isConfigured(m)) {
@@ -171,9 +189,12 @@ async function sendEventBadge({ method, phone, zaloUserId, name = '', eventName 
   }
 
   if (m === 'oa') {
+    // OA free-form message still uses the whole profile URL inline.
     return sendBadgeViaOa({ zaloUserId, name, eventName, profileUrl });
   }
-  return sendBadgeViaZns({ phone, name, eventName, profileUrl });
+  // ZNS uses the template's own button URL, so it needs the token + the
+  // registration code (Sales ID), not the assembled profileUrl.
+  return sendBadgeViaZns({ phone, name, eventName, registrationCode, token });
 }
 
 module.exports = {

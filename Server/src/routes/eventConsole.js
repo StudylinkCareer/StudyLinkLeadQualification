@@ -1003,7 +1003,9 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
       phone,
       name: studentName,
       eventName,
-      profileUrl,
+      profileUrl,                  // used by the OA free-form path
+      registrationCode: studentId, // ZNS "Mã đăng ký" (Sales ID)
+      token: attToken,             // ZNS button URL: /profile?t=<token>
     });
 
     if (!result.sent) {
