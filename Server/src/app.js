@@ -23,6 +23,7 @@ const distributionRoutes      = require('./routes/distribution');
 const eventConsoleRoutes      = require('./routes/eventConsole');
 const eventDeskRoutes         = require('./routes/eventDesk');
 const leadRoutes              = require('./routes/leads');
+const cleanupRoutes           = require('./routes/cleanup');
 
 const app = express();
 
@@ -105,6 +106,7 @@ app.use('/api/distribution', distributionRoutes);
 app.use('/api/event-console', eventConsoleRoutes);
 app.use('/api/event-desk', eventDeskRoutes);
 app.use('/api/leads', leadRoutes);
+app.use('/api/cleanup', cleanupRoutes);
 
 // Error handling
 app.use(errorHandler);

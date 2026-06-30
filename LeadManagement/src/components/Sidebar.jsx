@@ -34,8 +34,8 @@ export default function Sidebar() {
   const canManageColumns      = canDo('column_config', 'manage');
   const canViewReports        = canDo('reports', 'view');
   const canManageDistribution = canDo('distribution', 'manage');
-  const canCleanup            = canDo('leads', 'delete');
-  const showAdminSection      = canManageStaff || canManageDistribution || canCleanup;
+  const canDeleteLeads        = canDo('leads', 'delete');
+  const showAdminSection      = canManageStaff || canManageDistribution || canDeleteLeads;
 
   async function handleLogout() {
     await logout();
@@ -153,12 +153,12 @@ export default function Sidebar() {
                 <FiShuffle size={16} /> {language === 'vi' ? 'Phân bổ Lead' : 'Lead Distribution'}
               </button>
             )}
-            {canCleanup && (
+            {canDeleteLeads && (
               <button
                 className={`nav-item ${isActive('/admin/cleanup') ? 'active' : ''}`}
                 onClick={() => navigate('/admin/cleanup')}
               >
-                <FiTrash2 size={16} /> {language === 'vi' ? 'Dọn dữ liệu' : 'Data Cleanup'}
+                <FiTrash2 size={16} /> {language === 'vi' ? 'Dọn dữ liệu' : 'Deep Cleanse'}
               </button>
             )}
           </>

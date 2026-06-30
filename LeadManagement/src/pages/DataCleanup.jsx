@@ -1,144 +1,360 @@
 // LeadManagement/src/pages/DataCleanup.jsx
-// Admin-only data cleansing: purge test records (with a per-table preview +
-// confirm) and sweep rows orphaned by past deletions. Backend enforces the
-// full leads.delete gate; this page mirrors it. All deletes are permanent.
+// ---------------------------------------------------------------------------
+// Deep Cleanse — standalone, SCHEMA-ADAPTIVE admin tool. Talks only to
+// /api/cleanup/* (see cleanupAPI). The backend detects old-vs-new schema at
+// runtime, so this same page works on current PROD and post-restructure.
+//
+// Tools:
+//   1. Targeted purge  — build a record set (search-and-add OR paste IDs) →
+//                        preview per-table footprint → confirm cascade delete.
+//   2. Search          — partial, case-insensitive search across name/id/email/phone
+//                        → add them to the set.
+//   3. Orphan sweep    — count + purge child rows whose student no longer exists.
+//   4. Duplicates      — list persons sharing an email/phone → add the unwanted
+//                        one to the set for deletion.
+// Gated to Admin/Director here AND on the server. Every delete is confirmed.
+// ---------------------------------------------------------------------------
 
-import { useState, useEffect, useCallback } from 'react';
-import { studentAPI } from '../services/api';
-import { usePermissions } from '../contexts/PermissionsContext';
-import { useLanguage } from '../contexts/LanguageContext';
+import { useState, useEffect, useRef } from 'react';
+import { cleanupAPI, studentAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1.25rem', background: '#fff', marginBottom: '1.25rem' };
 const td   = { padding: '6px 10px', borderBottom: '1px solid #f3f4f6' };
-const btn  = (primary, color) => ({ padding: '9px 16px', borderRadius: 8, fontWeight: 600, cursor: 'pointer',
-  border: primary ? 'none' : `1px solid ${color || '#2563eb'}`, background: primary ? (color || '#2563eb') : '#fff', color: primary ? '#fff' : (color || '#2563eb') });
+const input = { width: '100%', padding: '9px 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: '.9rem', boxSizing: 'border-box' };
+const btn  = (primary, color = '#2563eb') => ({ padding: '9px 16px', borderRadius: 8, fontWeight: 600, cursor: 'pointer',
+  border: primary ? 'none' : `1px solid ${color}`, background: primary ? color : '#fff', color: primary ? '#fff' : color });
 
 const LABELS = {
-  students: 'Students (people)', leads: 'Leads', notes: 'Notes', documents: 'Documents',
-  leadEvents: 'Event registrations', eventAttendees: 'Event attendees', eventDeskVisits: 'Event desk visits',
-  auditLog: 'Audit-log entries', duplicateReviews: 'Parked duplicates',
+  students: 'Students (people)', leads: 'Leads', student_notes: 'Notes', documents: 'Documents',
+  lead_events: 'Event registrations', event_attendees: 'Event attendees', event_desk_visits: 'Event desk visits',
+  audit_log: 'Audit-log entries', duplicate_reviews: 'Parked duplicates',
 };
-const ORDER = ['students', 'leads', 'notes', 'documents', 'leadEvents', 'eventAttendees', 'eventDeskVisits', 'duplicateReviews', 'auditLog'];
+const lbl = (k) => LABELS[k] || k;
 
 export default function DataCleanup() {
-  const { canDo } = usePermissions();
-  const { language } = useLanguage();
-  const vi = language === 'vi';
-  const allowed = canDo('leads', 'delete');
+  const { staff } = useAuth();
+  const isAdmin = ['Admin', 'Director'].includes(staff?.role);
 
-  const [idText, setIdText]     = useState('');
-  const [preview, setPreview]   = useState(null);
-  const [deleting, setDeleting] = useState(false);
-  const [delResult, setDelResult] = useState(null);
-  const [err, setErr] = useState('');
+  const [schema, setSchema]   = useState(null);
+  const [err, setErr]         = useState('');
 
-  const [orphans, setOrphans]     = useState(null);
-  const [orphBusy, setOrphBusy]   = useState(false);
-  const [orphResult, setOrphResult] = useState(null);
+  // Selected record set: [{ id, name }]
+  const [selected, setSelected] = useState([]);
+  const addSel    = (rows) => setSelected(prev => {
+    const seen = new Set(prev.map(p => p.id));
+    return [...prev, ...rows.filter(r => r.id && !seen.has(r.id))];
+  });
+  const removeSel = (id) => setSelected(prev => prev.filter(p => p.id !== id));
+  const ids = selected.map(s => s.id);
 
-  // One ID PER LINE — split on newlines only, so IDs containing spaces/commas
-  // (e.g. the junk id ',300-500M VND,,4') survive intact.
-  const parseIds = () => [...new Set(idText.split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
+  // Pickers
+  const [q, setQ]             = useState('');
+  const [results, setResults] = useState(null);
+  const [idText, setIdText]   = useState('');
 
-  const loadOrphans = useCallback(async () => {
-    try { const r = await studentAPI.getOrphans(); setOrphans(r.data); } catch (e) { setErr(e.message); }
-  }, []);
-  useEffect(() => { if (allowed) loadOrphans(); }, [allowed, loadOrphans]);
+  // Preview / delete
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy]       = useState(false);
+  const [result, setResult]   = useState(null);
 
-  if (!allowed) return (
+  // Search (name / id / email / phone — partial, case-insensitive)
+  const [pattern, setPattern] = useState('');
+  const [matches, setMatches] = useState(null);
+
+  // Orphans — selectable list of missing-student "owners"
+  const [orphanKeys, setOrphanKeys] = useState(null);
+  const [orphanSel, setOrphanSel]   = useState(() => new Set());
+  const lastOrphanIdx = useRef(-1);
+
+  // Duplicates
+  const [dupBy, setDupBy] = useState('email');
+  const [dups, setDups]   = useState(null);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    cleanupAPI.schema().then(r => setSchema(r.data)).catch(e => setErr(e.message));
+    cleanupAPI.orphanKeys().then(r => setOrphanKeys(r.data)).catch(() => {});
+  }, [isAdmin]);
+
+  if (!isAdmin) return (
     <div style={{ padding: '2rem' }}>
-      <h1 style={{ fontSize: '1.5rem' }}>{vi ? 'Dọn dữ liệu' : 'Data Cleanup'}</h1>
-      <p style={{ color: '#b91c1c' }}>{vi ? 'Cần quyền xóa đầy đủ.' : 'You need unrestricted delete permission.'}</p>
+      <h1 style={{ fontSize: '1.5rem' }}>Deep Cleanse</h1>
+      <p style={{ color: '#b91c1c' }}>Restricted to Admin / Director.</p>
     </div>
   );
 
-  const ids = parseIds();
-
+  const doSearch = async () => {
+    setErr(''); setResults(null);
+    try {
+      const r = await studentAPI.search(q);
+      const rows = (r.data || []).map(s => ({
+        id:   s.studentId || s.student_id || s.uniqueId || s.unique_id,
+        name: s.fullName || s.full_name || '',
+      })).filter(x => x.id);
+      setResults(rows);
+    } catch (e) { setErr(e.message); }
+  };
+  const addPasted = () => {
+    // One ID PER LINE — split on newlines only so IDs with spaces/commas
+    // (e.g. ',300-500M VND,,4') survive intact.
+    const parsed = [...new Set(idText.split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
+    addSel(parsed.map(id => ({ id, name: '' })));
+    setIdText('');
+  };
   const doPreview = async () => {
-    setErr(''); setDelResult(null); setPreview(null);
-    if (!ids.length) { setErr(vi ? 'Nhập ít nhất một mã.' : 'Enter at least one student ID.'); return; }
-    try { const r = await studentAPI.deletePreview(ids); setPreview(r.data); } catch (e) { setErr(e.message); }
+    setErr(''); setResult(null); setPreview(null);
+    if (!ids.length) { setErr('Add at least one record first.'); return; }
+    try { const r = await cleanupAPI.preview(ids); setPreview(r.data); } catch (e) { setErr(e.message); }
   };
   const doDelete = async () => {
     if (!preview) return;
-    if (!window.confirm(vi ? `Xóa vĩnh viễn ${ids.length} hồ sơ và toàn bộ dữ liệu liên quan?` : `Permanently delete ${ids.length} record(s) and ALL related data? This cannot be undone.`)) return;
-    setDeleting(true); setErr('');
+    if (!window.confirm(`Permanently delete ${ids.length} record(s) and ALL related data? This cannot be undone.`)) return;
+    setBusy(true); setErr('');
     try {
-      const r = await studentAPI.deleteRecords(ids);
-      setDelResult(r); setPreview(null); setIdText('');
-      await loadOrphans();
-    } catch (e) { setErr(e.message); } finally { setDeleting(false); }
+      const r = await cleanupAPI.apply(ids);
+      setResult(r.data); setPreview(null); setSelected([]);
+      cleanupAPI.orphanKeys().then(x => setOrphanKeys(x.data)).catch(() => {});
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
+  const doPattern = async () => {
+    setErr(''); setMatches(null);
+    try { const r = await cleanupAPI.byPattern(pattern); setMatches(r.data.matches || []); } catch (e) { setErr(e.message); }
+  };
+  const orphanRowTotal = orphanKeys ? orphanKeys.keys.reduce((s, k) => s + k.total, 0) : 0;
+  const toggleOrphan = (id, idx, shift) => {
+    setOrphanSel(prev => {
+      const next = new Set(prev);
+      if (shift && lastOrphanIdx.current >= 0 && orphanKeys) {
+        const [a, b] = [lastOrphanIdx.current, idx].sort((x, y) => x - y);
+        for (let i = a; i <= b; i++) next.add(orphanKeys.keys[i].id);   // block select
+      } else if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
+    lastOrphanIdx.current = idx;
+  };
+  const allOrphansSelected = !!orphanKeys && orphanKeys.keys.length > 0 && orphanKeys.keys.every(k => orphanSel.has(k.id));
+  const toggleAllOrphans = () => setOrphanSel(allOrphansSelected ? new Set() : new Set((orphanKeys?.keys || []).map(k => k.id)));
   const doPurgeOrphans = async () => {
-    if (!orphans || !orphans.total) return;
-    if (!window.confirm(vi ? `Dọn ${orphans.total} dòng mồ côi?` : `Purge ${orphans.total} orphaned row(s)? This cannot be undone.`)) return;
-    setOrphBusy(true); setErr('');
-    try { const r = await studentAPI.purgeOrphans(); setOrphResult(r.data); await loadOrphans(); }
-    catch (e) { setErr(e.message); } finally { setOrphBusy(false); }
+    const sel = [...orphanSel];
+    if (!orphanKeys?.count) return;
+    const label = sel.length ? `${sel.length} selected missing student(s)` : `ALL ${orphanKeys.count} missing students`;
+    if (!window.confirm(`Purge orphaned rows for ${label}? This cannot be undone.`)) return;
+    setErr('');
+    try {
+      await cleanupAPI.purgeOrphans(sel.length ? sel : null);
+      const x = await cleanupAPI.orphanKeys(); setOrphanKeys(x.data); setOrphanSel(new Set());
+    } catch (e) { setErr(e.message); }
   };
-
-  const summarise = (obj) => Object.entries(obj).filter(([, v]) => v).map(([k, v]) => `${v} ${LABELS[k] || k}`).join(', ');
+  const doDuplicates = async () => {
+    setErr(''); setDups(null);
+    try { const r = await cleanupAPI.duplicates(dupBy); setDups(r.data.groups || []); } catch (e) { setErr(e.message); }
+  };
 
   return (
-    <div style={{ padding: '2rem', maxWidth: 900 }}>
-      <h1 style={{ fontSize: '1.5rem', marginBottom: '.25rem' }}>{vi ? 'Dọn dữ liệu' : 'Data Cleanup'}</h1>
-      <p style={{ color: '#6b7280', marginBottom: '1.25rem' }}>{vi ? 'Xóa dữ liệu thử nghiệm và dọn dữ liệu mồ côi. Mọi thao tác xóa là vĩnh viễn.' : 'Purge test records and sweep orphaned data. All deletes are permanent.'}</p>
+    <div style={{ padding: '2rem', maxWidth: 980 }}>
+      <h1 style={{ fontSize: '1.5rem', marginBottom: '.25rem' }}>Deep Cleanse</h1>
+      <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
+        Schema-adaptive cleanup. All deletes are <b>permanent</b> — take a database backup first.
+      </p>
+
+      {schema && (
+        <div style={{ ...card, padding: '0.6rem 1rem', display: 'flex', gap: '1.5rem', alignItems: 'center', fontSize: '.85rem' }}>
+          <span><b>Schema:</b> {schema.schema} (students key: <code>{schema.studentPk}</code>)</span>
+          <span><b>Cascades:</b> {schema.childTables.join(', ') || '—'}</span>
+        </div>
+      )}
       {err && <div style={{ ...card, borderColor: '#fca5a5', background: '#fef2f2', color: '#b91c1c' }}>{err}</div>}
 
-      {/* Purge test records */}
+      {/* 1. Targeted purge */}
       <div style={card}>
-        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>{vi ? 'Xóa hồ sơ thử nghiệm' : 'Purge test records'}</h2>
-        <p style={{ color: '#6b7280', marginTop: 0 }}>{vi ? 'Dán mã sinh viên — MỖI DÒNG MỘT MÃ (mã có thể chứa dấu cách/phẩy).' : 'Paste student IDs — ONE PER LINE (IDs may contain spaces or commas).'}</p>
-        <textarea value={idText} onChange={e => { setIdText(e.target.value); setPreview(null); setDelResult(null); }} rows={3}
-          placeholder={"20260627-91\n,300-500M VND,,4"}
-          style={{ width: '100%', padding: '10px', border: '1px solid #d1d5db', borderRadius: 8, fontFamily: 'monospace', fontSize: '.85rem', boxSizing: 'border-box' }} />
-        <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={doPreview} disabled={!ids.length} style={btn(false)}>{vi ? 'Xem trước' : 'Preview'}{ids.length ? ` (${ids.length})` : ''}</button>
-          {preview && <button onClick={doDelete} disabled={deleting} style={btn(true, '#dc2626')}>{deleting ? (vi ? 'Đang xóa…' : 'Deleting…') : (vi ? 'Xác nhận xóa' : 'Confirm delete')}</button>}
+        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>1. Targeted purge</h2>
+
+        {/* search picker */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <input style={input} value={q} placeholder="Search name / id / email…"
+            onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} />
+          <button onClick={doSearch} style={btn(false)}>Search</button>
+        </div>
+        {results && (
+          <div style={{ maxHeight: 180, overflow: 'auto', border: '1px solid #eee', borderRadius: 8, marginBottom: 8 }}>
+            {results.length === 0 ? <div style={{ padding: 10, color: '#6b7280' }}>No matches.</div> :
+              results.map(r => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid #f3f4f6' }}>
+                  <span>{r.name || '—'} <code style={{ color: '#6b7280' }}>{r.id}</code></span>
+                  <button onClick={() => addSel([r])} style={btn(false)}>Add</button>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* paste ids — ONE PER LINE so IDs with spaces/commas survive */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
+          <textarea style={{ ...input, fontFamily: 'monospace', minHeight: 56, resize: 'vertical' }} value={idText} rows={2}
+            placeholder={"…or paste student IDs, one per line:\n20260627-91\n,300-500M VND,,4"}
+            onChange={e => setIdText(e.target.value)} />
+          <button onClick={addPasted} style={btn(false)}>Add IDs</button>
+        </div>
+
+        {/* selection */}
+        <div style={{ margin: '10px 0' }}>
+          <b>Selected ({selected.length})</b>
+          {selected.length > 0 && <button onClick={() => setSelected([])} style={{ ...btn(false), marginLeft: 10, padding: '4px 10px' }}>Clear</button>}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+            {selected.map(s => (
+              <span key={s.id} style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 16, padding: '3px 10px', fontSize: '.8rem' }}>
+                {s.name ? `${s.name} · ` : ''}{s.id}
+                <span onClick={() => removeSel(s.id)} style={{ marginLeft: 6, cursor: 'pointer', color: '#6b7280' }}>✕</span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={doPreview} disabled={!ids.length} style={btn(false)}>Preview{ids.length ? ` (${ids.length})` : ''}</button>
+          {preview && <button onClick={doDelete} disabled={busy} style={btn(true, '#dc2626')}>{busy ? 'Deleting…' : 'Confirm delete'}</button>}
         </div>
 
         {preview && (
           <div style={{ marginTop: 12 }}>
-            <p style={{ fontWeight: 600, margin: '0 0 6px' }}>{vi ? 'Sẽ xóa:' : 'Will delete:'}</p>
-            <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 420 }}>
+            <p style={{ fontWeight: 600, margin: '0 0 6px' }}>Will delete (schema: {preview.schema}):</p>
+            <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 440 }}>
               <tbody>
-                {ORDER.filter(k => k in preview).map(k => (
-                  <tr key={k}><td style={td}>{LABELS[k] || k}</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{preview[k]}</td></tr>
+                <tr><td style={td}>{lbl('students')}</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{preview.students}</td></tr>
+                {Object.entries(preview.counts || {}).map(([k, v]) => (
+                  <tr key={k}><td style={td}>{lbl(k)}</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{v}</td></tr>
                 ))}
               </tbody>
             </table>
-            {!preview.students && <p style={{ color: '#b45309', marginTop: 8 }}>{vi ? 'Không tìm thấy hồ sơ khớp — kiểm tra lại mã.' : 'No matching students found — check the IDs.'}</p>}
+            {!preview.students && <p style={{ color: '#b45309', marginTop: 8 }}>No matching students — check the IDs.</p>}
           </div>
         )}
-        {delResult && (
+        {result && (
           <div style={{ ...card, marginTop: 12, marginBottom: 0, borderColor: '#86efac', background: '#f0fdf4' }}>
-            <b>{delResult.deleted}</b> {vi ? 'hồ sơ đã xóa.' : 'record(s) deleted.'} {delResult.purged && <span style={{ color: '#6b7280' }}>({summarise(delResult.purged)})</span>}
+            Deleted <b>{result.deleted?.students || 0}</b> students + dependents
+            {result.deleted && <span style={{ color: '#6b7280' }}> ({Object.entries(result.deleted).filter(([k, v]) => v && k !== 'students').map(([k, v]) => `${v} ${lbl(k)}`).join(', ')})</span>}.
           </div>
         )}
       </div>
 
-      {/* Orphan sweep */}
+      {/* 2. Search */}
       <div style={card}>
-        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>{vi ? 'Dữ liệu mồ côi' : 'Orphaned data'}</h2>
-        <p style={{ color: '#6b7280', marginTop: 0 }}>{vi ? 'Dòng còn sót từ các lần xóa trước (sinh viên không còn tồn tại).' : 'Rows left behind by past deletions — the student no longer exists.'}</p>
-        {!orphans ? <p style={{ color: '#6b7280' }}>{vi ? 'Đang tải…' : 'Loading…'}</p> : orphans.total === 0 ? (
-          <p style={{ color: '#16a34a', margin: 0 }}>{vi ? 'Không có dữ liệu mồ côi. ✓' : 'No orphaned data. ✓'}</p>
+        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>2. Search students</h2>
+        <p style={{ color: '#6b7280', marginTop: 0 }}>
+          Partial word, not case-sensitive, no wildcards needed — searches name, student ID, email and phone.
+          Type e.g. <code>joyce</code>, <code>20260617</code>, <code>@gmail</code> or <code>0915</code>.
+          (Advanced: include a <code>%</code> for a literal SQL pattern such as <code>TEST-UPLOAD-%</code>.)
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input style={input} value={pattern} onChange={e => setPattern(e.target.value)}
+                 onKeyDown={e => { if (e.key === 'Enter') doPattern(); }} placeholder="Search by name, ID, email or phone…" />
+          <button onClick={doPattern} style={btn(false)}>Search</button>
+        </div>
+        {matches && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+              <span><b>{matches.length}</b> match(es){matches.length >= 500 ? ' (showing first 500 — refine the search)' : ''}.</span>
+              {matches.length > 0 && <button onClick={() => addSel(matches.map(m => ({ id: m.id, name: m.name })))} style={btn(false)}>Add all to selection</button>}
+            </div>
+            {matches.length > 0 && (
+              <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid #eee', borderRadius: 8 }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                  <thead><tr>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Name</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Student ID</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Email</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Phone</th>
+                    <th style={{ ...td, width: 60 }}></th>
+                  </tr></thead>
+                  <tbody>
+                    {matches.map(m => (
+                      <tr key={m.id}>
+                        <td style={td}>{m.name || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={{ ...td, fontFamily: 'monospace' }}>{m.id}</td>
+                        <td style={td}>{m.email || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={td}>{m.phone || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={td}>
+                          <button onClick={() => addSel([{ id: m.id, name: m.name }])} style={btn(false)}>Add</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 3. Orphan sweep — review & select missing students */}
+      <div style={card}>
+        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>3. Orphaned data — review &amp; select</h2>
+        <p style={{ color: '#6b7280', marginTop: 0 }}>Child rows whose student no longer exists. Tick the missing students to purge (Shift-click for a block), or purge all.</p>
+        {!orphanKeys ? <p style={{ color: '#6b7280' }}>Loading…</p> : orphanKeys.count === 0 ? (
+          <p style={{ color: '#16a34a', margin: 0 }}>No orphaned data. ✓</p>
         ) : (
           <>
-            <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 420 }}>
-              <tbody>
-                {Object.entries(orphans.counts).filter(([, v]) => v).map(([k, v]) => (
-                  <tr key={k}><td style={td}>{LABELS[k] || k}</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{v}</td></tr>
-                ))}
-                <tr><td style={{ ...td, fontWeight: 700 }}>{vi ? 'Tổng' : 'Total'}</td><td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{orphans.total}</td></tr>
-              </tbody>
-            </table>
-            <button onClick={doPurgeOrphans} disabled={orphBusy} style={{ ...btn(true, '#dc2626'), marginTop: 10 }}>{orphBusy ? (vi ? 'Đang dọn…' : 'Purging…') : (vi ? 'Dọn dữ liệu mồ côi' : 'Purge orphans')}</button>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8, fontSize: '.85rem' }}>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="checkbox" checked={allOrphansSelected} onChange={toggleAllOrphans} /> Select all
+              </label>
+              <span>{orphanKeys.count} missing students · {orphanRowTotal} orphan rows · <b>{orphanSel.size} selected</b></span>
+            </div>
+            <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid #eee', borderRadius: 8 }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead><tr>
+                  <th style={{ ...td, width: 30 }}></th>
+                  <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Missing student</th>
+                  <th style={{ ...td, textAlign: 'right', fontWeight: 700 }}>Rows</th>
+                  <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Breakdown</th>
+                </tr></thead>
+                <tbody>
+                  {orphanKeys.keys.map((k, idx) => (
+                    <tr key={k.id} style={{ background: orphanSel.has(k.id) ? '#eef2ff' : 'transparent' }}>
+                      <td style={td}><input type="checkbox" checked={orphanSel.has(k.id)}
+                        onClick={e => toggleOrphan(k.id, idx, e.shiftKey)} onChange={() => {}} /></td>
+                      <td style={td}><code>{k.id}</code></td>
+                      <td style={{ ...td, textAlign: 'right' }}>{k.total}</td>
+                      <td style={{ ...td, color: '#6b7280', fontSize: '.8rem' }}>{Object.entries(k.tables).map(([t, n]) => `${lbl(t)}: ${n}`).join(' · ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button onClick={doPurgeOrphans} style={{ ...btn(true, '#dc2626'), marginTop: 10 }}>
+              {orphanSel.size ? `Purge selected (${orphanSel.size})` : `Purge ALL (${orphanKeys.count})`}
+            </button>
           </>
         )}
-        {orphResult && (
-          <div style={{ ...card, marginTop: 12, marginBottom: 0, borderColor: '#86efac', background: '#f0fdf4' }}>
-            {vi ? 'Đã dọn' : 'Purged'} <b>{orphResult.total}</b> {vi ? 'dòng mồ côi.' : 'orphaned row(s).'}
+      </div>
+
+      {/* 4. Duplicates */}
+      <div style={card}>
+        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>4. Duplicate persons</h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <select value={dupBy} onChange={e => setDupBy(e.target.value)} style={{ ...input, width: 'auto' }}>
+            <option value="email">By email</option>
+            <option value="phone">By phone</option>
+          </select>
+          <button onClick={doDuplicates} style={btn(false)}>Find duplicates</button>
+        </div>
+        {dups && (
+          <div style={{ marginTop: 10 }}>
+            {dups.length === 0 ? <p style={{ color: '#16a34a', margin: 0 }}>No duplicates. ✓</p> :
+              dups.map((g, i) => (
+                <div key={i} style={{ borderBottom: '1px solid #f3f4f6', padding: '8px 0' }}>
+                  <div style={{ fontSize: '.8rem', color: '#6b7280' }}>{g.keyval} — {g.n} records</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                    {(g.ids || []).map((id, j) => (
+                      <button key={id} onClick={() => addSel([{ id, name: (g.names || [])[j] || '' }])}
+                        style={{ ...btn(false), padding: '3px 10px', fontSize: '.8rem' }}>
+                        + {(g.names || [])[j] || ''} {id}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            {dups.length > 0 && <p style={{ ...td, color: '#6b7280', border: 0 }}>Add the record(s) to delete to the selection above, then Preview → Confirm.</p>}
           </div>
         )}
       </div>
