@@ -1348,6 +1348,10 @@ export default function LeadDetail() {
                 <Field label="Confidence" value={lead.confidence}/>
               </div>
             )}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem', marginTop:'0.75rem' }}>
+              <Field label="Actual Close Date" value={formatShortDate(lead.actualCloseDate)}/>
+              <Field label="Cancellation date" value={formatShortDate(lead.cancellationDate)}/>
+            </div>
           </div>
           )}
 
@@ -1399,6 +1403,8 @@ export default function LeadDetail() {
                 <EditField label="School Attended" name="schoolAttended"     value={d.schoolAttended}     onChange={updateEdit}/>
                 <EditField label="Residency"       name="residency"          value={d.residency}          onChange={updateEdit}/>
                 <EditField label="Ward"            name="ward"               value={d.ward}               onChange={updateEdit}/>
+                <Field label="Assigned in"  value={formatShortDate(lead.assignedIn)}/>
+                <Field label="Assigned out" value={formatShortDate(lead.assignedOut)}/>
                 </>)}
                 {/* Stone Tier / Risk Score are person-derived — student view only (lead shows them in the right-hand Summary) */}
                 {isStudentView && (<>
@@ -1476,6 +1482,8 @@ export default function LeadDetail() {
                 <Field label="School Attended" value={lead.schoolAttended}/>
                 <Field label="Residency"       value={lead.residency}/>
                 <Field label="Ward"            value={lead.ward}/>
+                <Field label="Assigned in"  value={formatShortDate(lead.assignedIn)}/>
+                <Field label="Assigned out" value={formatShortDate(lead.assignedOut)}/>
                 </>)}
                 <Field label="Created"         value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"         value={formatShortDate(lead.updatedAt)}/>

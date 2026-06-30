@@ -79,6 +79,8 @@ const COLUMNS = [
   { db: 'office',              js: 'office' },
   { db: 'distribution_status', js: 'distributionStatus' },
   { db: 'prev_counselor',      js: 'prevCounselor' },
+  { db: 'actual_close_date',   js: 'actualCloseDate' },   // trigger-managed (set on →Contracted)
+  { db: 'cancellation_date',   js: 'cancellationDate' },  // trigger-managed (set on →Lost/Archived)
   { db: 'created_at',          js: 'createdAt' },
   { db: 'updated_at',          js: 'updatedAt' },
 ];
@@ -87,9 +89,10 @@ const DB_TO_JS = Object.fromEntries(COLUMNS.map(c => [c.db, c.js]));
 const JS_TO_DB = Object.fromEntries(COLUMNS.map(c => [c.js, c.db]));
 
 // DATE columns — pg returns Date objects; convert to YYYY-MM-DD strings.
-const DATE_COLUMNS = new Set(['closeDate', 'campaignStart', 'campaignEnd']);
+const DATE_COLUMNS = new Set(['closeDate', 'campaignStart', 'campaignEnd', 'actualCloseDate', 'cancellationDate']);
 // Never writable through create/update (managed by DB / set on create only).
-const READONLY = new Set(['leadId', 'studentId', 'createdAt', 'updatedAt']);
+// actualCloseDate/cancellationDate are owned by the leads lifecycle trigger.
+const READONLY = new Set(['leadId', 'studentId', 'createdAt', 'updatedAt', 'actualCloseDate', 'cancellationDate']);
 
 function rowToJs(row) {
   if (!row) return null;

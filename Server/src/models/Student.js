@@ -99,6 +99,8 @@ const COLUMNS = [
   { db: 'source_detail',             js: 'sourceDetail' },
   { db: 'school_attended',           js: 'schoolAttended' },
   { db: 'ward',                      js: 'ward' },
+  { db: 'assigned_in',               js: 'assignedIn' },   // trigger-managed (counsellor assignment)
+  { db: 'assigned_out',              js: 'assignedOut' },  // trigger-managed (left with no counsellor)
 ];
 
 // Lookup maps built from COLUMNS
@@ -106,7 +108,7 @@ const DB_TO_JS = Object.fromEntries(COLUMNS.map(c => [c.db, c.js]));
 const JS_TO_DB = Object.fromEntries(COLUMNS.map(c => [c.js, c.db]));
 
 // Columns stored as DATE in PostgreSQL — pg driver returns JS Date objects, convert to YYYY-MM-DD
-const DATE_COLUMNS = new Set(['closeDate', 'campaignStart', 'campaignEnd']);
+const DATE_COLUMNS = new Set(['closeDate', 'campaignStart', 'campaignEnd', 'assignedIn', 'assignedOut']);
 
 // ── Convert a DB row (snake_case) to a JS object (camelCase) ──
 function rowToJs(row) {
@@ -318,7 +320,8 @@ async function update(studentId, data) {
   let   paramIdx   = 1;
 
   for (const [jsKey, value] of Object.entries(data)) {
-    if (jsKey === 'studentId' || jsKey === 'createdAt' || jsKey === 'updatedAt') continue;
+    if (jsKey === 'studentId' || jsKey === 'createdAt' || jsKey === 'updatedAt'
+        || jsKey === 'assignedIn' || jsKey === 'assignedOut') continue;
     const dbCol = JS_TO_DB[jsKey];
     if (!dbCol) continue; // ignore unknown fields
 

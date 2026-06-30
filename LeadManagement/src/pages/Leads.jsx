@@ -127,6 +127,8 @@ const EMPTY_FILTERS = {
   // Date ranges
   dateFrom:'', dateTo:'', closeDateFrom:'', closeDateTo:'',
   campStartFrom:'', campStartTo:'', campEndFrom:'', campEndTo:'',
+  assignedInFrom:'', assignedInTo:'', assignedOutFrom:'', assignedOutTo:'',
+  actualCloseFrom:'', actualCloseTo:'', cancelFrom:'', cancelTo:'',
 };
 
 // ── Filter config — drives which filter controls render and for which column ──
@@ -142,6 +144,10 @@ function countActiveFilters(filters) {
   if (filters.closeDateFrom  || filters.closeDateTo)   n++;
   if (filters.campStartFrom  || filters.campStartTo)   n++;
   if (filters.campEndFrom    || filters.campEndTo)     n++;
+  if (filters.assignedInFrom  || filters.assignedInTo)  n++;
+  if (filters.assignedOutFrom || filters.assignedOutTo) n++;
+  if (filters.actualCloseFrom || filters.actualCloseTo) n++;
+  if (filters.cancelFrom      || filters.cancelTo)      n++;
   Object.values(filters.colText || {}).forEach(v => { if (String(v || '').trim()) n++; });
   return n;
 }
@@ -188,6 +194,10 @@ const FILTER_CONFIG = [
   { colKey:'closeDate',          label:'Close Date',      type:'daterange', fromKey:'closeDateFrom', toKey:'closeDateTo' },
   { colKey:'campaignStart',      label:'Camp. Start',     type:'daterange', fromKey:'campStartFrom', toKey:'campStartTo' },
   { colKey:'campaignEnd',        label:'Camp. End',       type:'daterange', fromKey:'campEndFrom',   toKey:'campEndTo' },
+  { colKey:'assignedIn',         label:'Assigned In',       type:'daterange', fromKey:'assignedInFrom',  toKey:'assignedInTo' },
+  { colKey:'assignedOut',        label:'Assigned Out',      type:'daterange', fromKey:'assignedOutFrom', toKey:'assignedOutTo' },
+  { colKey:'actualCloseDate',    label:'Actual Close Date', type:'daterange', fromKey:'actualCloseFrom', toKey:'actualCloseTo' },
+  { colKey:'cancellationDate',   label:'Cancellation Date', type:'daterange', fromKey:'cancelFrom',      toKey:'cancelTo' },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -1277,6 +1287,14 @@ export default function Leads() {
     if (filters.campStartTo)   r = r.filter(l => l.campaignStart && new Date(l.campaignStart) <= new Date(filters.campStartTo + 'T23:59:59'));
     if (filters.campEndFrom)   r = r.filter(l => l.campaignEnd   && new Date(l.campaignEnd)   >= new Date(filters.campEndFrom));
     if (filters.campEndTo)     r = r.filter(l => l.campaignEnd   && new Date(l.campaignEnd)   <= new Date(filters.campEndTo   + 'T23:59:59'));
+    if (filters.assignedInFrom)  r = r.filter(l => l.assignedIn       && new Date(l.assignedIn)       >= new Date(filters.assignedInFrom));
+    if (filters.assignedInTo)    r = r.filter(l => l.assignedIn       && new Date(l.assignedIn)       <= new Date(filters.assignedInTo   + 'T23:59:59'));
+    if (filters.assignedOutFrom) r = r.filter(l => l.assignedOut      && new Date(l.assignedOut)      >= new Date(filters.assignedOutFrom));
+    if (filters.assignedOutTo)   r = r.filter(l => l.assignedOut      && new Date(l.assignedOut)      <= new Date(filters.assignedOutTo  + 'T23:59:59'));
+    if (filters.actualCloseFrom) r = r.filter(l => l.actualCloseDate  && new Date(l.actualCloseDate)  >= new Date(filters.actualCloseFrom));
+    if (filters.actualCloseTo)   r = r.filter(l => l.actualCloseDate  && new Date(l.actualCloseDate)  <= new Date(filters.actualCloseTo  + 'T23:59:59'));
+    if (filters.cancelFrom)      r = r.filter(l => l.cancellationDate && new Date(l.cancellationDate) >= new Date(filters.cancelFrom));
+    if (filters.cancelTo)        r = r.filter(l => l.cancellationDate && new Date(l.cancellationDate) <= new Date(filters.cancelTo      + 'T23:59:59'));
 
     // Generic per-column free-text "contains" filters — covers every column that
     // doesn't have a dedicated multi/date chip. Matches against the raw value too.
@@ -1463,6 +1481,10 @@ export default function Leads() {
       case 'closeDate':             return v ? String(v).slice(0,10) : <MissingValue/>;
       case 'campaignStart':         return v ? String(v).slice(0,10) : <MissingValue/>;
       case 'campaignEnd':           return v ? String(v).slice(0,10) : <MissingValue/>;
+      case 'assignedIn':
+      case 'assignedOut':
+      case 'actualCloseDate':
+      case 'cancellationDate':      return v ? String(v).slice(0,10) : <MissingValue/>;
       case 'oceanExtraversion':
       case 'oceanAgreeableness':
       case 'oceanConscientiousness':
