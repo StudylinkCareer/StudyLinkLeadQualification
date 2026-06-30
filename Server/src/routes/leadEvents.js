@@ -112,12 +112,14 @@ router.post('/', requireStaff, async (req, res) => {
   try {
     const ins = await pool.query(
       `INSERT INTO lead_events
-         (student_id, event_id, status, ev_heard_type, ev_channel, ev_referral_kind, ev_referral_who, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+         (student_id, event_id, status, ev_heard_type, ev_channel, ev_referral_kind, ev_referral_who,
+          source_of_lead, source, source_detail, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now())
        RETURNING id`,
       [String(studentId), Number(eventId), status,
        norm(req.body.evHeardType), norm(req.body.evChannel),
-       norm(req.body.evReferralKind), norm(req.body.evReferralWho)]
+       norm(req.body.evReferralKind), norm(req.body.evReferralWho),
+       norm(req.body.sourceOfLead), norm(req.body.source), norm(req.body.sourceDetail)]
     );
     res.json({ success: true, data: { id: ins.rows[0].id } });
   } catch (err) {
@@ -133,6 +135,9 @@ const PATCHABLE = {
   evChannel:      'ev_channel',
   evReferralKind: 'ev_referral_kind',
   evReferralWho:  'ev_referral_who',
+  sourceOfLead:   'source_of_lead',
+  source:         'source',
+  sourceDetail:   'source_detail',
 };
 router.put('/:id', requireStaff, async (req, res) => {
   const id = parseInt(req.params.id, 10);

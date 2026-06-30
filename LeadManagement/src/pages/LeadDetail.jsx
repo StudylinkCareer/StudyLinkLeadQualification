@@ -856,6 +856,8 @@ export default function LeadDetail() {
   const [eventOptions, setEventOptions]   = useState([]);   // event catalog for the "add event" picker
   const [addEventId, setAddEventId]       = useState('');
   const [addEventStatus, setAddEventStatus] = useState('');
+  const [addSourceOfLead, setAddSourceOfLead] = useState('');
+  const [addSource, setAddSource]         = useState('');
   const [addingEvent, setAddingEvent]     = useState(false);
   // Registrations (lead_events) are person-level; they're loaded by the main
   // fetch below once the owning student id is known.
@@ -872,16 +874,28 @@ export default function LeadDetail() {
     if (!isStudentView) return;
     leadEventsAPI.options().then(r => setEventOptions(r.data?.events || [])).catch(() => {});
   }, [isStudentView]);
+  // Persist an edited field (source of lead / source) on a registration row.
+  async function handleRegField(regId, patch) {
+    setRegistrations(rs => rs.map(r => r.id === regId ? { ...r, ...patch } : r));   // optimistic
+    try {
+      await leadEventsAPI.update(regId, patch);
+    } catch (e) {
+      alert(e.message || 'Failed to save');
+    }
+  }
   // Link a new event registration to this person, then reload the list.
   async function addRegistration() {
     const sid = lead?.studentId;
     if (!addEventId || !sid) return;
     setAddingEvent(true);
     try {
-      await leadEventsAPI.add({ studentId: sid, eventId: Number(addEventId), status: addEventStatus || null });
+      await leadEventsAPI.add({
+        studentId: sid, eventId: Number(addEventId), status: addEventStatus || null,
+        sourceOfLead: addSourceOfLead || null, source: addSource || null,
+      });
       const regs = await leadEventsAPI.list(sid);
       setRegistrations(regs.data || []);
-      setAddEventId(''); setAddEventStatus('');
+      setAddEventId(''); setAddEventStatus(''); setAddSourceOfLead(''); setAddSource('');
     } catch (e) {
       alert(e.message || 'Failed to add event');
     } finally {
@@ -1543,8 +1557,18 @@ export default function LeadDetail() {
                   <tbody>
                     {registrations.map(r => (
                       <tr key={r.id} style={{ borderBottom:'1px solid var(--border)' }}>
-                        <td style={{ padding:'0.5rem' }}>{r.sourceOfLead || '\u2014'}</td>
-                        <td style={{ padding:'0.5rem' }}>{r.source || '\u2014'}{r.sourceDetail ? ` \u00b7 ${r.sourceDetail}` : ''}</td>
+                        <td style={{ padding:'0.5rem' }}>
+                          <input value={r.sourceOfLead || ''} placeholder={'\u2014'}
+                                 onChange={e => setRegistrations(rs => rs.map(x => x.id === r.id ? { ...x, sourceOfLead: e.target.value } : x))}
+                                 onBlur={e => handleRegField(r.id, { sourceOfLead: e.target.value.trim() || null })}
+                                 style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }} />
+                        </td>
+                        <td style={{ padding:'0.5rem' }}>
+                          <input value={r.source || ''} placeholder={'\u2014'}
+                                 onChange={e => setRegistrations(rs => rs.map(x => x.id === r.id ? { ...x, source: e.target.value } : x))}
+                                 onBlur={e => handleRegField(r.id, { source: e.target.value.trim() || null })}
+                                 style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }} />
+                        </td>
                         <td style={{ padding:'0.5rem' }}>{r.name || '\u2014'}</td>
                         <td style={{ padding:'0.5rem' }}>{r.startDate || '\u2014'}</td>
                         <td style={{ padding:'0.5rem' }}>{r.endDate || '\u2014'}</td>
@@ -1577,6 +1601,10 @@ export default function LeadDetail() {
                   <option value="Uncertain">Uncertain</option>
                   <option value="Declined">Declined</option>
                 </select>
+                <input value={addSourceOfLead} onChange={e => setAddSourceOfLead(e.target.value)} placeholder="Source of lead"
+                       style={{ padding:'0.4rem 0.6rem', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.85rem', width:150 }} />
+                <input value={addSource} onChange={e => setAddSource(e.target.value)} placeholder="Source"
+                       style={{ padding:'0.4rem 0.6rem', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.85rem', width:130 }} />
                 <button onClick={addRegistration} disabled={!addEventId || addingEvent}
                         style={{ padding:'0.4rem 0.9rem', borderRadius:6, border:'none', background:'var(--primary)', color:'#fff', fontWeight:600, fontSize:'0.82rem', cursor:(!addEventId||addingEvent)?'not-allowed':'pointer', opacity:(!addEventId||addingEvent)?0.6:1 }}>
                   {addingEvent ? 'Adding…' : 'Add event'}

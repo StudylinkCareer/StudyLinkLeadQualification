@@ -184,6 +184,7 @@ export const leadEventsAPI = {
   list:         (studentId)  => request('GET', `/api/lead-events?studentId=${encodeURIComponent(studentId)}`),
   options:      ()           => request('GET', '/api/lead-events/options'),
   add:          (body)       => request('POST', '/api/lead-events', body),
+  update:       (id, body)   => request('PUT', `/api/lead-events/${id}`, body),
   updateStatus: (id, status) => request('PUT', `/api/lead-events/${id}`, { status }),
 };
 
