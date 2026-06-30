@@ -565,6 +565,7 @@ export default function Leads() {
   const [sorting,          setSorting]          = useState([{ id: 'studentId', desc: false }, { id: 'leadId', desc: true }]);
   const [columnVisibility, setColumnVisibility] = useState({});
   const [columnOrder,      setColumnOrder]      = useState([]);
+  const baseConfigRef = useRef({});  // saved 'All leads' default layout (from column_config)
   const [columnSizing,     setColumnSizing]     = useState({});
   const [pagination,       setPagination]       = useState({ pageIndex: 0, pageSize: 25 });
 
@@ -776,10 +777,24 @@ export default function Leads() {
         width:   c.width,
         visible: true,         // visibility now comes from fieldList() at render time
       }));
-      // Apply saved widths from column_config if present (resize persistence)
+      // Saved 'All leads' default layout from column_config. Legacy shape: an
+      // array of { key, width } (widths only). New shape: an object
+      // { columnOrder, columnVisibility, columnSizing } (full layout). Stored in
+      // baseConfigRef so applyVariant(null) ("All leads") can restore it.
+      const cfg = configRes.data;
       const savedWidths = {};
-      if (configRes.data && Array.isArray(configRes.data)) {
-        configRes.data.forEach(c => { if (c.key && c.width) savedWidths[c.key] = c.width; });
+      if (Array.isArray(cfg)) {
+        cfg.forEach(c => { if (c.key && c.width) savedWidths[c.key] = c.width; });
+        baseConfigRef.current = { columnSizing: savedWidths };
+      } else if (cfg && typeof cfg === 'object') {
+        Object.assign(savedWidths, cfg.columnSizing || {});
+        baseConfigRef.current = {
+          columnOrder:      Array.isArray(cfg.columnOrder) ? cfg.columnOrder : null,
+          columnVisibility: cfg.columnVisibility || null,
+          columnSizing:     cfg.columnSizing || null,
+        };
+      } else {
+        baseConfigRef.current = {};
       }
       // leadId / studentId now come from the catalog (permission_fields) like every
       // other column, so they appear in Column Settings too. No code prepend.
@@ -900,13 +915,15 @@ export default function Leads() {
   // Backwards-compatible with old variants that used { sort, columns } shape.
   function applyVariant(v) {
     if (!v) {
-      // "Default" — reset to system defaults
+      // "All leads" — restore the saved global default layout (column_config),
+      // falling back to catalog defaults when nothing has been saved.
+      const base = baseConfigRef.current || {};
       setActiveVariantId(null);
       setFilters(EMPTY_FILTERS);
       setSorting([{ id: 'createdAt', desc: true }]);
-      setColumnVisibility({});
-      setColumnOrder([]);
-      setColumnSizing({});
+      setColumnVisibility(base.columnVisibility || {});
+      setColumnOrder(base.columnOrder || []);
+      setColumnSizing(base.columnSizing || {});
       setPagination(p => ({ ...p, pageIndex: 0 }));
       return;
     }
@@ -964,6 +981,17 @@ export default function Leads() {
     try {
       const r = await variantsAPI.update(activeVariantId, { config: currentConfig() });
       setVariants(vs => vs.map(v => v.id === activeVariantId ? r.data : v));
+    } catch (e) { alert(e.message); }
+  }
+
+  // Save the current column order / visibility / widths as the global "All leads"
+  // default (column_config, admin-gated). Lets an admin adjust the default view
+  // and persist drag-reorder/resize done right in the list.
+  async function saveDefaultLayout() {
+    try {
+      const cfg = { columnOrder, columnVisibility, columnSizing };
+      await columnConfigAPI.save(`leads_${roleKey}`, cfg);
+      baseConfigRef.current = cfg;
     } catch (e) { alert(e.message); }
   }
 
@@ -1640,6 +1668,15 @@ export default function Leads() {
               }}>
               All leads
             </button>
+            {!activeVariantId && canManageColumns && (
+              <button
+                onClick={saveDefaultLayout}
+                title="Save the current column order, visibility and widths as the default 'All leads' layout (your role)"
+                style={{ padding:'6px 10px', fontSize:'12px', background:'transparent', border:'none',
+                         color:'var(--primary)', cursor:'pointer', alignSelf:'center', whiteSpace:'nowrap' }}>
+                💾 Save default
+              </button>
+            )}
             {variants.map(v => {
               const isActive = activeVariantId === v.id;
               return (
