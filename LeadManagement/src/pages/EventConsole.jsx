@@ -246,6 +246,12 @@ export default function EventConsole() {
     }
   };
 
+  // Send the badge via BOTH email and Zalo (email first, then Zalo).
+  const sendBoth = async () => {
+    await sendBadge();
+    await sendZalo();
+  };
+
   const sendBadge = async () => {
     if (!badgeStudent || !badgePreview) return;
     const to = badgeEmail.trim();
@@ -607,14 +613,19 @@ export default function EventConsole() {
               </div>
             )}
 
-            <label style={{ display:'block', textAlign:'left', fontSize:13, fontWeight:600, marginBottom:4 }}>Send to</label>
-            <input
-              type="email"
-              value={badgeEmail}
-              onChange={(e) => setBadgeEmail(e.target.value)}
-              placeholder="email@example.com"
-              style={{ width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14, marginBottom:12 }}
-            />
+            <div style={{ textAlign:'left', marginBottom:12 }}>
+              <label style={{ display:'block', fontSize:13, fontWeight:600, marginBottom:4 }}>Email <span style={{ fontWeight:400, color:'#6b7280' }}>(for e-mail / both)</span></label>
+              <input
+                type="email"
+                value={badgeEmail}
+                onChange={(e) => setBadgeEmail(e.target.value)}
+                placeholder="email@example.com"
+                style={{ width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}
+              />
+              <div style={{ fontSize:13, color:'#374151', marginTop:8 }}>
+                <span style={{ fontWeight:600 }}>Phone</span> <span style={{ color:'#6b7280' }}>(for Zalo / both):</span> {badgeStudent.phone || '—'}
+              </div>
+            </div>
 
             {badgeMsg && (
               <div style={{ fontSize:13, color: (badgeMsg.startsWith('Sent') || badgeMsg.startsWith('Opened')) ? '#15803d' : '#b91c1c', marginBottom:12 }}>{badgeMsg}</div>
@@ -628,13 +639,18 @@ export default function EventConsole() {
               <button
                 onClick={sendBadge}
                 disabled={badgeBusy || !badgePreview || !badgeEmail.trim()}
-                style={{ padding:'9px 18px', borderRadius:10, border:'none', background:'#c8102e', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
-              >{badgeBusy ? 'Sending...' : (badgeStudent.badgeEmailedAt ? 'Re-send' : 'Send badge')}</button>
+                style={{ padding:'9px 16px', borderRadius:10, border:'none', background:'#c8102e', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
+              >{badgeBusy ? 'Sending...' : 'Send via e-mail'}</button>
               <button
                 onClick={sendZalo}
                 disabled={badgeBusy}
-                style={{ padding:'9px 14px', borderRadius:10, border:'none', background:'#0068FF', color:'#fff', fontWeight:700, cursor:'pointer', opacity: badgeBusy ? 0.6 : 1 }}
+                style={{ padding:'9px 16px', borderRadius:10, border:'none', background:'#0068FF', color:'#fff', fontWeight:700, cursor:'pointer', opacity: badgeBusy ? 0.6 : 1 }}
               >{badgeBusy ? 'Sending...' : 'Send via Zalo'}</button>
+              <button
+                onClick={sendBoth}
+                disabled={badgeBusy || !badgePreview || !badgeEmail.trim()}
+                style={{ padding:'9px 16px', borderRadius:10, border:'none', background:'#7c3aed', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
+              >{badgeBusy ? 'Sending...' : 'Send both'}</button>
             </div>
           </div>
         </div>
