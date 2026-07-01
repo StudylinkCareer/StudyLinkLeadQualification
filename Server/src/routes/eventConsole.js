@@ -1009,6 +1009,7 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
     });
 
     if (!result.sent) {
+      console.warn('[event-console] zalo-badge NOT SENT:', JSON.stringify({ reason: result.reason, detail: result.detail, raw: result.raw }));
       return res.status(200).json({
         success: false,
         error: result.detail || 'Could not send via Zalo',
