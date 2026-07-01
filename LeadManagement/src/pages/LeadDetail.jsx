@@ -1002,6 +1002,23 @@ export default function LeadDetail() {
         ]);
         if (!alive) return;
         const l = { ...stu.data, ...ld, studentId: sid, leadId: isStudentView ? null : id };   // lead wins on overlap
+        // Sales/person view: staff assignment lives on the leads, not the student
+        // row (those columns were dropped in the restructure). Overlay the LATEST
+        // ACTIVE lead's assignment so the Summary shows the owner and the 'own'
+        // permission checks (Edit button etc.) resolve correctly. Closed leads
+        // (Contracted/Lost/Archived) are display-only, so derive from active first.
+        if (isStudentView) {
+          const leadsForPerson = sleads.data || [];
+          const TERMINAL = ['Contracted', 'Lost', 'Archived'];
+          const byLatest = (a, b) => (Number(b.leadId) || 0) - (Number(a.leadId) || 0);
+          const owner = leadsForPerson.filter(x => !TERMINAL.includes(x.leadStatus)).sort(byLatest)[0]
+                     || leadsForPerson.slice().sort(byLatest)[0];
+          if (owner) {
+            for (const f of ['counselor', 'seniorCounselor', 'presales', 'marketingStaff']) {
+              if (owner[f] != null && owner[f] !== '') l[f] = owner[f];
+            }
+          }
+        }
         setLead(l);
         setNotes(nt.data || []);
         setStaff(st.data || []);
