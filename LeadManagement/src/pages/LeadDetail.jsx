@@ -1460,7 +1460,7 @@ export default function LeadDetail() {
                 <div style={{ display:'flex', flexDirection:'column', gap:'0.125rem' }}>
                   <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Email</span>
                   <span style={{ fontSize:'0.875rem' }}>{lead.email || '—'}</span>
-                  {lead.email && (
+                  {!isStudentView && lead.email && (
                     <div style={{ display:'flex', gap:'0.35rem', marginTop:'0.25rem' }}>
                       <a href="#" title="Send Email (Outlook / Gmail)"
                          onClick={e => { e.preventDefault(); openContactModal('email'); }}
@@ -1475,13 +1475,15 @@ export default function LeadDetail() {
                   <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontWeight:500 }}>Phone</span>
                   <span style={{ fontSize:'0.875rem' }}>
                     {lead.phone
-                      ? <a href="#" style={{ color:'var(--primary)', textDecoration:'none' }}
-                           onClick={e => { e.preventDefault(); openContactModal('call'); }}>
-                          {lead.phone}
-                        </a>
+                      ? (isStudentView
+                          ? lead.phone
+                          : <a href="#" style={{ color:'var(--primary)', textDecoration:'none' }}
+                               onClick={e => { e.preventDefault(); openContactModal('call'); }}>
+                              {lead.phone}
+                            </a>)
                       : '—'}
                   </span>
-                  {lead.phone && (
+                  {!isStudentView && lead.phone && (
                     <div style={{ display:'flex', gap:'0.35rem', flexWrap:'wrap', marginTop:'0.25rem' }}>
                       {[
                         { key:'call',     label:'Call',     color:'#16a34a', icon:'📞' },
@@ -1539,8 +1541,6 @@ export default function LeadDetail() {
             </div>
             {regLoading ? (
               <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.875rem' }}>Loading…</div>
-            ) : registrations.length === 0 ? (
-              <div style={{ padding:'1rem', color:'var(--text-secondary)', fontSize:'0.875rem' }}>No registrations yet.</div>
             ) : (
               <div style={{ overflowX:'auto' }}>
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.85rem' }}>
@@ -1583,34 +1583,45 @@ export default function LeadDetail() {
                         </td>
                       </tr>
                     ))}
+                    {/* Add-event row - inputs sit directly under their columns */}
+                    <tr style={{ borderTop:'2px solid var(--border)' }}>
+                      <td style={{ padding:'0.5rem' }}>
+                        <input value={addSourceOfLead} onChange={e => setAddSourceOfLead(e.target.value)} placeholder="Source of lead"
+                               style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }} />
+                      </td>
+                      <td style={{ padding:'0.5rem' }}>
+                        <input value={addSource} onChange={e => setAddSource(e.target.value)} placeholder="Source"
+                               style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }} />
+                      </td>
+                      <td style={{ padding:'0.5rem' }}>
+                        <select value={addEventId} onChange={e => setAddEventId(e.target.value)}
+                                style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }}>
+                          <option value="">+ add an event...</option>
+                          {availableEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.group ? (ev.group + ' - ') : ''}{ev.name}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding:'0.5rem', color:'var(--text-secondary)' }}>-</td>
+                      <td style={{ padding:'0.5rem', color:'var(--text-secondary)' }}>-</td>
+                      <td style={{ padding:'0.5rem' }}>
+                        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                          <select value={addEventStatus} onChange={e => setAddEventStatus(e.target.value)}
+                                  style={{ padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem' }}>
+                            <option value="">Set status</option>
+                            <option value="Confirmed">Confirmed</option>
+                            <option value="Uncertain">Uncertain</option>
+                            <option value="Declined">Declined</option>
+                          </select>
+                          <button onClick={addRegistration} disabled={!addEventId || addingEvent}
+                                  style={{ padding:'0.3rem 0.7rem', borderRadius:6, border:'none', background:'var(--primary)', color:'#fff', fontWeight:600, fontSize:'0.78rem', whiteSpace:'nowrap', cursor:(!addEventId||addingEvent)?'not-allowed':'pointer', opacity:(!addEventId||addingEvent)?0.6:1 }}>
+                            {addingEvent ? 'Adding...' : 'Add'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
-              </div>
-            )}
-            {!regLoading && (
-              <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', padding:'0.75rem 0', borderTop: registrations.length ? '1px solid var(--border)' : 'none', marginTop: registrations.length ? 4 : 0 }}>
-                <select value={addEventId} onChange={e => setAddEventId(e.target.value)}
-                        style={{ padding:'0.4rem 0.6rem', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.85rem', minWidth:260 }}>
-                  <option value="">+ add an event…</option>
-                  {availableEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.group ? `${ev.group} · ` : ''}{ev.name}</option>)}
-                </select>
-                <select value={addEventStatus} onChange={e => setAddEventStatus(e.target.value)}
-                        style={{ padding:'0.4rem 0.6rem', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.85rem' }}>
-                  <option value="">Set status</option>
-                  <option value="Confirmed">Confirmed</option>
-                  <option value="Uncertain">Uncertain</option>
-                  <option value="Declined">Declined</option>
-                </select>
-                <input value={addSourceOfLead} onChange={e => setAddSourceOfLead(e.target.value)} placeholder="Source of lead"
-                       style={{ padding:'0.4rem 0.6rem', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.85rem', width:150 }} />
-                <input value={addSource} onChange={e => setAddSource(e.target.value)} placeholder="Source"
-                       style={{ padding:'0.4rem 0.6rem', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.85rem', width:130 }} />
-                <button onClick={addRegistration} disabled={!addEventId || addingEvent}
-                        style={{ padding:'0.4rem 0.9rem', borderRadius:6, border:'none', background:'var(--primary)', color:'#fff', fontWeight:600, fontSize:'0.82rem', cursor:(!addEventId||addingEvent)?'not-allowed':'pointer', opacity:(!addEventId||addingEvent)?0.6:1 }}>
-                  {addingEvent ? 'Adding…' : 'Add event'}
-                </button>
                 {eventOptions.length > 0 && availableEvents.length === 0 && (
-                  <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>All events already linked.</span>
+                  <div style={{ padding:'0.5rem 0', color:'var(--text-secondary)', fontSize:'0.8rem' }}>All events already linked.</div>
                 )}
               </div>
             )}
@@ -1996,7 +2007,7 @@ export default function LeadDetail() {
           {isStudentView && (
           <div className="section-card">
             <div className="section-header" style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <span className="section-title">Leads for this student ({studentLeads.length})</span>
+              <span className="section-title">Sales leads ({studentLeads.length})</span>
               {canEdit && (
                 <button className="btn btn--secondary btn--sm" onClick={createNewLead} title="Add a new lead for this student">
                   <FiPlus size={13}/> New Lead
