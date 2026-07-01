@@ -114,8 +114,31 @@ async function canAccessLead(staff, lead, operation) {
   const scope = await getResourceScope(staff.role, 'leads', operation);
   if (scope === 'all')  return true;
   if (scope === 'none') return false;
-  if (scope === 'own')  return isLeadAssignedTo(staff, lead);
-  return false;
+  if (scope !== 'own')  return false;
+
+  // A LEAD object (has a leadId): ownership is that lead's own assignment.
+  if (lead && (lead.leadId != null || lead.lead_id != null)) {
+    return isLeadAssignedTo(staff, lead);
+  }
+
+  // A SALES/person object (post-cutover `students` rows no longer carry the
+  // counselor/presales/etc. columns — they live only on leads). Grant "own"
+  // access if the staff is assigned to ANY of that person's leads (open OR
+  // closed: closed leads retain their historical assignment for display).
+  const personId = lead && (lead.studentId || lead.student_id);
+  if (personId && staff.fullName) {
+    const r = await pool.query(
+      `SELECT 1 FROM leads
+         WHERE person_id = $1
+           AND $2 IN (counselor, senior_counselor, presales, marketing_staff)
+         LIMIT 1`,
+      [personId, staff.fullName]
+    );
+    return r.rowCount > 0;
+  }
+
+  // Fallback: an object that already carries assignment fields but no ids.
+  return isLeadAssignedTo(staff, lead);
 }
 
 // ─── Masking helpers ─────────────────────────────────────────────────────
