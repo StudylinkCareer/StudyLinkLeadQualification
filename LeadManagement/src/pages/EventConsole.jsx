@@ -482,6 +482,19 @@ export default function EventConsole() {
                           title={r.badgeEmailedAt ? `Emailed ${fmtTime(r.badgeEmailedAt)}${r.badgeEmailedTo ? ' to ' + r.badgeEmailedTo : ''}` : 'Email badge + profile form'}
                           style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #c8102e', background:'#fff', color:'#c8102e', fontWeight:600, cursor:'pointer' }}
                         >{r.badgeEmailedAt ? 'Badge (sent)' : 'Badge'}</button>
+                        {(() => {
+                          const zs = r.badgeZaloStatus;
+                          if (zs === 'delivered') return (
+                            <span title={`Delivered to Zalo ${fmtTime(r.badgeZaloDeliveredAt || r.badgeZaloSentAt)}`}
+                                  style={{ fontSize:12, color:'#15803d', fontWeight:600 }}>Zalo ✓ delivered</span>);
+                          if (zs === 'accepted' || r.badgeZaloSentAt) return (
+                            <span title={`Sent to Zalo ${fmtTime(r.badgeZaloSentAt)}`}
+                                  style={{ fontSize:12, color:'#2563eb', fontWeight:600 }}>Zalo ✓ sent</span>);
+                          if (zs === 'failed') return (
+                            <span title={r.badgeZaloError || 'Zalo send failed'}
+                                  style={{ fontSize:12, color:'#c8102e', fontWeight:600, cursor:'help' }}>Zalo ✗ failed</span>);
+                          return null;
+                        })()}
                         {!r.attendedAt && (
                           <button
                             onClick={() => handleCheckin(r.studentId, r)}
@@ -610,6 +623,17 @@ export default function EventConsole() {
             {badgeStudent.badgeEmailedAt && (
               <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>
                 Last emailed {fmtTime(badgeStudent.badgeEmailedAt)}{badgeStudent.badgeEmailedTo ? ` to ${badgeStudent.badgeEmailedTo}` : ''}
+              </div>
+            )}
+            {(badgeStudent.badgeZaloSentAt || badgeStudent.badgeZaloStatus) && (
+              <div style={{ fontSize:12, marginBottom:10,
+                            color: badgeStudent.badgeZaloStatus === 'failed' ? '#c8102e'
+                                 : badgeStudent.badgeZaloStatus === 'delivered' ? '#15803d' : '#2563eb' }}>
+                {badgeStudent.badgeZaloStatus === 'failed'
+                  ? `Zalo failed: ${badgeStudent.badgeZaloError || 'unknown error'}`
+                  : badgeStudent.badgeZaloStatus === 'delivered'
+                    ? `Zalo delivered ${fmtTime(badgeStudent.badgeZaloDeliveredAt || badgeStudent.badgeZaloSentAt)}`
+                    : `Sent to Zalo ${fmtTime(badgeStudent.badgeZaloSentAt)}`}
               </div>
             )}
 

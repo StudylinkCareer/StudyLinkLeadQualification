@@ -146,6 +146,11 @@ router.get('/events/:id/roster', requireStaffAuth, async (req, res) => {
               ea.attendance_token,
               ea.badge_emailed_at,
               ea.badge_emailed_to,
+              ea.badge_zalo_sent_at,
+              ea.badge_zalo_status,
+              ea.badge_zalo_msg_id,
+              ea.badge_zalo_error,
+              ea.badge_zalo_delivered_at,
               ea.checked_in_by,
               ci.full_name               AS checked_in_by_name
          FROM (
@@ -1024,6 +1029,13 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
 
     if (!result.sent) {
       console.warn('[event-console] zalo-badge NOT SENT:', JSON.stringify({ reason: result.reason, detail: result.detail, raw: result.raw }));
+      const why = String(result.reason || 'error') + (result.detail ? `: ${result.detail}` : '');
+      await pool.query(
+        `UPDATE event_attendees
+            SET badge_zalo_status = 'failed', badge_zalo_error = $3, updated_at = NOW()
+          WHERE event_id = $1 AND student_unique_id = $2`,
+        [eventId, studentId, why]
+      ).catch((e) => console.error('[event-console] zalo-badge status(fail) write:', e.message));
       return res.status(200).json({
         success: false,
         error: result.detail || 'Could not send via Zalo',
@@ -1031,15 +1043,23 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
       });
     }
 
+    // Zalo accepted it. Capture the message id so Phase 2 (delivery webhook) can
+    // match the "user received" event back to this attendee.
+    const msgId = (result.raw && result.raw.data && (result.raw.data.msg_id || result.raw.data.message_id)) || null;
     const upd = await pool.query(
       `UPDATE event_attendees
-          SET badge_zalo_sent_at = NOW(), updated_at = NOW()
+          SET badge_zalo_sent_at = NOW(),
+              badge_zalo_status  = 'accepted',
+              badge_zalo_msg_id  = $3,
+              badge_zalo_error   = NULL,
+              updated_at         = NOW()
         WHERE event_id = $1 AND student_unique_id = $2
-        RETURNING badge_zalo_sent_at`,
-      [eventId, studentId]
+        RETURNING badge_zalo_sent_at, badge_zalo_msg_id`,
+      [eventId, studentId, msgId]
     );
 
-    res.json({ success: true, data: upd.rows[0] || { badge_zalo_sent_at: new Date().toISOString() } });
+    console.log('[event-console] zalo-badge SENT:', JSON.stringify({ to: result.to, msgId }));
+    res.json({ success: true, data: upd.rows[0] || { badge_zalo_sent_at: new Date().toISOString(), badge_zalo_msg_id: msgId } });
   } catch (err) {
     console.error('[event-console] zalo-badge:', err);
     res.status(500).json({ success: false, error: 'Failed to send Zalo badge' });
