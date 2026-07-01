@@ -650,15 +650,29 @@ function lookupCategoryFor(k) { return FIELD_LOOKUP_CATEGORY[k] || k; }
 // Build the streamlined check-in form descriptor for a student: one entry per
 // CURRENTLY-required field, with options pulled from lookup_values (select) or
 // type 'text' when no list exists. Reads config live, so it tracks the toggles.
-async function buildCheckinFields(student) {
+async function buildCheckinFields(student, lang = 'en') {
+  const vi = lang === 'vi';
+  // Question label: use the Vietnamese column when available (added later), else
+  // fall back to the English label. Guarded with to_regclass-free COALESCE on a
+  // column that may not exist yet, so this stays safe pre-migration: we only add
+  // `label_vi` to the SELECT if the column exists.
+  const hasQfVi = vi && (await pool.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_name='event_qualification_fields' AND column_name='label_vi' LIMIT 1`)).rowCount > 0;
+  const labelExpr = hasQfVi ? `COALESCE(NULLIF(label_vi, ''), label)` : `label`;
   const qf = await pool.query(
-    `SELECT field_key, label FROM event_qualification_fields
+    `SELECT field_key, ${labelExpr} AS label FROM event_qualification_fields
       WHERE is_required = true ORDER BY sort_order`
   );
   const out = [];
   for (const f of qf.rows) {
+    // Option labels: Vietnamese when asked for (label_vi already exists on
+    // lookup_values), falling back to English then the code.
+    const optLabel = vi
+      ? `COALESCE(NULLIF(label_vi, ''), NULLIF(label_en, ''), code)`
+      : `COALESCE(NULLIF(label_en, ''), code)`;
     const lv = await pool.query(
-      `SELECT code, COALESCE(NULLIF(label_en, ''), code) AS label
+      `SELECT code, ${optLabel} AS label
          FROM lookup_values
         WHERE category = $1 AND is_active = true
         ORDER BY sort_order, label_en`,
@@ -777,7 +791,7 @@ router.get('/profile/:token', async (req, res) => {
     );
     if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Link not recognised' });
     const student = r.rows[0];
-    const all = await buildCheckinFields(student);
+    const all = await buildCheckinFields(student, 'vi');   // student-facing page is Vietnamese
     const fields = all.filter((f) => !PROFILE_EXCLUDE.includes(f.fieldKey));
     res.json({ success: true, data: { fullName: student.full_name, fields } });
   } catch (err) {

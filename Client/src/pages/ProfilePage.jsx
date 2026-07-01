@@ -33,7 +33,7 @@ export default function ProfilePage() {
   const [badgeImg, setBadgeImg] = useState('');
 
   useEffect(() => {
-    if (!token) { setError('This link is missing its code. Please use the link from your registration message.'); setLoading(false); return; }
+    if (!token) { setError('Liên kết này thiếu mã. Vui lòng dùng liên kết trong tin nhắn đăng ký của bạn.'); setLoading(false); return; }
     (async () => {
       try {
         const res = await profileAPI.get(token);
@@ -53,7 +53,7 @@ export default function ProfilePage() {
           .then(setBadgeImg)
           .catch(() => {});
       } catch (e) {
-        setError(e.message || 'We could not find your registration for this link.');
+        setError(e.message || 'Chúng tôi không tìm thấy đăng ký của bạn cho liên kết này.');
       } finally {
         setLoading(false);
       }
@@ -68,7 +68,7 @@ export default function ProfilePage() {
       await profileAPI.save(token, values);
       setDone(true);
     } catch (e) {
-      setError(e.message || 'Could not save your answers. Please try again.');
+      setError(e.message || 'Không thể lưu câu trả lời của bạn. Vui lòng thử lại.');
     } finally {
       setBusy(false);
     }
@@ -84,14 +84,14 @@ export default function ProfilePage() {
         style={{ width: 280, maxWidth: '85%', height: 'auto' }}
       />
       <p style={{ color: '#6b7280', fontSize: 13, margin: '12px 0 0', lineHeight: 1.5 }}>
-        Show this QR at each institution desk to be scanned. Press and hold the
-        image to save it to your phone.
+        Xuất trình mã QR này tại mỗi bàn của các trường để được quét. Nhấn giữ
+        hình ảnh để lưu về điện thoại của bạn.
       </p>
     </div>
   ) : null;
 
   if (loading) {
-    return <div style={wrap}><div style={card}>Loading...</div></div>;
+    return <div style={wrap}><div style={card}>Đang tải...</div></div>;
   }
 
   if (done) {
@@ -99,10 +99,10 @@ export default function ProfilePage() {
       <div style={wrap}>
         {badgeBlock}
         <div style={{ ...card, textAlign: 'center', padding: 28 }}>
-          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, color: '#15803d' }}>Thank you!</div>
+          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, color: '#15803d' }}>Cảm ơn bạn!</div>
           <div style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.5 }}>
-            Your answers are saved. The institutions at our exhibition will already know your goals,
-            so you can spend your time on what matters. See you there!
+            Câu trả lời của bạn đã được lưu. Các trường tại triển lãm sẽ biết trước mục tiêu của bạn,
+            giúp bạn dành thời gian cho những điều quan trọng. Hẹn gặp bạn tại sự kiện!
           </div>
         </div>
       </div>
@@ -119,11 +119,11 @@ export default function ProfilePage() {
 
       <div style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, margin: '6px 0 8px' }}>
-          Know you better{fullName ? `, ${fullName}` : ''}
+          Tìm hiểu về bạn{fullName ? `, ${fullName}` : ''}
         </h1>
         <p style={{ color: '#6b7280', margin: 0, fontSize: 14, lineHeight: 1.5 }}>
-          Please answer these questions so each institution does not have to ask you the same things.
-          It saves you time and makes your experience at our exhibition smoother.
+          Vui lòng trả lời những câu hỏi sau để mỗi trường không phải hỏi lại bạn cùng một điều.
+          Điều này giúp bạn tiết kiệm thời gian và có trải nghiệm mượt mà hơn tại triển lãm.
         </p>
       </div>
 
@@ -133,7 +133,7 @@ export default function ProfilePage() {
             <label style={label}>{f.label}</label>
             {f.type === 'select' ? (
               <select value={values[f.fieldKey] || ''} onChange={(e) => setVal(f.fieldKey, e.target.value)} style={input}>
-                <option value="">Select...</option>
+                <option value="">Chọn...</option>
                 {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             ) : (
@@ -145,7 +145,7 @@ export default function ProfilePage() {
         {error && <div style={{ color: '#b91c1c', fontSize: 14, marginBottom: 12 }}>{error}</div>}
 
         <button style={{ ...btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}>
-          {busy ? 'Saving...' : 'Submit my answers'}
+          {busy ? 'Đang lưu...' : 'Gửi câu trả lời'}
         </button>
       </div>
     </div>
