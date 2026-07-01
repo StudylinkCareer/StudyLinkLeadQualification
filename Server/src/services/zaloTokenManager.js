@@ -93,4 +93,24 @@ async function getAccessToken() {
   return fresh.access_token;
 }
 
-module.exports = { getAccessToken, _loadRow: loadRow };
+// Force a fresh access token regardless of the stored one's expiry. Used to
+// self-heal when the API rejects the current access token (e.g. -124 "invalid",
+// common after a re-mint). Tries the DB refresh token first, then the env
+// refresh token; doRefresh persists the new pair to the DB.
+async function forceRefresh() {
+  const row = await loadRow();
+  const dbRt = row && row.refresh_token;
+  const envRt = (process.env.ZALO_OA_REFRESH_TOKEN || '').trim();
+  const candidates = [...new Set([dbRt, envRt].filter(Boolean))];
+  if (!candidates.length) throw new Error('No refresh token available to force-refresh');
+  let lastErr;
+  for (const rt of candidates) {
+    try {
+      const fresh = await doRefresh(rt);
+      return fresh.access_token;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+module.exports = { getAccessToken, forceRefresh, _loadRow: loadRow };

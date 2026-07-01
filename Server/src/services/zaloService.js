@@ -112,16 +112,27 @@ async function sendBadgeViaZns({ phone, name, eventName, registrationCode, token
     tracking_id: `badge_${Date.now()}`,
   };
 
-  try {
+  const post = async (accessToken) => {
     const res = await fetch('https://business.openapi.zalo.me/message/template', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        access_token: await getOaAccessToken(),
-      },
+      headers: { 'Content-Type': 'application/json', access_token: accessToken },
       body: JSON.stringify(body),
     });
-    const data = await res.json().catch(() => ({}));
+    return res.json().catch(() => ({}));
+  };
+
+  try {
+    let data = await post(await getOaAccessToken());
+    // Auto-heal: -124 = the access token was invalidated (common after a re-mint).
+    // Force a fresh token (DB refresh token, then env refresh token) and retry once.
+    if (data && data.error === -124) {
+      try {
+        const fresh = await tokenManager.forceRefresh();
+        data = await post(fresh);
+      } catch (e) {
+        return { sent: false, reason: 'token_refresh_failed', detail: e.message, raw: data };
+      }
+    }
     // Zalo returns { error: 0, message: 'Success', ... } on success.
     if (data && data.error === 0) {
       return { sent: true, via: 'zns', to, raw: data };
