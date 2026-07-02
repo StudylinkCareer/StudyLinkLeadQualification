@@ -445,7 +445,7 @@ export default function EventConsole() {
                   <th style={th}>Contact</th>
                   <th style={th}>Status</th>
                   <th style={th}>Attended</th>
-                  <th style={{ ...th, textAlign:'right' }}>Action</th>
+                  <th style={th}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -475,38 +475,41 @@ export default function EventConsole() {
                         ? <span style={{ color:'#15803d', fontWeight:600 }}>✓ {fmtTime(r.attendedAt)}</span>
                         : <span style={{ color:'#9ca3af' }}>—</span>}
                     </td>
-                    <td style={{ ...td, textAlign:'right' }}>
-                      <div style={{ display:'inline-flex', gap:8, alignItems:'center', justifyContent:'flex-end', flexWrap:'wrap' }}>
+                    <td style={td}>
+                      <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'nowrap' }}>
                         <button
                           onClick={() => openBadge(r)}
-                          title={r.badgeEmailedAt ? `Emailed ${fmtTime(r.badgeEmailedAt)}${r.badgeEmailedTo ? ' to ' + r.badgeEmailedTo : ''}` : 'Email badge + profile form'}
-                          style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #c8102e', background:'#fff', color:'#c8102e', fontWeight:600, cursor:'pointer' }}
-                        >{r.badgeEmailedAt ? 'Badge (sent)' : 'Badge'}</button>
+                          title="Send badge (e-mail / Zalo) + profile form"
+                          style={{ padding:'7px 14px', borderRadius:8, border:'1px solid #c8102e', background:'#fff', color:'#c8102e', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}
+                        >Send badge</button>
+                        {!r.attendedAt ? (
+                          <button
+                            onClick={() => handleCheckin(r.studentId, r)}
+                            disabled={busyId === r.studentId}
+                            style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#16a34a', color:'#fff', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', opacity: busyId === r.studentId ? 0.6 : 1 }}
+                          >{busyId === r.studentId ? 'Checking in…' : 'Check in'}</button>
+                        ) : (
+                          <span style={{ color:'#6b7280', fontSize:13, whiteSpace:'nowrap' }}>
+                            ✓ Checked in{r.checkedInByName ? ` · ${r.checkedInByName}` : ''}
+                          </span>
+                        )}
+                        {r.badgeEmailedAt && (
+                          <span title={`Emailed ${fmtTime(r.badgeEmailedAt)}${r.badgeEmailedTo ? ' to ' + r.badgeEmailedTo : ''}`}
+                                style={{ fontSize:12, color:'#15803d', fontWeight:600, whiteSpace:'nowrap' }}>E-mail ✓ sent</span>
+                        )}
                         {(() => {
                           const zs = r.badgeZaloStatus;
                           if (zs === 'delivered') return (
                             <span title={`Delivered to Zalo ${fmtTime(r.badgeZaloDeliveredAt || r.badgeZaloSentAt)}`}
-                                  style={{ fontSize:12, color:'#15803d', fontWeight:600 }}>Zalo ✓ delivered</span>);
+                                  style={{ fontSize:12, color:'#15803d', fontWeight:600, whiteSpace:'nowrap' }}>Zalo ✓ delivered</span>);
                           if (zs === 'accepted' || r.badgeZaloSentAt) return (
                             <span title={`Sent to Zalo ${fmtTime(r.badgeZaloSentAt)}`}
-                                  style={{ fontSize:12, color:'#2563eb', fontWeight:600 }}>Zalo ✓ sent</span>);
+                                  style={{ fontSize:12, color:'#2563eb', fontWeight:600, whiteSpace:'nowrap' }}>Zalo ✓ sent</span>);
                           if (zs === 'failed') return (
                             <span title={r.badgeZaloError || 'Zalo send failed'}
-                                  style={{ fontSize:12, color:'#c8102e', fontWeight:600, cursor:'help' }}>Zalo ✗ failed</span>);
+                                  style={{ fontSize:12, color:'#c8102e', fontWeight:600, cursor:'help', whiteSpace:'nowrap' }}>Zalo ✗ failed</span>);
                           return null;
                         })()}
-                        {!r.attendedAt && (
-                          <button
-                            onClick={() => handleCheckin(r.studentId, r)}
-                            disabled={busyId === r.studentId}
-                            style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#16a34a', color:'#fff', fontWeight:600, cursor:'pointer', opacity: busyId === r.studentId ? 0.6 : 1 }}
-                          >{busyId === r.studentId ? 'Checking in…' : 'Check in'}</button>
-                        )}
-                        {r.attendedAt && (
-                          <span style={{ color:'#6b7280', fontSize:13 }}>
-                            Checked in{r.checkedInByName ? ` · ${r.checkedInByName}` : ''}
-                          </span>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -637,17 +640,20 @@ export default function EventConsole() {
               </div>
             )}
 
-            <div style={{ textAlign:'left', marginBottom:12 }}>
-              <label style={{ display:'block', fontSize:13, fontWeight:600, marginBottom:4 }}>Email <span style={{ fontWeight:400, color:'#6b7280' }}>(for e-mail / both)</span></label>
-              <input
-                type="email"
-                value={badgeEmail}
-                onChange={(e) => setBadgeEmail(e.target.value)}
-                placeholder="email@example.com"
-                style={{ width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}
-              />
-              <div style={{ fontSize:13, color:'#374151', marginTop:8 }}>
-                <span style={{ fontWeight:600 }}>Phone</span> <span style={{ color:'#6b7280' }}>(for Zalo / both):</span> {badgeStudent.phone || '—'}
+            <div style={{ textAlign:'left', marginBottom:14 }}>
+              <div style={{ marginBottom:10 }}>
+                <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#374151', marginBottom:4 }}>E-mail <span style={{ fontWeight:400, color:'#9ca3af' }}>(for e-mail / both)</span></label>
+                <input
+                  type="email"
+                  value={badgeEmail}
+                  onChange={(e) => setBadgeEmail(e.target.value)}
+                  placeholder="email@example.com"
+                  style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}
+                />
+              </div>
+              <div>
+                <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#374151', marginBottom:4 }}>Phone number <span style={{ fontWeight:400, color:'#9ca3af' }}>(for Zalo / both)</span></label>
+                <div style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:8, border:'1px solid #e5e7eb', background:'#f9fafb', fontSize:14, color:'#111827' }}>{badgeStudent.phone || '—'}</div>
               </div>
             </div>
 
@@ -655,26 +661,26 @@ export default function EventConsole() {
               <div style={{ fontSize:13, color: (badgeMsg.startsWith('Sent') || badgeMsg.startsWith('Opened')) ? '#15803d' : '#b91c1c', marginBottom:12 }}>{badgeMsg}</div>
             )}
 
-            <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
-              <button
-                onClick={() => setBadgeStudent(null)}
-                style={{ padding:'9px 16px', borderRadius:10, border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontWeight:600 }}
-              >Close</button>
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
               <button
                 onClick={sendBadge}
                 disabled={badgeBusy || !badgePreview || !badgeEmail.trim()}
-                style={{ padding:'9px 16px', borderRadius:10, border:'none', background:'#c8102e', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
+                style={{ width:'100%', padding:'12px', borderRadius:10, border:'none', background:'#c8102e', color:'#fff', fontWeight:700, fontSize:15, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
               >{badgeBusy ? 'Sending...' : 'Send via e-mail'}</button>
               <button
                 onClick={sendZalo}
                 disabled={badgeBusy}
-                style={{ padding:'9px 16px', borderRadius:10, border:'none', background:'#0068FF', color:'#fff', fontWeight:700, cursor:'pointer', opacity: badgeBusy ? 0.6 : 1 }}
+                style={{ width:'100%', padding:'12px', borderRadius:10, border:'none', background:'#0068FF', color:'#fff', fontWeight:700, fontSize:15, cursor:'pointer', opacity: badgeBusy ? 0.6 : 1 }}
               >{badgeBusy ? 'Sending...' : 'Send via Zalo'}</button>
               <button
                 onClick={sendBoth}
                 disabled={badgeBusy || !badgePreview || !badgeEmail.trim()}
-                style={{ padding:'9px 16px', borderRadius:10, border:'none', background:'#7c3aed', color:'#fff', fontWeight:700, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
-              >{badgeBusy ? 'Sending...' : 'Send both'}</button>
+                style={{ width:'100%', padding:'12px', borderRadius:10, border:'none', background:'#7c3aed', color:'#fff', fontWeight:700, fontSize:15, cursor:'pointer', opacity:(badgeBusy || !badgePreview || !badgeEmail.trim()) ? 0.6 : 1 }}
+              >{badgeBusy ? 'Sending...' : 'Send via both'}</button>
+              <button
+                onClick={() => setBadgeStudent(null)}
+                style={{ width:'100%', padding:'11px', borderRadius:10, border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontWeight:600, fontSize:14 }}
+              >Close</button>
             </div>
           </div>
         </div>
