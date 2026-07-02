@@ -29,6 +29,7 @@ const { Pool } = require('pg');
 const { clearQualificationCache, checkStudent } = require('../services/eventQualification');
 const { sendEventQrEmail, sendRepLinkEmail } = require('../services/emailService');
 const { sendEventBadge } = require('../services/zaloService');
+const zaloDeliveryPoller = require('../services/zaloDeliveryPoller');
 
 // Engagement qualification fields collected at check-in belong to the lead, not the
 // person; everything else stays on students.
@@ -1063,6 +1064,18 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
   } catch (err) {
     console.error('[event-console] zalo-badge:', err);
     res.status(500).json({ success: false, error: 'Failed to send Zalo badge' });
+  }
+});
+
+// Force a Zalo delivery-status poll now (the background poller also runs every
+// couple minutes). Flips 'accepted' badges to 'delivered' where Zalo confirms.
+router.post('/poll-zalo-delivery', requireStaffAuth, async (_req, res) => {
+  try {
+    const summary = await zaloDeliveryPoller.pollOnce({ verbose: true });
+    res.json({ success: true, data: summary });
+  } catch (err) {
+    console.error('[event-console] poll-zalo-delivery:', err);
+    res.status(500).json({ success: false, error: 'Poll failed' });
   }
 });
 

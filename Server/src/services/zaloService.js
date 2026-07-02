@@ -211,8 +211,29 @@ async function sendEventBadge({ method, phone, zaloUserId, name = '', eventName 
   return sendBadgeViaZns({ phone, name, eventName, registrationCode, token });
 }
 
+// ---- ZNS delivery-status PULL (Phase 2) ------------------------------------
+// Zalo's US-IP geo-filter blocks the delivery WEBHOOK, so we PULL status by
+// message id instead (an outbound call, which works from our server). Returns
+// Zalo's raw response. Confirmed shape:
+//   { error:0, data:{ status:1, message:"...delivered to the user's phone",
+//                     delivery_time:"<ms epoch>" } }
+// status === 1 (or a "delivered" message) means delivered.
+async function getZnsMessageStatus(messageId) {
+  const id = String(messageId || '').trim();
+  if (!id) return { error: -1, message: 'no message_id' };
+  try {
+    const token = await getOaAccessToken();
+    const url = `https://business.openapi.zalo.me/message/status?message_id=${encodeURIComponent(id)}`;
+    const res = await fetch(url, { headers: { access_token: token } });
+    return await res.json().catch(() => ({}));
+  } catch (err) {
+    return { error: -999, message: err.message };
+  }
+}
+
 module.exports = {
   sendEventBadge,
+  getZnsMessageStatus,
   isConfigured,
   getStatus,
   normalizeVnPhone,
