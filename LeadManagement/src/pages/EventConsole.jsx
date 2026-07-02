@@ -347,7 +347,7 @@ export default function EventConsole() {
   });
 
   return (
-    <div style={{ padding:'8px 4px', maxWidth:1000 }}>
+    <div style={{ padding:'8px 4px', maxWidth:1440 }}>
       <h1 style={{ fontSize:22, fontWeight:700, margin:'0 0 4px' }}>Event Management</h1>
       <p style={{ color:'#6b7280', margin:'0 0 18px', fontSize:14 }}>
         Run an exhibition: check pre-registered students in, and set up institution desks.
@@ -441,7 +441,7 @@ export default function EventConsole() {
             <table style={{ width:'100%', borderCollapse:'collapse' }}>
               <thead>
                 <tr>
-                  <th style={th}>Name</th>
+                  <th style={{ ...th, minWidth:200 }}>Name</th>
                   <th style={th}>Contact</th>
                   <th style={th}>Status</th>
                   <th style={th}>Attended</th>
@@ -457,7 +457,7 @@ export default function EventConsole() {
                 )}
                 {!loading && filteredRoster.map((r) => (
                   <tr key={r.studentId}>
-                    <td style={td}>
+                    <td style={{ ...td, minWidth:200 }}>
                       <div
                         onClick={() => navigate(`/leads/${r.studentId}`)}
                         style={{ fontWeight:600, color:'#2563eb', cursor:'pointer' }}
@@ -466,7 +466,7 @@ export default function EventConsole() {
                       <div style={{ color:'#9ca3af', fontSize:12 }}>{r.studentId}</div>
                     </td>
                     <td style={td}>
-                      <div>{r.email || '—'}</div>
+                      <div style={{ wordBreak:'break-word' }}>{r.email || '—'}</div>
                       <div style={{ color:'#6b7280', fontSize:13 }}>{r.phone || ''}</div>
                     </td>
                     <td style={td}>{r.status || '—'}</td>
