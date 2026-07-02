@@ -623,20 +623,22 @@ export default function EventConsole() {
                 : <span style={{ color:'#9ca3af', fontSize:14 }}>Generating...</span>}
             </div>
 
-            {badgeStudent.badgeEmailedAt && (
-              <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>
-                Last emailed {fmtTime(badgeStudent.badgeEmailedAt)}{badgeStudent.badgeEmailedTo ? ` to ${badgeStudent.badgeEmailedTo}` : ''}
-              </div>
-            )}
-            {(badgeStudent.badgeZaloSentAt || badgeStudent.badgeZaloStatus) && (
-              <div style={{ fontSize:12, marginBottom:10,
-                            color: badgeStudent.badgeZaloStatus === 'failed' ? '#c8102e'
-                                 : badgeStudent.badgeZaloStatus === 'delivered' ? '#15803d' : '#2563eb' }}>
-                {badgeStudent.badgeZaloStatus === 'failed'
-                  ? `Zalo failed: ${badgeStudent.badgeZaloError || 'unknown error'}`
-                  : badgeStudent.badgeZaloStatus === 'delivered'
-                    ? `Zalo delivered ${fmtTime(badgeStudent.badgeZaloDeliveredAt || badgeStudent.badgeZaloSentAt)}`
-                    : `Sent to Zalo ${fmtTime(badgeStudent.badgeZaloSentAt)}`}
+            {(badgeStudent.badgeEmailedAt || badgeStudent.badgeZaloSentAt || badgeStudent.badgeZaloStatus) && (
+              <div style={{ fontSize:13, marginBottom:14, lineHeight:1.7, textAlign:'left' }}>
+                {badgeStudent.badgeEmailedAt && (
+                  <div style={{ color:'#374151' }}>
+                    <span style={{ fontWeight:600, display:'inline-block', minWidth:104 }}>Last e-mailed:</span>
+                    {fmtTime(badgeStudent.badgeEmailedAt)}
+                  </div>
+                )}
+                {(badgeStudent.badgeZaloSentAt || badgeStudent.badgeZaloStatus) && (
+                  <div style={{ color: badgeStudent.badgeZaloStatus === 'failed' ? '#c8102e' : '#374151' }}>
+                    <span style={{ fontWeight:600, display:'inline-block', minWidth:104 }}>Last Zalo:</span>
+                    {badgeStudent.badgeZaloStatus === 'failed'
+                      ? `failed - ${badgeStudent.badgeZaloError || 'unknown error'}`
+                      : fmtTime(badgeStudent.badgeZaloDeliveredAt || badgeStudent.badgeZaloSentAt)}
+                  </div>
+                )}
               </div>
             )}
 
