@@ -200,7 +200,7 @@ async function poolToReview(req, res, next) {
 // values to NULL; common placeholder text is treated as blank. Leads WITHOUT a
 // counsellor go to 'review'; leads that already name a counsellor import as
 // owned (distribution_status left NULL, so they skip the distribution queue).
-// const PLACEHOLDERS = new Set(['not provided', 'n/a', 'na', 'not calculated', 'not calcaluated', 'none', 'null', '-', '']);
+const PLACEHOLDERS = new Set(['not provided', 'n/a', 'na', 'not calculated', 'not calcaluated', 'none', 'null', '-', '']);
 // const SKIP_COLS = new Set(['id', 'distribution_status', 'prev_counselor']); // never set from the sheet
 const SKIP_COLS = new Set(['id', 'distribution_status', 'prev_counselor', 'created_at', 'updated_at']); // never set from the sheet (timestamps are added by buildRowInsert)
 // Columns that belong to the engagement (leads) row, not the person (students) row.
