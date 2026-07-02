@@ -623,33 +623,20 @@ export default function EventConsole() {
                 : <span style={{ color:'#9ca3af', fontSize:14 }}>Generating...</span>}
             </div>
 
-            {(badgeStudent.badgeEmailedAt || badgeStudent.badgeZaloSentAt || badgeStudent.badgeZaloStatus) && (
-              <div style={{ fontSize:13, marginBottom:14, lineHeight:1.7, textAlign:'left' }}>
+            {(badgeStudent.badgeEmailedAt || badgeStudent.badgeZaloSentAt) && (
+              <div style={{ fontSize:13, marginBottom:14, lineHeight:1.7, textAlign:'left', color:'#374151' }}>
                 {badgeStudent.badgeEmailedAt && (
-                  <div style={{ color:'#374151' }}>
+                  <div>
                     <span style={{ fontWeight:600, display:'inline-block', minWidth:104 }}>Last e-mailed:</span>
                     {fmtTime(badgeStudent.badgeEmailedAt)}
                   </div>
                 )}
-                {badgeStudent.badgeZaloStatus === 'failed' ? (
-                  <div style={{ color:'#c8102e', fontWeight:600 }}>
-                    <span style={{ fontWeight:600, display:'inline-block', minWidth:104, color:'#374151' }}>Zalo:</span>
-                    Zalo ✗ failed - {badgeStudent.badgeZaloError || 'unknown error'}
+                {badgeStudent.badgeZaloSentAt && (
+                  <div>
+                    <span style={{ fontWeight:600, display:'inline-block', minWidth:104 }}>Last Zalo:</span>
+                    {fmtTime(badgeStudent.badgeZaloSentAt)}
                   </div>
-                ) : (badgeStudent.badgeZaloSentAt || badgeStudent.badgeZaloStatus) ? (
-                  <>
-                    <div style={{ color:'#2563eb', fontWeight:600 }}>
-                      <span style={{ fontWeight:600, display:'inline-block', minWidth:104, color:'#374151' }}>Zalo sent:</span>
-                      {fmtTime(badgeStudent.badgeZaloSentAt)}
-                    </div>
-                    {badgeStudent.badgeZaloStatus === 'delivered' && (
-                      <div style={{ color:'#15803d', fontWeight:700 }}>
-                        <span style={{ fontWeight:600, display:'inline-block', minWidth:104, color:'#374151' }}>Zalo received:</span>
-                        🟢 {fmtTime(badgeStudent.badgeZaloDeliveredAt || badgeStudent.badgeZaloSentAt)}
-                      </div>
-                    )}
-                  </>
-                ) : null}
+                )}
               </div>
             )}
 
