@@ -1049,11 +1049,12 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
     const msgId = (result.raw && result.raw.data && (result.raw.data.msg_id || result.raw.data.message_id)) || null;
     const upd = await pool.query(
       `UPDATE event_attendees
-          SET badge_zalo_sent_at = NOW(),
-              badge_zalo_status  = 'accepted',
-              badge_zalo_msg_id  = $3,
-              badge_zalo_error   = NULL,
-              updated_at         = NOW()
+          SET badge_zalo_sent_at      = NOW(),
+              badge_zalo_status       = 'accepted',
+              badge_zalo_msg_id       = $3,
+              badge_zalo_error        = NULL,
+              badge_zalo_delivered_at = NULL,
+              updated_at              = NOW()
         WHERE event_id = $1 AND student_unique_id = $2
         RETURNING badge_zalo_sent_at, badge_zalo_msg_id`,
       [eventId, studentId, msgId]

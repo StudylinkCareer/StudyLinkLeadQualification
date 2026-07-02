@@ -59,7 +59,7 @@ async function pollOnce({ verbose = false } = {}) {
         const r = await pool.query(
           `UPDATE event_attendees
               SET badge_zalo_status = 'delivered', badge_zalo_delivered_at = $3, updated_at = NOW()
-            WHERE event_id = $1 AND student_unique_id = $2 AND badge_zalo_delivered_at IS NULL`,
+            WHERE event_id = $1 AND student_unique_id = $2 AND badge_zalo_status = 'accepted'`,
           [row.event_id, row.student_unique_id, deliveredAtFrom(raw)]
         );
         if (r.rowCount) summary.delivered++;
