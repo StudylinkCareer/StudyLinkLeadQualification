@@ -846,7 +846,11 @@ export default function LeadDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
   const location  = useLocation();
-  const isStudentView = location.pathname.startsWith('/students');   // /students/:id = person view; /lead/:id = engagement view
+  // /students/:id is the person (Sales) view; /lead/:id and a NUMERIC /leads/:id are engagement
+  // views. Student ids are non-numeric ("20260626-02" / "WISE-DN-0319") while lead ids are numeric,
+  // so a non-numeric id on /leads/:id is really a person link (roster, activity report, reminders) —
+  // treat it as the person view instead of 500-ing on leadAPI.get(<studentId>).
+  const isStudentView = location.pathname.startsWith('/students') || !/^\d+$/.test(id || '');
   const { staff } = useAuth();
 
   // ── Registrations (lead_events) ──
