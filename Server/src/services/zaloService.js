@@ -81,6 +81,20 @@ function normalizeVnPhone(raw) {
   return s;
 }
 
+// Translate Zalo's cryptic ZNS error codes into a clear reason staff can act on.
+// (Confirmed empirically: sending a ZNS to a number that is NOT a Zalo user
+//  returns error -110 "Zalo version unsupported" — not an actual version issue.)
+function friendlyZnsFailure(data) {
+  const code = String((data && data.error) != null ? data.error : '');
+  const msg  = (data && data.message) || '';
+  const MAP = {
+    '-110': 'Not a reachable Zalo user (number not on Zalo, or app not installed / too old)',
+    '-124': 'Zalo access token invalid',
+    '-136': 'Zalo app/OA association required',
+  };
+  return MAP[code] || msg || 'Zalo could not deliver';
+}
+
 // ---- ZNS path: send a template to a phone number ---------------------------
 async function sendBadgeViaZns({ phone, name, eventName, registrationCode, token }) {
   const c = cfg();
@@ -140,7 +154,7 @@ async function sendBadgeViaZns({ phone, name, eventName, registrationCode, token
     if (data && data.error === 0) {
       return { sent: true, via: 'zns', to, raw: data };
     }
-    return { sent: false, reason: 'zalo_api_error', detail: data && (data.message || data.error), raw: data };
+    return { sent: false, reason: 'zalo_api_error', detail: friendlyZnsFailure(data), raw: data };
   } catch (err) {
     return { sent: false, reason: 'network_error', detail: err.message };
   }
@@ -179,7 +193,7 @@ async function sendBadgeViaOa({ zaloUserId, name, eventName, profileUrl }) {
     if (data && data.error === 0) {
       return { sent: true, via: 'oa', to: zaloUserId, raw: data };
     }
-    return { sent: false, reason: 'zalo_api_error', detail: data && (data.message || data.error), raw: data };
+    return { sent: false, reason: 'zalo_api_error', detail: friendlyZnsFailure(data), raw: data };
   } catch (err) {
     return { sent: false, reason: 'network_error', detail: err.message };
   }

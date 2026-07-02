@@ -1033,7 +1033,7 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
 
     if (!result.sent) {
       console.warn('[event-console] zalo-badge NOT SENT:', JSON.stringify({ reason: result.reason, detail: result.detail, raw: result.raw }));
-      const why = String(result.reason || 'error') + (result.detail ? `: ${result.detail}` : '');
+      const why = result.detail || result.reason || 'error';
       await pool.query(
         `UPDATE event_attendees
             SET badge_zalo_status = 'failed', badge_zalo_error = $3, updated_at = NOW()
