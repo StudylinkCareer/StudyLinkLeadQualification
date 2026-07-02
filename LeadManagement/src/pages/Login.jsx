@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavTrail } from '../contexts/NavTrailContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 
@@ -20,6 +21,7 @@ export default function Login() {
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
   const { login }               = useAuth();
+  const { clear: clearTrail }   = useNavTrail();
   const { language }            = useLanguage();
   const navigate                = useNavigate();
 
@@ -30,6 +32,7 @@ export default function Login() {
     try {
       const data = await authAPI.login(email, password);
       login(data.staff);
+      clearTrail();                                   // fresh breadcrumb trail on sign-in -> Dashboard
       navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err.message || t('login.error.failed', language));

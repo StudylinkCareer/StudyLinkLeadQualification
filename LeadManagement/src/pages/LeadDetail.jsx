@@ -1275,6 +1275,12 @@ export default function LeadDetail() {
   }
 
   if (loading) return <div className="loading-center">Loading...</div>;
+  // Stale-flash guard: during a lead->lead navigation, `lead` still holds the
+  // PREVIOUS lead until the new fetch lands (effects run after render) — which
+  // briefly showed e.g. lead 1259's "Lost" on sibling 4464. Don't render a lead
+  // whose id doesn't match the current URL; show the loader until the fetch lands.
+  if (!isStudentView && lead && String(lead.leadId) !== String(id))
+    return <div className="loading-center">Loading...</div>;
 
   if (accessDenied) return (
     <div>
