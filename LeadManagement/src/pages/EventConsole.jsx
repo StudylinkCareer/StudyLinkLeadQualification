@@ -494,10 +494,13 @@ export default function EventConsole() {
                             ✓ Checked in{r.checkedInByName ? ` · ${r.checkedInByName}` : ''}
                           </span>
                         )}
-                        {r.badgeEmailedAt && (
+                        {r.badgeEmailedAt ? (
                           <span title={`Emailed ${fmtTime(r.badgeEmailedAt)}${r.badgeEmailedTo ? ' to ' + r.badgeEmailedTo : ''}`}
                                 style={{ fontSize:12, color:'#15803d', fontWeight:600, whiteSpace:'nowrap' }}>E-mail ✓ sent</span>
-                        )}
+                        ) : (r.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(r.email).trim())) ? (
+                          <span title="This email address looks invalid - fix it on the record"
+                                style={{ fontSize:12, color:'#c8102e', fontWeight:600, cursor:'help', whiteSpace:'nowrap' }}>E-mail ✗ invalid</span>
+                        ) : null}
                         {r.badgeZaloStatus === 'failed' ? (
                           <span title={r.badgeZaloError || 'Zalo send failed'}
                                 style={{ fontSize:12, color:'#c8102e', fontWeight:600, cursor:'help', whiteSpace:'nowrap' }}>Zalo ✗ failed</span>
