@@ -929,6 +929,9 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
     if (!recipient) {
       return res.status(400).json({ success: false, error: 'No email address on file; provide one to send to' });
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+      return res.status(400).json({ success: false, error: 'That email address looks invalid - please check it.' });
+    }
 
     const ev = await pool.query(`SELECT name FROM events WHERE id = $1 LIMIT 1`, [eventId]);
     const eventName = ev.rowCount ? (ev.rows[0].name || '') : '';

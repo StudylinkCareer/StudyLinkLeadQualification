@@ -25,13 +25,22 @@ function deliveredAtFrom(raw) {
   return Number.isFinite(ms) && ms > 0 ? new Date(ms) : new Date();
 }
 
-// Conservative: only status === 1 (or an explicit "delivered" message) counts as
-// delivered. Anything else leaves the badge 'accepted' to be polled again next
-// cycle (until it delivers or ages out of the 2-day window below).
-function isDelivered(raw) {
-  if (!raw || raw.error !== 0 || !raw.data) return false;
-  if (raw.data.status === 1) return true;
-  return /deliver/i.test(String(raw.data.message || ''));
+// Classify a ZNS status response into delivered / failed / pending.
+//   delivered: status === 1 (or a "delivered" message)  [status:1 confirmed empirically]
+//   failed:    a TERMINAL failure — not a Zalo user / invalid number / expired / rejected.
+//              Conservative keyword match; anything unmatched-and-not-delivered stays
+//              'pending' and is logged so we can tighten this list from real responses.
+//   pending:   still on its way — keep polling.
+function classify(raw) {
+  const d = (raw && raw.data) || {};
+  const msg = String(d.message || '');
+  if (d.status === 1 || /deliver/i.test(msg)) {
+    return { state: 'delivered', at: deliveredAtFrom(raw) };
+  }
+  if (/reject|not\s*using|invalid|expired|undeliver|not\s*receiv|fail/i.test(msg)) {
+    return { state: 'failed', reason: msg || 'Zalo could not deliver (bad number?)' };
+  }
+  return { state: 'pending' };
 }
 
 let running = false;
@@ -39,7 +48,7 @@ let running = false;
 async function pollOnce({ verbose = false } = {}) {
   if (running) return { skipped: true };
   running = true;
-  const summary = { checked: 0, delivered: 0, errors: 0 };
+  const summary = { checked: 0, delivered: 0, failed: 0, errors: 0 };
   try {
     const pend = await pool.query(
       `SELECT event_id, student_unique_id, badge_zalo_msg_id
@@ -53,16 +62,29 @@ async function pollOnce({ verbose = false } = {}) {
     for (const row of pend.rows) {
       summary.checked++;
       const raw = await getZnsMessageStatus(row.badge_zalo_msg_id);
-      if (verbose) console.log('[zalo-poll]', row.badge_zalo_msg_id, '=>', JSON.stringify(raw));
       if (!raw || raw.error !== 0) { summary.errors++; continue; }
-      if (isDelivered(raw)) {
+      const c = classify(raw);
+      // Log anything that isn't a clean 'delivered' so we can learn Zalo's exact
+      // failure / pending wording and tighten classify() from real responses.
+      if (verbose || c.state !== 'delivered') {
+        console.log('[zalo-poll]', row.badge_zalo_msg_id, c.state, '=>', JSON.stringify(raw));
+      }
+      if (c.state === 'delivered') {
         const r = await pool.query(
           `UPDATE event_attendees
               SET badge_zalo_status = 'delivered', badge_zalo_delivered_at = $3, updated_at = NOW()
             WHERE event_id = $1 AND student_unique_id = $2 AND badge_zalo_status = 'accepted'`,
-          [row.event_id, row.student_unique_id, deliveredAtFrom(raw)]
+          [row.event_id, row.student_unique_id, c.at]
         );
         if (r.rowCount) summary.delivered++;
+      } else if (c.state === 'failed') {
+        const r = await pool.query(
+          `UPDATE event_attendees
+              SET badge_zalo_status = 'failed', badge_zalo_error = $3, updated_at = NOW()
+            WHERE event_id = $1 AND student_unique_id = $2 AND badge_zalo_status = 'accepted'`,
+          [row.event_id, row.student_unique_id, c.reason]
+        );
+        if (r.rowCount) summary.failed++;
       }
     }
     if (summary.checked) console.log('[zalo-poll] cycle:', JSON.stringify(summary));

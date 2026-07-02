@@ -256,6 +256,7 @@ export default function EventConsole() {
     if (!badgeStudent || !badgePreview) return;
     const to = badgeEmail.trim();
     if (!to) { setBadgeMsg('Enter an email address.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { setBadgeMsg('That email address looks invalid - please check it.'); return; }
     setBadgeBusy(true); setBadgeMsg('');
     try {
       await eventConsoleAPI.emailBadge({
