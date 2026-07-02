@@ -109,7 +109,10 @@ async function sendBadgeViaZns({ phone, name, eventName, registrationCode, token
       registration_code: registrationCode || '',
       token: token || '',
     },
-    tracking_id: `badge_${Date.now()}`,
+    // "badge_<studentId>_<ts>" — the delivery webhook (routes/zaloWebhook.js)
+    // parses the studentId back out as a fallback match when a payload
+    // variant doesn't carry msg_id.
+    tracking_id: `badge_${registrationCode || 'x'}_${Date.now()}`,
   };
 
   const post = async (accessToken) => {

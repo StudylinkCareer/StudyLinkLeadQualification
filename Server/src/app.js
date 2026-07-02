@@ -24,6 +24,7 @@ const eventConsoleRoutes      = require('./routes/eventConsole');
 const eventDeskRoutes         = require('./routes/eventDesk');
 const leadRoutes              = require('./routes/leads');
 const cleanupRoutes           = require('./routes/cleanup');
+const zaloWebhookRoutes       = require('./routes/zaloWebhook');
 
 const app = express();
 
@@ -107,6 +108,7 @@ app.use('/api/event-console', eventConsoleRoutes);
 app.use('/api/event-desk', eventDeskRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/cleanup', cleanupRoutes);
+app.use('/api/zalo', zaloWebhookRoutes);   // ZNS delivery webhook (unauthenticated; Zalo is the caller)
 
 // Error handling
 app.use(errorHandler);
