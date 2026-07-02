@@ -44,8 +44,10 @@ router.post('/webhook', async (req, res) => {
   try {
     const b = req.body || {};
     const eventName = String(b.event_name || '');
+    // Both ids can arrive top-level OR nested under message{} depending on the
+    // payload variant — the live ZNS delivery event nests them under message.
     const msgId = String(b.msg_id || (b.message && b.message.msg_id) || '').trim();
-    const trackingId = String(b.tracking_id || '').trim();
+    const trackingId = String(b.tracking_id || (b.message && b.message.tracking_id) || '').trim();
 
     // ZNS device-delivery signal. Zalo's exact event_name for ZNS delivery has
     // varied ("user_received_message" and similar), so match liberally: any
