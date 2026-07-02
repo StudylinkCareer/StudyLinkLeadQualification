@@ -44,12 +44,17 @@ router.post('/webhook', async (req, res) => {
   try {
     const b = req.body || {};
     const eventName = String(b.event_name || '');
+    const msgId = String(b.msg_id || (b.message && b.message.msg_id) || '').trim();
+    const trackingId = String(b.tracking_id || '').trim();
 
-    // ZNS device-delivery event. msg_id location differs between payload
-    // variants (top-level for ZNS, under message{} for OA events) — take both.
-    if (eventName === 'user_received_message') {
-      const msgId = String(b.msg_id || (b.message && b.message.msg_id) || '').trim();
-      const trackingId = String(b.tracking_id || '').trim();
+    // ZNS device-delivery signal. Zalo's exact event_name for ZNS delivery has
+    // varied ("user_received_message" and similar), so match liberally: any
+    // event whose name mentions received/deliver, OR that carries a
+    // delivery_time, is treated as a delivery. We only ever flip rows whose
+    // stored msg_id (or tracking_id) matches, so unrelated events are harmless.
+    const looksLikeDelivery = /received|deliver/i.test(eventName) || b.delivery_time != null;
+
+    if (looksLikeDelivery && (msgId || trackingId.startsWith('badge_'))) {
       const deliveryMs = parseInt(b.delivery_time || b.timestamp, 10);
       const deliveredAt = Number.isFinite(deliveryMs) && deliveryMs > 0
         ? new Date(deliveryMs) : new Date();
@@ -80,13 +85,13 @@ router.post('/webhook', async (req, res) => {
         }
       }
 
-      console.log('[zalo-webhook] user_received_message:',
-        JSON.stringify({ msgId, trackingId, updated }));
+      console.log('[zalo-webhook] DELIVERY event:',
+        JSON.stringify({ eventName, msgId, trackingId, updated }));
       return;
     }
 
-    // Everything else: one debug line so we can see what Zalo sends us.
-    console.log('[zalo-webhook] event ignored:', eventName || '(no event_name)');
+    // Everything else: log name + any msg_id so we can see exactly what Zalo sends.
+    console.log('[zalo-webhook] event ignored:', eventName || '(no event_name)', msgId ? `msgId=${msgId}` : '');
   } catch (err) {
     console.error('[zalo-webhook] handler error:', err.message);
   }
