@@ -227,20 +227,16 @@ export default function EventConsole() {
       setBadgeMsg('Sent via Zalo.');
       await loadRoster(eventId, '');
     } catch (e) {
-      // Not configured (or failed): fall back to a manual deep link. Copy the
-      // badge link and open the student's Zalo chat so staff can paste + send.
+      // The automated ZNS send failed (commonly: not a Zalo user). Show the
+      // reason and STOP - do NOT open zalo.me/<number>, which for a non-Zalo
+      // number just renders Zalo's useless "Truyen File" fallback page. The
+      // roster already flags the failure; we copy the badge link so staff can
+      // paste it manually if they still want to.
       const base  = (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, '');
       const token = badgeStudent.attendanceToken || '';
       const profileUrl = base && token ? base + '/profile?t=' + encodeURIComponent(token) : '';
-      const digits = String(badgeStudent.phone || '').replace(/[^0-9]/g, '');
-      const intl   = digits.startsWith('0') ? '84' + digits.slice(1) : digits;
       if (profileUrl) { try { await navigator.clipboard.writeText(profileUrl); } catch (_) {} }
-      if (intl) {
-        window.open('https://zalo.me/' + intl, '_blank', 'noopener');
-        setBadgeMsg('Opened Zalo - badge link copied, paste it into the chat and send.');
-      } else {
-        setBadgeMsg(profileUrl ? ('No phone on file. Link copied: ' + profileUrl) : 'No phone or link available.');
-      }
+      setBadgeMsg('Zalo failed: ' + (e.message || 'could not send') + (profileUrl ? ' - badge link copied' : ''));
     } finally {
       setBadgeBusy(false);
     }
