@@ -677,6 +677,7 @@ const LEAD_STATUSES = [
   'Lost',
   'Nurturing',
   'Archived',
+  'Cancelled',
 ];
 const CONFIDENCE_OPTS = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
 const NOTE_TYPES      = { counselor:'Counselor Note', presales:'PreSales Note', management:'Management Note' };
@@ -1013,7 +1014,7 @@ export default function LeadDetail() {
         // (Contracted/Lost/Archived) are display-only, so derive from active first.
         if (isStudentView) {
           const leadsForPerson = sleads.data || [];
-          const TERMINAL = ['Contracted', 'Lost', 'Archived'];
+          const TERMINAL = ['Contracted', 'Lost', 'Archived', 'Cancelled'];   // closed leads don't own the person
           const byLatest = (a, b) => (Number(b.leadId) || 0) - (Number(a.leadId) || 0);
           const owner = leadsForPerson.filter(x => !TERMINAL.includes(x.leadStatus)).sort(byLatest)[0]
                      || leadsForPerson.slice().sort(byLatest)[0];
@@ -1313,11 +1314,12 @@ export default function LeadDetail() {
     </div>
   );
 
-  // Terminal lockdown: a closed lead (Lost / Archived / Contracted) is
-  // display-only for everyone except Admin/Director, who can "re-open" it.
-  // Only applies on the Lead view (the Student record has no lead_status).
-  const TERMINAL_STATUSES = ['Lost', 'Archived', 'Contracted'];
-  const isAdminRole = ['Admin', 'Director'].includes(staff?.role);
+  // Terminal lockdown: a closed lead (Lost / Archived / Cancelled) is
+  // display-only for everyone except Admin/Director/Manager, who can "re-open" it.
+  // Contracted now stays OPEN (editable) per business change. Only applies on the
+  // Lead view (the Student record has no lead_status).
+  const TERMINAL_STATUSES = ['Lost', 'Archived', 'Cancelled'];
+  const isAdminRole = ['Admin', 'Director', 'Manager'].includes(staff?.role);
   const leadLocked  = !isStudentView && TERMINAL_STATUSES.includes(lead.leadStatus) && !isAdminRole;
 
   const canEdit   = canDoOnLead('leads', 'edit',        lead) && !leadLocked;
