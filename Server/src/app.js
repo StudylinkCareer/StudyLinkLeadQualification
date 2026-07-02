@@ -89,6 +89,18 @@ app.use(session({
   },
 }));
 
+// Zalo domain-ownership verification for the webhook domain (app
+// "QR Event Registration Badge" 943526229180574542). Zalo checks either the
+// homepage meta tag or the /zalo_verifier<code>.html file — serve both so
+// whichever method the verifier uses, it passes. Same per-app code as the
+// slcareerguidance.netlify.app verification.
+const ZALO_VERIFY_CODE = 'UCNb6xBLVm1KqVK2rTjI6I-ewXt3tZ12CJOs';
+const zaloVerifyHtml =
+  `<!DOCTYPE html><html><head><meta name="zalo-platform-site-verification" content="${ZALO_VERIFY_CODE}" />` +
+  `<title>StudyLink API</title></head><body>StudyLink Lead Qualification API</body></html>`;
+app.get('/', (_req, res) => res.type('html').send(zaloVerifyHtml));
+app.get(`/zalo_verifier${ZALO_VERIFY_CODE}.html`, (_req, res) => res.type('html').send(zaloVerifyHtml));
+
 // Routes
 app.use('/api', apiRoutes);
 app.use('/api/auth', authRoutes);
