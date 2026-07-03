@@ -8,7 +8,8 @@ const { Pool } = require('pg');
 const XLSX = require('xlsx');
 const distributionService = require('../services/distributionService');
 const permissionService   = require('../services/permissionService');
-const { syncOrderPhase }  = require('../utils/orderPhase');
+const { syncOrderPhase, phaseForPosition }  = require('../utils/orderPhase');
+const OrderAssignment = require('../models/OrderAssignment');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -500,16 +501,31 @@ async function assignManual(req, res, next) {
   const by = req.session.staffName || 'system';
   const batchId = `manual-${Date.now()}`;
   const client = await pool.connect();
-  let assigned = 0;
+  let assigned = 0, blocked = 0;
   try {
     await client.query('BEGIN');
+    // Target phase = the department of the chosen counsellor's position.
+    const posRow = (await client.query(`SELECT position FROM staff WHERE full_name=$1 LIMIT 1`, [counselor])).rows[0];
+    const targetPhase = phaseForPosition(posRow ? posRow.position : null);
     for (const lid of leadIds) {
       const sel = await client.query(
-        `SELECT l.person_id, l.office, s.stone_tier, l.prev_counselor, l.counselor AS old_counselor
+        `SELECT l.person_id, l.office, s.stone_tier, l.prev_counselor, l.counselor AS old_counselor,
+                COALESCE(s.order_phase,'Pool') AS order_phase
            FROM leads l JOIN students s ON s.student_id = l.person_id
           WHERE l.lead_id=$1 AND l.distribution_status='review'`, [lid]);
       if (sel.rowCount === 0) continue;
       const row = sel.rows[0];
+      // Guardrail: block + log any transfer that isn't an approved route.
+      if (row.order_phase !== targetPhase &&
+          !(await OrderAssignment.isTransitionAllowed(row.order_phase, targetPhase, client))) {
+        await OrderAssignment.logTransferException(client, {
+          studentId: row.person_id, leadId: lid, fromPhase: row.order_phase, toPhase: targetPhase,
+          owner: counselor, source: 'assign_manual', batchId,
+          reason: `"${row.order_phase}" → "${targetPhase}" is not an approved route`,
+        });
+        blocked++;
+        continue;
+      }
       await client.query(
         `UPDATE leads SET counselor=$1, distribution_status='assigned', prev_counselor=NULL, updated_at=NOW()
           WHERE lead_id=$2`, [counselor, lid]);
@@ -534,7 +550,7 @@ async function assignManual(req, res, next) {
     await client.query('COMMIT');
   } catch (err) { await client.query('ROLLBACK'); client.release(); return next(err); }
   client.release();
-  res.json({ success: true, data: { assigned, batchId } });
+  res.json({ success: true, data: { assigned, blocked, batchId } });
 }
 
 // Commit everything still in review (i.e. NOT manually assigned) into the pool (item 4).
@@ -637,6 +653,15 @@ async function resolveDuplicate(req, res, next) {
   }
 }
 
+// Phase-transfer exceptions report (blocked batch transfers, for post-processing).
+async function listTransferExceptions(req, res, next) {
+  try {
+    const resolved = req.query.resolved === 'true';
+    const rows = await OrderAssignment.listTransferExceptions({ resolved }, pool);
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+}
+
 module.exports = {
   requireDistribution, listOffices, poolSummary, preview, release, recall,
   downloadTemplate, uploadLeads, listStaff, listCoverage, addCoverage, updateCoverageWeight, removeCoverage,
@@ -644,4 +669,5 @@ module.exports = {
   listReview, assignManual, commitToPool,
   poolToReview, downloadNotesTemplate, uploadNotes,
   listDuplicates, resolveDuplicate,
+  listTransferExceptions,
 };

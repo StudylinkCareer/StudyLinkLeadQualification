@@ -762,6 +762,20 @@ const ASSIGN_ROWS = [
 ];
 const EXTRA_POSITIONS = ASSIGN_ROWS.filter(r => !r.field).map(r => r.position);
 
+// Which staff positions are valid in each phase (mirrors the phase_positions
+// seed). Used to filter the staff dropdowns so you can only pick a recipient
+// whose position belongs to the phase being assigned.
+const PHASE_POSITIONS = {
+  'Marketing':          ['Marketing Staff'],
+  'Counselling':        ['Counselor', 'Senior Counselor'],
+  'Presales':           ['PreSales'],
+  'Pool':               ['Quality', 'Tech Support'],
+  'Case Officer - Dir': ['Case Officer, Direct'],
+  'Case Officer - Sub': ['Case Officer, Sub'],
+  'Archived - Dir':     ['Quality', 'Tech Support'],
+  'Archived - Sub':     ['Quality', 'Tech Support'],
+};
+
 function formatDate(dt) {
   if (!dt) return '';
   return new Date(dt).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
@@ -968,6 +982,18 @@ export default function LeadDetail() {
   // Owners for the non-legacy positions (Quality, Tech Support, Case Officer…),
   // which live only in order_assignments. Keyed by canonical position string.
   const [posAssign, setPosAssign] = useState({});
+
+  // Staff options for an assignment dropdown, filtered to the given position(s).
+  // Always keeps the current value visible (even if that person's position no
+  // longer matches), and falls back to all staff for an unknown phase.
+  function staffFor(positions, current) {
+    const set = (Array.isArray(positions) ? positions : [positions]).filter(Boolean);
+    let opts = set.length ? staffList.filter(s => set.includes(s.position)) : staffList;
+    if (current && !opts.some(s => s.fullName === current)) {
+      opts = [{ id: '_cur', fullName: current, position: '(current)' }, ...opts];
+    }
+    return opts;
+  }
   const topicOptions = useLookup('note_topic');
   // ── Source-of-Lead picker (mode-aware) ──
   const solItems     = useLookup('source_of_lead');
@@ -2275,7 +2301,7 @@ export default function LeadDetail() {
                         <label className="form-label">Owner for new phase <span style={{ fontWeight:400, color:'var(--text-secondary)' }}>(optional)</span></label>
                         <select className="form-select" value={phaseOwner} onChange={e => setPhaseOwner(e.target.value)}>
                           <option value="">Leave unassigned</option>
-                          {staffList.map(s => (
+                          {staffFor(PHASE_POSITIONS[phaseTarget], phaseOwner).map(s => (
                             <option key={s.id} value={s.fullName}>{s.fullName} ({s.position})</option>
                           ))}
                         </select>
@@ -2310,7 +2336,7 @@ export default function LeadDetail() {
                         title={editable ? '' : 'This position is not editable in the current phase — move the Order to its phase to reassign.'}
                         onChange={onChange}>
                         <option value="">Unassigned</option>
-                        {staffList.map(s=>(
+                        {staffFor(position, value).map(s=>(
                           <option key={s.id} value={s.fullName}>{s.fullName} ({s.position})</option>
                         ))}
                       </select>

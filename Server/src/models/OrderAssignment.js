@@ -79,8 +79,27 @@ async function activePositions(phase, db = pool) {
   return r.rows.map(x => x.position);
 }
 
+// Record a blocked batch transfer (upload / redistribution) for post-processing.
+async function logTransferException(db, e) {
+  await db.query(
+    `INSERT INTO phase_transfer_exceptions
+       (student_id, lead_id, from_phase, to_phase, attempted_owner, source, reason, batch_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [e.studentId, e.leadId || null, e.fromPhase || null, e.toPhase || null,
+     e.owner || null, e.source || null, e.reason || null, e.batchId || null]);
+}
+
+// Unresolved (default) transfer exceptions, most recent first — powers the report.
+async function listTransferExceptions({ resolved = false } = {}, db = pool) {
+  const r = await db.query(
+    `SELECT * FROM phase_transfer_exceptions WHERE resolved = $1 ORDER BY created_at DESC LIMIT 500`,
+    [resolved]);
+  return r.rows;
+}
+
 module.exports = {
   pool, POSITION_COLUMN,
   getForOrder, setForOrder,
   allowedTransitions, isTransitionAllowed, activePositions,
+  logTransferException, listTransferExceptions,
 };

@@ -633,6 +633,42 @@ async function massAssign(req, res, next) {
     // and Contracted) retain their staff — same rule as the 1-off assign.
     const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`;
 
+    // ── Guardrail: respect the approved phase routes ──────────────────────
+    // Only the counselor slot drives the Order phase, so a phase move can only
+    // happen on a counselor mass-assign. Target phase = the department of the
+    // assignee's position (blank = Pool). Any selected Order whose current phase
+    // cannot legally transition to the target is a CONFLICT — and per the rule we
+    // block the WHOLE batch (nothing applied) and explain, so the user fixes the
+    // selection rather than silently moving Orders along un-approved routes.
+    if (field === 'counselor') {
+      const OrderAssignment = require('../models/OrderAssignment');
+      let targetPhase = 'Pool';
+      if (value) {
+        const posRow = (await pool.query(
+          `SELECT position FROM staff WHERE full_name = $1 LIMIT 1`, [value])).rows[0];
+        targetPhase = phaseForPosition(posRow ? posRow.position : null);
+      }
+      const cur = (await pool.query(
+        `SELECT student_id, COALESCE(order_phase, 'Pool') AS phase
+           FROM students WHERE student_id = ANY($1)`, [studentIds])).rows;
+      const conflicts = [];
+      for (const r of cur) {
+        if (r.phase === targetPhase) continue;   // reassign within the same phase — allowed
+        if (!(await OrderAssignment.isTransitionAllowed(r.phase, targetPhase, pool))) {
+          conflicts.push({ studentId: r.student_id, from: r.phase, to: targetPhase });
+        }
+      }
+      if (conflicts.length) {
+        await pool.end();
+        const shown = conflicts.slice(0, 8).map(c => `${c.studentId} (${c.from}→${c.to})`).join(', ');
+        return res.status(409).json({
+          success: false,
+          error: `Blocked — ${conflicts.length} of ${studentIds.length} order(s) cannot move to "${targetPhase}": not an approved route. ${shown}${conflicts.length > 8 ? ` …and ${conflicts.length - 8} more` : ''}. Deselect these (or move them via Pool) and retry.`,
+          conflicts,
+        });
+      }
+    }
+
     // Mass-assign applies to each selected student's OPEN leads (grouped by student).
     // Snapshot old values per open lead so we can audit who/when per lead.
     const before = await pool.query(
@@ -673,6 +709,125 @@ async function massAssign(req, res, next) {
     }
 
     res.json({ success: true, updated: studentIds.length });
+  } catch (err) { next(err); }
+}
+
+// ── Bulk PHASE MOVE ───────────────────────────────────────────
+// Move selected Orders to a target phase by setting the primary owner (the
+// `counselor` slot drives the phase via syncOrderPhase — Model consistent with
+// reinstate + reporting). Validates every Order against the approved routes and
+// BLOCKS the whole batch (nothing applied) with an explanation if any move is
+// disallowed. Empty owner = vacate → Pool.
+async function massMovePhase(req, res, next) {
+  const { Pool } = require('pg');
+  const OrderAssignment = require('../models/OrderAssignment');
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  });
+  try {
+    const scope = await permissionService.getResourceScope(req.session.staffRole, 'leads', 'assign');
+    if (scope !== 'all') {
+      await pool.end();
+      return res.status(403).json({ success: false, error: 'Mass move requires unrestricted assign permission.' });
+    }
+    const { studentIds, toPhase, staffName } = req.body || {};
+    if (!Array.isArray(studentIds) || !studentIds.length || !toPhase) {
+      await pool.end();
+      return res.status(400).json({ success: false, error: 'studentIds (array) and toPhase are required' });
+    }
+    // Actual target = the assignee's department (Pool when vacating).
+    let targetPhase = toPhase;
+    if (staffName) {
+      const pos = (await pool.query(`SELECT position FROM staff WHERE full_name = $1 LIMIT 1`, [staffName])).rows[0];
+      targetPhase = phaseForPosition(pos ? pos.position : null);
+    }
+    // Validate every selected Order's transition — block the whole batch on any conflict.
+    const cur = (await pool.query(
+      `SELECT student_id, COALESCE(order_phase, 'Pool') AS phase FROM students WHERE student_id = ANY($1)`,
+      [studentIds])).rows;
+    const conflicts = [];
+    for (const r of cur) {
+      if (r.phase === targetPhase) continue;
+      if (!(await OrderAssignment.isTransitionAllowed(r.phase, targetPhase, pool))) {
+        conflicts.push({ studentId: r.student_id, from: r.phase });
+      }
+    }
+    if (conflicts.length) {
+      await pool.end();
+      const shown = conflicts.slice(0, 8).map(c => `${c.studentId} (${c.from}→${targetPhase})`).join(', ');
+      return res.status(409).json({
+        success: false,
+        error: `Blocked — ${conflicts.length} of ${studentIds.length} order(s) cannot move to "${targetPhase}": not an approved route. ${shown}${conflicts.length > 8 ? ` …and ${conflicts.length - 8} more` : ''}. Deselect these (or route via Pool) and retry.`,
+        conflicts,
+      });
+    }
+    // Apply: set the primary owner, cascade to ACTIVE leads, phase follows the owner.
+    const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`;
+    await pool.query(`UPDATE students SET counselor = $1, updated_at = NOW() WHERE student_id = ANY($2)`, [staffName || '', studentIds]);
+    await pool.query(`UPDATE leads SET counselor = $1, updated_at = NOW() WHERE person_id = ANY($2) AND ${OPEN}`, [staffName || '', studentIds]);
+    for (const sid of studentIds) await syncOrderPhase(pool, sid);
+    await pool.end();
+
+    const changedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+    for (const sid of studentIds) {
+      await logChanges({ studentId: sid, leadId: null, changedBy, oldData: {}, newData: { orderPhase: targetPhase, staffName: staffName || '' }, source: 'staff_app' });
+    }
+    res.json({ success: true, data: { moved: studentIds.length, toPhase: targetPhase } });
+  } catch (err) { next(err); }
+}
+
+// ── Admin maintenance: stale-reminder review + close ──────────
+// Admin or Tech Support only. The trigger auto-closes reminders on a Lead's
+// status change; this is the manual review tool: LIST open reminders on Leads in
+// the defined statuses, then close the SELECTED ones.
+const STALE_STATUSES = ['Contracted', 'Lost', 'Archived', 'Not contactable'];
+
+function maintenanceAllowed(req) {
+  return req.session.staffRole === 'Admin' || req.session.staffPosition === 'Tech Support';
+}
+
+// GET — list open reminders whose Lead is in a stale status (optional ?status=).
+async function listStaleReminders(req, res, next) {
+  const { Pool } = require('pg');
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  });
+  try {
+    if (!maintenanceAllowed(req)) { await pool.end(); return res.status(403).json({ success: false, error: 'Admin or Tech Support only.' }); }
+    const status = STALE_STATUSES.includes(req.query.status) ? [req.query.status] : STALE_STATUSES;
+    const rows = (await pool.query(
+      `SELECT sn.id AS reminder_id, sn.lead_id, sn.student_id, s.full_name AS student_name,
+              l.lead_status, sn.follow_up_date, sn.rescheduled_date, sn.topic, sn.content, sn.author_name
+         FROM student_notes sn
+         JOIN leads l    ON l.lead_id    = sn.lead_id
+         JOIN students s ON s.student_id = sn.student_id
+        WHERE sn.follow_up_date IS NOT NULL
+          AND COALESCE(sn.reminder_status, '') <> 'closed'
+          AND l.lead_status = ANY($1)
+        ORDER BY l.lead_status, s.full_name, sn.follow_up_date`, [status])).rows;
+    await pool.end();
+    res.json({ success: true, data: rows.map(objectToCamelCase) });
+  } catch (err) { next(err); }
+}
+
+// POST {reminderIds:[...]} — close the selected reminders.
+async function closeReminders(req, res, next) {
+  const { Pool } = require('pg');
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  });
+  try {
+    if (!maintenanceAllowed(req)) { await pool.end(); return res.status(403).json({ success: false, error: 'Admin or Tech Support only.' }); }
+    const { reminderIds } = req.body || {};
+    if (!Array.isArray(reminderIds) || reminderIds.length === 0) { await pool.end(); return res.status(400).json({ success: false, error: 'reminderIds (array) is required' }); }
+    const r = await pool.query(
+      `UPDATE student_notes SET reminder_status = 'closed'
+        WHERE id = ANY($1) AND COALESCE(reminder_status, '') <> 'closed'`, [reminderIds]);
+    await pool.end();
+    res.json({ success: true, data: { closed: r.rowCount } });
   } catch (err) { next(err); }
 }
 
@@ -1339,7 +1494,7 @@ module.exports = {
   listStaff, listActiveStaff, listRoles, listColumns,
   listVariants, createVariant, updateVariant, deleteVariant,
   getMe, createStaff, updateStaff, resetPassword, deactivateStaff,
-  assignStaff, massAssign, changePhase, setAssignment, searchStudents, searchLeads, getStudent, updateStudent,
+  assignStaff, massAssign, massMovePhase, changePhase, setAssignment, listStaleReminders, closeReminders, searchStudents, searchLeads, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,
   setTarget, deleteStudents, exportExcel,

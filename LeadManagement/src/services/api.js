@@ -101,6 +101,9 @@ export const staffAPI = {
   resetPassword:   (id, password)             => request('PUT',  `/api/staff/${id}/password`, { password }),
   deactivate:      (id)                       => request('PUT',  `/api/staff/${id}/deactivate`),
   assign:          (studentId, data)          => request('PUT',  `/api/staff/assign/${studentId}`, data),
+  massMovePhase:   (studentIds, toPhase, staffName) => request('PUT', '/api/staff/mass-move-phase', { studentIds, toPhase, staffName }),
+  listStaleReminders: (status) => request('GET', `/api/staff/maintenance/stale-reminders${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+  closeReminders:     (reminderIds) => request('POST', '/api/staff/maintenance/close-reminders', { reminderIds }),
   changePhase:     (studentId, data)          => request('PUT',  `/api/staff/phase/${studentId}`, data),
   setAssignment:   (studentId, data)          => request('PUT',  `/api/staff/assignment/${studentId}`, data),
   massAssign:      (studentIds, field, value) => request('PUT',  '/api/staff/mass-assign', { studentIds, field, value }),
@@ -338,6 +341,7 @@ export const distributionAPI = {
   preview: (office, perHead)    => request('POST', '/api/distribution/preview', { office, perHead }),
   release: (office, perHead)    => request('POST', '/api/distribution/release', { office, perHead }),
   recall:  (counsellor, dryRun) => request('POST', '/api/distribution/recall', { counsellor, dryRun }),
+  transferExceptions: (resolved = false) => request('GET', `/api/distribution/transfer-exceptions?resolved=${resolved}`),
 
   // Excel/CSV upload into the pool (file sent as base64)
   upload:  (fileBase64, office)  => request('POST', '/api/distribution/upload', { fileBase64, office }),

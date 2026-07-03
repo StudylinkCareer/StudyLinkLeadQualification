@@ -553,7 +553,7 @@ export default function Leads() {
   const [columns, setColumns]         = useState([]);
   const [selected, setSelected]       = useState([]);
   const [staffList, setStaffList]     = useState([]);
-  const [massField, setMassField]     = useState('counselor');
+  const [massPhase, setMassPhase]     = useState('Counselling');
   const [massValue, setMassValue]     = useState('');
   const [printMode, setPrintMode]     = useState(false);
 
@@ -1434,11 +1434,13 @@ export default function Leads() {
   }
 
   async function handleMassAssign() {
-    if (!massValue || selected.length === 0) return;
+    if (selected.length === 0) return;
+    if (massPhase !== 'Pool' && !massValue) return;   // Pool may vacate (no owner)
     try {
-      await staffAPI.massAssign(selected, massField, massValue);
+      const r = await staffAPI.massMovePhase(selected, massPhase, massValue);
       await loadLeads();
       setSelected([]);
+      if (r?.data?.moved) alert(`Moved ${r.data.moved} order(s) to ${r.data.toPhase}.`);
     } catch(e) { alert(e.message); }
   }
 
@@ -1618,6 +1620,15 @@ export default function Leads() {
     counselor:'Counselor', seniorCounselor:'Senior Counselor',
     presales:'Pre-Sales', marketingStaff:'Marketing Staff',
   };
+
+  // Bulk phase-move targets + the staff positions valid in each. Picking a phase
+  // filters the recipient list to that phase's staff (the owner drives the phase).
+  const PHASE_POSITIONS = {
+    Counselling: ['Counselor', 'Senior Counselor'],
+    Presales:    ['PreSales'],
+    Pool:        ['Quality', 'Tech Support'],
+  };
+  const massStaff = staffList.filter(s => (PHASE_POSITIONS[massPhase] || []).includes(s.position));
 
   if (loading) return <div className="loading-center">Loading leads...</div>;
 
@@ -1990,18 +2001,19 @@ export default function Leads() {
       {canMassAssign && selected.length > 0 && (
         <div className="mass-assign-bar no-print">
           <span>{selected.length} selected</span>
-          <select value={massField} onChange={e => setMassField(e.target.value)}>
-            {Object.entries(FIELD_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
+          <select value={massPhase} onChange={e => { setMassPhase(e.target.value); setMassValue(''); }} title="Target phase">
+            {Object.keys(PHASE_POSITIONS).map(p => (
+              <option key={p} value={p}>{p === 'Presales' ? 'Pre-Sales' : p}</option>
             ))}
           </select>
-          <select value={massValue} onChange={e => setMassValue(e.target.value)}>
-            <option value="">Select staff...</option>
-            {staffList.map(s => (
-              <option key={s.id} value={s.fullName}>{s.fullName}</option>
+          <select value={massValue} onChange={e => setMassValue(e.target.value)} title="Owner for this phase">
+            <option value="">{massPhase === 'Pool' ? 'Unassigned (vacate)' : 'Select staff…'}</option>
+            {massStaff.map(s => (
+              <option key={s.id} value={s.fullName}>{s.fullName} ({s.position})</option>
             ))}
           </select>
-          <button className="btn btn--primary btn--sm" onClick={handleMassAssign} disabled={!massValue}>Assign</button>
+          <button className="btn btn--primary btn--sm" onClick={handleMassAssign}
+            disabled={massPhase !== 'Pool' && !massValue}>Move</button>
           {canDeleteLeads && (
             <button
               className="btn btn--sm"

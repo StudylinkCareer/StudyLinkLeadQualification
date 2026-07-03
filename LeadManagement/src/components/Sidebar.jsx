@@ -16,7 +16,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -35,7 +35,8 @@ export default function Sidebar() {
   const canViewReports        = canDo('reports', 'view');
   const canManageDistribution = canDo('distribution', 'manage');
   const canDeleteLeads        = canDo('leads', 'delete');
-  const showAdminSection      = canManageStaff || canManageDistribution || canDeleteLeads;
+  const canMaintenance        = staff?.role === 'Admin' || staff?.position === 'Tech Support';
+  const showAdminSection      = canManageStaff || canManageDistribution || canDeleteLeads || canMaintenance;
 
   async function handleLogout() {
     await logout();
@@ -159,6 +160,14 @@ export default function Sidebar() {
                 onClick={() => navigate('/admin/cleanup')}
               >
                 <FiTrash2 size={16} /> {language === 'vi' ? 'Dọn dữ liệu' : 'Deep Cleanse'}
+              </button>
+            )}
+            {canMaintenance && (
+              <button
+                className={`nav-item ${isActive('/admin/maintenance') ? 'active' : ''}`}
+                onClick={() => navigate('/admin/maintenance')}
+              >
+                <FiTool size={16} /> {language === 'vi' ? 'Bảo trì' : 'Maintenance'}
               </button>
             )}
           </>

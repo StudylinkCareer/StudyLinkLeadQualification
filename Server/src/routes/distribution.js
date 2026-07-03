@@ -35,6 +35,7 @@ router.post('/pool-existing', ctrl.poolExisting);
 router.get('/review', ctrl.listReview);
 router.post('/assign-manual', ctrl.assignManual);
 router.post('/commit-pool', ctrl.commitToPool);
+router.get('/transfer-exceptions', ctrl.listTransferExceptions);
 router.post('/pool-to-review', ctrl.poolToReview);
 
 // Notes bulk upload

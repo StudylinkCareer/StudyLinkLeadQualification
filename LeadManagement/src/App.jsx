@@ -52,6 +52,7 @@ import ReferralSources from './pages/ReferralSources';
 import ReferenceData from './pages/ReferenceData';
 import LeadDistribution from './pages/LeadDistribution';
 import DataCleanup from './pages/DataCleanup';
+import AdminMaintenance from './pages/AdminMaintenance';
 
 // Event Management — lazy-loaded section so it stays out of the main bundle.
 const EventConsole = lazy(() => import('./pages/EventConsole'));
@@ -148,6 +149,7 @@ export default function App() {
               <Route path="/reports/weekly"   element={<ProtectedLayout><WeeklyReport /></ProtectedLayout>} />
               <Route path="/reference-data" element={<ProtectedLayout><ReferenceData /></ProtectedLayout>} />
               <Route path="/admin/cleanup"  element={<ProtectedLayout><DataCleanup /></ProtectedLayout>} />
+              <Route path="/admin/maintenance" element={<ProtectedLayout><AdminMaintenance /></ProtectedLayout>} />
               <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
             </Routes>
               <SessionExpiredModal />

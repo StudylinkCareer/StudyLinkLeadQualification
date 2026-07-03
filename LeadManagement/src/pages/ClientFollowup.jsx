@@ -404,6 +404,7 @@ function ReminderRow({ reminder, onUpdate, navigate }) {
   const [editing, setEditing] = useState(false);
   const [newDate, setNewDate] = useState('');
   const [saving,  setSaving]  = useState(false);
+  const [done,    setDone]    = useState(false);   // collapses the row once closed
   const ed = effDate(reminder);
   const isOverdue = ed < startOfDay(new Date());
 
@@ -411,7 +412,17 @@ function ReminderRow({ reminder, onUpdate, navigate }) {
     setSaving(true);
     await onUpdate(reminder.id, { reminderStatus:'closed' });
     setSaving(false);
+    setDone(true);
   }
+
+  // Once closed from here, collapse to a subtle confirmation (the drill panel
+  // holds a snapshot, so without this the row would linger and look inert).
+  if (done) return (
+    <div style={{ background:'var(--bg-secondary)', border:'1px solid var(--border)', borderRadius:'10px',
+      padding:'0.625rem 1rem', fontSize:'0.8125rem', color:'var(--text-secondary)' }}>
+      ✓ Reminder closed — <span style={{ fontWeight:600 }}>{reminder.studentName}</span>
+    </div>
+  );
   async function reschedule() {
     if (!newDate) return;
     setSaving(true);
