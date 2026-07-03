@@ -149,6 +149,16 @@ leadqualification-492506-b2fe43e9a264.json
 # Database dumps (contain sensitive data - never commit)
 *.sql
 !migrations/*.sql
+*.dump
+
+# Stray submodule/gitlink (broke a Netlify deploy when committed)
+SL-targets/
+
+# Local cutover operational scripts (may embed the PROD connection string)
+Server/live_*.ps1
+Server/rehearse_cutover.ps1
+Server/rerun_local.ps1
+Server/measure_drift.ps1
 
 # Error logs
 *.log
