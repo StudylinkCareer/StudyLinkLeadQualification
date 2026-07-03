@@ -169,7 +169,45 @@ const STATUS_COLORS = {
 };
 const SOURCE_COLORS = ['#2563EB','#0891B2','#059669','#D97706','#7C3AED','#DB2777'];
 
-const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived'];
+const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived', 'Cancelled'];
+
+// Lead statuses that COUNT in a counsellor's reporting (Counselling team rule,
+// 2026-07-03). Whitelist, not blacklist: any status NOT here — Lost, Not
+// contactable, Archived, Cancelled, and blank/null — is excluded from staff
+// reporting (the name stays on the record for reference only; blank-status leads
+// belong in the Pool, not on a counsellor's list). Nurturing is IN pending the
+// team's final call. NOTE: this reporting set is deliberately DIFFERENT from the
+// edit-lock set {Lost, Archived, Cancelled} — e.g. "Not contactable" is still a
+// workable/editable lead, it just doesn't count in the active pipeline.
+const REPORTING_INCLUDED_STATUSES = [
+  'New', 'Engaged', 'Contracted', 'Proposal',
+  'Met with customer and family', 'Vetted', 'Family negotiation/review',
+  'Nurturing',   // pending team decision — currently included
+];
+
+// Presales works the EARLY funnel, so it OWNS 'Not contactable' (Presales chase
+// these; if follow-up fails they manually move the Order to Pool, which drops it
+// off Presales reporting via the phase gate). Lost/Archived/Cancelled are still
+// excluded — same as Counselling. Otherwise identical to the Counselling set.
+const PRESALES_INCLUDED_STATUSES = [...REPORTING_INCLUDED_STATUSES, 'Not contactable'];
+
+// Reportable-status set per department phase. Same philosophy, different funnel.
+const REPORTABLE_STATUSES_BY_PHASE = {
+  Counselling: REPORTING_INCLUDED_STATUSES,
+  Presales:    PRESALES_INCLUDED_STATUSES,
+};
+
+// Phase-driven ownership: a lead counts toward the current owner (the primary
+// `counselor` slot — which for a Presales-phase Order holds a PreSales-position
+// person) in per-staff reporting ONLY while its status is reportable AND its
+// Sales Order sits in the given department phase. Presales reporting reuses this
+// exact philosophy with phase='Presales' (same grouping column, same whitelist).
+// Once the Order moves department, or the status leaves the reportable set, the
+// name remains for display but the lead is no longer attributed.
+function attributableTo(l, phase) {
+  const reportable = REPORTABLE_STATUSES_BY_PHASE[phase] || REPORTING_INCLUDED_STATUSES;
+  return l.orderPhase === phase && reportable.includes(l.leadStatus);
+}
 
 // Labels for the Contracted period cards (kept local for now; can be moved
 // into i18n/en.js + vi.js later).
@@ -256,6 +294,9 @@ export default function Dashboard() {
   const [contractedSelected, setContractedSelected] = useState(null);
   const [loading, setLoading]   = useState(true);
   const [selectedCounselor, setSelectedCounselor] = useState(null);
+  // Which department's per-owner reporting to show: 'Counselling' | 'Presales'.
+  // Same format/philosophy for both — only the Order-phase gate differs.
+  const [reportDept, setReportDept] = useState('Counselling');
   const { staff }    = useAuth();
   const { scope, loading: permsLoading } = usePermissions();
   const { language } = useLanguage();
@@ -287,7 +328,11 @@ export default function Dashboard() {
     // Wait for permissions to resolve before fetching, so hasAllScope
     // is stable and scopedLeads computes correctly on first render.
     if (permsLoading) return;
-    const promises = [studentAPI.search('').then(d => setLeads(d.data || []))];
+    // Per-LEAD dataset (one row per lead) so all analytics are lead-level, not
+    // person-level — a person with N leads counts as N, each under its own
+    // status/counsellor. (searchLeads = SELECT s.*, l.*; the lead's own status
+    // and staff win over the person's.)
+    const promises = [studentAPI.searchLeads('').then(d => setLeads(d.data || []))];
     if (staff?.id) {
       promises.push(
         staffAPI.me()
@@ -334,7 +379,7 @@ export default function Dashboard() {
       won,
       active,
       thisMonth:    thisMonthLeads.length,
-      thisMonthIds: thisMonthLeads.map(l => l.studentId),
+      thisMonthIds: thisMonthLeads.map(l => l.leadId),
     };
   }, [scopedLeads]);
 
@@ -365,6 +410,7 @@ export default function Dashboard() {
     if (!hasAllScope) return [];
     const map = {};
     leads.forEach(l => {
+      if (!attributableTo(l, reportDept)) return;   // wrong department, or inactive → display-only
       const counselor = l.counselor || 'Unassigned';
       const stone     = COUNSELOR_STONES.includes(l.stoneTier) ? l.stoneTier : 'Unscored';
       if (!map[counselor]) map[counselor] = {};
@@ -378,12 +424,12 @@ export default function Dashboard() {
         total: Object.values(stoneMap).reduce((s, arr) => s + arr.length, 0),
       }))
       .sort((a, b) => b.total - a.total);
-  }, [leads, hasAllScope]);
+  }, [leads, hasAllScope, reportDept]);
 
   const selectedCounselorLeads = useMemo(() => {
     if (!selectedCounselor) return [];
-    return leads.filter(l => (l.counselor || 'Unassigned') === selectedCounselor);
-  }, [leads, selectedCounselor]);
+    return leads.filter(l => (l.counselor || 'Unassigned') === selectedCounselor && attributableTo(l, reportDept));
+  }, [leads, selectedCounselor, reportDept]);
 
   // Per-counsellor backward (signed) figures for the pipeline's counsellor column.
   useEffect(() => {
@@ -440,28 +486,25 @@ export default function Dashboard() {
   }
 
   function drillDown(filterKey, filterValue) {
-    if (isCounselor) {
-      const ids = leads
-        .filter(ownsLead)
-        .filter(l => {
-          if (filterKey === 'stoneTier') {
-            return (l.stoneTier || 'Unscored') === filterValue;
-          }
-          if (filterKey === 'leadStatus' && filterValue === 'active') {
-            const active = ['New','Not contactable','Engaged','Vetted','Met with customer and family','Proposal','Family negotiation/review','Nurturing'];
-            return active.includes(l.leadStatus || 'New');
-          }
-          return l[filterKey] === filterValue;
-        })
-        .map(l => l.studentId);
-      navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
-      return;
-    }
-    navigate('/leads', { state: { drillFilter: { key: filterKey, value: filterValue } } });
+    // Drill by the matching LEADS' ids (scopedLeads is already permission-scoped),
+    // so the Leads list shows those exact leads — not every lead of the persons
+    // involved. Uniform for counsellors and managers/admins.
+    const ids = scopedLeads
+      .filter(l => {
+        if (filterKey === 'stoneTier')  return (l.stoneTier  || 'Unscored') === filterValue;
+        if (filterKey === 'leadSource') return (l.leadSource || '')          === filterValue;
+        if (filterKey === 'leadStatus') {
+          if (filterValue === 'active') return !TERMINAL_STATUSES.includes(l.leadStatus || 'New');
+          return (l.leadStatus || 'New') === filterValue;
+        }
+        return l[filterKey] === filterValue;
+      })
+      .map(l => l.leadId);
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
   }
   function drillPipeline(leads) {
     const list = isCounselor ? leads.filter(ownsLead) : leads;
-    navigate('/leads', { state: { drillFilter: { key: '_ids', value: list.map(l => l.studentId) } } });
+    navigate('/leads', { state: { drillFilter: { key: '_ids', value: list.map(l => l.leadId) } } });
   }
   // Drill straight into a server-provided id list (already scope-correct).
   function drillIds(ids) {
@@ -473,15 +516,17 @@ export default function Dashboard() {
   function drillCounselorStone(counselor, stone) {
     const ids = leads
       .filter(l => (l.counselor || 'Unassigned') === counselor
-                && (l.stoneTier || 'Unscored')   === stone)
-      .map(l => l.studentId);
+                && (l.stoneTier || 'Unscored')   === stone
+                && attributableTo(l, reportDept))
+      .map(l => l.leadId);
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
   }
   function drillCounselorStatus(counselor, status) {
     const ids = leads
       .filter(l => (l.counselor || 'Unassigned') === counselor
-                && (l.leadStatus || 'New')       === status)
-      .map(l => l.studentId);
+                && (l.leadStatus || 'New')       === status
+                && attributableTo(l, reportDept))
+      .map(l => l.leadId);
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
   }
 
@@ -752,13 +797,39 @@ export default function Dashboard() {
             transition:'grid-template-columns 0.3s ease',
           }}>
 
-            {/* ── Frame 1: Counselor chart ── */}
+            {/* ── Frame 1: per-owner chart (Counselling / Presales) ── */}
             <div className="section-card">
               <div className="section-header">
-                <span className="section-title">{t('dashboard.chart.leadsByCounselor', language)}</span>
-                <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
-                  {t('dashboard.clickCounselorToDrill', language)}
+                <span className="section-title">
+                  {reportDept === 'Presales'
+                    ? (language === 'vi' ? 'Khách hàng theo Pre-Sales' : 'Leads by Pre-Sales')
+                    : t('dashboard.chart.leadsByCounselor', language)}
                 </span>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+                  {/* Department toggle — same reporting format/philosophy, phase gate differs */}
+                  <div style={{ display:'inline-flex', border:'1px solid var(--border)', borderRadius:'6px', overflow:'hidden' }}>
+                    {[
+                      ['Counselling', language === 'vi' ? 'Tư vấn'   : 'Counselling'],
+                      ['Presales',    language === 'vi' ? 'Pre-Sales' : 'Pre-Sales'],
+                    ].map(([dep, label]) => (
+                      <button
+                        key={dep}
+                        onClick={() => { setReportDept(dep); setSelectedCounselor(null); }}
+                        style={{
+                          padding:'0.2rem 0.65rem', fontSize:'0.75rem', fontWeight:600,
+                          cursor:'pointer', border:'none',
+                          background: reportDept === dep ? 'var(--primary)' : 'transparent',
+                          color:      reportDept === dep ? '#fff' : 'var(--text-secondary)',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
+                    {t('dashboard.clickCounselorToDrill', language)}
+                  </span>
+                </div>
               </div>
 
               {/* Stone legend at top of counselor chart */}

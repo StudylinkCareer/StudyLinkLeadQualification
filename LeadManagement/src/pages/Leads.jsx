@@ -1503,6 +1503,29 @@ export default function Leads() {
         return <span className={`badge badge--${cssClass}`}>{label}</span>;
       }
       case 'stoneTier':             return <StoneIcon tier={v}/>;
+      case 'orderPhase': {
+        // Sales Order phase/department — colored pill, consistent with the
+        // phase badge on the detail screen.
+        if (!v) return <MissingValue/>;
+        const PHASE_COLORS = {
+          Marketing:       '#7C3AED',
+          Counselling:     '#2563EB',
+          Presales:        '#0891B2',
+          Pool:            '#D97706',
+          'Case Officers': '#059669',
+          Support:         '#64748B',
+        };
+        const bg = PHASE_COLORS[v] || '#64748B';
+        return (
+          <span style={{
+            display:'inline-block', padding:'0.1rem 0.5rem', borderRadius:'9999px',
+            fontSize:'0.6875rem', fontWeight:700, color:'#fff', background:bg,
+            whiteSpace:'nowrap',
+          }}>
+            {v}
+          </span>
+        );
+      }
       case 'createdAt':             return v ? String(v).slice(0,10) : <MissingValue/>;
       case 'age':                   return getLeadAge(lead.createdAt) || <MissingValue/>;
       case 'riskScore':             return v || <MissingValue/>;
@@ -1644,7 +1667,7 @@ export default function Leads() {
         </div>
       </div>
 
-      <div className="page-body">
+      <div className="page-body" style={{ height:'calc(100vh - var(--header-height))', display:'flex', flexDirection:'column', minHeight:0, overflow:'hidden' }}>
         {/* ── Upper row: variants | search | date filters | actions ────── */}
         <div className="no-print" style={{
           display:'flex', alignItems:'center', gap:'12px',
@@ -1775,7 +1798,7 @@ export default function Leads() {
         </div>
 
         {/* ── Table ───────────────────────────────────────────── */}
-        <div className="table-card print-area">
+        <div className="table-card print-area" style={{ flex:1, display:'flex', flexDirection:'column', minHeight:0 }}>
           {/* ── Print-only header (visible only when printing) ── */}
           <div className="print-only" style={{ marginBottom:'12px', borderBottom:'2px solid #333', paddingBottom:'8px' }}>
             <div style={{ fontSize:'14pt', fontWeight:700 }}>StudyLink — Leads Report</div>
@@ -1787,7 +1810,7 @@ export default function Leads() {
           <div
             className="table-wrap"
             id="leads-table-wrap"
-            style={{ overflowX:'auto' }}
+            style={{ overflow:'auto', flex:1, minHeight:0 }}
           >
             <table className="leads-data-table" style={{ tableLayout:'auto', width:'100%' }}>
               <thead>
@@ -1946,7 +1969,7 @@ export default function Leads() {
             </table>
           </div>
 
-          <div className="table-pagination no-print" style={{ justifyContent: 'flex-start', gap: '1.5rem' }}>
+          <div className="table-pagination no-print" style={{ justifyContent: 'space-between', gap: '1.5rem' }}>
             <span>{filtered.length} leads</span>
             <div className="pagination-controls">
               <button

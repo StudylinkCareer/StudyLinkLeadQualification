@@ -7,6 +7,7 @@
 //   - uploadPhotos() stores base64 data URLs directly in DB text columns
 
 const { Pool } = require('pg');
+const { syncOrderPhase } = require('../utils/orderPhase');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -18,6 +19,7 @@ const pool = new Pool({
 const COLUMNS = [
   { db: 'student_id',                 js: 'studentId' },
   { db: 'full_name',                 js: 'fullName' },
+  { db: 'order_phase',               js: 'orderPhase' },
   { db: 'contact_medium1',           js: 'contactMedium1' },
   { db: 'phone_country_code1',       js: 'phoneCountryCode1' },
   { db: 'contact_detail1',           js: 'contactDetail1' },
@@ -289,6 +291,11 @@ async function create(data) {
     `INSERT INTO students (${dbCols.join(', ')}) VALUES (${placeholders.join(', ')})`,
     values
   );
+
+  // Phase-aware creation: a new Sales Order is born into the phase of its owner
+  // — a named counsellor → Counselling, no owner → Pool holding state — instead
+  // of a NULL phase that would sit outside the phase model.
+  record.orderPhase = await syncOrderPhase(pool, studentId);
 
   return record;
 }

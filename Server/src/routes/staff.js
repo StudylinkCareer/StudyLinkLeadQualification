@@ -125,6 +125,8 @@ router.get('/me',            requireStaffAuth,                                  
 router.post('/',             requireStaffAuth, requirePermission('staff', 'manage'),     staffCtrl.createStaff);
 router.put('/assign/:studentId', requireStaffAuth, requirePermission('leads', 'assign'), staffCtrl.assignStaff);
 router.put('/mass-assign',   requireStaffAuth, requirePermission('leads', 'assign'),     staffCtrl.massAssign);
+router.put('/phase/:studentId', requireStaffAuth, requirePermission('leads', 'assign'),  staffCtrl.changePhase);
+router.put('/assignment/:studentId', requireStaffAuth, requirePermission('leads', 'assign'), staffCtrl.setAssignment);
 router.put('/:id/target',    requireStaffAuth, requirePermission('staff', 'set_target'), staffCtrl.setTarget);
 router.put('/:id/password',  requireStaffAuth, requirePermission('staff', 'manage'),     staffCtrl.resetPassword);
 router.put('/:id/deactivate',requireStaffAuth, requirePermission('staff', 'manage'),     staffCtrl.deactivateStaff);

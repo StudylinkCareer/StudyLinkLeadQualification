@@ -26,6 +26,7 @@ const POSITIONS = [
   'CEO', 'Tech Support', 'Product Manager', 'Marketing Manager',
   'Sales Manager', 'Quality', 'Senior Counselor', 'Counselor',
   'PreSales', 'Marketing Staff',
+  'Case Officer, Direct', 'Case Officer, Sub', 'Customer Service',
 ];
 // ROLES list removed — now fetched from GET /api/staff/roles which reads
 // DISTINCT role from the role_permissions table. See StaffModal below.

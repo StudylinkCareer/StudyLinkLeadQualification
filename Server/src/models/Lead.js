@@ -166,6 +166,27 @@ async function create(studentId, data = {}) {
       if (p[f] !== null && p[f] !== undefined && p[f] !== '') seed[f] = p[f];
     }
   }
+
+  // Staff assignment comes from the ORDER (students.*), the canonical owner —
+  // NOT the prior lead. Every new lead inherits the order's current staff
+  // (editable afterward; explicit `data` still overrides).
+  const ord = await pool.query(
+    `SELECT counselor, senior_counselor, presales, marketing_staff FROM students WHERE student_id = $1`,
+    [studentId]
+  );
+  if (ord.rows.length) {
+    const o = ord.rows[0];
+    const orderStaff = {
+      counselor:       o.counselor,
+      seniorCounselor: o.senior_counselor,
+      presales:        o.presales,
+      marketingStaff:  o.marketing_staff,
+    };
+    for (const [k, v] of Object.entries(orderStaff)) {
+      if (v !== null && v !== undefined && v !== '') seed[k] = v;
+    }
+  }
+
   const merged = { ...seed, ...data }; // explicit data wins over inherited
 
   const cols = ['person_id', 'created_at', 'updated_at'];

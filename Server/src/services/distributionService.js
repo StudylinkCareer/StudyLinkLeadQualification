@@ -25,6 +25,7 @@
 // Pass dryRun: true to compute the split WITHOUT writing — that's the preview.
 
 const { Pool } = require('pg');
+const { syncOrderPhase } = require('../utils/orderPhase');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -194,6 +195,13 @@ async function releaseTranche(opts) {
             WHERE lead_id = $2`,
           [a.counsellor, a.leadId]
         );
+        // Order-driven ownership: stamp the counsellor onto the Sales Order (person) too.
+        await client.query(
+          `UPDATE students SET counselor = $1, updated_at = NOW() WHERE student_id = $2`,
+          [a.counsellor, a.studentId]
+        );
+        // Phase follows the new owner (a counsellor → Counselling).
+        await syncOrderPhase(client, a.studentId);
         // Lead-keyed audit of the counsellor assignment (reports read this trail).
         await client.query(
           `INSERT INTO audit_log (student_id, lead_id, changed_by, changed_at, field_name, old_value, new_value, change_source)
@@ -229,7 +237,7 @@ async function recallCounsellorLeads(counsellorName, { dryRun = false } = {}) {
   const client = await pool.connect();
   try {
     const sel = await client.query(
-      `SELECT lead_id, office FROM leads
+      `SELECT lead_id, person_id, office FROM leads
         WHERE counselor = $1 AND ${ACTIVE_STATUS_SQL}`,
       [counsellorName]
     );
@@ -240,6 +248,16 @@ async function recallCounsellorLeads(counsellorName, { dryRun = false } = {}) {
         WHERE counselor = $1 AND ${ACTIVE_STATUS_SQL}`,
       [counsellorName]
     );
+    // Order-driven ownership: the recalled orders are now unowned pending redistribution.
+    const personIds = [...new Set(sel.rows.map((r) => r.person_id))];
+    if (personIds.length) {
+      await client.query(
+        `UPDATE students SET counselor = '', updated_at = NOW() WHERE student_id = ANY($1)`,
+        [personIds]
+      );
+      // Unowned → back to the Pool holding phase.
+      for (const pid of personIds) await syncOrderPhase(client, pid);
+    }
     return { counsellor: counsellorName, recalled: upd.rowCount };
   } finally {
     client.release();

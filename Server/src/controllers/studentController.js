@@ -2,6 +2,7 @@
 
 const Student = require('../models/Student');
 const Lead    = require('../models/Lead');
+const OrderAssignment = require('../models/OrderAssignment');
 const { issueAdvanceTokens } = require('../services/eventQualification');
 const { calculateRiskScore } = require('../utils/riskCalculator');
 const ExcelJS = require('exceljs');                                 // ← NEW
@@ -125,7 +126,16 @@ async function getStudent(req, res, next) {
       ? await Student.findByEmail(id)
       : await Student.findById(id);
     if (!result) return res.status(404).json({ success: false, error: 'Student not found' });
-    res.json({ success: true, data: result.data });
+    // Phase-driven assignment context: every position's owner, plus what the
+    // current phase allows (editable positions + legal next phases).
+    const sid = result.data.studentId || result.data.student_id || id;
+    const phase = result.data.orderPhase || null;
+    const [assignments, editablePositions, nextPhases] = await Promise.all([
+      OrderAssignment.getForOrder(sid),
+      OrderAssignment.activePositions(phase),
+      OrderAssignment.allowedTransitions(phase),
+    ]);
+    res.json({ success: true, data: { ...result.data, assignments, editablePositions, nextPhases } });
   } catch (err) { next(err); }
 }
 

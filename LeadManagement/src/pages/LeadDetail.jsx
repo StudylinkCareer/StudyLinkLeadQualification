@@ -733,6 +733,35 @@ const FIELD_LABELS = {
 
 // (canDo helper removed — permissions come from usePermissions().)
 
+// Maps each legacy staff-assignment field to its canonical staff.position, so
+// the person view can gate a field as editable only when that position is
+// active in the Order's current phase (phase_positions / editablePositions).
+// Positions with no legacy field (Quality, Tech Support, Case Officer…) are
+// owned via the phase-change flow instead.
+const FIELD_POSITION = {
+  counselor:       'Counselor',
+  seniorCounselor: 'Senior Counselor',
+  presales:        'PreSales',
+  marketingStaff:  'Marketing Staff',
+};
+
+// Every assignable position, in display order. Rows with `field` mirror a legacy
+// students/leads column (saved via staffAPI.assign + cascade); rows without live
+// only in order_assignments (saved via staffAPI.setAssignment). A row is editable
+// only when its position is active in the Order's current phase.
+const ASSIGN_ROWS = [
+  { position:'Counselor',            label:'Counselor',            field:'counselor' },
+  { position:'Senior Counselor',     label:'Senior Counselor',     field:'seniorCounselor' },
+  { position:'PreSales',             label:'Pre-Sales',            field:'presales' },
+  { position:'Marketing Staff',      label:'Marketing Staff',      field:'marketingStaff' },
+  { position:'Quality',              label:'Quality' },
+  { position:'Tech Support',         label:'Tech Support' },
+  { position:'Case Officer, Direct', label:'Case Officer (Direct)' },
+  { position:'Case Officer, Sub',    label:'Case Officer (Sub)' },
+  { position:'Customer Service',     label:'Customer Service' },
+];
+const EXTRA_POSITIONS = ASSIGN_ROWS.filter(r => !r.field).map(r => r.position);
+
 function formatDate(dt) {
   if (!dt) return '';
   return new Date(dt).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
@@ -929,6 +958,16 @@ export default function LeadDetail() {
   const [showHistory, setShowHistory]               = useState(false);
   const [showOceanQuestions, setShowOceanQuestions] = useState(false);
   const [assign, setAssign]     = useState({});
+  // Phase-driven assignment context (from getStudent / changePhase responses):
+  //   editablePositions — staff positions the CURRENT phase allows editing
+  //   nextPhases        — legal phase moves from here (allowed transitions)
+  const [phaseInfo, setPhaseInfo] = useState({ editablePositions: [], nextPhases: [] });
+  const [phaseTarget, setPhaseTarget] = useState('');   // selected next phase
+  const [phaseOwner,  setPhaseOwner]  = useState('');   // owner to set for that phase
+  const [movingPhase, setMovingPhase] = useState(false);
+  // Owners for the non-legacy positions (Quality, Tech Support, Case Officer…),
+  // which live only in order_assignments. Keyed by canonical position string.
+  const [posAssign, setPosAssign] = useState({});
   const topicOptions = useLookup('note_topic');
   // ── Source-of-Lead picker (mode-aware) ──
   const solItems     = useLookup('source_of_lead');
@@ -1037,6 +1076,15 @@ export default function LeadDetail() {
           presales:        l.presales        || '',
           marketingStaff:  l.marketingStaff  || '',
         });
+        // Phase-driven gating context — which positions this phase lets us edit,
+        // and where the Order may move next.
+        setPhaseInfo({
+          editablePositions: stu.data.editablePositions || [],
+          nextPhases:        stu.data.nextPhases || [],
+        });
+        // Non-legacy position owners (order_assignments), for the extended window.
+        const asg = stu.data.assignments || {};
+        setPosAssign(Object.fromEntries(EXTRA_POSITIONS.map(p => [p, asg[p] || ''])));
         if (l.oceanExtraversion) {
           const scores = {
             extraversion:      l.oceanExtraversion,
@@ -1197,20 +1245,67 @@ export default function LeadDetail() {
         setEditMode(false);
         setEditData({});
       }
-      if (!isStudentView && canDoOnLead('leads', 'assign', lead)) {
-        await leadAPI.update(id, {
+      // Order-driven: staff is assigned on the Sales Order (person view) and
+      // cascades to the person's ACTIVE leads. The lead view no longer assigns.
+      if (isStudentView && canDoOnLead('leads', 'assign', lead)) {
+        await staffAPI.assign(lead.studentId, {
           counselor:       assign.counselor,
           seniorCounselor: assign.seniorCounselor,
           presales:        assign.presales,
           marketingStaff:  assign.marketingStaff,
         });
         setLead(l=>({...l,...assign}));
+        // Persist the non-legacy positions this phase lets us edit (order_assignments).
+        for (const pos of EXTRA_POSITIONS) {
+          if (phaseInfo.editablePositions.includes(pos)) {
+            await staffAPI.setAssignment(lead.studentId, { position: pos, staffName: posAssign[pos] || '' });
+          }
+        }
       }
       const al = await auditAPI.getForStudent(lead.studentId);
       setAuditLog(al.data || []);
       alert('Saved successfully');
     } catch(e) { alert(e.message); }
     finally { setSaving(false); }
+  }
+
+  // Move the Sales Order to another phase. The backend validates the transition
+  // against phase_transitions, assigns `phaseOwner` to the target phase's active
+  // position, mirrors to the legacy column + cascades to ACTIVE leads, and
+  // returns the fresh assignment context.
+  async function handleMovePhase() {
+    if (!phaseTarget) return;
+    setMovingPhase(true);
+    try {
+      const res = await staffAPI.changePhase(lead.studentId, {
+        toPhase:   phaseTarget,
+        staffName: phaseOwner,
+      });
+      if (!res || res.success === false) throw new Error(res?.error || 'Phase change failed');
+      const data = res.data || {};
+      // Reflect the new phase, owner and gating context locally.
+      setLead(l => ({ ...l, orderPhase: data.orderPhase || phaseTarget, ...(data.assignments || {}) }));
+      setPhaseInfo({
+        editablePositions: data.editablePositions || [],
+        nextPhases:        data.nextPhases || [],
+      });
+      setAssign(a => ({
+        ...a,
+        counselor:       (data.assignments && data.assignments['Counselor'])        ?? a.counselor,
+        seniorCounselor: (data.assignments && data.assignments['Senior Counselor']) ?? a.seniorCounselor,
+        presales:        (data.assignments && data.assignments['PreSales'])         ?? a.presales,
+        marketingStaff:  (data.assignments && data.assignments['Marketing Staff'])  ?? a.marketingStaff,
+      }));
+      if (data.assignments) {
+        setPosAssign(Object.fromEntries(EXTRA_POSITIONS.map(p => [p, data.assignments[p] || ''])));
+      }
+      setPhaseTarget('');
+      setPhaseOwner('');
+      const al = await auditAPI.getForStudent(lead.studentId);
+      setAuditLog(al.data || []);
+      alert(`Moved to ${data.orderPhase || phaseTarget}`);
+    } catch (e) { alert(e.message); }
+    finally { setMovingPhase(false); }
   }
 
   async function handleRecalculateRisk() {
@@ -1328,6 +1423,11 @@ export default function LeadDetail() {
   const isAdminRole = ['Admin', 'Director', 'Manager'].includes(staff?.role);
   const leadLocked  = !isStudentView && TERMINAL_STATUSES.includes(lead.leadStatus) && !isAdminRole;
 
+  // Phase chip (Sales Order department) — colour + label for the header.
+  const orderPhase  = lead.orderPhase || null;
+  const phaseBg     = { Counselling:'#059669', Presales:'#2563eb', Pool:'#d97706' }[orderPhase] || '#6b7280';
+  const phaseLabel  = orderPhase === 'Presales' ? 'Pre-Sales' : orderPhase;
+
   const canEdit   = canDoOnLead('leads', 'edit',        lead) && !leadLocked;
   const canAssign = canDoOnLead('leads', 'assign',      lead) && !leadLocked;
   const canRecalc = canDoOnLead('leads', 'recalculate', lead) && !leadLocked;
@@ -1362,12 +1462,20 @@ export default function LeadDetail() {
           <span style={{ fontSize:'0.6875rem', fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase', padding:'2px 8px', borderRadius:'4px', background: isStudentView ? '#7c3aed' : '#2563eb', color:'#fff' }}>
             {isStudentView ? 'Sales' : 'Lead'}
           </span>
-          <span className="page-title">{lead.fullName || (isStudentView ? 'Sales Detail' : 'Lead Detail')}</span>
-          <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>
-            {lead.studentId}
+          <span className="page-title">
+            {lead.fullName || (isStudentView ? 'Sales Detail' : 'Lead Detail')}
+            {` | ${lead.studentId}`}
+            {!isStudentView && ` | ${lead.leadId || id}`}
           </span>
         </div>
-        <div style={{ display:'flex', gap:'0.5rem' }}>
+        <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+          {orderPhase && (
+            <span style={{ fontSize:'0.6875rem', fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase',
+                           padding:'2px 8px', borderRadius:'4px', background: phaseBg, color:'#fff' }}
+                  title="Sales Order phase">
+              {phaseLabel}
+            </span>
+          )}
           {canEdit && !editMode && (
             <button className="btn btn--secondary btn--sm" onClick={enterEdit}>
               <FiEdit2 size={13}/> Edit
@@ -1378,7 +1486,7 @@ export default function LeadDetail() {
               <FiX size={13}/> Cancel
             </button>
           )}
-          {(editMode || canAssign) && (
+          {(editMode || (isStudentView && canAssign)) && (
             <button className="btn btn--primary btn--sm" onClick={saveAll} disabled={saving}>
               <FiSave size={13}/> {saving ? 'Saving...' : 'Save Changes'}
             </button>
@@ -2112,10 +2220,12 @@ export default function LeadDetail() {
           <div className="section-card" style={{ maxHeight:'320px', overflowY:'auto' }}>
             <div className="section-header"><span className="section-title">Summary</span></div>
             <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-              <Field label="Counselor"        value={lead.counselor}/>
-              <Field label="Senior Counselor" value={lead.seniorCounselor}/>
-              <Field label="Pre-Sales"        value={lead.presales}/>
-              <Field label="Marketing Staff"  value={lead.marketingStaff}/>
+              {(!isStudentView || !canAssign) && (<>
+                <Field label="Counselor"        value={lead.counselor}/>
+                <Field label="Senior Counselor" value={lead.seniorCounselor}/>
+                <Field label="Pre-Sales"        value={lead.presales}/>
+                <Field label="Marketing Staff"  value={lead.marketingStaff}/>
+              </>)}
               <div style={{ borderTop:'1px solid var(--border)', paddingTop:'0.5rem', marginTop:'0.25rem' }}>
                 <Field label="Stone Tier" value={lead.stoneTier}/>
                 <Field label="Risk Score" value={lead.riskScore}/>
@@ -2134,28 +2244,79 @@ export default function LeadDetail() {
             </div>
           </div>
 
-          {/* Staff Assignment */}
-          {!isStudentView && canAssign && (
-            <div className="section-card" style={{ maxHeight:'380px', overflowY:'auto' }}>
-              <div className="section-header"><span className="section-title">Staff Assignment</span></div>
+          {/* Sales Order Phase + Staff Assignment — set on the person view; cascades to active leads */}
+          {isStudentView && canAssign && (
+            <div className="section-card" style={{ maxHeight:'520px', overflowY:'auto' }}>
+
+              {/* ── Phase mover ── the phase governs which positions below are editable */}
+              <div className="section-header"><span className="section-title">Sales Order Phase</span></div>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem', marginBottom:'1.25rem' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                  <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>Current phase:</span>
+                  <span style={{ fontSize:'0.6875rem', fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase',
+                                 padding:'2px 8px', borderRadius:'4px', background: phaseBg, color:'#fff' }}>
+                    {phaseLabel || '—'}
+                  </span>
+                </div>
+                {phaseInfo.nextPhases.length > 0 ? (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Move to phase</label>
+                      <select className="form-select" value={phaseTarget}
+                        onChange={e => { setPhaseTarget(e.target.value); setPhaseOwner(''); }}>
+                        <option value="">— select —</option>
+                        {phaseInfo.nextPhases.map(p => (
+                          <option key={p} value={p}>{p === 'Presales' ? 'Pre-Sales' : p}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {phaseTarget && (
+                      <div className="form-group">
+                        <label className="form-label">Owner for new phase <span style={{ fontWeight:400, color:'var(--text-secondary)' }}>(optional)</span></label>
+                        <select className="form-select" value={phaseOwner} onChange={e => setPhaseOwner(e.target.value)}>
+                          <option value="">Leave unassigned</option>
+                          {staffList.map(s => (
+                            <option key={s.id} value={s.fullName}>{s.fullName} ({s.position})</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <button className="btn btn--primary btn--sm" style={{ alignSelf:'flex-start' }}
+                      onClick={handleMovePhase} disabled={!phaseTarget || movingPhase}>
+                      {movingPhase ? 'Moving…' : 'Move Phase'}
+                    </button>
+                  </>
+                ) : (
+                  <div style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>No onward phases configured from here.</div>
+                )}
+              </div>
+
+              {/* ── Staff assignment — a field is editable only when its position is active in the current phase ── */}
+              <div className="section-header"><span className="section-title">Staff Assignment <span style={{ fontWeight:400, fontSize:'0.75rem', color:'var(--text-secondary)' }}>(Sales Order — cascades to active leads)</span></span></div>
               <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
-                {[
-                  { key:'counselor',       label:'Counselor' },
-                  { key:'seniorCounselor', label:'Senior Counselor' },
-                  { key:'presales',        label:'Pre-Sales' },
-                  { key:'marketingStaff',  label:'Marketing Staff' },
-                ].map(({ key, label }) => (
-                  <div className="form-group" key={key}>
-                    <label className="form-label">{label}</label>
-                    <select className="form-select" value={assign[key]||''}
-                      onChange={e=>setAssign(a=>({...a,[key]:e.target.value}))}>
-                      <option value="">Unassigned</option>
-                      {staffList.map(s=>(
-                        <option key={s.id} value={s.fullName}>{s.fullName} ({s.position})</option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
+                {ASSIGN_ROWS.map(({ position, label, field }) => {
+                  const editable = phaseInfo.editablePositions.includes(position);
+                  const value    = field ? (assign[field] || '') : (posAssign[position] || '');
+                  const onChange = field
+                    ? (e => setAssign(a => ({ ...a, [field]: e.target.value })))
+                    : (e => setPosAssign(p => ({ ...p, [position]: e.target.value })));
+                  return (
+                    <div className="form-group" key={position}>
+                      <label className="form-label">
+                        {label}
+                        {!editable && <span style={{ fontWeight:400, fontSize:'0.6875rem', color:'var(--text-secondary)' }}> · not in current phase</span>}
+                      </label>
+                      <select className="form-select" value={value} disabled={!editable}
+                        title={editable ? '' : 'This position is not editable in the current phase — move the Order to its phase to reassign.'}
+                        onChange={onChange}>
+                        <option value="">Unassigned</option>
+                        {staffList.map(s=>(
+                          <option key={s.id} value={s.fullName}>{s.fullName} ({s.position})</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

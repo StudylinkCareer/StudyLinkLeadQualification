@@ -8,6 +8,7 @@ const { Pool } = require('pg');
 const XLSX = require('xlsx');
 const distributionService = require('../services/distributionService');
 const permissionService   = require('../services/permissionService');
+const { syncOrderPhase }  = require('../utils/orderPhase');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -201,7 +202,7 @@ async function poolToReview(req, res, next) {
 // counsellor go to 'review'; leads that already name a counsellor import as
 // owned (distribution_status left NULL, so they skip the distribution queue).
 const PLACEHOLDERS = new Set(['not provided', 'n/a', 'na', 'not calculated', 'not calcaluated', 'none', 'null', '-', '']);
-const SKIP_COLS = new Set(['id', 'distribution_status', 'prev_counselor']); // never set from the sheet
+const SKIP_COLS = new Set(['id', 'distribution_status', 'prev_counselor', 'created_at', 'updated_at']); // never set from the sheet (timestamps are added by buildRowInsert)
 // Columns that belong to the engagement (leads) row, not the person (students) row.
 const ENGAGEMENT_COLS = new Set([
   'counselor', 'senior_counselor', 'presales', 'marketing_staff', 'lead_status',
@@ -252,6 +253,15 @@ function splitPersonLead(nr, office, colType, leadColType) {
     } else if (colType[col]) {
       if (sCols.includes(col)) continue;
       sCols.push(col); sVals.push(coerceVal(rawVal, colType[col]));
+    }
+  }
+  // Order-driven ownership: the person (Sales Order) is the owner of record, so
+  // mirror any named staff onto the students row too — not just the lead.
+  const STAFF_COLS = ['counselor', 'senior_counselor', 'presales', 'marketing_staff'];
+  for (const sc of STAFF_COLS) {
+    const li = lCols.indexOf(sc);
+    if (li >= 0 && lVals[li] != null && String(lVals[li]).trim() !== '' && colType[sc] && !sCols.includes(sc)) {
+      sCols.push(sc); sVals.push(lVals[li]);
     }
   }
   const oi = lCols.indexOf('office');
@@ -362,6 +372,9 @@ async function uploadLeads(req, res, next) {
           if (sResult.rowCount === 1) {
             const lIns = buildRowInsert('leads', 'person_id', uid, lCols, lVals, nowISO);
             await client.query(lIns.text, lIns.values);
+            // Set the new Order's phase from its owner (named counsellor →
+            // Counselling; no counsellor → Pool holding state).
+            await syncOrderPhase(client, uid);
             inserted++;
             if (hasCounsellor) owned++;
             else { review++; if (!finalOffice) untagged++; }
@@ -500,6 +513,12 @@ async function assignManual(req, res, next) {
       await client.query(
         `UPDATE leads SET counselor=$1, distribution_status='assigned', prev_counselor=NULL, updated_at=NOW()
           WHERE lead_id=$2`, [counselor, lid]);
+      // Order-driven ownership: stamp the counsellor onto the Sales Order (person) too.
+      await client.query(
+        `UPDATE students SET counselor=$1, updated_at=NOW() WHERE student_id=$2`,
+        [counselor, row.person_id]);
+      // Phase follows the new owner (a counsellor → Counselling).
+      await syncOrderPhase(client, row.person_id);
       await client.query(
         `INSERT INTO audit_log (student_id, lead_id, changed_by, changed_at, field_name, old_value, new_value, change_source)
          VALUES ($1,$2,$3,NOW(),'counselor',$4,$5,'distribution')`,

@@ -7,6 +7,7 @@ const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
 const { logChanges } = require('./auditController');
 const { assessOcean } = require('../utils/oceanCalculator');
 const permissionService = require('../services/permissionService');
+const { syncOrderPhase, phaseForPosition } = require('../utils/orderPhase');
 const { issueAdvanceTokens } = require('../services/eventQualification');
 
 // Local pool — matches the pattern used elsewhere in this codebase.
@@ -342,45 +343,63 @@ async function assignStaff(req, res, next) {
       role: req.session.staffRole,
       fullName: req.session.staffName,
     };
-    const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived')`;
-    // Single-assign is keyed by student → it applies to the student's OPEN lead(s).
+    // Order-driven: assignment is set on the Sales Order (students.* = canonical
+    // owner) and CASCADES only to the person's IN-PROGRESS leads. CLOSED leads
+    // RETAIN their staff — that's Lost/Archived/Cancelled AND Contracted (a WON
+    // lead keeps the counsellor who closed it, even if the order is later
+    // transferred). Note: Contracted is still EDITABLE (only its staff is frozen).
+    const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`;
     const beforeRows = (await pool.query(
       `SELECT lead_id, counselor, senior_counselor, presales, marketing_staff
          FROM leads WHERE person_id = $1 AND ${OPEN}
         ORDER BY lead_id`, [studentId]
     )).rows;
-    if (beforeRows.length === 0) {
-      await pool.end();
-      return res.status(404).json({ success: false, error: 'No open lead for this student' });
-    }
+
+    // Permission: via an active lead if there is one, else via the person/order.
     const canAssign = await permissionService.canAccessLead(
-      assignStaffCtx, objectToCamelCase(beforeRows[0]), 'assign'
+      assignStaffCtx, beforeRows.length ? objectToCamelCase(beforeRows[0]) : { studentId }, 'assign'
     );
     if (!canAssign) {
       await pool.end();
       return res.status(403).json({
         success: false,
-        error: 'You do not have permission to reassign this lead.',
+        error: 'You do not have permission to reassign this Sales Order.',
       });
     }
 
-    const result = await pool.query(
-      `UPDATE leads
-       SET counselor        = COALESCE($1, counselor),
-           senior_counselor = COALESCE($2, senior_counselor),
-           presales         = COALESCE($3, presales),
-           marketing_staff  = COALESCE($4, marketing_staff),
-           updated_at       = NOW()
-       WHERE person_id = $5 AND ${OPEN}
-       RETURNING lead_id, counselor, senior_counselor, presales, marketing_staff`,
+    // Current owner BEFORE the change — lets us tell a genuine transfer
+    // (counsellor actually changing) from a no-op save, so we only mint on a
+    // real transfer of an order that has no active lead.
+    const prevCounselor = ((await pool.query(
+      `SELECT counselor FROM students WHERE student_id = $1`, [studentId]
+    )).rows[0] || {}).counselor || null;
+
+    // 1) Canonical owner on the Sales Order.
+    await pool.query(
+      `UPDATE students
+          SET counselor        = COALESCE($1, counselor),
+              senior_counselor = COALESCE($2, senior_counselor),
+              presales         = COALESCE($3, presales),
+              marketing_staff  = COALESCE($4, marketing_staff),
+              updated_at       = NOW()
+        WHERE student_id = $5`,
       [counselor, seniorCounselor, presales, marketingStaff, studentId]
     );
-    await pool.end();
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'No open lead for this student' });
-    }
 
-    // Lead-keyed audit: record who/when per open lead, for each slot that changed.
+    // 2) Cascade to ACTIVE leads (locked leads keep their existing staff).
+    const result = await pool.query(
+      `UPDATE leads
+          SET counselor        = COALESCE($1, counselor),
+              senior_counselor = COALESCE($2, senior_counselor),
+              presales         = COALESCE($3, presales),
+              marketing_staff  = COALESCE($4, marketing_staff),
+              updated_at       = NOW()
+        WHERE person_id = $5 AND ${OPEN}
+        RETURNING lead_id, counselor, senior_counselor, presales, marketing_staff`,
+      [counselor, seniorCounselor, presales, marketingStaff, studentId]
+    );
+
+    // Lead-keyed audit: record who/when per cascaded lead.
     const changedBy = req.session.staffName || req.session.staffEmail || 'unknown';
     const beforeById = new Map(beforeRows.map(r => [r.lead_id, objectToCamelCase(r)]));
     for (const row of result.rows) {
@@ -401,7 +420,186 @@ async function assignStaff(req, res, next) {
       });
     }
 
-    res.json({ success: true, data: objectToCamelCase(result.rows[0]) });
+    // Transfer of an order with NO active lead: mint a fresh ACTIVE lead so the
+    // new counsellor has something to work. It seeds staff from the (just-updated)
+    // order and carries the prior lead's profile (destination, study plans,
+    // institution, etc.). Created as 'New' (active), so any later transfer just
+    // cascades to it above — no duplicate minting (rule #3).
+    const newCounselor = counselor != null ? counselor : prevCounselor;
+    if (result.rows.length === 0 && newCounselor && newCounselor !== prevCounselor) {
+      const Lead = require('../models/Lead');
+      const minted = await Lead.create(studentId, { leadStatus: 'New' });
+      await logChanges({
+        studentId,
+        leadId: minted.leadId,
+        changedBy,
+        oldData: {},
+        newData: { leadStatus: 'New', counselor: minted.counselor },
+        source: 'staff_app',
+      });
+    }
+
+    // Phase follows the new owner's position (Counsellor → Counselling,
+    // Quality/Tech/unassigned → Pool, etc.). Keeps reporting visibility honest.
+    await syncOrderPhase(pool, studentId);
+
+    // Return the order's canonical staff so the person view reflects it.
+    const ordRow = (await pool.query(
+      `SELECT counselor, senior_counselor, presales, marketing_staff
+         FROM students WHERE student_id = $1`, [studentId]
+    )).rows[0] || {};
+    await pool.end();
+    res.json({ success: true, data: objectToCamelCase(ordRow) });
+  } catch (err) { next(err); }
+}
+
+// ── Phase-driven move: PUT /api/staff/phase/:studentId ─────────────────────
+// Body: { toPhase, staffName? }. The AUTHORITATIVE way an Order changes phase:
+//   1. validate the move against phase_transitions (admin control table)
+//   2. set students.order_phase
+//   3. optionally set the new phase's active position's owner (order_assignments,
+//      mirrored to the legacy students column when one exists)
+//   4. cascade mirrored positions to the Order's ACTIVE leads (closed retain)
+// Assumes ONE primary active position per phase for the owner being set (uses
+// the first active position). Restricted to roles with 'assign' permission.
+async function changePhase(req, res, next) {
+  const OrderAssignment = require('../models/OrderAssignment');
+  const { Pool } = require('pg');
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  });
+  try {
+    const { studentId } = req.params;
+    const { toPhase, staffName } = req.body || {};
+    if (!toPhase) { await pool.end(); return res.status(400).json({ success: false, error: 'toPhase is required' }); }
+
+    const ctx = { role: req.session.staffRole, fullName: req.session.staffName };
+    const canAssign = await permissionService.canAccessLead(ctx, { studentId }, 'assign');
+    if (!canAssign) {
+      await pool.end();
+      return res.status(403).json({ success: false, error: 'You do not have permission to move this Sales Order.' });
+    }
+
+    const cur = (await pool.query(
+      `SELECT order_phase FROM students WHERE student_id = $1`, [studentId])).rows[0];
+    if (!cur) { await pool.end(); return res.status(404).json({ success: false, error: 'Sales Order not found' }); }
+    const fromPhase = cur.order_phase || 'Pool';
+
+    const ok = await OrderAssignment.isTransitionAllowed(fromPhase, toPhase, pool);
+    if (!ok) {
+      const allowed = await OrderAssignment.allowedTransitions(fromPhase, pool);
+      await pool.end();
+      return res.status(400).json({
+        success: false,
+        error: `"${fromPhase}" cannot move to "${toPhase}". Allowed: ${allowed.join(', ') || '(none)'}.`,
+      });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE students SET order_phase = $1, updated_at = NOW() WHERE student_id = $2`,
+        [toPhase, studentId]);
+
+      const actives = await OrderAssignment.activePositions(toPhase, client);
+      const position = actives[0] || null;
+      if (position && staffName !== undefined) {
+        await OrderAssignment.setForOrder(client, studentId, position, staffName);
+        // Mirror to the legacy column (students + cascade to ACTIVE leads) when
+        // this position has one, so existing reporting keeps working.
+        const col = OrderAssignment.POSITION_COLUMN[position];
+        if (col) {
+          await client.query(
+            `UPDATE students SET ${col} = $1, updated_at = NOW() WHERE student_id = $2`,
+            [staffName || '', studentId]);
+          await client.query(
+            `UPDATE leads SET ${col} = $1, updated_at = NOW()
+              WHERE person_id = $2 AND lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`,
+            [staffName || '', studentId]);
+        }
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK'); client.release(); await pool.end();
+      throw e;
+    }
+    client.release();
+
+    await logChanges({
+      studentId, leadId: null,
+      changedBy: req.session.staffName || req.session.staffEmail || 'unknown',
+      oldData: { orderPhase: fromPhase },
+      newData: { orderPhase: toPhase, ...(staffName !== undefined ? { staffName } : {}) },
+      source: 'staff_app',
+    });
+
+    const assignments = await OrderAssignment.getForOrder(studentId, pool);
+    const nextPhases = await OrderAssignment.allowedTransitions(toPhase, pool);
+    const editablePositions = await OrderAssignment.activePositions(toPhase, pool);
+    await pool.end();
+    res.json({ success: true, data: { orderPhase: toPhase, assignments, nextPhases, editablePositions } });
+  } catch (err) { next(err); }
+}
+
+// Set ONE position's owner on the Sales Order (order_assignments), for positions
+// that have no legacy column (Quality, Tech Support, Case Officer…) as well as
+// the legacy four. When a legacy column exists it is mirrored on students +
+// cascaded to ACTIVE leads so existing reporting keeps working. Does NOT change
+// the phase — that's changePhase. Powers the extended Staff Assignment window.
+async function setAssignment(req, res, next) {
+  const OrderAssignment = require('../models/OrderAssignment');
+  const { Pool } = require('pg');
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  });
+  try {
+    const { studentId } = req.params;
+    const { position, staffName } = req.body || {};
+    if (!position) { await pool.end(); return res.status(400).json({ success: false, error: 'position is required' }); }
+
+    const ctx = { role: req.session.staffRole, fullName: req.session.staffName };
+    const canAssign = await permissionService.canAccessLead(ctx, { studentId }, 'assign');
+    if (!canAssign) {
+      await pool.end();
+      return res.status(403).json({ success: false, error: 'You do not have permission to reassign this Sales Order.' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await OrderAssignment.setForOrder(client, studentId, position, staffName);
+      const col = OrderAssignment.POSITION_COLUMN[position];
+      if (col) {
+        await client.query(
+          `UPDATE students SET ${col} = $1, updated_at = NOW() WHERE student_id = $2`,
+          [staffName || '', studentId]);
+        await client.query(
+          `UPDATE leads SET ${col} = $1, updated_at = NOW()
+            WHERE person_id = $2 AND lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`,
+          [staffName || '', studentId]);
+        // Owner may have changed on the phase-driving slot → keep phase in sync.
+        await syncOrderPhase(client, studentId);
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK'); client.release(); await pool.end();
+      throw e;
+    }
+    client.release();
+
+    await logChanges({
+      studentId, leadId: null,
+      changedBy: req.session.staffName || req.session.staffEmail || 'unknown',
+      oldData: {}, newData: { position, staffName: staffName || '' },
+      source: 'staff_app',
+    });
+
+    const assignments = await OrderAssignment.getForOrder(studentId, pool);
+    await pool.end();
+    res.json({ success: true, data: { assignments } });
   } catch (err) { next(err); }
 }
 
@@ -431,7 +629,9 @@ async function massAssign(req, res, next) {
       return res.status(400).json({ success: false, error: 'studentIds array is required' });
     }
     const dbField = toSnakeCase(field);
-    const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived')`;
+    // Cascade only to genuinely in-progress leads; closed leads (incl. Cancelled
+    // and Contracted) retain their staff — same rule as the 1-off assign.
+    const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`;
 
     // Mass-assign applies to each selected student's OPEN leads (grouped by student).
     // Snapshot old values per open lead so we can audit who/when per lead.
@@ -441,11 +641,20 @@ async function massAssign(req, res, next) {
       [studentIds]
     );
 
+    // Order-driven: set the canonical owner on the Sales Order itself first...
+    await pool.query(
+      `UPDATE students SET ${dbField} = $1, updated_at = NOW()
+        WHERE student_id = ANY($2)`,
+      [value, studentIds]
+    );
+    // ...then cascade to each order's ACTIVE leads (closed leads keep their staff).
     await pool.query(
       `UPDATE leads SET ${dbField} = $1, updated_at = NOW()
         WHERE person_id = ANY($2) AND ${OPEN}`,
       [value, studentIds]
     );
+    // Phase follows the (possibly new) owner on every affected Order.
+    for (const sid of studentIds) await syncOrderPhase(pool, sid);
     await pool.end();
 
     // Lead-keyed audit for the leads whose value actually changed.
@@ -557,12 +766,20 @@ async function searchLeads(req, res, next) {
       params = [search];
     }
     const result = await pool.query(query, params);
+    // The logged-in person's department phase — scopes their own-leads reporting.
+    const posRow = await pool.query(`SELECT position FROM staff WHERE full_name = $1 LIMIT 1`, [req.session.staffName]);
     await pool.end();
     const staff = { role: req.session.staffRole, fullName: req.session.staffName };
     const scope = await permissionService.getResourceScope(staff.role, 'leads', 'view_list');
     if (scope === 'none') return res.status(403).json({ success: false, error: 'You do not have permission to view leads.' });
     let leads = result.rows.map(objectToCamelCase);
-    if (scope === 'own') leads = leads.filter(l => permissionService.isLeadAssignedTo(staff, l));
+    if (scope === 'own') {
+      // Reporting visibility: only leads whose Order sits in MY department's phase
+      // (a counsellor → Counselling; an Order moved to Pool/Case Officer drops off).
+      // Assignment (name match) still applies, so I see only my own leads in that phase.
+      const myPhase = phaseForPosition(posRow.rows[0] ? posRow.rows[0].position : null);
+      leads = leads.filter(l => permissionService.isLeadAssignedTo(staff, l) && l.orderPhase === myPhase);
+    }
     const masked = await permissionService.applyFieldPermissionsToList(staff, leads);
     // Re-attach leadId/studentId — they aren't catalog fields, so masking may drop
     // them, but the list needs them to navigate to /lead/:leadId or /students/:id.
@@ -614,7 +831,18 @@ async function getStudent(req, res, next) {
 
     const masked = await permissionService.applyFieldPermissions(staff, lead, 'detail');
 
-    res.json({ success: true, data: masked });
+    // Phase-driven assignment context: every position's current owner, the
+    // positions this phase lets us edit, and the legal next phases. Powers the
+    // Sales Order phase mover + phase-gated staff fields on the person view.
+    const OrderAssignment = require('../models/OrderAssignment');
+    const phase = masked.orderPhase || null;
+    const [assignments, editablePositions, nextPhases] = await Promise.all([
+      OrderAssignment.getForOrder(id),
+      OrderAssignment.activePositions(phase),
+      OrderAssignment.allowedTransitions(phase),
+    ]);
+
+    res.json({ success: true, data: { ...masked, assignments, editablePositions, nextPhases } });
   } catch (err) { next(err); }
 }
 
@@ -1111,7 +1339,7 @@ module.exports = {
   listStaff, listActiveStaff, listRoles, listColumns,
   listVariants, createVariant, updateVariant, deleteVariant,
   getMe, createStaff, updateStaff, resetPassword, deactivateStaff,
-  assignStaff, massAssign, searchStudents, searchLeads, getStudent, updateStudent,
+  assignStaff, massAssign, changePhase, setAssignment, searchStudents, searchLeads, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,
   setTarget, deleteStudents, exportExcel,

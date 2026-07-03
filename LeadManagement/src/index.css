@@ -325,6 +325,9 @@ body {
 /* ── Main Content ── */
 .main-content {
   flex: 1;
+  min-width: 0;               /* let this flex item shrink so wide tables scroll
+                                 inside their own overflow box instead of pushing
+                                 the whole page (header/footer) sideways */
   margin-left: var(--sidebar-width);
   min-height: 100vh;
   display: flex;

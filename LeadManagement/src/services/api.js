@@ -101,6 +101,8 @@ export const staffAPI = {
   resetPassword:   (id, password)             => request('PUT',  `/api/staff/${id}/password`, { password }),
   deactivate:      (id)                       => request('PUT',  `/api/staff/${id}/deactivate`),
   assign:          (studentId, data)          => request('PUT',  `/api/staff/assign/${studentId}`, data),
+  changePhase:     (studentId, data)          => request('PUT',  `/api/staff/phase/${studentId}`, data),
+  setAssignment:   (studentId, data)          => request('PUT',  `/api/staff/assignment/${studentId}`, data),
   massAssign:      (studentIds, field, value) => request('PUT',  '/api/staff/mass-assign', { studentIds, field, value }),
   setTarget:       (id, target)               => request('PUT',  `/api/staff/${id}/target`, { target }),
 };

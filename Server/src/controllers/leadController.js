@@ -12,9 +12,11 @@ const Lead = require('../models/Lead');
 const { logChanges } = require('./auditController');
 
 // Terminal statuses: a lead in any of these is locked (display-only). Only an
-// Admin/Director may edit it ("open it for belated changes"). Used by update().
-const TERMINAL_STATUSES = new Set(['Lost', 'Archived', 'Contracted']);
-const ADMIN_ROLES        = new Set(['Admin', 'Director']);
+// Admin/Director/Manager may edit it ("re-open it for belated changes"). Used by
+// update(). NOTE: Contracted is NOT terminal — a contracted lead stays OPEN and
+// editable; staff assignment is separately read-only on the lead (Order-driven).
+const TERMINAL_STATUSES = new Set(['Lost', 'Archived', 'Cancelled']);
+const ADMIN_ROLES        = new Set(['Admin', 'Director', 'Manager']);
 function canEditClosedLeads(role) { return ADMIN_ROLES.has(role); }
 
 // GET /api/leads — every lead (with student name) for the lead-level list.
