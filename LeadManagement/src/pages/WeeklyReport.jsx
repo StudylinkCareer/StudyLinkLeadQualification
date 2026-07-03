@@ -327,7 +327,8 @@ function WeeklyReportInner() {
     navigate('/leads', { state: { drillFilter: { key: '_ids', value: ids } } });
   };
 
-  // Resizable drill panel (drag its left border). Persisted for the session.
+  // Resizable drill panel: drag its RIGHT edge to extend the panel rightward
+  // (cards stay put; .wr-split scrolls if it passes the container). Session-persisted.
   const [panelWidth, setPanelWidth] = useState(() => {
     const v = Number(typeof sessionStorage !== 'undefined' && sessionStorage.getItem('wr-panel-width'));
     return v >= 300 && v <= 900 ? v : 380;
@@ -430,10 +431,15 @@ function WeeklyReportInner() {
     <div style={{ maxWidth: 1280, margin: '0 auto', padding: '1rem' }}>
       <style>{`
         .wr-split{display:flex;gap:1rem;align-items:flex-start;overflow-x:auto;}
-        .wr-cards{flex:1;min-width:640px;}
+        /* Cards fill spare room but NEVER shrink (flex-shrink:0). So widening the
+           Detail panel does not steal width from the cards — instead the panel's
+           right edge extends past the container edge and .wr-split scrolls, with
+           the cards (and the panel's left edge) staying put. 396 = default panel
+           380 + the 1rem gap. */
+        .wr-cards{flex:1 0 calc(100% - 396px);min-width:640px;}
         .wr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;align-items:start;margin-bottom:1rem;}
         .wr-detail{width:380px;flex-shrink:0;position:sticky;top:1rem;align-self:flex-start;}
-        @media (max-width:1000px){.wr-split{flex-direction:column;overflow-x:visible;}.wr-cards{min-width:0;}.wr-detail{width:100%;position:static;}}
+        @media (max-width:1000px){.wr-split{flex-direction:column;overflow-x:visible;}.wr-cards{min-width:0;flex:0 0 auto;width:auto;}.wr-detail{width:100%;position:static;}}
         @media (max-width:760px){.wr-grid{grid-template-columns:1fr;}}
       `}</style>
 
