@@ -415,14 +415,20 @@ router.delete('/events/:id/institutions/:eiId', requireDeskAdmin, async (req, re
 // ─────────────────────────────────────────────────────────────────────
 
 const POSITION_BY_KIND = { institution: 'Institution rep', studylink: 'StudyLink event staff' };
+const { eventLogonId, EVENT_DEFAULT_PASSWORD } = require('../utils/eventRep');
 
+// A rep is now an event_reps LINK row joined to the real staff person.
+// `repId` = event_reps.id. Shape kept identical to the old staff-row response
+// (source_staff_id = the linked staff id, always set now).
 async function repRow(repId) {
   const r = await pool.query(
-    `SELECT s.id, s.full_name, s.position, s.institution_id, i.name AS institution_name,
-            s.event_login_token, s.event_pin, s.valid_from, s.valid_until, s.is_active,
-            s.source_staff_id
-       FROM staff s LEFT JOIN institutions i ON i.id = s.institution_id
-      WHERE s.id = $1`,
+    `SELECT er.id, s.full_name, er.position, er.institution_id, i.name AS institution_name,
+            er.event_login_token, er.event_pin, er.valid_from, er.valid_until, er.is_active,
+            er.staff_id AS source_staff_id
+       FROM event_reps er
+       JOIN staff s ON s.id = er.staff_id
+       LEFT JOIN institutions i ON i.id = er.institution_id
+      WHERE er.id = $1`,
     [repId]
   );
   return r.rows[0] || null;
@@ -451,12 +457,14 @@ router.get('/events/:id/reps', requireStaffAuth, async (req, res) => {
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
   try {
     const r = await pool.query(
-      `SELECT s.id, s.full_name, s.position, s.institution_id, i.name AS institution_name,
-              s.event_login_token, s.event_pin, s.valid_from, s.valid_until, s.is_active,
-              s.source_staff_id
-         FROM staff s LEFT JOIN institutions i ON i.id = s.institution_id
-        WHERE s.staff_type = 'event' AND s.event_id = $1
-        ORDER BY s.is_active DESC, s.full_name ASC`,
+      `SELECT er.id, s.full_name, er.position, er.institution_id, i.name AS institution_name,
+              er.event_login_token, er.event_pin, er.valid_from, er.valid_until, er.is_active,
+              er.staff_id AS source_staff_id
+         FROM event_reps er
+         JOIN staff s ON s.id = er.staff_id
+         LEFT JOIN institutions i ON i.id = er.institution_id
+        WHERE er.event_id = $1
+        ORDER BY er.is_active DESC, s.full_name ASC`,
       [id]
     );
     res.json({ success: true, data: r.rows });
@@ -484,47 +492,61 @@ router.post('/events/:id/reps', requireDeskAdmin, async (req, res) => {
     return res.status(400).json({ success: false, error: 'Institution reps need an institution (or set type to StudyLink for roving)' });
   }
 
+  if (institutionId) {
+    const chk = await pool.query(`SELECT 1 FROM institutions WHERE id = $1`, [institutionId]);
+    if (chk.rowCount === 0) return res.status(404).json({ success: false, error: 'Institution not found' });
+  }
+
+  const client = await pool.connect();
   try {
-    // Preferred: assign a real staff member. Copy their name onto the
-    // event-staff row and link back via source_staff_id (for email/phone/Zalo).
-    let sourceStaffId = null;
+    await client.query('BEGIN');
+
+    // Resolve the staff row to LINK: existing member → their id (no new row);
+    // new recruit → create ONE real event-only staff account.
+    let repStaffId = staffId;
+    let newAccount = null;                       // {logonId, password} to hand back for a fresh recruit
     if (staffId) {
-      const s = await pool.query(
-        `SELECT full_name FROM staff WHERE id = $1 AND staff_type <> 'event' AND is_active = true`,
-        [staffId]
-      );
-      if (s.rowCount === 0) return res.status(404).json({ success: false, error: 'Staff member not found or not selectable' });
-      fullName = s.rows[0].full_name;
-      sourceStaffId = staffId;
+      const s = await client.query(`SELECT id FROM staff WHERE id = $1 AND is_active = true`, [staffId]);
+      if (s.rowCount === 0) { await client.query('ROLLBACK'); client.release(); return res.status(404).json({ success: false, error: 'Staff member not found' }); }
+    } else {
+      if (!fullName) { await client.query('ROLLBACK'); client.release(); return res.status(400).json({ success: false, error: 'Pick a staff member or enter a name' }); }
+      let logonId = eventLogonId(fullName);
+      const [local, domain] = logonId.split('@');
+      let n = 1;
+      while ((await client.query(`SELECT 1 FROM staff WHERE LOWER(email) = LOWER($1)`, [logonId])).rowCount) {
+        n += 1; logonId = `${local}-${n}@${domain}`;
+      }
+      const pwdHash = crypto.createHash('sha256').update(EVENT_DEFAULT_PASSWORD).digest('hex');
+      const ins = await client.query(
+        `INSERT INTO staff (full_name, email, position, role, password_hash, is_active, created_at)
+         VALUES ($1, $2, $3, 'Event staff', $4, true, NOW()) RETURNING id`,
+        [fullName, logonId, POSITION_BY_KIND[kind], pwdHash]);
+      repStaffId = ins.rows[0].id;
+      newAccount = { logonId, password: EVENT_DEFAULT_PASSWORD };
     }
-    if (!fullName) return res.status(400).json({ success: false, error: 'Pick a staff member' });
 
-    if (institutionId) {
-      const chk = await pool.query(`SELECT 1 FROM institutions WHERE id = $1`, [institutionId]);
-      if (chk.rowCount === 0) return res.status(404).json({ success: false, error: 'Institution not found' });
+    // Dedup: reuse an existing active link for this (event, staff).
+    const dup = await client.query(
+      `SELECT id FROM event_reps WHERE event_id = $1 AND staff_id = $2 AND is_active = true LIMIT 1`,
+      [id, repStaffId]);
+    let repLinkId;
+    if (dup.rowCount) {
+      repLinkId = dup.rows[0].id;
+    } else {
+      const link = await client.query(
+        `INSERT INTO event_reps
+           (event_id, staff_id, position, institution_id, valid_from, valid_until, event_login_token, event_pin, is_active, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, NOW()) RETURNING id`,
+        [id, repStaffId, POSITION_BY_KIND[kind], institutionId, validFrom, validUntil, crypto.randomUUID(), genDeskPin()]);
+      repLinkId = link.rows[0].id;
     }
-    // Dedup: if this real staff member is already an active rep for THIS event,
-    // return the existing rep rather than minting a second row.
-    if (sourceStaffId) {
-      const existing = await pool.query(
-        `SELECT id FROM staff WHERE staff_type = 'event' AND event_id = $1 AND source_staff_id = $2 AND is_active = true LIMIT 1`,
-        [id, sourceStaffId]);
-      if (existing.rowCount) return res.json({ success: true, data: await repRow(existing.rows[0].id) });
-    }
-    const token = crypto.randomUUID();
-    const pin   = genDeskPin();
-    const email = `evt-${token}@reps.local`;   // synthetic: staff.email is NOT NULL + unique
 
-    const ins = await pool.query(
-      `INSERT INTO staff
-         (full_name, email, position, role, staff_type, event_id, institution_id,
-          valid_from, valid_until, event_login_token, event_pin, source_staff_id, is_active, created_at)
-       VALUES ($1, $2, $3, 'Event staff', 'event', $4, $5, $6, $7, $8, $9, $10, true, NOW())
-       RETURNING id`,
-      [fullName, email, POSITION_BY_KIND[kind], id, institutionId, validFrom, validUntil, token, pin, sourceStaffId]
-    );
-    res.json({ success: true, data: await repRow(ins.rows[0].id) });
+    await client.query('COMMIT');
+    client.release();
+    res.json({ success: true, data: await repRow(repLinkId), account: newAccount });
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    client.release();
     console.error('[event-console] add rep:', err);
     res.status(500).json({ success: false, error: 'Failed to add rep' });
   }
@@ -544,7 +566,7 @@ router.patch('/events/:id/reps/:repId', requireDeskAdmin, async (req, res) => {
 
   try {
     const r = await pool.query(
-      `UPDATE staff SET ${sets.join(', ')} WHERE id = $${vals.length} AND staff_type = 'event' RETURNING id`,
+      `UPDATE event_reps SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING id`,
       vals
     );
     if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Rep not found' });
@@ -561,7 +583,7 @@ router.post('/events/:id/reps/:repId/regen-pin', requireDeskAdmin, async (req, r
   if (isNaN(repId)) return res.status(400).json({ success: false, error: 'Invalid rep id' });
   try {
     const r = await pool.query(
-      `UPDATE staff SET event_pin = $1 WHERE id = $2 AND staff_type = 'event' RETURNING id, event_pin`,
+      `UPDATE event_reps SET event_pin = $1 WHERE id = $2 RETURNING id, event_pin`,
       [genDeskPin(), repId]
     );
     if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Rep not found' });
@@ -578,7 +600,7 @@ router.delete('/events/:id/reps/:repId', requireDeskAdmin, async (req, res) => {
   if (isNaN(repId)) return res.status(400).json({ success: false, error: 'Invalid rep id' });
   try {
     const r = await pool.query(
-      `UPDATE staff SET is_active = false WHERE id = $1 AND staff_type = 'event' RETURNING id`,
+      `UPDATE event_reps SET is_active = false WHERE id = $1 RETURNING id`,
       [repId]
     );
     if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Rep not found' });
@@ -605,20 +627,15 @@ router.post('/events/:id/reps/:repId/email-link', requireDeskAdmin, async (req, 
 
   try {
     const r = await pool.query(
-      `SELECT id, full_name, event_login_token, event_pin, source_staff_id, is_active
-         FROM staff
-        WHERE id = $1 AND event_id = $2 AND staff_type = 'event' LIMIT 1`,
+      `SELECT er.id, s.full_name, er.event_login_token, er.event_pin, er.is_active, s.email
+         FROM event_reps er JOIN staff s ON s.id = er.staff_id
+        WHERE er.id = $1 AND er.event_id = $2 LIMIT 1`,
       [repId, id]
     );
     if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Rep not found' });
     const rep = r.rows[0];
     if (!rep.is_active) return res.status(400).json({ success: false, error: 'Rep is deactivated' });
-    if (!rep.source_staff_id) {
-      return res.status(400).json({ success: false, error: 'This rep is not linked to a staff member. Re-create them from the staff list to enable email.' });
-    }
-
-    const s = await pool.query(`SELECT email FROM staff WHERE id = $1`, [rep.source_staff_id]);
-    const email = s.rows[0] && s.rows[0].email;
+    const email = rep.email;
     if (!email) return res.status(400).json({ success: false, error: 'Linked staff member has no email on file' });
 
     const ev = await pool.query(`SELECT name FROM events WHERE id = $1`, [id]);

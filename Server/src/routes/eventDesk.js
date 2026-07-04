@@ -47,9 +47,12 @@ async function requireRep(req, res, next) {
   const payload = verifyRep(token);
   if (!payload) return res.status(401).json({ success: false, error: 'Session expired — sign in again' });
   try {
+    // Bearer repId = event_reps.id (the link). Resolve to the real staff person;
+    // req.rep.id stays the STAFF id so desk sessions + note authorship are correct.
     const r = await pool.query(
-      `SELECT id, full_name, institution_id, event_id, is_active, valid_until
-         FROM staff WHERE id = $1 AND staff_type = 'event'`,
+      `SELECT er.staff_id AS id, s.full_name, er.institution_id, er.event_id, er.is_active, er.valid_until
+         FROM event_reps er JOIN staff s ON s.id = er.staff_id
+        WHERE er.id = $1`,
       [payload.repId]
     );
     if (r.rowCount === 0 || !r.rows[0].is_active) {
@@ -75,10 +78,12 @@ router.post('/login', async (req, res) => {
 
   try {
     const r = await pool.query(
-      `SELECT s.id, s.full_name, s.position, s.institution_id, i.name AS institution_name,
-              s.event_id, s.event_pin, s.valid_from, s.valid_until, s.is_active
-         FROM staff s LEFT JOIN institutions i ON i.id = s.institution_id
-        WHERE s.event_login_token = $1 AND s.staff_type = 'event' LIMIT 1`,
+      `SELECT er.id AS rep_link_id, er.staff_id, s.full_name, er.position, er.institution_id, i.name AS institution_name,
+              er.event_id, er.event_pin, er.valid_from, er.valid_until, er.is_active
+         FROM event_reps er
+         JOIN staff s ON s.id = er.staff_id
+         LEFT JOIN institutions i ON i.id = er.institution_id
+        WHERE er.event_login_token = $1 LIMIT 1`,
       [token]
     );
     if (r.rowCount === 0) return res.status(401).json({ success: false, error: 'Invalid sign-in link' });
@@ -91,13 +96,14 @@ router.post('/login', async (req, res) => {
     if (rep.valid_from  && now < new Date(rep.valid_from))  return res.status(403).json({ success: false, error: 'Sign-in is not open yet for this event' });
     if (rep.valid_until && now > new Date(rep.valid_until)) return res.status(403).json({ success: false, error: 'This event has ended' });
 
-    const authToken = signRep({ repId: rep.id, eventId: rep.event_id, exp: Date.now() + TTL_MS });
+    // Bearer identity = the event_reps link; the displayed rep id is the real staff id.
+    const authToken = signRep({ repId: rep.rep_link_id, eventId: rep.event_id, exp: Date.now() + TTL_MS });
     res.json({
       success: true,
       data: {
         authToken,
         rep: {
-          id: rep.id,
+          id: rep.staff_id,
           fullName: rep.full_name,
           position: rep.position,
           institutionId: rep.institution_id,

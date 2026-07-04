@@ -31,9 +31,11 @@ export default function RepsPanel({ eventId, selected }) {
   const [notice, setNotice]   = useState('');
   const [sendingId, setSendingId] = useState(null);
 
-  // Add-rep form — reps are picked from existing staff.
+  // Add-rep form — pick existing staff OR type a new recruit's name.
   const [staffPool, setStaffPool]     = useState([]);
   const [staffId, setStaffId]         = useState('');
+  const [newName, setNewName]         = useState('');   // new recruit (not in staff table)
+  const [newCred, setNewCred]         = useState(null); // {logonId,password} to show the creator
   const [kind, setKind]               = useState('institution');   // 'institution' | 'studylink'
   const [institutionId, setInstId]    = useState('');
   const [validFrom, setValidFrom]     = useState('');
@@ -77,15 +79,17 @@ export default function RepsPanel({ eventId, selected }) {
     setValidUntil(toLocalInput(selected.endDate || selected.startDate, '18:00'));
   }, [selected]);
 
-  const resetForm = () => { setStaffId(''); setKind('institution'); setInstId(''); };
+  const resetForm = () => { setStaffId(''); setNewName(''); setKind('institution'); setInstId(''); };
 
   const handleAdd = async () => {
-    if (!staffId) { setError('Pick a staff member.'); return; }
+    const nm = newName.trim();
+    if (!staffId && !nm) { setError('Pick a staff member, or type a new recruit’s name.'); return; }
     if (kind === 'institution' && !institutionId) { setError('Pick an institution, or switch type to StudyLink (roving).'); return; }
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setNewCred(null);
     try {
-      await eventConsoleAPI.addEventRep(eventId, {
-        staffId,
+      const res = await eventConsoleAPI.addEventRep(eventId, {
+        staffId: staffId || undefined,
+        fullName: staffId ? undefined : nm,   // new recruit → create by name
         kind,
         institutionId: kind === 'institution' ? institutionId : null,
         validFrom:  validFrom  ? new Date(validFrom).toISOString()  : null,
@@ -93,6 +97,8 @@ export default function RepsPanel({ eventId, selected }) {
       });
       resetForm();
       await loadReps(eventId);
+      // New recruit → surface the login they must forward.
+      if (res?.account) setNewCred(res.account);
     } catch (e) {
       setError(e.message || 'Failed to add rep');
     } finally {
@@ -143,9 +149,9 @@ export default function RepsPanel({ eventId, selected }) {
         <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
           <select
             value={staffId}
-            onChange={(e) => setStaffId(e.target.value)}
-            disabled={!eventId}
-            style={{ ...input, flex:1, minWidth:200 }}
+            onChange={(e) => { setStaffId(e.target.value); if (e.target.value) setNewName(''); }}
+            disabled={!eventId || !!newName.trim()}
+            style={{ ...input, flex:1, minWidth:180, opacity: newName.trim() ? 0.5 : 1 }}
           >
             <option value="">Select staff member…</option>
             {staffPool.map((s) => (
@@ -154,6 +160,15 @@ export default function RepsPanel({ eventId, selected }) {
               </option>
             ))}
           </select>
+          <span style={{ fontSize:12, color:'#9ca3af' }}>or</span>
+          <input
+            value={newName}
+            onChange={(e) => { setNewName(e.target.value); if (e.target.value) setStaffId(''); }}
+            disabled={!eventId || !!staffId}
+            placeholder="New recruit — full name"
+            title="Creates a new event-only account and returns their login to forward"
+            style={{ ...input, minWidth:200, opacity: staffId ? 0.5 : 1 }}
+          />
           <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...input }}>
             <option value="institution">Institution rep</option>
             <option value="studylink">StudyLink staff (roving)</option>
@@ -175,11 +190,26 @@ export default function RepsPanel({ eventId, selected }) {
           <input type="datetime-local" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} style={input} />
           <button
             onClick={handleAdd}
-            disabled={busy || !eventId || !staffId}
-            style={{ ...blue, opacity: (busy || !staffId) ? 0.6 : 1, marginLeft:'auto' }}
+            disabled={busy || !eventId || (!staffId && !newName.trim())}
+            style={{ ...blue, opacity: (busy || (!staffId && !newName.trim())) ? 0.6 : 1, marginLeft:'auto' }}
           >{busy ? 'Adding…' : 'Add rep'}</button>
         </div>
       </div>
+
+      {newCred && (
+        <div style={{ ...card, marginBottom:12, background:'#ecfdf5', border:'1px solid #a7f3d0' }}>
+          <div style={{ fontWeight:600, marginBottom:6 }}>New recruit account created — forward these to them:</div>
+          <div style={{ fontSize:14, fontFamily:'monospace' }}>
+            Logon ID: <b>{newCred.logonId}</b><br/>
+            Password: <b>{newCred.password}</b>
+          </div>
+          <button style={{ ...ghost, marginTop:8 }}
+            onClick={() => { navigator.clipboard?.writeText(`Logon ID: ${newCred.logonId}\nPassword: ${newCred.password}`); }}>
+            Copy
+          </button>
+          <button style={{ ...ghost, marginTop:8, marginLeft:8 }} onClick={() => setNewCred(null)}>Dismiss</button>
+        </div>
+      )}
 
       {error && (
         <div style={{ background:'#fef2f2', border:'1px solid #fecaca', color:'#b91c1c', padding:'10px 14px', borderRadius:8, marginBottom:12, fontSize:14 }}>
