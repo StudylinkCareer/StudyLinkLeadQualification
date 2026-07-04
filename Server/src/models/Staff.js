@@ -12,7 +12,7 @@ const pool = new Pool({
 async function findAll() {
   const result = await pool.query(
     `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable
-     FROM staff ORDER BY full_name ASC`
+     FROM staff WHERE COALESCE(staff_type,'') <> 'event' ORDER BY full_name ASC`
   );
   return result.rows.map(objectToCamelCase);
 }
@@ -49,7 +49,7 @@ async function findActiveByRole(role) {
 async function findAllActive() {
   const result = await pool.query(
     `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable
-     FROM staff WHERE is_active = true ORDER BY full_name ASC`
+     FROM staff WHERE is_active = true AND COALESCE(staff_type,'') <> 'event' ORDER BY full_name ASC`
   );
   return result.rows.map(objectToCamelCase);
 }

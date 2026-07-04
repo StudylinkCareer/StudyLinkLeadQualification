@@ -43,11 +43,18 @@ function phaseForPosition(position) {
 // Call this from every path that changes an Order's owner (assignStaff,
 // distribution assign/release/recall, upload). `db` is a pg client or pool.
 async function syncOrderPhase(db, studentId) {
+  // Resolve the owner's position by name, but EXCLUDE synthetic event-rep rows
+  // (staff_type='event') — a person can have a duplicate 'Event staff' row, and
+  // matching that would wrongly resolve the phase to Pool. Prefer the active,
+  // real record; LIMIT 1 keeps it deterministic.
   const r = await db.query(
     `SELECT st.position AS position
        FROM students s
-       LEFT JOIN staff st ON st.full_name = s.counselor
-      WHERE s.student_id = $1`,
+       LEFT JOIN staff st
+         ON st.full_name = s.counselor AND COALESCE(st.staff_type, '') <> 'event'
+      WHERE s.student_id = $1
+      ORDER BY st.is_active DESC NULLS LAST
+      LIMIT 1`,
     [studentId]
   );
   const position = r.rows.length ? r.rows[0].position : null;

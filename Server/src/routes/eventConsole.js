@@ -503,6 +503,14 @@ router.post('/events/:id/reps', requireDeskAdmin, async (req, res) => {
       const chk = await pool.query(`SELECT 1 FROM institutions WHERE id = $1`, [institutionId]);
       if (chk.rowCount === 0) return res.status(404).json({ success: false, error: 'Institution not found' });
     }
+    // Dedup: if this real staff member is already an active rep for THIS event,
+    // return the existing rep rather than minting a second row.
+    if (sourceStaffId) {
+      const existing = await pool.query(
+        `SELECT id FROM staff WHERE staff_type = 'event' AND event_id = $1 AND source_staff_id = $2 AND is_active = true LIMIT 1`,
+        [id, sourceStaffId]);
+      if (existing.rowCount) return res.json({ success: true, data: await repRow(existing.rows[0].id) });
+    }
     const token = crypto.randomUUID();
     const pin   = genDeskPin();
     const email = `evt-${token}@reps.local`;   // synthetic: staff.email is NOT NULL + unique
