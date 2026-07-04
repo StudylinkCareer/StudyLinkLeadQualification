@@ -505,7 +505,7 @@ async function assignManual(req, res, next) {
   try {
     await client.query('BEGIN');
     // Target phase = the department of the chosen counsellor's position.
-    const posRow = (await client.query(`SELECT position FROM staff WHERE full_name=$1 LIMIT 1`, [counselor])).rows[0];
+    const posRow = (await client.query(`SELECT position FROM staff WHERE full_name=$1 AND COALESCE(role,'') <> 'Event staff' LIMIT 1`, [counselor])).rows[0];
     const targetPhase = phaseForPosition(posRow ? posRow.position : null);
     for (const lid of leadIds) {
       const sel = await client.query(

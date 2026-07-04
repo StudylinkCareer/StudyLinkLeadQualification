@@ -645,7 +645,7 @@ async function massAssign(req, res, next) {
       let targetPhase = 'Pool';
       if (value) {
         const posRow = (await pool.query(
-          `SELECT position FROM staff WHERE full_name = $1 LIMIT 1`, [value])).rows[0];
+          `SELECT position FROM staff WHERE full_name = $1 AND COALESCE(role,'') <> 'Event staff' LIMIT 1`, [value])).rows[0];
         targetPhase = phaseForPosition(posRow ? posRow.position : null);
       }
       const cur = (await pool.query(
@@ -739,7 +739,7 @@ async function massMovePhase(req, res, next) {
     // Actual target = the assignee's department (Pool when vacating).
     let targetPhase = toPhase;
     if (staffName) {
-      const pos = (await pool.query(`SELECT position FROM staff WHERE full_name = $1 LIMIT 1`, [staffName])).rows[0];
+      const pos = (await pool.query(`SELECT position FROM staff WHERE full_name = $1 AND COALESCE(role,'') <> 'Event staff' LIMIT 1`, [staffName])).rows[0];
       targetPhase = phaseForPosition(pos ? pos.position : null);
     }
     // Validate every selected Order's transition — block the whole batch on any conflict.
@@ -921,8 +921,6 @@ async function searchLeads(req, res, next) {
       params = [search];
     }
     const result = await pool.query(query, params);
-    // The logged-in person's department phase — scopes their own-leads reporting.
-    const posRow = await pool.query(`SELECT position FROM staff WHERE full_name = $1 LIMIT 1`, [req.session.staffName]);
     await pool.end();
     const staff = { role: req.session.staffRole, fullName: req.session.staffName };
     const scope = await permissionService.getResourceScope(staff.role, 'leads', 'view_list');
@@ -931,8 +929,10 @@ async function searchLeads(req, res, next) {
     if (scope === 'own') {
       // Reporting visibility: only leads whose Order sits in MY department's phase
       // (a counsellor → Counselling; an Order moved to Pool/Case Officer drops off).
-      // Assignment (name match) still applies, so I see only my own leads in that phase.
-      const myPhase = phaseForPosition(posRow.rows[0] ? posRow.rows[0].position : null);
+      // Use the SESSION position (the record I logged in with) — NOT a full_name
+      // lookup, which is ambiguous when a person has duplicate staff rows (e.g. an
+      // 'Event staff' rep record) and would wrongly resolve the phase to Pool.
+      const myPhase = phaseForPosition(req.session.staffPosition || null);
       leads = leads.filter(l => permissionService.isLeadAssignedTo(staff, l) && l.orderPhase === myPhase);
     }
     const masked = await permissionService.applyFieldPermissionsToList(staff, leads);
