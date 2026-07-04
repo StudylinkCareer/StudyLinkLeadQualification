@@ -171,25 +171,21 @@ const SOURCE_COLORS = ['#2563EB','#0891B2','#059669','#D97706','#7C3AED','#DB277
 
 const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived', 'Cancelled'];
 
-// Lead statuses that COUNT in a counsellor's reporting (Counselling team rule,
-// 2026-07-03). Whitelist, not blacklist: any status NOT here — Lost, Not
-// contactable, Archived, Cancelled, and blank/null — is excluded from staff
-// reporting (the name stays on the record for reference only; blank-status leads
-// belong in the Pool, not on a counsellor's list). Nurturing is IN pending the
-// team's final call. NOTE: this reporting set is deliberately DIFFERENT from the
-// edit-lock set {Lost, Archived, Cancelled} — e.g. "Not contactable" is still a
-// workable/editable lead, it just doesn't count in the active pipeline.
+// Lead statuses that COUNT in a counsellor's reporting. Whitelist, not blacklist:
+// any status NOT here — Lost, Archived, Cancelled, and blank/null — is excluded
+// (the name stays on the record for reference only). 'Not contactable' IS counted
+// (added 2026-07-04, user's call) so the per-counsellor Management view matches
+// each counsellor's own dashboard. This set now == the counsellor's own-leads
+// filter (active book = everything except Lost/Archived/Cancelled).
 const REPORTING_INCLUDED_STATUSES = [
   'New', 'Engaged', 'Contracted', 'Proposal',
   'Met with customer and family', 'Vetted', 'Family negotiation/review',
-  'Nurturing',   // pending team decision — currently included
+  'Nurturing', 'Not contactable',
 ];
 
-// Presales works the EARLY funnel, so it OWNS 'Not contactable' (Presales chase
-// these; if follow-up fails they manually move the Order to Pool, which drops it
-// off Presales reporting via the phase gate). Lost/Archived/Cancelled are still
-// excluded — same as Counselling. Otherwise identical to the Counselling set.
-const PRESALES_INCLUDED_STATUSES = [...REPORTING_INCLUDED_STATUSES, 'Not contactable'];
+// Presales works the same early funnel — identical reportable set now that
+// 'Not contactable' is counted for Counselling too.
+const PRESALES_INCLUDED_STATUSES = REPORTING_INCLUDED_STATUSES;
 
 // Reportable-status set per department phase. Same philosophy, different funnel.
 const REPORTABLE_STATUSES_BY_PHASE = {
