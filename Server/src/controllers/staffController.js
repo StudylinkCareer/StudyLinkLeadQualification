@@ -933,7 +933,13 @@ async function searchLeads(req, res, next) {
       // lookup, which is ambiguous when a person has duplicate staff rows (e.g. an
       // 'Event staff' rep record) and would wrongly resolve the phase to Pool.
       const myPhase = phaseForPosition(req.session.staffPosition || null);
-      leads = leads.filter(l => permissionService.isLeadAssignedTo(staff, l) && l.orderPhase === myPhase);
+      // Active book only: closed/terminal leads (Lost/Archived/Cancelled) drop off
+      // the counsellor's own list — the name stays on the record for reference.
+      const CLOSED = ['Lost', 'Archived', 'Cancelled'];
+      leads = leads.filter(l =>
+        permissionService.isLeadAssignedTo(staff, l)
+        && l.orderPhase === myPhase
+        && !CLOSED.includes(l.leadStatus));
     }
     const masked = await permissionService.applyFieldPermissionsToList(staff, leads);
     // Re-attach leadId/studentId — they aren't catalog fields, so masking may drop
