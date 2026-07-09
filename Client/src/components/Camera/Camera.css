@@ -101,10 +101,13 @@
   transform: scaleX(-1);
 }
 
-/* Mirror QR scanner video feeds */
+/* QR scanner feeds must NOT be mirrored. Neither the phone rear camera nor a
+   laptop front camera delivers a mirrored raw feed, so scaleX(-1) flipped BOTH
+   the wrong way. Decode reads the raw frame regardless; this only affects the
+   preview. (Headshot videos above stay mirrored, which is correct for selfies.) */
 #qr-reader video,
 #qr-reader-inline video {
-  transform: scaleX(-1) !important;
+  transform: none !important;
 }
 
 /* Circular crop guide — centred in square viewfinder */
