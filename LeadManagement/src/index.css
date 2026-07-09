@@ -1049,3 +1049,12 @@ tr:hover td {
   background: #fff;
   background-clip: padding-box;
 }
+
+/* Freeze the Leads table header (column-title row + filter row) so both stay
+   pinned while the table body scrolls. The header cells already have opaque
+   backgrounds, so scrolling rows don't show through. */
+.leads-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}

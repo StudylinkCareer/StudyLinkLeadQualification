@@ -404,11 +404,12 @@ export default function Dashboard() {
     const total  = scopedLeads.length;
     const won    = scopedLeads.filter(l => l.leadStatus === 'Contracted').length;
     const active = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus)).length;
-    const thisMonthLeads = scopedLeads.filter(l => {
-      if (!l.createdAt) return false;
-      const d = new Date(l.createdAt), now = new Date();
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
+    // "New this month" = leads ASSIGNED (at the lead level) this calendar month,
+    // NOT created this month. assignedIn is a DATE (serialised as UTC-midnight),
+    // so comparing the YYYY-MM prefix is exact and timezone-stable.
+    const now   = new Date();
+    const nowYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const thisMonthLeads = scopedLeads.filter(l => l.assignedIn && String(l.assignedIn).slice(0, 7) === nowYm);
     return {
       total,
       won,
@@ -787,11 +788,10 @@ export default function Dashboard() {
             <StatCard label={t('dashboard.stat.active', language)}        value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
             <StatCard label={t('dashboard.stat.contracted', language)}    value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
             <StatCard
-              label={t('dashboard.stat.newThisMonth', language)}
+              label={language==='vi'?'Được phân công tháng này':'Assigned This Month'}
               value={stats.thisMonth}
               color="#F59E0B"
-              sub={t('dashboard.stat.newThisMonth.sub', language)}
-              onClick={() => drillDown('_ids', stats.thisMonthIds)}
+              onClick={() => drillIds(stats.thisMonthIds)}
             />
           </div>
 

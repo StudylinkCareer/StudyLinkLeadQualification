@@ -908,7 +908,20 @@ async function searchLeads(req, res, next) {
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     });
     const { q } = req.query;
-    const base = `SELECT s.*, l.* FROM leads l JOIN students s ON s.student_id = l.person_id`;
+    // s.*, l.* → on duplicate columns (created_at/updated_at/assigned_in/out) the
+    // LEAD's value wins (l.* is last). Person-level dates are aliased so the Leads
+    // list can show BOTH levels side by side ("Lead ⋯" vs "Sales ⋯").
+    // DATE columns are emitted via to_char('YYYY-MM-DD') so they serialise as plain
+    // date strings — otherwise pg returns them as local-midnight Date objects that
+    // toISOString() shifts back a day (breaking month math + showing dates a day early).
+    const base = `SELECT s.*, l.*,
+        to_char(l.assigned_in,  'YYYY-MM-DD') AS assigned_in,
+        to_char(l.assigned_out, 'YYYY-MM-DD') AS assigned_out,
+        to_char(s.created_at,   'YYYY-MM-DD') AS person_created_at,
+        to_char(s.updated_at,   'YYYY-MM-DD') AS person_updated_at,
+        to_char(s.assigned_in,  'YYYY-MM-DD') AS person_assigned_in,
+        to_char(s.assigned_out, 'YYYY-MM-DD') AS person_assigned_out
+      FROM leads l JOIN students s ON s.student_id = l.person_id`;
     let query, params;
     if (!q || q.trim() === '') {
       query = `${base} ORDER BY s.created_at DESC NULLS LAST`;

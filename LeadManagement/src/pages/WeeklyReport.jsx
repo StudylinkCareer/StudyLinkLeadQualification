@@ -228,11 +228,16 @@ function WeeklyReportInner() {
   const [loading, setLoading] = useState(false);
   const [drill, setDrill]     = useState(null);
 
+  // Recommendations are APPEND-ONLY: recoContent is the immutable history,
+  // recoAdd is a new supplemental segment. Locked (frozen) weeks reject additions.
   const [recoContent, setRecoContent]   = useState('');
-  const [recoBaseline, setRecoBaseline] = useState('');
+  const [recoAdd, setRecoAdd]           = useState('');
+  const [recoLocked, setRecoLocked]     = useState(false);
   const [recoInfo, setRecoInfo]         = useState({ updatedBy: null, updatedAt: null });
   const [recoStatus, setRecoStatus]     = useState('idle');
-  const recoDirty = recoContent !== recoBaseline;
+  const [reloadKey, setReloadKey]       = useState(0);
+  const [republishing, setRepublishing] = useState(false);
+  const recoDirty = recoAdd.trim().length > 0;
 
   // ── Monthly Targets state ───────────────────────────────────
   const [targets, setTargets]               = useState(null);   // { months, rows }
@@ -256,19 +261,28 @@ function WeeklyReportInner() {
       .then(r => setData(r?.data || null))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [weekStart, mode, selected, isManager]);
+  }, [weekStart, mode, selected, isManager, reloadKey]);
+
+  // Manager "Re-publish": re-freeze this week's snapshot, then refetch it.
+  const republish = async () => {
+    if (!isManager || republishing) return;
+    setRepublishing(true);
+    try { await reportsAPI.regenerateWeekly(weekStart); setReloadKey(k => k + 1); }
+    catch { /* ignore */ }
+    finally { setRepublishing(false); }
+  };
 
   useEffect(() => {
     if (typeof reportsAPI.getRecommendation !== 'function') return;
-    if (needsSelection) { setRecoContent(''); setRecoBaseline(''); setRecoInfo({ updatedBy: null, updatedAt: null }); setRecoStatus('idle'); return; }
+    if (needsSelection) { setRecoContent(''); setRecoAdd(''); setRecoLocked(false); setRecoInfo({ updatedBy: null, updatedAt: null }); setRecoStatus('idle'); return; }
     setRecoStatus('loading');
     reportsAPI.getRecommendation(weekStart, apiMode, apiResources)
-      .then(r => { const d = r?.data || {}; setRecoContent(d.content || ''); setRecoBaseline(d.content || ''); setRecoInfo({ updatedBy: d.updatedBy || null, updatedAt: d.updatedAt || null }); setRecoStatus('idle'); })
+      .then(r => { const d = r?.data || {}; setRecoContent(d.content || ''); setRecoAdd(''); setRecoLocked(!!d.locked); setRecoInfo({ updatedBy: d.updatedBy || null, updatedAt: d.updatedAt || null }); setRecoStatus('idle'); })
       .catch(() => setRecoStatus('error'));
   }, [weekStart, mode, selected, isManager]);
 
   useEffect(() => {
-    pushTrail({ label: L('Weekly Status Report', 'Báo cáo tuần'), path: '/reports/weekly',
+    pushTrail({ label: L('Weekly Report (static)', 'Báo cáo tuần (tĩnh)'), path: '/reports/weekly',
                 state: { weekStart, mode, selected } });
   }, [pushTrail, weekStart, mode, selected, language]);
 
@@ -297,10 +311,12 @@ function WeeklyReportInner() {
     { key: 'let_basic', label: L('Basic', 'Cơ bản'), value: g => g.basicLetters?.count, leads: g => g.basicLetters?.items, cols: [name, { key: 'destinationCountry', label: L('Destination', 'Điểm đến') }] },
     { key: 'let_final', label: L('Final', 'Cuối'),   value: g => g.finalLetters?.count, leads: g => g.finalLetters?.items, cols: [name, { key: 'destinationCountry', label: L('Destination', 'Điểm đến') }] },
   ] };
+  const leadCols = [name, { key: 'studentId', label: L('Sales ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }];
   const leadsSection = { title: L('Leads', 'Khách hàng'), color: '#2563eb', metrics: [
-    { key: 'l_in',   label: L('Leads in', 'Nhận vào'),      value: g => g.leadsIn?.count,         leads: g => g.leadsIn?.leads,         cols: [name, { key: 'studentId', label: L('Sales ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
-    { key: 'l_out',  label: L('Leads out', 'Chuyển đi'),    value: g => g.leadsOut?.count,        leads: g => g.leadsOut?.leads,        cols: [name, { key: 'studentId', label: L('Sales ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'movedTo', label: L('Moved to', 'Chuyển đến') }] },
-    { key: 'l_prog', label: L('In progress', 'Đang xử lý'), value: g => g.leadsInProgress?.count, leads: g => g.leadsInProgress?.leads, cols: [name, { key: 'studentId', label: L('Sales ID', 'Mã KH') }, { key: 'leadSource', label: L('Source', 'Nguồn') }, { key: 'leadStatus', label: L('Status', 'Trạng thái') }] },
+    { key: 'l_open', label: L('Opening', 'Đầu kỳ'),         value: g => g.leadsFlow?.opening?.count, leads: g => g.leadsFlow?.opening?.leads, cols: leadCols },
+    { key: 'l_in',   label: L('Leads in', 'Nhận vào'),      value: g => g.leadsFlow?.in?.count,      leads: g => g.leadsFlow?.in?.leads,      cols: leadCols },
+    { key: 'l_out',  label: L('Leads out', 'Chuyển đi'),    value: g => g.leadsFlow?.out?.count,     leads: g => g.leadsFlow?.out?.leads,     cols: leadCols },
+    { key: 'l_prog', label: L('In progress', 'Đang xử lý'), value: g => g.leadsFlow?.closing?.count, leads: g => g.leadsFlow?.closing?.leads, cols: leadCols },
   ] };
   const callsSection = { title: L('Calls', 'Cuộc gọi'), color: '#8b5cf6', subtitle: L('prior week only', 'chỉ tuần trước'), metrics: [
     { key: 'call_new', label: L('New clients', 'Khách mới'),       value: g => g.calls?.totals?.newLeads, leads: g => g.calls?.newLeadItems, cols: [name] },
@@ -378,11 +394,13 @@ function WeeklyReportInner() {
     setDrill(makePayload(sec.title, metric, grp, grp !== totalsGroup && groups.length > 1));
   }, [groups]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Append the supplemental note; the server stamps it (time + author) and
+  // returns the full history. Existing text is never edited.
   const saveReco = () => {
-    if (typeof reportsAPI.saveRecommendation !== 'function' || needsSelection) return;
+    if (typeof reportsAPI.saveRecommendation !== 'function' || needsSelection || !recoAdd.trim() || recoLocked) return;
     setRecoStatus('saving');
-    reportsAPI.saveRecommendation(weekStart, apiMode, apiResources, recoContent)
-      .then(r => { const d = r?.data || {}; setRecoBaseline(d.content ?? recoContent); setRecoInfo({ updatedBy: d.updatedBy || null, updatedAt: d.updatedAt || null }); setRecoStatus('saved'); })
+    reportsAPI.saveRecommendation(weekStart, apiMode, apiResources, recoAdd.trim())
+      .then(r => { const d = r?.data || {}; setRecoContent(d.content || ''); setRecoAdd(''); setRecoLocked(!!d.locked); setRecoInfo({ updatedBy: d.updatedBy || null, updatedAt: d.updatedAt || null }); setRecoStatus('saved'); })
       .catch(() => setRecoStatus('error'));
   };
 
@@ -445,8 +463,12 @@ function WeeklyReportInner() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
         <div>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{L('Weekly Status Report', 'Báo cáo tuần')}</h1>
-          <div style={sub}>{fmt(weekStart)} – {weekEndLabel}</div>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{L('Weekly Report (static)', 'Báo cáo tuần (tĩnh)')}</h1>
+          <div style={sub}>{fmt(weekStart)} – {weekEndLabel}
+            {data?.frozen
+              ? <span> · {L('published', 'đã xuất bản')}{data.asOf ? ` ${new Date(data.asOf).toLocaleDateString()}` : ''}</span>
+              : data ? <span> · {L('live (not yet published)', 'trực tiếp (chưa xuất bản)')}</span> : null}
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button className="btn" onClick={() => shiftWeek(-1)}>◀ {L('Prev', 'Trước')}</button>
@@ -470,6 +492,12 @@ function WeeklyReportInner() {
               {resourceOptions.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           )}
+          {isManager && (
+            <button className="btn" onClick={republish} disabled={republishing}
+              title={L('Re-freeze this week from the current data (the report normally auto-publishes Monday 08:00)', 'Cập nhật lại báo cáo tuần từ dữ liệu hiện tại (tự động xuất bản Thứ Hai 08:00)')}>
+              {republishing ? L('Publishing…', 'Đang xuất…') : L('↻ Re-publish', '↻ Cập nhật lại')}
+            </button>
+          )}
         </div>
       </div>
 
@@ -485,6 +513,48 @@ function WeeklyReportInner() {
           <div style={card}>
             {sectionHead(L('Contracted', 'Hợp đồng'), L('signed — actuals · all individuals', 'đã ký — thực tế · toàn bộ'))}
             <KpiTiles sectionTitle={contractedSection.title} metrics={contractedSection.metrics} groups={[totalsGroup]} onBar={openDrill} />
+          </div>
+
+          {/* Recommendations — full width, directly under the banner. APPEND-ONLY:
+              history is immutable; supplemental notes can be added until the next
+              Monday publish freezes the week. */}
+          <div style={card}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{L('Recommendations', 'Đề xuất')}</h2>
+                {recoLocked && (
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                                 background: '#e5e7eb', color: '#374151' }}>
+                    ❄ {L('Frozen', 'Đã khóa')}
+                  </span>
+                )}
+              </div>
+              <span style={sub}>{L('For', 'Cho')}: {currentViewLabel} · {L('week of', 'tuần')} {fmt(weekStart)}</span>
+            </div>
+            {recoContent
+              ? <div style={{ whiteSpace: 'pre-wrap', padding: '0.6rem', border: '1px solid var(--border,#e5e7eb)',
+                              borderRadius: 6, background: 'var(--bg-secondary,#f8fafc)', fontSize: '0.9rem',
+                              maxHeight: 220, overflowY: 'auto' }}>{recoContent}</div>
+              : <div style={{ ...sub, padding: '0.25rem 0' }}>{recoLocked
+                  ? L('No notes were recorded for this week.', 'Không có ghi chú cho tuần này.')
+                  : L('No notes yet for this week.', 'Chưa có ghi chú cho tuần này.')}</div>}
+            {!recoLocked && (
+              <>
+                <textarea value={recoAdd} onChange={e => setRecoAdd(e.target.value)} rows={3}
+                  placeholder={L('Add a supplemental note (existing notes are preserved)…', 'Thêm ghi chú bổ sung (ghi chú cũ được giữ nguyên)…')}
+                  style={{ width: '100%', marginTop: '0.5rem', padding: '0.6rem', border: '1px solid var(--border,#e5e7eb)', borderRadius: 6, fontFamily: 'inherit', fontSize: '0.9rem', resize: 'vertical', boxSizing: 'border-box' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                  <button className="btn btn--primary" onClick={saveReco} disabled={!recoDirty || recoStatus === 'saving'}>
+                    {recoStatus === 'saving' ? L('Adding…', 'Đang thêm…') : L('Add note', 'Thêm ghi chú')}
+                  </button>
+                  <span style={sub}>
+                    {recoStatus === 'saved' ? L('Added', 'Đã thêm')
+                      : recoStatus === 'error' ? L('Save failed', 'Lưu thất bại') : ''}
+                    {recoInfo.updatedBy ? `  ·  ${L('last by', 'bởi')} ${recoInfo.updatedBy}${recoInfo.updatedAt ? ` · ${new Date(recoInfo.updatedAt).toLocaleString()}` : ''}` : ''}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="wr-split">
@@ -603,27 +673,6 @@ function WeeklyReportInner() {
             </aside>
           </div>
 
-          {/* Recommendations — full width */}
-          <div style={card}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
-              <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{L('Recommendations', 'Đề xuất')}</h2>
-              <span style={sub}>{L('For', 'Cho')}: {currentViewLabel} · {L('week of', 'tuần')} {fmt(weekStart)}</span>
-            </div>
-            <textarea value={recoContent} onChange={e => setRecoContent(e.target.value)} rows={4}
-              placeholder={L('Notes / recommendations for this week…', 'Ghi chú / đề xuất cho tuần này…')}
-              style={{ width: '100%', padding: '0.6rem', border: '1px solid var(--border,#e5e7eb)', borderRadius: 6, fontFamily: 'inherit', fontSize: '0.9rem', resize: 'vertical', boxSizing: 'border-box' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-              <button className="btn btn--primary" onClick={saveReco} disabled={!recoDirty || recoStatus === 'saving'}>
-                {recoStatus === 'saving' ? L('Saving…', 'Đang lưu…') : L('Save', 'Lưu')}
-              </button>
-              <span style={sub}>
-                {recoDirty ? L('Unsaved changes', 'Thay đổi chưa lưu')
-                  : recoStatus === 'saved' ? L('Saved', 'Đã lưu')
-                  : recoStatus === 'error' ? L('Save failed', 'Lưu thất bại') : ''}
-                {recoInfo.updatedBy ? `  ·  ${L('last by', 'bởi')} ${recoInfo.updatedBy}${recoInfo.updatedAt ? ` · ${new Date(recoInfo.updatedAt).toLocaleString()}` : ''}` : ''}
-              </span>
-            </div>
-          </div>
         </>
       )}
 

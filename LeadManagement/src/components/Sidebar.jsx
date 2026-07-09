@@ -106,7 +106,7 @@ export default function Sidebar() {
           className={`nav-item ${isActive('/reports/weekly') ? 'active' : ''}`}
           onClick={() => navigate('/reports/weekly')}
         >
-          <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần' : 'Weekly Report'}
+          <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần (tĩnh)' : 'Weekly Report (static)'}
         </button>
 
         {['Admin', 'Manager', 'Director'].includes(staff?.role) && (

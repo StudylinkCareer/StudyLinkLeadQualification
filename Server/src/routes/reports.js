@@ -61,6 +61,13 @@ router.get(
   reportCtrl.weeklyReport
 );
 
+// Manual re-publish of a frozen week's snapshot (manager-scope; gated in ctrl).
+router.post(
+  '/weekly/regenerate',
+  requireStaffAuth,
+  reportCtrl.regenerateWeeklySnapshot
+);
+
 // Weekly Status Report recommendations (load / upsert), per week + view-scope.
 router.get(
   '/weekly-recommendation',

@@ -1534,10 +1534,15 @@ export default function Leads() {
       case 'closeDate':             return v ? String(v).slice(0,10) : <MissingValue/>;
       case 'campaignStart':         return v ? String(v).slice(0,10) : <MissingValue/>;
       case 'campaignEnd':           return v ? String(v).slice(0,10) : <MissingValue/>;
+      case 'updatedAt':
       case 'assignedIn':
       case 'assignedOut':
       case 'actualCloseDate':
-      case 'cancellationDate':      return v ? String(v).slice(0,10) : <MissingValue/>;
+      case 'cancellationDate':
+      case 'personCreatedAt':
+      case 'personUpdatedAt':
+      case 'personAssignedIn':
+      case 'personAssignedOut':      return v ? String(v).slice(0,10) : <MissingValue/>;
       case 'oceanExtraversion':
       case 'oceanAgreeableness':
       case 'oceanConscientiousness':

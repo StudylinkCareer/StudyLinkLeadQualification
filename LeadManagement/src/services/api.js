@@ -315,6 +315,9 @@ export const reportsAPI = {
     request('PUT', '/api/reports/weekly-recommendation', {
       weekStart, mode, resources: resources || [], content: content || '',
     }),
+  // Manually re-publish (re-freeze) a week's snapshot.
+  regenerateWeekly: (weekStart) =>
+    request('POST', `/api/reports/weekly/regenerate${weekStart ? `?weekStart=${weekStart}` : ''}`),
   monthlyTargets:     ()                       => request('GET',    '/api/reports/monthly-targets'),
   saveMonthlyTarget:  (staffId, month, target) => request('PUT',    '/api/reports/monthly-targets', { staffId, month, target }),
   addTrackedStaff:    (staffId)                => request('POST',   '/api/reports/tracked-staff', { staffId }),

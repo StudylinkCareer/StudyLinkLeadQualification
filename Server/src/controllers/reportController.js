@@ -485,6 +485,42 @@ const CALL_TARGETS = {
   'Pre-Sales': { new: [15, 15, 15, 15, 15, 7, 0], ongoing: [10, 10, 10, 10, 10, 5, 0] },
 };
 
+// Reconstructs a group's ACTIVE book as at instant `tISO` (point-in-time), from
+// the audit log: each lead's counselor / presales / status = its last logged
+// change on-or-before T, else the value just before its first change after T,
+// else the current value (never changed). Non-terminal only. Validated to
+// reproduce the live book exactly at T = now for all counsellors.
+async function membersAsAt(names, tISO) {
+  const asof = (field, src) => `COALESCE(
+      (SELECT a.new_value FROM audit_log a WHERE a.lead_id=l.lead_id AND a.field_name='${field}' AND a.changed_at <= $2 ORDER BY a.changed_at DESC LIMIT 1),
+      (SELECT a.old_value FROM audit_log a WHERE a.lead_id=l.lead_id AND a.field_name='${field}' AND a.changed_at >  $2 ORDER BY a.changed_at ASC  LIMIT 1),
+      ${src})`;
+  const { rows } = await pool.query(
+    `WITH candidates AS (
+        SELECT lead_id FROM leads
+          WHERE btrim(COALESCE(counselor,''))=ANY($1) OR btrim(COALESCE(presales,''))=ANY($1)
+        UNION
+        SELECT lead_id FROM audit_log
+          WHERE field_name IN ('counselor','presales')
+            AND (btrim(COALESCE(new_value,''))=ANY($1) OR btrim(COALESCE(old_value,''))=ANY($1))
+     ),
+     asof AS (
+        SELECT l.lead_id, l.person_id AS student_id,
+               btrim(${asof('counselor', 'l.counselor')})   AS cslr,
+               btrim(${asof('presales',  'l.presales')})     AS pres,
+                     ${asof('leadStatus', 'l.lead_status')}  AS status
+          FROM leads l
+         WHERE l.lead_id IN (SELECT lead_id FROM candidates) AND l.created_at <= $2
+     )
+     SELECT a.lead_id, a.student_id, s.full_name, s.lead_source, a.status AS lead_status
+       FROM asof a JOIN students s ON s.student_id = a.student_id
+      WHERE (a.cslr = ANY($1) OR a.pres = ANY($1))
+        AND a.status NOT IN ('Contracted','Lost','Archived','Cancelled')
+      ORDER BY s.full_name`,
+    [names, tISO]);
+  return rows;
+}
+
 async function computeGroup(names, ctx, opts = {}) {
   const cc = rows => rows.map(objectToCamelCase);
   const { ws, we, monthStartISO, earliestISO, yearStartISO } = ctx;
@@ -527,6 +563,23 @@ async function computeGroup(names, ctx, opts = {}) {
       WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND l.lead_status NOT IN ('Contracted','Lost','Archived')
       ORDER BY s.full_name`, [names])).rows);
+
+  // -- Point-in-time leads book: Opening (as at week start) + In − Out = Closing
+  //    (as at week end = the Monday-9am number). Reconstructed from the audit log.
+  //    "Out" = left the book for ANY reason (transfer, pool, Lost/Archived/
+  //    Cancelled/Contracted); "In" = entered for any reason. Balances by set algebra.
+  const opening = cc(await membersAsAt(names, ws));
+  const closing = cc(await membersAsAt(names, we));
+  const openIds  = new Set(opening.map(r => r.leadId));
+  const closeIds = new Set(closing.map(r => r.leadId));
+  const flowIn   = closing.filter(r => !openIds.has(r.leadId));
+  const flowOut  = opening.filter(r => !closeIds.has(r.leadId));
+  const leadsFlow = {
+    opening: { count: opening.length, leads: opening },
+    in:      { count: flowIn.length,  leads: flowIn  },
+    out:     { count: flowOut.length, leads: flowOut },
+    closing: { count: closing.length, leads: closing },
+  };
 
   // -- Calls (prior week). RECONCILED with the Activity Report: a note is a call
   //    if it was logged with a contact platform OR its text mentions a call
@@ -627,12 +680,97 @@ async function computeGroup(names, ctx, opts = {}) {
     leadsIn:  { count: leadsIn.length,  leads: leadsIn },
     leadsOut: { count: leadsOut.length, leads: leadsOut },
     leadsInProgress: { count: leadsInProgress.length, leads: leadsInProgress },
+    leadsFlow,
     calls: { byPlatform: Object.values(platforms), daily: dailyCalls, modeByDay: modeDaily,
              totals: callTotals, newLeadItems, ongoingItems, headcount },
     basicLetters, finalLetters,
     meetings:  { count: meetings.length,  items: meetings },
     contracts: { count: contracts.length, items: contracts },
   };
+}
+
+const VN_MS = 7 * 60 * 60 * 1000;
+const vnMidnightUTC = (y, m, d) => new Date(Date.UTC(y, m, d) - VN_MS);
+// VN calendar date (YYYY-MM-DD) of an instant — used as the snapshot key so a VN
+// Monday is stored as that Monday, not the UTC date of VN-midnight (a day earlier).
+const vnYmd = (dt) => new Date(dt.getTime() + VN_MS).toISOString().slice(0, 10);
+
+// Monday (VN) of the week containing asOfMs, minus `weeksBack` weeks.
+function vnWeekStart(asOfMs, weeksBack = 0) {
+  const vn = new Date(asOfMs + VN_MS);
+  const off = (vn.getUTCDay() + 6) % 7;                    // Mon=0 … Sun=6
+  const thisMon = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth(), vn.getUTCDate() - off);
+  return new Date(thisMon.getTime() - weeksBack * 7 * 86400000);
+}
+
+// Compute context for a report week. `asOfMs` pins the to-date rollups
+// (MTD/QTD/YTD, "last week") — for a frozen snapshot it's Monday 08:00 VN of the
+// week's close; for a live view it's Date.now().
+function buildWeeklyCtx(weekStart, asOfMs) {
+  const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
+  const vn = new Date(asOfMs + VN_MS);
+  const monthStart   = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth(), 1);
+  const quarterStart = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth() - (vn.getUTCMonth() % 3), 1);
+  const yearStart    = vnMidnightUTC(vn.getUTCFullYear(), 0, 1);
+  const vnOff = (vn.getUTCDay() + 6) % 7;
+  const curMon = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth(), vn.getUTCDate() - vnOff);
+  const lwStart = new Date(curMon.getTime() - 7 * 86400000);
+  const earliest = new Date(Math.min(lwStart.getTime(), yearStart.getTime()));
+  return {
+    ws: weekStart.toISOString(), we: weekEnd.toISOString(), weekStartMs: weekStart.getTime(),
+    monthStartISO: monthStart.toISOString(), earliestISO: earliest.toISOString(),
+    lwStartMs: lwStart.getTime(), lwEndMs: curMon.getTime(),
+    monthStartMs: monthStart.getTime(), quarterStartMs: quarterStart.getTime(),
+    yearStartMs: yearStart.getTime(), yearStartISO: yearStart.toISOString(), nowMs: asOfMs,
+  };
+}
+
+// Active staff for the report, grouped by POSITION (the real job — where leads
+// flow in/out), not the RBAC role (role='Counselor' can be held by PreSales/PM/
+// Marketing-position staff, which would inflate the Counsellors group).
+async function weeklyStaffNames() {
+  const byPos = async (p) => (await pool.query(
+    `SELECT full_name FROM staff WHERE position = $1 AND is_active = true`, [p])).rows.map(x => x.full_name);
+  const counsellorNames = await byPos('Counselor');
+  const presalesNames   = await byPos('PreSales');
+  return { counsellorNames, presalesNames, allNames: Array.from(new Set([...counsellorNames, ...presalesNames])) };
+}
+
+// Compute the FULL frozen payload for a week (All + Counsellors + Pre-Sales +
+// every individual) and store it. asOf is pinned to Monday 08:00 VN of the
+// week's close so the numbers are deterministic regardless of when this runs.
+async function generateWeeklySnapshot(weekStart) {
+  const asOfMs = weekStart.getTime() + 7 * 86400000 + 8 * 60 * 60 * 1000;   // Mon 08:00 VN after the week
+  const ctx = buildWeeklyCtx(weekStart, asOfMs);
+  const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames();
+  ctx.counsellorSet = new Set(counsellorNames);
+  ctx.presalesSet   = new Set(presalesNames);
+
+  const byLabel = {};
+  // Keys are TRIMMED (some staff full_names carry stray whitespace, and the
+  // serve path trims requested labels) but the names passed to the queries stay
+  // as stored so lead-assignment matching is unaffected.
+  const put = async (label, names, companyWide) => {
+    byLabel[String(label).trim()] = { label: String(label).trim(), names, ...(await computeGroup(names, ctx, { companyWideContracted: !!companyWide })) };
+  };
+  await put('All', allNames, true);
+  await put('Counsellors', counsellorNames, false);
+  await put('Pre-Sales', presalesNames, false);
+  for (const n of allNames) await put(n, [n], false);   // per-individual (drill)
+
+  const contractedTotals = await contractedBuckets(ctx, null);
+  const data = {
+    weekStart: ctx.ws, weekEnd: ctx.we,
+    staff: { counsellors: counsellorNames, presales: presalesNames },
+    contractedTotals, byLabel, asOf: new Date(asOfMs).toISOString(),
+  };
+  const weekStartYmd = vnYmd(weekStart);
+  await pool.query(
+    `INSERT INTO weekly_report_snapshots (week_start, data, generated_at)
+     VALUES ($1, $2, now())
+     ON CONFLICT (week_start) DO UPDATE SET data = EXCLUDED.data, generated_at = now()`,
+    [weekStartYmd, data]);
+  return weekStartYmd;
 }
 
 async function weeklyReport(req, res, next) {
@@ -644,79 +782,62 @@ async function weeklyReport(req, res, next) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
 
-    const VN = 7 * 60 * 60 * 1000;
-    const vnMidnightUTC = (y, m, d) => new Date(Date.UTC(y, m, d) - VN);
     let weekStart;
     if (req.query.weekStart && /^\d{4}-\d{2}-\d{2}$/.test(req.query.weekStart)) {
       const [yy, mm, dd] = req.query.weekStart.split('-').map(Number);
       weekStart = vnMidnightUTC(yy, mm - 1, dd);
     } else {
-      const vnd = new Date(Date.now() + VN);
-      const off = (vnd.getUTCDay() + 6) % 7;
-      const thisMon = vnMidnightUTC(vnd.getUTCFullYear(), vnd.getUTCMonth(), vnd.getUTCDate() - off);
-      weekStart = new Date(thisMon.getTime() - 7 * 24 * 60 * 60 * 1000);
+      weekStart = vnWeekStart(Date.now(), 1);   // default: the prior full week
     }
-    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-    const vn = new Date(Date.now() + VN);
-    const monthStart   = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth(), 1);
-    const quarterStart = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth() - (vn.getUTCMonth() % 3), 1);
-    const yearStart    = vnMidnightUTC(vn.getUTCFullYear(), 0, 1);
-    const vnOff = (vn.getUTCDay() + 6) % 7;
-    const curMon = vnMidnightUTC(vn.getUTCFullYear(), vn.getUTCMonth(), vn.getUTCDate() - vnOff);
-    const lwStart = new Date(curMon.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const earliest = new Date(Math.min(lwStart.getTime(), yearStart.getTime()));
-
-    const ctx = {
-      ws: weekStart.toISOString(), we: weekEnd.toISOString(), weekStartMs: weekStart.getTime(),
-      monthStartISO: monthStart.toISOString(), earliestISO: earliest.toISOString(),
-      lwStartMs: lwStart.getTime(), lwEndMs: curMon.getTime(),
-      monthStartMs: monthStart.getTime(), quarterStartMs: quarterStart.getTime(),
-      yearStartMs: yearStart.getTime(), yearStartISO: yearStart.toISOString(), nowMs: Date.now(),
-    };
-
-    const namesByRole = async (r) =>
-      (await pool.query(`SELECT full_name FROM staff WHERE role = $1 AND is_active = true`, [r])).rows.map(x => x.full_name);
-    const counsellorNames = await namesByRole('Counselor');
-    const presalesNames   = await namesByRole('Pre-Sales');
-    const allNames = Array.from(new Set([...counsellorNames, ...presalesNames]));
-    // Expose role membership to computeGroup so daily call targets are role-aware.
-    ctx.counsellorSet = new Set(counsellorNames);
-    ctx.presalesSet   = new Set(presalesNames);
-
+    const weekStartYmd = vnYmd(weekStart);
     const mode = req.query.mode || 'all';
     const resourcesParam = (req.query.resources || '').split(',').map(s => s.trim()).filter(Boolean);
 
-    let groups;
-    if (scope !== 'all') {
-      groups = [{ label: name, names: [name] }];
-    } else if (mode === 'groups') {
-      groups = [
-        { label: 'Counsellors', names: counsellorNames },
-        { label: 'Pre-Sales',   names: presalesNames },
-      ];
-    } else if (mode === 'selected' && resourcesParam.length) {
-      groups = [{ label: 'Selected', names: resourcesParam }];
-    } else if (mode === 'individual' && resourcesParam.length) {
-      groups = [{ label: resourcesParam[0], names: [resourcesParam[0]] }];
-    } else {
-      groups = [{ label: 'All', names: allNames, companyWide: true }];
+    // ── Serve the FROZEN snapshot if one exists (not for ad-hoc 'selected' sets,
+    //    which aren't pre-computed). Falls through to live if a requested label
+    //    isn't in the snapshot.
+    const snap = (await pool.query(
+      `SELECT data, generated_at FROM weekly_report_snapshots WHERE week_start = $1`, [weekStartYmd])).rows[0];
+    if (snap && mode !== 'selected') {
+      const d = snap.data;
+      let labels;
+      if (scope !== 'all')                                     labels = [name];
+      else if (mode === 'groups')                              labels = ['Counsellors', 'Pre-Sales'];
+      else if (mode === 'individual' && resourcesParam.length) labels = [resourcesParam[0]];
+      else                                                     labels = ['All'];
+      const groups = labels.map(lbl => d.byLabel[String(lbl || '').trim()]).filter(Boolean);
+      if (groups.length === labels.length) {
+        const contractedTotals = scope === 'all' ? d.contractedTotals : (d.byLabel[name]?.contracted || d.contractedTotals);
+        return res.json({ success: true, data: {
+          weekStart: d.weekStart, weekEnd: d.weekEnd, mode,
+          staff: d.staff, contractedTotals, groups,
+          frozen: true, asOf: d.asOf, generatedAt: snap.generated_at,
+        }});
+      }
     }
 
-    // Page-header KPIs are ALWAYS the period totals across all individuals
-    // (company-wide for managers; own figures for own-scope users).
-    const contractedTotals = await contractedBuckets(ctx, scope === 'all' ? null : [name]);
+    // ── Live fallback (no snapshot yet, an older/ad-hoc week, or 'selected'). ──
+    const ctx = buildWeeklyCtx(weekStart, Date.now());
+    const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames();
+    ctx.counsellorSet = new Set(counsellorNames);
+    ctx.presalesSet   = new Set(presalesNames);
 
+    let groupsDef;
+    if (scope !== 'all')                                     groupsDef = [{ label: name, names: [name] }];
+    else if (mode === 'groups')                              groupsDef = [{ label: 'Counsellors', names: counsellorNames }, { label: 'Pre-Sales', names: presalesNames }];
+    else if (mode === 'selected' && resourcesParam.length)   groupsDef = [{ label: 'Selected', names: resourcesParam }];
+    else if (mode === 'individual' && resourcesParam.length) groupsDef = [{ label: resourcesParam[0], names: [resourcesParam[0]] }];
+    else                                                     groupsDef = [{ label: 'All', names: allNames, companyWide: true }];
+
+    const contractedTotals = await contractedBuckets(ctx, scope === 'all' ? null : [name]);
     const results = [];
-    for (const g of groups) {
+    for (const g of groupsDef) {
       results.push({ label: g.label, names: g.names, ...(await computeGroup(g.names, ctx, { companyWideContracted: !!g.companyWide })) });
     }
-
     res.json({ success: true, data: {
       weekStart: ctx.ws, weekEnd: ctx.we, mode,
       staff: { counsellors: counsellorNames, presales: presalesNames },
-      contractedTotals,
-      groups: results,
+      contractedTotals, groups: results, frozen: false,
     }});
   } catch (err) { next(err); }
 }
@@ -739,6 +860,17 @@ async function recoScopeKey(req) {
   return 'all';
 }
 
+// A week's notes are locked when its ROW was frozen, OR — even with no row yet —
+// once the week's report is PUBLISHED (week_start <= latest published week).
+// Notes are written DURING the week; the Monday-08:00 publish freezes them with
+// the metrics. Only the in-progress (unpublished) week accepts notes.
+async function weekNotesLocked(weekStartYmd, rowLockedAt) {
+  if (rowLockedAt) return true;
+  const mx = (await pool.query(
+    `SELECT MAX(week_start)::text AS mx FROM weekly_report_snapshots`)).rows[0].mx;
+  return !!mx && weekStartYmd <= mx;   // YYYY-MM-DD strings compare correctly
+}
+
 async function getRecommendation(req, res, next) {
   try {
     const scope = await permissionService.getResourceScope(req.session.staffRole, 'leads', 'view_list');
@@ -749,37 +881,55 @@ async function getRecommendation(req, res, next) {
     }
     const scopeKey = await recoScopeKey(req);
     const r = await pool.query(
-      `SELECT content, updated_by, updated_at FROM weekly_recommendations
+      `SELECT content, updated_by, updated_at, locked_at FROM weekly_recommendations
         WHERE week_start = $1 AND scope_key = $2`, [weekStart, scopeKey]);
     const row = r.rows[0] || null;
     res.json({ success: true, data: {
       content:   row ? row.content    : '',
       updatedBy: row ? row.updated_by : null,
       updatedAt: row ? row.updated_at : null,
+      locked:    await weekNotesLocked(weekStart, row && row.locked_at),
       scopeKey,
     }});
   } catch (err) { next(err); }
 }
 
+// APPEND-ONLY: existing text is history and cannot be edited. Each save adds a
+// stamped supplemental segment. Once the NEXT week's snapshot publishes, the
+// row is locked (locked_at) and rejects further additions.
 async function saveRecommendation(req, res, next) {
   try {
     const scope = await permissionService.getResourceScope(req.session.staffRole, 'leads', 'view_list');
     if (!scope || scope === 'none') return res.status(403).json({ success: false, error: 'Not authorised' });
-    const { weekStart, content } = req.body || {};
+    const { weekStart } = req.body || {};
+    const addendum = ((req.body && (req.body.addendum ?? req.body.content)) || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart || '')) {
       return res.status(400).json({ success: false, error: 'weekStart must be YYYY-MM-DD' });
     }
+    if (!addendum) return res.status(400).json({ success: false, error: 'Nothing to add' });
     const scopeKey = await recoScopeKey(req);
+
+    const existing = (await pool.query(
+      `SELECT content, locked_at FROM weekly_recommendations WHERE week_start = $1 AND scope_key = $2`,
+      [weekStart, scopeKey])).rows[0];
+    if (await weekNotesLocked(weekStart, existing && existing.locked_at)) {
+      return res.status(409).json({ success: false, error: 'This week\'s notes are frozen.' });
+    }
+    const vnStamp = new Date(Date.now() + VN_MS).toISOString().slice(0, 16).replace('T', ' ');
+    const segment = `[${vnStamp}] ${req.session.staffName || ''}:\n${addendum}`;
+    const newContent = existing && existing.content ? `${existing.content}\n\n${segment}` : segment;
+
     const r = await pool.query(
       `INSERT INTO weekly_recommendations (week_start, scope_key, content, updated_by, updated_at)
             VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (week_start, scope_key)
        DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = NOW()
-       RETURNING content, updated_by, updated_at`,
-      [weekStart, scopeKey, content || '', req.session.staffName || '']);
+       RETURNING content, updated_by, updated_at, locked_at`,
+      [weekStart, scopeKey, newContent, req.session.staffName || '']);
     const row = r.rows[0];
     res.json({ success: true, data: {
-      content: row.content, updatedBy: row.updated_by, updatedAt: row.updated_at, scopeKey,
+      content: row.content, updatedBy: row.updated_by, updatedAt: row.updated_at,
+      locked: !!row.locked_at, scopeKey,
     }});
   } catch (err) { next(err); }
 }
@@ -983,7 +1133,42 @@ async function removeTrackedStaff(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// Regenerate one week's snapshot on demand (admin "re-publish").
+async function regenerateWeeklySnapshot(req, res, next) {
+  try {
+    const scope = await permissionService.getResourceScope(req.session.staffRole, 'leads', 'view_list');
+    if (scope !== 'all') return res.status(403).json({ success: false, error: 'Not authorised' });
+    let weekStart;
+    if (req.query.weekStart && /^\d{4}-\d{2}-\d{2}$/.test(req.query.weekStart)) {
+      const [yy, mm, dd] = req.query.weekStart.split('-').map(Number);
+      weekStart = vnMidnightUTC(yy, mm - 1, dd);
+    } else {
+      weekStart = vnWeekStart(Date.now(), 1);
+    }
+    // Only COMPLETED weeks can be published — publishing the in-progress week
+    // would freeze its notes prematurely and snapshot a half-week.
+    if (weekStart.getTime() + 7 * 86400000 > Date.now()) {
+      return res.status(400).json({ success: false, error: 'This week is still in progress — it publishes automatically Monday 08:00.' });
+    }
+    const wk = await generateWeeklySnapshot(weekStart);
+    res.json({ success: true, data: { weekStart: wk } });
+  } catch (err) { next(err); }
+}
+
+// Freeze recommendation notes for all weeks THROUGH the given week (YYYY-MM-DD).
+// Called by the Monday-08:00 scheduler when it publishes a week: notes are
+// written during the week and freeze together with the metrics at publish.
+async function lockRecommendationsBefore(weekStartYmd) {
+  const r = await pool.query(
+    `UPDATE weekly_recommendations SET locked_at = now()
+      WHERE week_start <= $1 AND locked_at IS NULL`, [weekStartYmd]);
+  if (r.rowCount) console.log(`[weekly-snapshot] froze ${r.rowCount} recommendation note(s) through ${weekStartYmd}`);
+  return r.rowCount;
+}
+
 module.exports = {
   notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation,
   monthlyTargets, saveMonthlyTarget, addTrackedStaff, removeTrackedStaff,
+  // Frozen Weekly Report: scheduler + manual re-publish + note freezing.
+  generateWeeklySnapshot, vnWeekStart, regenerateWeeklySnapshot, lockRecommendationsBefore,
 };

@@ -1633,16 +1633,18 @@ export default function LeadDetail() {
                 <EditField label="School Attended" name="schoolAttended"     value={d.schoolAttended}     onChange={updateEdit}/>
                 <EditField label="Residency"       name="residency"          value={d.residency}          onChange={updateEdit}/>
                 <EditField label="Ward"            name="ward"               value={d.ward}               onChange={updateEdit}/>
-                <Field label="Assigned in"  value={formatShortDate(lead.assignedIn)}/>
-                <Field label="Assigned out" value={formatShortDate(lead.assignedOut)}/>
                 </>)}
                 {/* Stone Tier / Risk Score are person-derived — student view only (lead shows them in the right-hand Summary) */}
                 {isStudentView && (<>
                 <Field label="Stone Tier"    value={lead.stoneTier}/>
                 <Field label="Risk Score"    value={lead.riskScore}/>
                 </>)}
+                {/* Lifecycle dates — level follows the view (lead vs person).
+                    Row 1: Created / Updated · Row 2: Assigned in / Assigned out */}
                 <Field label="Created"       value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"       value={formatShortDate(lead.updatedAt)}/>
+                <Field label="Assigned in"   value={formatShortDate(lead.assignedIn)}/>
+                <Field label="Assigned out"  value={formatShortDate(lead.assignedOut)}/>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
@@ -1714,11 +1716,13 @@ export default function LeadDetail() {
                 <Field label="School Attended" value={lead.schoolAttended}/>
                 <Field label="Residency"       value={lead.residency}/>
                 <Field label="Ward"            value={lead.ward}/>
-                <Field label="Assigned in"  value={formatShortDate(lead.assignedIn)}/>
-                <Field label="Assigned out" value={formatShortDate(lead.assignedOut)}/>
                 </>)}
+                {/* Lifecycle dates — level follows the view (lead vs person).
+                    Row 1: Created / Updated · Row 2: Assigned in / Assigned out */}
                 <Field label="Created"         value={formatShortDate(lead.createdAt)}/>
                 <Field label="Updated"         value={formatShortDate(lead.updatedAt)}/>
+                <Field label="Assigned in"     value={formatShortDate(lead.assignedIn)}/>
+                <Field label="Assigned out"    value={formatShortDate(lead.assignedOut)}/>
               </div>
             )}
           </div>
