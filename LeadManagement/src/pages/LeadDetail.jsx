@@ -1062,13 +1062,14 @@ export default function LeadDetail() {
           ld  = leadRes.data;
           sid = ld.studentId;
         }
-        const [stu, nt, st, al, regs, sleads] = await Promise.all([
+        const [stu, nt, st, al, regs, sleads, snt] = await Promise.all([
           studentAPI.get(sid),
           isStudentView ? Promise.resolve({ data: [] }) : notesAPI.listForLead(id),
           staffAPI.listActive(),
           auditAPI.getForStudent(sid),
           leadEventsAPI.list(sid).catch(() => ({ data: [] })),
           leadAPI.listForStudent(sid).catch(() => ({ data: [] })),
+          notesAPI.listStudentLevel(sid).catch(() => ({ data: [] })),
         ]);
         if (!alive) return;
         const l = { ...stu.data, ...ld, studentId: sid, leadId: isStudentView ? null : id };   // lead wins on overlap
@@ -1090,7 +1091,11 @@ export default function LeadDetail() {
           }
         }
         setLead(l);
-        setNotes(nt.data || []);
+        // Lead-scoped notes + person-level notes (e.g. event-desk visits, which
+        // are written against the student and — when the person has no open lead —
+        // carry no lead_id). Both are disjoint (lead notes have a lead_id,
+        // student-level notes don't), so concatenate; the render re-sorts by date.
+        setNotes([...(nt.data || []), ...(snt.data || [])]);
         setStaff(st.data || []);
         setAuditLog(al.data || []);
         setRegistrations(regs.data || []);

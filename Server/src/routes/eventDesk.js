@@ -292,6 +292,20 @@ router.post('/visit', requireRep, async (req, res) => {
     const ev = await pool.query(`SELECT name FROM events WHERE id = $1`, [req.rep.event_id]);
     const topic = ev.rows[0] ? ev.rows[0].name : `Event ${req.rep.event_id}`;
 
+    // 3b. Attach to the student's current OPEN lead so the note surfaces on the
+    // lead record (LeadDetail reads lead-scoped notes). Closed leads are
+    // display-only, so we only target an active lead; if the person has none yet
+    // (e.g. an event walk-in), leadId stays NULL and the note remains
+    // person-level (the lead view merges student-level notes as a fallback).
+    const activeLead = await pool.query(
+      `SELECT lead_id FROM leads
+        WHERE person_id = $1
+          AND lead_status NOT IN ('Contracted', 'Lost', 'Archived', 'Cancelled')
+        ORDER BY lead_id DESC LIMIT 1`,
+      [studentUniqueId]
+    );
+    const leadId = activeLead.rows[0] ? activeLead.rows[0].lead_id : null;
+
     // 4. build the immutable, stamped segment (rep + date/time + institution + rating).
     const ratingLine = repRating != null ? `\nEngagement: ${repRating}/10` : '';
     const segment = `${stampLine(req.rep.full_name, desk.institution_name)}\n${noteText}${ratingLine}`;
@@ -299,7 +313,7 @@ router.post('/visit', requireRep, async (req, res) => {
 
     // 5. consolidate: one note per (student, topic). Append a segment, else create.
     const existing = await pool.query(
-      `SELECT id FROM student_notes
+      `SELECT id, lead_id FROM student_notes
         WHERE student_id = $1 AND topic = $2 AND note_type = 'counselor'
         ORDER BY created_at ASC LIMIT 1`,
       [studentUniqueId, topic]
@@ -308,9 +322,14 @@ router.post('/visit', requireRep, async (req, res) => {
     let noteRow;
     if (existing.rowCount > 0) {
       noteRow = await StudentNote.appendNote(existing.rows[0].id, `\n\n${segment}`, null);
+      // Backfill the lead link if this consolidated note predates the open lead.
+      if (leadId && existing.rows[0].lead_id == null) {
+        await pool.query(`UPDATE student_notes SET lead_id = $1 WHERE id = $2`, [leadId, existing.rows[0].id]);
+      }
     } else {
       noteRow = await StudentNote.create({
         studentId: studentUniqueId,
+        leadId,
         noteType: 'counselor',
         content: segment,
         authorId: req.rep.id,
