@@ -292,19 +292,19 @@ router.post('/visit', requireRep, async (req, res) => {
     const ev = await pool.query(`SELECT name FROM events WHERE id = $1`, [req.rep.event_id]);
     const topic = ev.rows[0] ? ev.rows[0].name : `Event ${req.rep.event_id}`;
 
-    // 3b. Attach to the student's current OPEN lead so the note surfaces on the
-    // lead record (LeadDetail reads lead-scoped notes). Closed leads are
-    // display-only, so we only target an active lead; if the person has none yet
-    // (e.g. an event walk-in), leadId stays NULL and the note remains
-    // person-level (the lead view merges student-level notes as a fallback).
-    const activeLead = await pool.query(
+    // 3b. Attach to the student's lead so the note lives ONLY at the lead level
+    // (LeadDetail reads lead-scoped notes). Prefer an OPEN lead; if none is open,
+    // fall back to the most recent lead of any status so the note always lands on
+    // a lead. leadId stays NULL only if the person has no lead at all.
+    const leadPick = await pool.query(
       `SELECT lead_id FROM leads
         WHERE person_id = $1
-          AND lead_status NOT IN ('Contracted', 'Lost', 'Archived', 'Cancelled')
-        ORDER BY lead_id DESC LIMIT 1`,
+        ORDER BY (CASE WHEN lead_status IN ('Contracted', 'Lost', 'Archived', 'Cancelled') THEN 1 ELSE 0 END),
+                 lead_id DESC
+        LIMIT 1`,
       [studentUniqueId]
     );
-    const leadId = activeLead.rows[0] ? activeLead.rows[0].lead_id : null;
+    const leadId = leadPick.rows[0] ? leadPick.rows[0].lead_id : null;
 
     // 4. build the immutable, stamped segment (rep + date/time + institution + rating).
     const ratingLine = repRating != null ? `\nEngagement: ${repRating}/10` : '';
