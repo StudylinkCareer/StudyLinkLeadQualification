@@ -35,7 +35,7 @@
 //     drill-clickable like the other rows.
 //   - i18n keys: dashboard.pipeline.backlog, dashboard.pipeline.backlog.sub.
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useId } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiX } from 'react-icons/fi';
 import { studentAPI, staffAPI, reportsAPI } from '../services/api';
@@ -249,6 +249,45 @@ function StatCard({ label, value, sub, color, onClick }) {
   );
 }
 
+// ── Record finder ─────────────────────────────────────────────
+// A lightweight type-ahead: filters `entries` (up to 50 shown) into a native
+// <datalist>; when the input value exactly matches an entry (i.e. the user
+// picked from the list), calls onPick(id) to navigate. Entry.value is a unique
+// display string ("Name — SalesID" / "LeadID — Name"); entry.id is the nav key.
+function RecordFinder({ label, placeholder, entries, onPick, style }) {
+  const [text, setText] = useState('');
+  const listId = useId();
+  const map = useMemo(() => {
+    const m = new Map();
+    for (const e of entries) m.set(e.value, e.id);
+    return m;
+  }, [entries]);
+  const suggestions = useMemo(() => {
+    const q = text.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const out = [];
+    for (const e of entries) {
+      if (e.value.toLowerCase().includes(q)) { out.push(e); if (out.length >= 50) break; }
+    }
+    return out;
+  }, [text, entries]);
+  function handleChange(v) {
+    setText(v);
+    if (map.has(v)) { onPick(map.get(v)); setText(''); }   // picked from the list → go
+  }
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem', minWidth:0, ...(style||{}) }}>
+      {label && <label style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.03em' }}>{label}</label>}
+      <input list={listId} value={text} placeholder={placeholder}
+        onChange={e=>handleChange(e.target.value)}
+        style={{ padding:'0.45rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', background:'var(--bg-primary)', color:'var(--text-primary)', fontSize:'0.8125rem' }}/>
+      <datalist id={listId}>
+        {suggestions.map(e => <option key={e.value} value={e.value} />)}
+      </datalist>
+    </div>
+  );
+}
+
 // ── Horizontal bar chart ──────────────────────────────────────
 function HBarChart({ data, colorMap, defaultColor, onBarClick, displayFor }) {
   const max = Math.max(...data.map(d => d.count), 1);
@@ -383,6 +422,27 @@ export default function Dashboard() {
     const active = scopedLeads.filter(l => !TERMINAL_STATUSES.includes(l.leadStatus));
     return computePipeline(active);
   }, [scopedLeads]);
+
+  // ── Record-finder option lists (permission-scoped: built from `leads`, which
+  // the server already limited to what this user may see). Persons are de-duped
+  // by Sales ID; Lead IDs are one-per-lead.
+  const finderOpts = useMemo(() => {
+    const persons = new Map();                 // studentId -> fullName
+    const leadOpts = [];
+    for (const l of leads) {
+      const name = l.fullName || '(no name)';
+      if (l.leadId != null) leadOpts.push({ value: `${l.leadId} — ${name}`, id: l.leadId });
+      if (l.studentId && !persons.has(l.studentId)) persons.set(l.studentId, name);
+    }
+    const nameOpts  = [];
+    const salesOpts = [];
+    for (const [sid, name] of persons) {
+      nameOpts.push({ value: `${name} — ${sid}`, id: sid });
+      salesOpts.push({ value: `${sid} — ${name}`, id: sid });
+    }
+    nameOpts.sort((a, b) => a.value.localeCompare(b.value));
+    return { nameOpts, salesOpts, leadOpts };
+  }, [leads]);
 
   const stoneData = useMemo(() => {
     const counts = {};
@@ -720,18 +780,40 @@ export default function Dashboard() {
 
       <div className="page-body">
 
-        {/* ── Top stat cards ──────────────────────────────────── */}
-        <div className="dashboard-stat-grid" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
-          <StatCard label={t('dashboard.stat.totalLeads', language)}    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads', { state: { reset: true } })}/>
-          <StatCard label={t('dashboard.stat.active', language)}        value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
-          <StatCard label={t('dashboard.stat.contracted', language)}    value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
-          <StatCard
-            label={t('dashboard.stat.newThisMonth', language)}
-            value={stats.thisMonth}
-            color="#F59E0B"
-            sub={t('dashboard.stat.newThisMonth.sub', language)}
-            onClick={() => drillDown('_ids', stats.thisMonthIds)}
-          />
+        {/* ── Banner statistics + quick record finder (5th card) ── */}
+        <div style={{ display:'flex', flexWrap:'wrap', gap:'1rem', alignItems:'flex-start', marginBottom:'1.5rem' }}>
+          <div className="dashboard-stat-grid" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', flex:'1 1 560px' }}>
+            <StatCard label={t('dashboard.stat.totalLeads', language)}    value={stats.total}     color="#6B7280" onClick={()=>navigate('/leads', { state: { reset: true } })}/>
+            <StatCard label={t('dashboard.stat.active', language)}        value={stats.active}    color="#2563EB" onClick={()=>drillDown('leadStatus','active')}/>
+            <StatCard label={t('dashboard.stat.contracted', language)}    value={stats.won}       color="#10B981" onClick={()=>drillDown('leadStatus','Contracted')}/>
+            <StatCard
+              label={t('dashboard.stat.newThisMonth', language)}
+              value={stats.thisMonth}
+              color="#F59E0B"
+              sub={t('dashboard.stat.newThisMonth.sub', language)}
+              onClick={() => drillDown('_ids', stats.thisMonthIds)}
+            />
+          </div>
+
+          {/* Quick record finder — compact 5th card on the right. Pick a
+              Name / Sales ID / Lead ID to jump straight to that record;
+              the Leads page has the fuller, filterable list. */}
+          <div style={{ flex:'0 0 240px', minWidth:'220px', display:'flex', flexDirection:'column', gap:'0.5rem', justifyContent:'center',
+                        background:'var(--bg-primary)', border:'1px solid var(--border)', borderRadius:'10px',
+                        borderLeft:'4px solid var(--primary)', padding:'0.875rem 1rem' }}>
+            <RecordFinder
+              placeholder={language==='vi'?'Tìm tên…':'Search name'}
+              entries={finderOpts.nameOpts}
+              onPick={sid=>navigate(`/students/${sid}`)}/>
+            <RecordFinder
+              placeholder={language==='vi'?'Tìm Sales ID…':'Search Sales ID'}
+              entries={finderOpts.salesOpts}
+              onPick={sid=>navigate(`/students/${sid}`)}/>
+            <RecordFinder
+              placeholder={language==='vi'?'Tìm Lead ID…':'Search Lead ID'}
+              entries={finderOpts.leadOpts}
+              onPick={lid=>navigate(`/lead/${lid}`)}/>
+          </div>
         </div>
 
         {/* Contracts-signed cards moved to the Weekly Report page. */}
