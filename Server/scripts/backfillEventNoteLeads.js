@@ -20,9 +20,13 @@ const COMMIT = process.argv.includes('--commit');
 const url    = process.env.DATABASE_URL || '';
 const host   = (url.match(/@([^/]*)\//) || [])[1] || '(unknown)';
 
+// SSL by host: local Postgres needs none; a remote host (e.g. Railway PROD,
+// which requires SSL) gets it — so this works whether run locally or against
+// PROD, regardless of NODE_ENV.
+const isLocal = /@(localhost|127\.0\.0\.1)[:/]/.test(url) || host === '(unknown)';
 const pool = new Pool({
   connectionString: url,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: isLocal ? false : { rejectUnauthorized: false },
 });
 
 // Rows that WOULD change, with the lead each note will be linked to.

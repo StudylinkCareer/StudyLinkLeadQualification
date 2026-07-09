@@ -30,8 +30,9 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import Watermark from '../components/Watermark';
 import TrailBackButton from '../components/TrailBackButton';
 import LeadEventsSection from '../components/LeadEventsSection';
-import { FiArrowLeft, FiPlus, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid } from 'react-icons/fi';
+import { FiArrowLeft, FiPlus, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid, FiPhone } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
+import { containsPhoneMention } from '../utils/phoneAliases';
 
 // ── NoteForm ─────────────────────────────────────────────────────────────────
 // Unified structured note form. All 5 fields mandatory.
@@ -258,7 +259,7 @@ function NoteCard({ note, staff, canAppend, onDelete, onAppend, onUpdateReminder
 }
 
 // ── NoteThread ────────────────────────────────────────────────────────────────
-function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpdateReminder }) {
+function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpdateReminder, matchFn }) {
   const [expanded, setExpanded] = useState(false);
   const sorted     = [...notes].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
   const latest     = sorted[sorted.length-1];
@@ -267,6 +268,11 @@ function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpda
   const STATUS_COLORS = { active:'#10b981', closed:'#6b7280', rescheduled:'#f59e0b', superseded:'#d1d5db' };
   const threadStatus  = latest?.reminderStatus || 'active';
   const isClosed      = threadStatus === 'closed';
+  // Filter mode: show ONLY entries that match, newest-first, as read-only search
+  // results. The reminder/append workflow stays in the unfiltered full view.
+  const filtering = typeof matchFn === 'function';
+  const matches   = filtering ? sorted.filter(matchFn) : sorted;   // ascending
+  if (filtering && matches.length === 0) return null;
 
   return (
     <div style={{ borderRadius:'10px', border:'1px solid var(--border)', overflow:'hidden', opacity:isClosed?0.65:1 }}>
@@ -280,10 +286,12 @@ function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpda
             {threadStatus.charAt(0).toUpperCase()+threadStatus.slice(1)}
           </span>
           <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
-            {notes.length} {notes.length===1?'entry':'entries'}
+            {filtering
+              ? `${matches.length} of ${notes.length} match`
+              : `${notes.length} ${notes.length===1?'entry':'entries'}`}
           </span>
         </div>
-        {hasHistory && (
+        {!filtering && hasHistory && (
           <button onClick={()=>setExpanded(e=>!e)}
             style={{ background:'none', border:'1px solid var(--border)', borderRadius:'6px', cursor:'pointer',
               padding:'2px 10px', fontSize:'0.8125rem', fontWeight:700, color:'var(--text-secondary)',
@@ -293,14 +301,28 @@ function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpda
           </button>
         )}
       </div>
-      {expanded && history.map(note=>(
-        <div key={note.id} style={{ borderBottom:'1px solid var(--border)', opacity:0.75 }}>
-          <NoteCard note={note} staff={staff} canAppend={false}
-            onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={false}/>
-        </div>
-      ))}
-      <NoteCard note={latest} staff={staff} canAppend={canAppend}
-        onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={true}/>
+      {filtering ? (
+        // Only the matching entries, newest-first, read-only.
+        [...matches].reverse().map((note, i)=>(
+          <div key={note.id} style={{ borderTop: i>0 ? '1px solid var(--border)' : undefined }}>
+            <NoteCard note={note} staff={staff} canAppend={false}
+              onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={false}/>
+          </div>
+        ))
+      ) : (
+        // Newest-first: the latest (active) entry on top, history below in
+        // reverse-chronological order.
+        <>
+          <NoteCard note={latest} staff={staff} canAppend={canAppend}
+            onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={true}/>
+          {expanded && [...history].reverse().map(note=>(
+            <div key={note.id} style={{ borderTop:'1px solid var(--border)', opacity:0.75 }}>
+              <NoteCard note={note} staff={staff} canAppend={false}
+                onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={false}/>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -1017,6 +1039,11 @@ export default function LeadDetail() {
   const [noteType,     setNoteType]     = useState('counselor');
   const [addingNote,   setAdding]       = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
+  // Notes filter bar (per-lead). Keyword matches content/author/topic; type
+  // narrows by note_type; phoneOnly uses the Activity-Report phone matcher.
+  const [noteSearch,     setNoteSearch]     = useState('');
+  const [noteTypeFilter, setNoteTypeFilter] = useState('all');
+  const [notePhoneOnly,  setNotePhoneOnly]  = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcOcean, setRecalcOcean]     = useState(false);
   const [oceanResult, setOceanResult]     = useState(null);
@@ -2127,25 +2154,81 @@ export default function LeadDetail() {
                 </>
               )}
             </div>
+            {notes.length>0 && (
+              <div style={{ display:'flex', flexWrap:'wrap', gap:'0.5rem', alignItems:'center', marginBottom:'0.25rem' }}>
+                <input
+                  type="text"
+                  value={noteSearch}
+                  onChange={e=>setNoteSearch(e.target.value)}
+                  placeholder="Search notes — author, institution, keyword…"
+                  style={{ flex:'1 1 220px', minWidth:0, padding:'0.4rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', background:'var(--bg-secondary)', color:'var(--text-primary)', fontSize:'0.8125rem' }}
+                />
+                <select
+                  value={noteTypeFilter}
+                  onChange={e=>setNoteTypeFilter(e.target.value)}
+                  style={{ padding:'0.4rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', background:'var(--bg-secondary)', color:'var(--text-primary)', fontSize:'0.8125rem' }}>
+                  <option value="all">All types</option>
+                  <option value="counselor">Counsellor</option>
+                  <option value="presales">Pre-sales</option>
+                  <option value="management">Management</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={()=>setNotePhoneOnly(v=>!v)}
+                  title="Show only notes that mention a phone call (same rule as Activity Report)"
+                  style={{ display:'flex', alignItems:'center', gap:'0.35rem', padding:'0.4rem 0.7rem', borderRadius:'8px', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600,
+                    border:`1px solid ${notePhoneOnly?'#10B981':'var(--border)'}`,
+                    background:notePhoneOnly?'#10B98122':'var(--bg-secondary)',
+                    color:notePhoneOnly?'#047857':'var(--text-secondary)' }}>
+                  <FiPhone size={13}/> Phone calls
+                </button>
+                {(noteSearch||noteTypeFilter!=='all'||notePhoneOnly) && (
+                  <button type="button" onClick={()=>{setNoteSearch('');setNoteTypeFilter('all');setNotePhoneOnly(false);}}
+                    style={{ padding:'0.4rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', background:'transparent', color:'var(--text-secondary)', fontSize:'0.8125rem', cursor:'pointer' }}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
             <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
               {notes.length===0 && <div style={{ color:'var(--text-secondary)', fontSize:'0.875rem' }}>No notes yet</div>}
               {(() => {
+                const q = noteSearch.trim().toLowerCase();
+                const anyFilter = q!=='' || noteTypeFilter!=='all' || notePhoneOnly;
+                // A note matches when it satisfies ALL active filters. Keyword
+                // searches content + author + topic; institution and other
+                // mentions live in the content.
+                const noteMatches = (n) => {
+                  if (noteTypeFilter!=='all' && n.noteType!==noteTypeFilter) return false;
+                  if (notePhoneOnly && !containsPhoneMention(n.content)) return false;
+                  if (q) {
+                    const hay = `${n.content||''} ${n.authorName||''} ${n.topic||''}`.toLowerCase();
+                    if (!hay.includes(q)) return false;
+                  }
+                  return true;
+                };
                 const topicMap = new Map();
                 [...notes].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt)).forEach(n=>{
                   const key = n.topic||'__none__';
                   if (!topicMap.has(key)) topicMap.set(key,[]);
                   topicMap.get(key).push(n);
                 });
-                const threads = [...topicMap.entries()].sort((a,b)=>{
+                let threads = [...topicMap.entries()].sort((a,b)=>{
                   const la=a[1][a[1].length-1], lb=b[1][b[1].length-1];
                   const ca=la?.reminderStatus==='closed', cb=lb?.reminderStatus==='closed';
                   if (ca!==cb) return ca?1:-1;
                   return new Date(lb.createdAt)-new Date(la.createdAt);
                 });
+                // Thread-level filtering: keep a thread when any of its entries
+                // matches the active filters (preserves the reminder workflow).
+                if (anyFilter) threads = threads.filter(([,tn]) => tn.some(noteMatches));
+                if (anyFilter && threads.length===0)
+                  return <div style={{ color:'var(--text-secondary)', fontSize:'0.875rem' }}>No notes match these filters.</div>;
                 return threads.map(([key,threadNotes])=>(
                   <NoteThread key={key}
                     topic={key==='__none__'?null:key}
                     notes={threadNotes}
+                    matchFn={anyFilter ? noteMatches : undefined}
                     staff={staff}
                     canAppend={canDo('notes','write_counselor')}
                     onDelete={deleteNote}
