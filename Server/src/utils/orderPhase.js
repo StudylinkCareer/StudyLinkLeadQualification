@@ -32,6 +32,36 @@ const POSITION_PHASE = {
 // Every valid phase value (used for validation / reserved-value docs).
 const PHASES = ['Marketing', 'Counselling', 'Pool', 'Case Officers', 'Support', 'Presales'];
 
+// ---------------------------------------------------------------------------
+// Reporting: which lead STATUSES each department phase reports against.
+// This is the ONLY axis that differs between departments — the phase gate
+// (order_phase === phase) already decides WHICH orders belong to a department.
+// Rules (2026-07-10, user):
+//   • Counselling → ACTIVE book only (closed leads drop off the report).
+//   • Pre-Sales   → EVERY status (they still follow up Lost/Archived/Cancelled).
+//   • Pool        → EVERY status (Quality/Admin oversight).
+// A `null` set (Presales/Pool + any not-yet-built phase) = no status filter.
+// KEEP IN SYNC with LeadManagement/src/pages/Dashboard.jsx
+//   → REPORTABLE_STATUSES_BY_PHASE / attributableTo().
+const ACTIVE_STATUSES = [
+  'New', 'Engaged', 'Contracted', 'Proposal',
+  'Met with customer and family', 'Vetted', 'Family negotiation/review',
+  'Nurturing', 'Not contactable',
+];
+const REPORTABLE_STATUSES_BY_PHASE = {
+  Counselling: ACTIVE_STATUSES,
+  Presales:    null,   // all statuses
+  Pool:        null,   // all statuses
+};
+
+// True if `status` is reported for `phase`. Blank/null normalises to 'New'
+// (the app shows blank as New everywhere).
+function isReportableStatus(phase, status) {
+  const set = REPORTABLE_STATUSES_BY_PHASE[phase];
+  if (!set) return true;                 // phase reports all statuses
+  return set.includes(status || 'New');
+}
+
 // The phase for a given owner position. An Order with no owner (or an owner
 // whose position isn't a recognised phase) sits in the Pool holding state.
 function phaseForPosition(position) {
@@ -66,4 +96,7 @@ async function syncOrderPhase(db, studentId) {
   return phase;
 }
 
-module.exports = { POSITION_PHASE, PHASES, phaseForPosition, syncOrderPhase };
+module.exports = {
+  POSITION_PHASE, PHASES, phaseForPosition, syncOrderPhase,
+  ACTIVE_STATUSES, REPORTABLE_STATUSES_BY_PHASE, isReportableStatus,
+};

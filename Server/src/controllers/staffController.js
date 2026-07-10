@@ -7,7 +7,7 @@ const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
 const { logChanges } = require('./auditController');
 const { assessOcean } = require('../utils/oceanCalculator');
 const permissionService = require('../services/permissionService');
-const { syncOrderPhase, phaseForPosition } = require('../utils/orderPhase');
+const { syncOrderPhase, phaseForPosition, isReportableStatus } = require('../utils/orderPhase');
 const { issueAdvanceTokens } = require('../services/eventQualification');
 
 // Local pool — matches the pattern used elsewhere in this codebase.
@@ -946,13 +946,13 @@ async function searchLeads(req, res, next) {
       // lookup, which is ambiguous when a person has duplicate staff rows (e.g. an
       // 'Event staff' rep record) and would wrongly resolve the phase to Pool.
       const myPhase = phaseForPosition(req.session.staffPosition || null);
-      // Active book only: closed/terminal leads (Lost/Archived/Cancelled) drop off
-      // the counsellor's own list — the name stays on the record for reference.
-      const CLOSED = ['Lost', 'Archived', 'Cancelled'];
+      // Own list mirrors the Dashboard reporting rule per phase (single source of
+      // truth in orderPhase.isReportableStatus): Counselling = active book only;
+      // Pre-Sales / Pool = every status. The name stays on the record either way.
       leads = leads.filter(l =>
         permissionService.isLeadAssignedTo(staff, l)
         && l.orderPhase === myPhase
-        && !CLOSED.includes(l.leadStatus));
+        && isReportableStatus(myPhase, l.leadStatus));
     }
     const masked = await permissionService.applyFieldPermissionsToList(staff, leads);
     // Re-attach leadId/studentId — they aren't catalog fields, so masking may drop

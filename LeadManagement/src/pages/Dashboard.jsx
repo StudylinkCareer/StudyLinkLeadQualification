@@ -171,38 +171,42 @@ const SOURCE_COLORS = ['#2563EB','#0891B2','#059669','#D97706','#7C3AED','#DB277
 
 const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived', 'Cancelled'];
 
-// Lead statuses that COUNT in a counsellor's reporting. Whitelist, not blacklist:
-// any status NOT here — Lost, Archived, Cancelled, and blank/null — is excluded
-// (the name stays on the record for reference only). 'Not contactable' IS counted
-// (added 2026-07-04, user's call) so the per-counsellor Management view matches
-// each counsellor's own dashboard. This set now == the counsellor's own-leads
-// filter (active book = everything except Lost/Archived/Cancelled).
-const REPORTING_INCLUDED_STATUSES = [
+// Active-pipeline statuses — a counsellor's working book. Whitelist, not
+// blacklist: any status NOT here — Lost, Archived, Cancelled, blank/null — is
+// excluded. 'Not contactable' IS counted (2026-07-04, user's call). Blank/null
+// normalises to 'New' (the app shows it as New everywhere).
+const ACTIVE_STATUSES = [
   'New', 'Engaged', 'Contracted', 'Proposal',
   'Met with customer and family', 'Vetted', 'Family negotiation/review',
   'Nurturing', 'Not contactable',
 ];
+// Back-compat alias — the active book is still the pipeline set for Counselling.
+const REPORTING_INCLUDED_STATUSES = ACTIVE_STATUSES;
 
-// Presales works the same early funnel — identical reportable set now that
-// 'Not contactable' is counted for Counselling too.
-const PRESALES_INCLUDED_STATUSES = REPORTING_INCLUDED_STATUSES;
-
-// Reportable-status set per department phase. Same philosophy, different funnel.
+// Which lead STATUSES each department phase reports against. This is the ONLY
+// axis that differs between departments — the phase gate (order_phase === phase)
+// already decides WHICH orders belong to a department. Rules (2026-07-10):
+//   • Counselling → ACTIVE book only (closed leads drop off the report).
+//   • Pre-Sales   → EVERY status (they still follow up Lost/Archived/Cancelled).
+//   • Pool        → EVERY status (Quality/Admin oversight).
+// `null` = no status filter (all statuses count). Pre-Sales/Pool differ only by
+// which orders (phase), not by status.
+// KEEP IN SYNC with Server/src/utils/orderPhase.js → reportableStatusesForPhase().
 const REPORTABLE_STATUSES_BY_PHASE = {
-  Counselling: REPORTING_INCLUDED_STATUSES,
-  Presales:    PRESALES_INCLUDED_STATUSES,
+  Counselling: ACTIVE_STATUSES,
+  Presales:    null,   // all statuses
+  Pool:        null,   // all statuses
 };
 
 // Phase-driven ownership: a lead counts toward the current owner (the primary
-// `counselor` slot — which for a Presales-phase Order holds a PreSales-position
-// person) in per-staff reporting ONLY while its status is reportable AND its
-// Sales Order sits in the given department phase. Presales reporting reuses this
-// exact philosophy with phase='Presales' (same grouping column, same whitelist).
-// Once the Order moves department, or the status leaves the reportable set, the
-// name remains for display but the lead is no longer attributed.
+// `counselor` slot) in per-staff reporting only while its Sales Order sits in the
+// given department phase AND its status is reportable for that phase. Once the
+// Order moves department, the name remains for display but is no longer attributed.
 function attributableTo(l, phase) {
-  const reportable = REPORTABLE_STATUSES_BY_PHASE[phase] || REPORTING_INCLUDED_STATUSES;
-  return l.orderPhase === phase && reportable.includes(l.leadStatus);
+  if (l.orderPhase !== phase) return false;              // wrong department
+  const set = REPORTABLE_STATUSES_BY_PHASE[phase];
+  if (set == null) return true;                          // department reports all statuses
+  return set.includes(l.leadStatus || 'New');            // blank == New
 }
 
 // Labels for the Contracted period cards (kept local for now; can be moved
@@ -466,20 +470,24 @@ export default function Dashboard() {
   const counselorData = useMemo(() => {
     if (!hasAllScope) return [];
     const map = {};
+    const phaseMap = {};   // counselor → # of ALL leads in this phase (any status)
     leads.forEach(l => {
-      if (!attributableTo(l, reportDept)) return;   // wrong department, or inactive → display-only
+      if (l.orderPhase !== reportDept) return;       // different department → not this owner's book here
       const counselor = l.counselor || 'Unassigned';
-      const stone     = COUNSELOR_STONES.includes(l.stoneTier) ? l.stoneTier : 'Unscored';
-      if (!map[counselor]) map[counselor] = {};
-      if (!map[counselor][stone]) map[counselor][stone] = [];
-      map[counselor][stone].push(l);
+      phaseMap[counselor] = (phaseMap[counselor] || 0) + 1;
+      if (attributableTo(l, reportDept)) {           // reportable for this phase
+        const stone = COUNSELOR_STONES.includes(l.stoneTier) ? l.stoneTier : 'Unscored';
+        if (!map[counselor]) map[counselor] = {};
+        if (!map[counselor][stone]) map[counselor][stone] = [];
+        map[counselor][stone].push(l);
+      }
     });
     return Object.entries(map)
-      .map(([counselor, stoneMap]) => ({
-        counselor,
-        stoneMap,
-        total: Object.values(stoneMap).reduce((s, arr) => s + arr.length, 0),
-      }))
+      .map(([counselor, stoneMap]) => {
+        const total      = Object.values(stoneMap).reduce((s, arr) => s + arr.length, 0);
+        const phaseTotal = phaseMap[counselor] || total;
+        return { counselor, stoneMap, total, phaseTotal, excluded: phaseTotal - total };
+      })
       .sort((a, b) => b.total - a.total);
   }, [leads, hasAllScope, reportDept]);
 
@@ -881,6 +889,8 @@ export default function Dashboard() {
                 <span className="section-title">
                   {reportDept === 'Presales'
                     ? (language === 'vi' ? 'Khách hàng theo Pre-Sales' : 'Leads by Pre-Sales')
+                    : reportDept === 'Pool'
+                    ? (language === 'vi' ? 'Khách hàng theo Pool (Quality/Admin)' : 'Leads by Pool (Quality/Admin)')
                     : t('dashboard.chart.leadsByCounselor', language)}
                 </span>
                 <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
@@ -889,6 +899,7 @@ export default function Dashboard() {
                     {[
                       ['Counselling', language === 'vi' ? 'Tư vấn'   : 'Counselling'],
                       ['Presales',    language === 'vi' ? 'Pre-Sales' : 'Pre-Sales'],
+                      ['Pool',        language === 'vi' ? 'Pool'      : 'Pool'],
                     ].map(([dep, label]) => (
                       <button
                         key={dep}
@@ -925,10 +936,11 @@ export default function Dashboard() {
               </div>
 
               <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                {counselorData.map(({ counselor, stoneMap, total }) => {
+                {counselorData.map(({ counselor, stoneMap, total, excluded, phaseTotal }) => {
                   const barWidthPct = (total / maxCounselorTotal) * 100;
                   const isSelected  = selectedCounselor === counselor;
-                  const allLeadsTitle = `${counselor} — ${t('dashboard.counselor.allLeadsTotal', language)} ${total}`;
+                  const allLeadsTitle = `${counselor} — ${total} reported`
+                    + (excluded ? ` · ${excluded} not reported (closed) · ${phaseTotal} total in Leads list` : '');
                   return (
                     <div
                       key={counselor}
@@ -988,10 +1000,15 @@ export default function Dashboard() {
                       </div>
 
                       <div
-                        style={{ width:'32px', flexShrink:0, fontSize:'0.875rem', fontWeight:700 }}
+                        style={{ width:'64px', flexShrink:0, textAlign:'right', lineHeight:1.1 }}
                         title={allLeadsTitle}
                       >
-                        {total}
+                        <span style={{ fontSize:'0.875rem', fontWeight:700 }}>{total}</span>
+                        {excluded > 0 && (
+                          <div style={{ fontSize:'0.65rem', fontWeight:500, color:'var(--text-secondary)' }}>
+                            of {phaseTotal}
+                          </div>
+                        )}
                       </div>
 
                     </div>
