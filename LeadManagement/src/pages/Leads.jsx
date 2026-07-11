@@ -91,10 +91,10 @@ const MULTI_KEYS = [
   // Lead management
   'leadStatus','stoneTier','leadSource','studyPlans','englishLevel','timeline',
   'interaction','destinationCountry','gpa','budget','confidence',
-  'counselor','seniorCounselor','presales','marketingStaff',
+  'counselor','presales','marketingStaff','caseOfficer','quality','techSupport','businessDevelopment',
   // Personal
   //  'yearOfBirth','residency','schoolEvent','preferredSocial','socialConsent',
-  'yearOfBirth','residency','referralSource','preferredSocial','socialConsent',
+  'yearOfBirth','residency','referralSource','preferredSocial','socialConsent','ward',
   // Self assessment
   'scholarshipDemand','immigrationHistory','sponsorIncome','incomeEvidence',
   'studyPlanGap','ultimateObjective',
@@ -102,6 +102,9 @@ const MULTI_KEYS = [
   'motherContactMedium','fatherContactMedium',
   // Campaign
   'campaignType','campaignName',
+  // Source / academic / phase (catalog columns 64-73)
+  'source','sourceDetail','major','schoolAttended','intake',
+  'degreeLevel','targetInstitution','rationale','orderPhase',
 ];
 
 const EMPTY_FILTERS = {
@@ -109,8 +112,9 @@ const EMPTY_FILTERS = {
   // Lead management
   leadStatus:[], stoneTier:[], leadSource:[], studyPlans:[],
   englishLevel:[], timeline:[], interaction:[], destinationCountry:[],
-  gpa:[], budget:[], confidence:[], counselor:[], seniorCounselor:[],
-  presales:[], marketingStaff:[],
+  gpa:[], budget:[], confidence:[], counselor:[],
+  presales:[], marketingStaff:[], caseOfficer:[],
+  quality:[], techSupport:[], businessDevelopment:[],
   // Personal
   //yearOfBirth:[], residency:[], schoolEvent:[], preferredSocial:[], socialConsent:[],
   yearOfBirth:[], residency:[], referralSource:[], preferredSocial:[], socialConsent:[],
@@ -121,6 +125,9 @@ const EMPTY_FILTERS = {
   motherContactMedium:[], fatherContactMedium:[],
   // Campaign
   campaignType:[], campaignName:[],
+  // Source / academic / phase (catalog columns 64-73)
+  source:[], sourceDetail:[], major:[], schoolAttended:[], ward:[], intake:[],
+  degreeLevel:[], targetInstitution:[], rationale:[], orderPhase:[],
   // Per-column free-text "contains" filters — one entry per column that has no
   // dedicated multi/date chip. Keyed by column id. e.g. { fullName:'tran' }
   colText:{},
@@ -166,9 +173,12 @@ const FILTER_CONFIG = [
   { colKey:'budget',             label:'Budget',          type:'multi',     filterKey:'budget' },
   { colKey:'confidence',         label:'Confidence',      type:'multi',     filterKey:'confidence' },
   { colKey:'counselor',          label:'Counselor',       type:'multi',     filterKey:'counselor' },
-  { colKey:'seniorCounselor',    label:'Sr. Counselor',   type:'multi',     filterKey:'seniorCounselor' },
   { colKey:'presales',           label:'Pre-Sales',       type:'multi',     filterKey:'presales' },
   { colKey:'marketingStaff',     label:'Marketing',       type:'multi',     filterKey:'marketingStaff' },
+  { colKey:'caseOfficer',        label:'Case Officer',    type:'multi',     filterKey:'caseOfficer' },
+  { colKey:'quality',            label:'Quality',         type:'multi',     filterKey:'quality' },
+  { colKey:'techSupport',        label:'Tech Support',    type:'multi',     filterKey:'techSupport' },
+  { colKey:'businessDevelopment',label:'Business Development', type:'multi', filterKey:'businessDevelopment' },
   // Personal
   { colKey:'yearOfBirth',        label:'Year of Birth',   type:'multi',     filterKey:'yearOfBirth' },
   { colKey:'residency',          label:'Residency',       type:'multi',     filterKey:'residency' },
@@ -189,6 +199,17 @@ const FILTER_CONFIG = [
   // Campaign
   { colKey:'campaignType',       label:'Campaign Type',   type:'multi',     filterKey:'campaignType' },
   { colKey:'campaignName',       label:'Campaign',        type:'multi',     filterKey:'campaignName' },
+  // Source / academic / phase (catalog columns 64-73) — faceted from column data
+  { colKey:'source',             label:'Source',          type:'multi',     filterKey:'source' },
+  { colKey:'sourceDetail',       label:'Source Detail',   type:'multi',     filterKey:'sourceDetail' },
+  { colKey:'major',              label:'Major',           type:'multi',     filterKey:'major' },
+  { colKey:'schoolAttended',     label:'School Attended', type:'multi',     filterKey:'schoolAttended' },
+  { colKey:'ward',               label:'Ward',            type:'multi',     filterKey:'ward' },
+  { colKey:'intake',             label:'Intake',          type:'multi',     filterKey:'intake' },
+  { colKey:'degreeLevel',        label:'Degree',          type:'multi',     filterKey:'degreeLevel' },
+  { colKey:'targetInstitution',  label:'Institution',     type:'multi',     filterKey:'targetInstitution' },
+  { colKey:'rationale',          label:'Rationale',       type:'multi',     filterKey:'rationale' },
+  { colKey:'orderPhase',         label:'Order Phase',     type:'multi',     filterKey:'orderPhase' },
   // Date ranges
   { colKey:'createdAt',          label:'Created',         type:'daterange', fromKey:'dateFrom',      toKey:'dateTo' },
   { colKey:'closeDate',          label:'Close Date',      type:'daterange', fromKey:'closeDateFrom', toKey:'closeDateTo' },
@@ -553,8 +574,21 @@ export default function Leads() {
   const [columns, setColumns]         = useState([]);
   const [selected, setSelected]       = useState([]);
   const [staffList, setStaffList]     = useState([]);
-  const [massPhase, setMassPhase]     = useState('Counselling');
-  const [massValue, setMassValue]     = useState('');
+  const [massPhase, setMassPhase]       = useState('Counselling');
+  const [massPosition, setMassPosition] = useState('');
+  const [massValue, setMassValue]       = useState('');
+  // Canonical phase model — KEEP IN SYNC with Server/src/utils/orderPhase.js
+  const PHASE_SLOTS = {
+    'Marketing': ['Marketing Staff'], 'Counselling': ['Counselor'], 'Presales': ['PreSales'],
+    'Pool': ['Quality', 'Tech Support'], 'Business Development': ['Business Development'],
+    'Case Officers': ['Case Officer, Direct', 'Case Officer, Sub'],
+  };
+  const RECIPIENT_REQUIRED = new Set(['Counselling', 'Presales', 'Case Officers']);
+  const POSITION_LABEL = {
+    'Marketing Staff':'Marketing Staff','Counselor':'Counsellor','PreSales':'Pre-Sales','Quality':'Quality',
+    'Tech Support':'Tech Support','Business Development':'Business Development',
+    'Case Officer, Direct':'Case Officer (Direct)','Case Officer, Sub':'Case Officer (Sub)',
+  };
   const [printMode, setPrintMode]     = useState(false);
 
   // ── TanStack Table state ──
@@ -1163,9 +1197,23 @@ export default function Leads() {
       confidence:         confidences.map(s => s.code),
       // Staff names — still derived from current data (not lookup-driven)
       counselor:          get('counselor'),
-      seniorCounselor:    get('seniorCounselor'),
       presales:           get('presales'),
       marketingStaff:     get('marketingStaff'),
+      caseOfficer:        get('caseOfficer'),
+      quality:            get('quality'),
+      techSupport:        get('techSupport'),
+      businessDevelopment: get('businessDevelopment'),
+      // Source / academic / phase — faceted from current data
+      source:             get('source'),
+      sourceDetail:       get('sourceDetail'),
+      major:              get('major'),
+      schoolAttended:     get('schoolAttended'),
+      ward:               get('ward'),
+      intake:             get('intake'),
+      degreeLevel:        get('degreeLevel'),
+      targetInstitution:  get('targetInstitution'),
+      rationale:          get('rationale'),
+      orderPhase:         get('orderPhase'),
       // Personal — mix of free-form (from data) and canonical (DB lookup)
       yearOfBirth:        get('yearOfBirth'),
       residency:          provinces.map(p => p.code),
@@ -1283,9 +1331,23 @@ export default function Leads() {
     if (filters.budget?.length)              r = r.filter(l => mf(filters.budget,              l.budget));
     if (filters.confidence?.length)          r = r.filter(l => mf(filters.confidence,          l.confidence));
     if (filters.counselor?.length)           r = r.filter(l => mf(filters.counselor,           l.counselor));
-    if (filters.seniorCounselor?.length)     r = r.filter(l => mf(filters.seniorCounselor,     l.seniorCounselor));
     if (filters.presales?.length)            r = r.filter(l => mf(filters.presales,            l.presales));
     if (filters.marketingStaff?.length)      r = r.filter(l => mf(filters.marketingStaff,      l.marketingStaff));
+    if (filters.caseOfficer?.length)         r = r.filter(l => mf(filters.caseOfficer,         l.caseOfficer));
+    if (filters.quality?.length)             r = r.filter(l => mf(filters.quality,             l.quality));
+    if (filters.techSupport?.length)         r = r.filter(l => mf(filters.techSupport,         l.techSupport));
+    if (filters.businessDevelopment?.length) r = r.filter(l => mf(filters.businessDevelopment, l.businessDevelopment));
+    // Source / academic / phase
+    if (filters.source?.length)              r = r.filter(l => mf(filters.source,              l.source));
+    if (filters.sourceDetail?.length)        r = r.filter(l => mf(filters.sourceDetail,        l.sourceDetail));
+    if (filters.major?.length)               r = r.filter(l => mf(filters.major,               l.major));
+    if (filters.schoolAttended?.length)      r = r.filter(l => mf(filters.schoolAttended,      l.schoolAttended));
+    if (filters.ward?.length)                r = r.filter(l => mf(filters.ward,                l.ward));
+    if (filters.intake?.length)              r = r.filter(l => mf(filters.intake,              l.intake));
+    if (filters.degreeLevel?.length)         r = r.filter(l => mf(filters.degreeLevel,         l.degreeLevel));
+    if (filters.targetInstitution?.length)   r = r.filter(l => mf(filters.targetInstitution,   l.targetInstitution));
+    if (filters.rationale?.length)           r = r.filter(l => mf(filters.rationale,           l.rationale));
+    if (filters.orderPhase?.length)          r = r.filter(l => mf(filters.orderPhase,          l.orderPhase));
     // Personal
     if (filters.yearOfBirth?.length)         r = r.filter(l => mf(filters.yearOfBirth,         l.yearOfBirth));
     if (filters.residency?.length)           r = r.filter(l => mf(filters.residency,           resolveProvince(l.residency)));
@@ -1435,12 +1497,29 @@ export default function Leads() {
 
   async function handleMassAssign() {
     if (selected.length === 0) return;
-    if (massPhase !== 'Pool' && !massValue) return;   // Pool may vacate (no owner)
+    if (RECIPIENT_REQUIRED.has(massPhase) && !massValue) { alert(`A recipient is required to move into ${massPhase}.`); return; }
+    if ((PHASE_SLOTS[massPhase] || []).length > 1 && !massPosition) { alert('Select a position.'); return; }
+    // Connected-unit rule: a working phase needs an active lead. Warn when any
+    // selected record has none — the move will mint a new active lead for it.
+    // (Pool is exempt — it can hold records with no active lead.)
+    if (massPhase !== 'Pool') {
+      const TERMINAL = new Set(['Contracted', 'Lost', 'Archived', 'Cancelled']);
+      const hasActive = new Set(leads.filter(l => !TERMINAL.has(l.leadStatus || 'New')).map(l => l.studentId));
+      const noActive = selected.filter(sid => !hasActive.has(sid));
+      if (noActive.length > 0 &&
+          !confirm(`${noActive.length} of ${selected.length} selected record(s) have no active lead.\n\n` +
+                   `A new active lead will be created for each so it can be worked in ${massPhase}.\n\nContinue?`)) return;
+    }
     try {
-      const r = await staffAPI.massMovePhase(selected, massPhase, massValue);
+      const position = massPosition || (PHASE_SLOTS[massPhase] || [])[0] || '';
+      const r = await staffAPI.massMovePhase(selected, massPhase, massValue, position);
       await loadLeads();
       setSelected([]);
-      if (r?.data?.moved) alert(`Moved ${r.data.moved} order(s) to ${r.data.toPhase}.`);
+      if (r?.data?.moved) {
+        const created = r.data.createdLeads || 0;
+        alert(`Moved ${r.data.moved} order(s) to ${r.data.toPhase}.` +
+              (created ? `\nCreated ${created} new active lead(s) for records that had none.` : ''));
+      }
     } catch(e) { alert(e.message); }
   }
 
@@ -1629,9 +1708,12 @@ export default function Leads() {
   // Bulk phase-move targets + the staff positions valid in each. Picking a phase
   // filters the recipient list to that phase's staff (the owner drives the phase).
   const PHASE_POSITIONS = {
-    Counselling: ['Counselor', 'Senior Counselor'],
-    Presales:    ['PreSales'],
-    Pool:        ['Quality', 'Tech Support'],
+    Counselling:            ['Staff, Counsellor', 'Lead, Counsellor', 'Counselor', 'Senior Counselor'],
+    Presales:               ['Staff, Pre-sales', 'Lead, Pre-sales', 'PreSales'],
+    Pool:                   ['Staff, Data Quality', 'Staff, Technical Support', 'Manager, Technical Support', 'Administrator, Office', 'Quality', 'Tech Support'],
+    Marketing:              ['Staff, Marketing', 'Manager, Marketing', 'Marketing Staff'],
+    'Business Development':  ['Staff, Business Development', 'Manager, Business Development'],
+    'Case Officers':        ['Staff, Case Officer - Dir', 'Staff, Case Officer - Sub', 'Lead, Case Officer', 'Case Officer, Direct', 'Case Officer, Sub'],
   };
   const massStaff = staffList.filter(s => (PHASE_POSITIONS[massPhase] || []).includes(s.position));
 
@@ -2006,19 +2088,27 @@ export default function Leads() {
       {canMassAssign && selected.length > 0 && (
         <div className="mass-assign-bar no-print">
           <span>{selected.length} selected</span>
-          <select value={massPhase} onChange={e => { setMassPhase(e.target.value); setMassValue(''); }} title="Target phase">
-            {Object.keys(PHASE_POSITIONS).map(p => (
+          <select value={massPhase} onChange={e => { setMassPhase(e.target.value); setMassPosition(''); setMassValue(''); }} title="Target phase">
+            {Object.keys(PHASE_SLOTS).map(p => (
               <option key={p} value={p}>{p === 'Presales' ? 'Pre-Sales' : p}</option>
             ))}
           </select>
-          <select value={massValue} onChange={e => setMassValue(e.target.value)} title="Owner for this phase">
-            <option value="">{massPhase === 'Pool' ? 'Unassigned (vacate)' : 'Select staff…'}</option>
+          {(PHASE_SLOTS[massPhase] || []).length > 1 && (
+            <select value={massPosition} onChange={e => setMassPosition(e.target.value)} title="Position">
+              <option value="">Position…</option>
+              {(PHASE_SLOTS[massPhase] || []).map(pos => (
+                <option key={pos} value={pos}>{POSITION_LABEL[pos] || pos}</option>
+              ))}
+            </select>
+          )}
+          <select value={massValue} onChange={e => setMassValue(e.target.value)} title="Recipient for this phase">
+            <option value="">{RECIPIENT_REQUIRED.has(massPhase) ? 'Select recipient (required)…' : 'Unassigned'}</option>
             {massStaff.map(s => (
               <option key={s.id} value={s.fullName}>{s.fullName} ({s.position})</option>
             ))}
           </select>
           <button className="btn btn--primary btn--sm" onClick={handleMassAssign}
-            disabled={massPhase !== 'Pool' && !massValue}>Move</button>
+            disabled={(RECIPIENT_REQUIRED.has(massPhase) && !massValue) || ((PHASE_SLOTS[massPhase]||[]).length>1 && !massPosition)}>Move</button>
           {canDeleteLeads && (
             <button
               className="btn btn--sm"

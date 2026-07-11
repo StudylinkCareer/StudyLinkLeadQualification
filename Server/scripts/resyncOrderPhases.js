@@ -19,6 +19,9 @@ const args = process.argv.slice(2);
 const APPLY = args.includes('--apply');
 const ownerIdx = args.indexOf('--owner');
 const OWNER = ownerIdx >= 0 ? args[ownerIdx + 1] : null;
+// SAFE DEFAULT: only backfill orders with NO phase. --force-rederive re-derives ALL
+// order_phase from the counselor (Model-A) which REVERTS deliberate explicit moves.
+const FORCE = args.includes('--force-rederive');
 
 const url = process.env.DATABASE_URL || '';
 const isLocal = /@(localhost|127\.0\.0\.1)/.test(url);
@@ -26,7 +29,8 @@ const pool = new Pool({ connectionString: url, ssl: isLocal ? false : { rejectUn
 
 (async () => {
   console.log('Host:', (url.match(/@([^:@/]+)/) || [])[1] || '(?)');
-  console.log('Scope:', OWNER ? `orders owned by "${OWNER}"` : 'ALL orders', '·', APPLY ? 'APPLY (writes)' : 'PREVIEW (no writes)', '\n');
+  console.log('Scope:', OWNER ? `orders owned by "${OWNER}"` : 'ALL orders', '·', APPLY ? 'APPLY (writes)' : 'PREVIEW (no writes)');
+  console.log('Mode :', FORCE ? '⚠ FORCE re-derive — OVERWRITES explicit phases (reverts moves!)' : 'backfill MISSING phases only (safe)', '\n');
 
   // Resolve each order's owner position, excluding synthetic event-rep staff rows
   // (matches syncOrderPhase()). Compute target phase and compare to stored.
@@ -44,6 +48,8 @@ const pool = new Pool({ connectionString: url, ssl: isLocal ? false : { rejectUn
   const transitions = {};
   for (const r of rows) {
     const target = phaseForPosition(r.position);
+    const isMissing = !r.current;            // no phase set yet
+    if (!FORCE && !isMissing) continue;      // safe default: only backfill missing
     if ((r.current || 'Pool') !== target) {
       changes.push({ id: r.student_id, from: r.current || '(null)', to: target });
       const key = `${r.current || '(null)'} → ${target}`;

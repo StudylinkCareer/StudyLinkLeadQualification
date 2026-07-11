@@ -1,0 +1,310 @@
+[
+ {
+  "name": "Nguyễn Hoàng Thúy An",
+  "email": "thuyan.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Case Officer - Sub",
+  "tier": "Staff"
+ },
+ {
+  "name": "Phạm Thị Ngọc Thảo",
+  "email": "phamngocthao.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Case Officer - Sub",
+  "tier": "Staff"
+ },
+ {
+  "name": "Quan Hoàng Yến",
+  "email": "yen.studylink@outlook.com",
+  "active": true,
+  "profile": "Lead, Case Officer",
+  "tier": "Manager"
+ },
+ {
+  "name": "Thái Thị Huỳnh Anh",
+  "email": "huynhanh.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Case Officer - Dir",
+  "tier": "Staff"
+ },
+ {
+  "name": "Trần Thanh Gia Mẫn",
+  "email": "giaman.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Case Officer - Dir",
+  "tier": "Staff"
+ },
+ {
+  "name": "Lê Thị Trường An",
+  "email": "antruong.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Case Officer - Dir",
+  "tier": "Staff"
+ },
+ {
+  "name": "Phạm Thị Lợi",
+  "email": "loipham.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Case Officer - Sub",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Hồng Hà",
+  "email": "ha.nguyen@studylink.org",
+  "active": true,
+  "profile": "CEO",
+  "tier": "Executive"
+ },
+ {
+  "name": "Test Director",
+  "email": "testd@gmail.com",
+  "active": true,
+  "profile": "COO",
+  "tier": "Executive"
+ },
+ {
+  "name": "Nguyễn Thành Vinh",
+  "email": "vinh.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Counsellor",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Thị Hồng Hạnh",
+  "email": "hanh.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Counsellor",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Thị Mỹ Ly",
+  "email": "myly.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Counsellor",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Thị Thu Lan",
+  "email": "thulan.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Counsellor",
+  "tier": "Staff"
+ },
+ {
+  "name": "TestCounselor",
+  "email": "testc@gmail.com",
+  "active": true,
+  "profile": "Staff, Counsellor",
+  "tier": "Staff"
+ },
+ {
+  "name": "Trần Khiết Oanh",
+  "email": "khietoanh.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Counsellor",
+  "tier": "Staff"
+ },
+ {
+  "name": "Ngô Quốc Hoàng",
+  "email": "marketing@studylink.org",
+  "active": true,
+  "profile": "Manager, Marketing",
+  "tier": "Manager"
+ },
+ {
+  "name": "Lê Tuyễn Thành Trần",
+  "email": "thanhtuyen.studylink@outlook.com",
+  "active": true,
+  "profile": "Manager, Business Development",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Hoàng Bá Duy",
+  "email": "baduy1707k3@gmail.com",
+  "active": true,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyên Tâm",
+  "email": "nguyentam.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Thị Phương Uyên",
+  "email": "katrinanguyen.1203@gmail.com",
+  "active": true,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Phạm Thị Ngọc Viên",
+  "email": "vien.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Phạm Vũ Kim Chi",
+  "email": "kimchi.studylink@outlook.com",
+  "active": true,
+  "profile": "Administrator, Office",
+  "tier": "Staff"
+ },
+ {
+  "name": "Phan Bùi Giang Thanh",
+  "email": "thanh.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Trần Thị Huyền Trang",
+  "email": "trangvan721nbk@gmail.com",
+  "active": true,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Lê Thị Quỳnh Như",
+  "email": "hr@studylink.org",
+  "active": true,
+  "profile": "Manager, HR",
+  "tier": "Manager"
+ },
+ {
+  "name": "Nguyễn Ngọc Hân",
+  "email": "ngochan.studylink@outlook.com",
+  "active": true,
+  "profile": "Staff, Business Development",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Thiên Thanh",
+  "email": "thanh.nguyen@studylink.org",
+  "active": true,
+  "profile": "Manager, Products",
+  "tier": "Manager"
+ },
+ {
+  "name": "Test Prod",
+  "email": "testp@gmail.com",
+  "active": true,
+  "profile": "Manager, Products",
+  "tier": "Manager"
+ },
+ {
+  "name": "Mạch Nguyễn Phi Vân",
+  "email": "data@studylink.org",
+  "active": true,
+  "profile": "Staff, Data Quality",
+  "tier": "Tech"
+ },
+ {
+  "name": "TestQuality",
+  "email": "testq@gmail.com",
+  "active": true,
+  "profile": "Staff, Data Quality",
+  "tier": "Tech"
+ },
+ {
+  "name": "TestManager",
+  "email": "testm@gmail.com",
+  "active": true,
+  "profile": "Lead, Counsellor",
+  "tier": "Manager"
+ },
+ {
+  "name": "Nguyen Huy Anh",
+  "email": "huyanhnguyen2107@gmail.com",
+  "active": true,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Rhod Joyce",
+  "email": "rhod5716@gmail.com",
+  "active": true,
+  "profile": "COO",
+  "tier": "Executive"
+ },
+ {
+  "name": "Test Admin",
+  "email": "testa@gmail.com",
+  "active": true,
+  "profile": "Manager, Technical Support",
+  "tier": "Manager"
+ },
+ {
+  "name": "La Tất Thành",
+  "email": "hanoioffice@studylink.org",
+  "active": false,
+  "profile": "Staff, Counsellor",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Ngọc Vân Anh",
+  "email": "vananh.studylink@outlook.com",
+  "active": false,
+  "profile": "Staff, Case Officer - Dir",
+  "tier": "Staff"
+ },
+ {
+  "name": "Trần Võ Trí Nguyên",
+  "email": "tringuyen.studylink@outlook.com",
+  "active": false,
+  "profile": "Manager, Finance",
+  "tier": "Manager"
+ },
+ {
+  "name": "Trần Nhật Minh",
+  "email": "minh.studylink@outlook.com",
+  "active": false,
+  "profile": "Staff, Marketing",
+  "tier": "Staff"
+ },
+ {
+  "name": "Ngô Khánh Huyền",
+  "email": "khanhhuyen.studylink@outlook.com",
+  "active": false,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Ngọc Quỳnh Như",
+  "email": "nguyenquynhnhu9997@gmail.com",
+  "active": false,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Trần Huỳnh Như Ngọc Kim Cương",
+  "email": "kimcuong.studylink@outlook.com",
+  "active": false,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Trần Nguyễn Tâm Nguyên",
+  "email": "tamnguyen.studylink@outlook.com",
+  "active": false,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Trần Nhật Vy",
+  "email": "ineedyouremail@studylink.org",
+  "active": false,
+  "profile": "Staff, Pre-sales",
+  "tier": "Staff"
+ },
+ {
+  "name": "Nguyễn Phúc Lâm",
+  "email": "lam.nguyen@studylink.org",
+  "active": false,
+  "profile": "Lead, Case Officer",
+  "tier": "Manager"
+ }
+]

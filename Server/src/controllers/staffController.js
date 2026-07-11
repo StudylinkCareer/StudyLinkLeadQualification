@@ -7,7 +7,8 @@ const { toSnakeCase, objectToCamelCase } = require('../utils/caseConvert');
 const { logChanges } = require('./auditController');
 const { assessOcean } = require('../utils/oceanCalculator');
 const permissionService = require('../services/permissionService');
-const { syncOrderPhase, phaseForPosition, isReportableStatus } = require('../utils/orderPhase');
+const { syncOrderPhase, phaseForPosition, isReportableStatus,
+        slotsForPhase, allowedTransitions, isTransitionAllowed, recipientRequired } = require('../utils/orderPhase');
 const { issueAdvanceTokens } = require('../services/eventQualification');
 
 // Local pool — matches the pattern used elsewhere in this codebase.
@@ -16,6 +17,27 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
+
+// Connected-unit rule (P3): a front-line phase must always have an active lead.
+// When a Sales record is moved into a working phase and every one of its leads is
+// terminal (Lost/Cancelled/Archived/Contracted — frozen history), we mint ONE new
+// active lead so the record surfaces in that phase's reports. Pool is exempt (it's
+// the record-level parking queue — a record can sit there with no active lead).
+// The new lead inherits the order's current staff via Lead.create (so it lands on
+// the recipient we just assigned). Returns the new leadId, or null if none needed.
+// Runs AFTER the move commits — Lead.create manages its own connection.
+async function ensureActiveLeadForPhase(dbPool, studentId, toPhase) {
+  if (!toPhase || toPhase === 'Pool') return null;
+  const { n } = (await dbPool.query(
+    `SELECT COUNT(*)::int AS n FROM leads
+      WHERE person_id = $1
+        AND lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`,
+    [studentId])).rows[0];
+  if (n > 0) return null;                       // already has an active lead
+  const Lead = require('../models/Lead');
+  const created = await Lead.create(studentId, { leadStatus: 'New' });
+  return created.leadId;
+}
 
 // Every table referencing a student, CHILD-FIRST, for a complete cleanse. Shared by
 // the delete cascade, the delete-preview, and the orphan sweep. (duplicate_reviews is
@@ -39,16 +61,32 @@ async function login(req, res, next) {
       return res.status(400).json({ success: false, error: 'Email and password are required' });
     }
     const staff = await Staff.findByEmail(email);
-    if (!staff || !staff.is_active) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (staff && !staff.is_active) {
+      return res.status(401).json({ success: false, error: 'This account has been deactivated. Contact an administrator.' });
+    }
+    if (!staff) {
+      return res.status(401).json({ success: false, error: 'Incorrect email or password.' });
     }
     const valid = await Staff.verifyPassword(staff, password);
     if (!valid) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+      return res.status(401).json({ success: false, error: 'Incorrect email or password.' });
     }
     req.session.staffId       = staff.id;
     req.session.staffEmail    = staff.email;
-    req.session.staffRole     = staff.role;
+    // Permission key = the authorisation PROFILE, which after the profile
+    // migration is stored in staff.position. If that position is a seeded
+    // profile use it; otherwise fall back to the legacy role (un-migrated staff
+    // / rollback). staffTier keeps the coarse tier (Executive/Manager/Staff/Tech).
+    // profileExists reads a cached snapshot — if it says "not a profile", refresh
+    // the cache from the DB and re-check, so a login right after a seed doesn't
+    // wrongly fall back to the (permission-less) tier.
+    let usePosition = staff.position && await permissionService.profileExists(staff.position);
+    if (!usePosition && staff.position) {
+      permissionService.clearCache();
+      usePosition = await permissionService.profileExists(staff.position);
+    }
+    req.session.staffRole     = usePosition ? staff.position : staff.role;
+    req.session.staffTier     = staff.role;
     req.session.staffName     = staff.full_name;
     req.session.staffPosition = staff.position;
     res.json({
@@ -439,9 +477,9 @@ async function assignStaff(req, res, next) {
       });
     }
 
-    // Phase follows the new owner's position (Counsellor → Counselling,
-    // Quality/Tech/unassigned → Pool, etc.). Keeps reporting visibility honest.
-    await syncOrderPhase(pool, studentId);
+    // Explicit-phase model: the Order's phase is set by changePhase/massMovePhase,
+    // NOT re-derived here. Re-deriving from the counselor would revert an Order that
+    // was deliberately moved to another phase (its counselor is retained history).
 
     // Return the order's canonical staff so the person view reflects it.
     const ordRow = (await pool.query(
@@ -471,7 +509,7 @@ async function changePhase(req, res, next) {
   });
   try {
     const { studentId } = req.params;
-    const { toPhase, staffName } = req.body || {};
+    const { toPhase, staffName, position: reqPosition } = req.body || {};
     if (!toPhase) { await pool.end(); return res.status(400).json({ success: false, error: 'toPhase is required' }); }
 
     const ctx = { role: req.session.staffRole, fullName: req.session.staffName };
@@ -486,34 +524,46 @@ async function changePhase(req, res, next) {
     if (!cur) { await pool.end(); return res.status(404).json({ success: false, error: 'Sales Order not found' }); }
     const fromPhase = cur.order_phase || 'Pool';
 
-    const ok = await OrderAssignment.isTransitionAllowed(fromPhase, toPhase, pool);
-    if (!ok) {
-      const allowed = await OrderAssignment.allowedTransitions(fromPhase, pool);
+    // Validate the move against the canonical transition map (code-driven).
+    if (!isTransitionAllowed(fromPhase, toPhase)) {
       await pool.end();
-      return res.status(400).json({
-        success: false,
-        error: `"${fromPhase}" cannot move to "${toPhase}". Allowed: ${allowed.join(', ') || '(none)'}.`,
-      });
+      return res.status(400).json({ success: false, error: `"${fromPhase}" cannot move to "${toPhase}". Allowed: ${allowedTransitions(fromPhase).join(', ') || '(none)'}.` });
+    }
+    // Resolve the target slot: single-slot phases auto-pick; multi-slot honour the
+    // caller's choice (Pool → Quality/Tech Support, Case Officers → Direct/Sub).
+    const slots = slotsForPhase(toPhase);
+    if (reqPosition && !slots.includes(reqPosition)) {
+      await pool.end();
+      return res.status(400).json({ success: false, error: `"${reqPosition}" is not a valid position for "${toPhase}". Options: ${slots.join(', ') || '(none)'}.` });
+    }
+    const position = (reqPosition && slots.includes(reqPosition)) ? reqPosition : (slots[0] || null);
+    // Mandatory recipient for front-line phases (Counselling / Pre-Sales / Case Officers).
+    if (recipientRequired(toPhase) && !(staffName && String(staffName).trim())) {
+      await pool.end();
+      return res.status(400).json({ success: false, error: `A recipient is required to move into "${toPhase}".` });
     }
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      // Explicit-phase: set order_phase, assign ONLY the chosen position. Every OTHER
+      // slot keeps its retained staff (greyed history). Do NOT touch students.counselor
+      // and do NOT syncOrderPhase (either would revert the move).
       await client.query(
         `UPDATE students SET order_phase = $1, updated_at = NOW() WHERE student_id = $2`,
         [toPhase, studentId]);
-
-      const actives = await OrderAssignment.activePositions(toPhase, client);
-      const position = actives[0] || null;
       if (position && staffName !== undefined) {
         await OrderAssignment.setForOrder(client, studentId, position, staffName);
-        // Mirror to the legacy column (students + cascade to ACTIVE leads) when
-        // this position has one, so existing reporting keeps working.
         const col = OrderAssignment.POSITION_COLUMN[position];
         if (col) {
           await client.query(
             `UPDATE students SET ${col} = $1, updated_at = NOW() WHERE student_id = $2`,
             [staffName || '', studentId]);
+          // Connected-unit model: the recipient cascades to the record's ACTIVE
+          // leads only. Inactive/terminal leads FREEZE the owner they had when
+          // they closed (that's their history — who won/lost it) and never take
+          // on a later phase's owner. A record whose leads are all inactive has
+          // by then been auto-moved to Pool, so nothing is orphaned.
           await client.query(
             `UPDATE leads SET ${col} = $1, updated_at = NOW()
               WHERE person_id = $2 AND lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`,
@@ -535,11 +585,19 @@ async function changePhase(req, res, next) {
       source: 'staff_app',
     });
 
+    // P3: if the record has no active lead after moving into a working phase,
+    // mint one so it surfaces in that phase's active reports.
+    const createdLeadId = await ensureActiveLeadForPhase(pool, studentId, toPhase);
+
     const assignments = await OrderAssignment.getForOrder(studentId, pool);
-    const nextPhases = await OrderAssignment.allowedTransitions(toPhase, pool);
-    const editablePositions = await OrderAssignment.activePositions(toPhase, pool);
     await pool.end();
-    res.json({ success: true, data: { orderPhase: toPhase, assignments, nextPhases, editablePositions } });
+    // Code-driven: onward phases + the target phase's slots (positions).
+    res.json({ success: true, data: {
+      orderPhase: toPhase, assignments,
+      nextPhases: allowedTransitions(toPhase),
+      editablePositions: slotsForPhase(toPhase),
+      createdLeadId,
+    } });
   } catch (err) { next(err); }
 }
 
@@ -576,12 +634,15 @@ async function setAssignment(req, res, next) {
         await client.query(
           `UPDATE students SET ${col} = $1, updated_at = NOW() WHERE student_id = $2`,
           [staffName || '', studentId]);
+        // Connected-unit model: cascade to ACTIVE leads only; inactive/terminal
+        // leads freeze their historical owner. Other positions' retained staff
+        // are untouched (only this column is written).
         await client.query(
           `UPDATE leads SET ${col} = $1, updated_at = NOW()
             WHERE person_id = $2 AND lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`,
           [staffName || '', studentId]);
-        // Owner may have changed on the phase-driving slot → keep phase in sync.
-        await syncOrderPhase(client, studentId);
+        // Explicit-phase model: do NOT re-derive order_phase here (would revert a
+        // deliberately-moved Order). Phase is owned by changePhase/massMovePhase.
       }
       await client.query('COMMIT');
     } catch (e) {
@@ -731,16 +792,23 @@ async function massMovePhase(req, res, next) {
       await pool.end();
       return res.status(403).json({ success: false, error: 'Mass move requires unrestricted assign permission.' });
     }
-    const { studentIds, toPhase, staffName } = req.body || {};
+    const { studentIds, toPhase, staffName, position: reqPosition } = req.body || {};
     if (!Array.isArray(studentIds) || !studentIds.length || !toPhase) {
       await pool.end();
       return res.status(400).json({ success: false, error: 'studentIds (array) and toPhase are required' });
     }
-    // Actual target = the assignee's department (Pool when vacating).
-    let targetPhase = toPhase;
-    if (staffName) {
-      const pos = (await pool.query(`SELECT position FROM staff WHERE full_name = $1 AND COALESCE(role,'') <> 'Event staff' LIMIT 1`, [staffName])).rows[0];
-      targetPhase = phaseForPosition(pos ? pos.position : null);
+    const targetPhase = toPhase;   // explicit target, consistent with changePhase
+    // Resolve the target slot (single-slot auto-picks; multi-slot honours the choice).
+    const slots = slotsForPhase(targetPhase);
+    if (reqPosition && !slots.includes(reqPosition)) {
+      await pool.end();
+      return res.status(400).json({ success: false, error: `"${reqPosition}" is not a valid position for "${targetPhase}". Options: ${slots.join(', ') || '(none)'}.` });
+    }
+    const position = (reqPosition && slots.includes(reqPosition)) ? reqPosition : (slots[0] || null);
+    // Mandatory recipient for front-line phases (Counselling / Pre-Sales / Case Officers).
+    if (recipientRequired(targetPhase) && !(staffName && String(staffName).trim())) {
+      await pool.end();
+      return res.status(400).json({ success: false, error: `A recipient is required to move into "${targetPhase}".` });
     }
     // Validate every selected Order's transition — block the whole batch on any conflict.
     const cur = (await pool.query(
@@ -749,7 +817,7 @@ async function massMovePhase(req, res, next) {
     const conflicts = [];
     for (const r of cur) {
       if (r.phase === targetPhase) continue;
-      if (!(await OrderAssignment.isTransitionAllowed(r.phase, targetPhase, pool))) {
+      if (!isTransitionAllowed(r.phase, targetPhase)) {
         conflicts.push({ studentId: r.student_id, from: r.phase });
       }
     }
@@ -762,18 +830,46 @@ async function massMovePhase(req, res, next) {
         conflicts,
       });
     }
-    // Apply: set the primary owner, cascade to ACTIVE leads, phase follows the owner.
+    // Apply per Order (explicit-phase, matches changePhase): set order_phase + assign
+    // the target phase's active position; the counselor is NOT overwritten (kept as
+    // retained history). Empty owner = vacate (slot set empty → "Unassigned").
+    // Connected-unit model: the recipient cascades to ACTIVE leads only; inactive/
+    // terminal leads freeze their historical owner.
     const OPEN = `lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`;
-    await pool.query(`UPDATE students SET counselor = $1, updated_at = NOW() WHERE student_id = ANY($2)`, [staffName || '', studentIds]);
-    await pool.query(`UPDATE leads SET counselor = $1, updated_at = NOW() WHERE person_id = ANY($2) AND ${OPEN}`, [staffName || '', studentIds]);
-    for (const sid of studentIds) await syncOrderPhase(pool, sid);
+    const col = position ? OrderAssignment.POSITION_COLUMN[position] : null;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const sid of studentIds) {
+        await client.query(`UPDATE students SET order_phase = $1, updated_at = NOW() WHERE student_id = $2`, [targetPhase, sid]);
+        if (position && staffName !== undefined) {
+          await OrderAssignment.setForOrder(client, sid, position, staffName);
+          if (col) {
+            await client.query(`UPDATE students SET ${col} = $1, updated_at = NOW() WHERE student_id = $2`, [staffName || '', sid]);
+            await client.query(`UPDATE leads SET ${col} = $1, updated_at = NOW() WHERE person_id = $2 AND ${OPEN}`, [staffName || '', sid]);
+          }
+        }
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK'); client.release(); await pool.end(); throw e;
+    }
+    client.release();
+
+    // P3: mint an active lead for any moved record that has none (working phases
+    // only). Done post-commit, before the pool closes.
+    const createdLeadIds = [];
+    for (const sid of studentIds) {
+      const id = await ensureActiveLeadForPhase(pool, sid, targetPhase);
+      if (id) createdLeadIds.push(id);
+    }
     await pool.end();
 
     const changedBy = req.session.staffName || req.session.staffEmail || 'unknown';
     for (const sid of studentIds) {
       await logChanges({ studentId: sid, leadId: null, changedBy, oldData: {}, newData: { orderPhase: targetPhase, staffName: staffName || '' }, source: 'staff_app' });
     }
-    res.json({ success: true, data: { moved: studentIds.length, toPhase: targetPhase } });
+    res.json({ success: true, data: { moved: studentIds.length, toPhase: targetPhase, createdLeads: createdLeadIds.length } });
   } catch (err) { next(err); }
 }
 
@@ -784,7 +880,9 @@ async function massMovePhase(req, res, next) {
 const STALE_STATUSES = ['Contracted', 'Lost', 'Archived', 'Not contactable'];
 
 function maintenanceAllowed(req) {
-  return req.session.staffRole === 'Admin' || req.session.staffPosition === 'Tech Support';
+  const { isAdminProfile } = require('../utils/authProfiles');
+  return isAdminProfile(req.session.staffRole) || isAdminProfile(req.session.staffPosition)
+      || req.session.staffPosition === 'Tech Support';
 }
 
 // GET — list open reminders whose Lead is in a stale status (optional ?status=).
@@ -914,14 +1012,57 @@ async function searchLeads(req, res, next) {
     // DATE columns are emitted via to_char('YYYY-MM-DD') so they serialise as plain
     // date strings — otherwise pg returns them as local-midnight Date objects that
     // toISOString() shifts back a day (breaking month math + showing dates a day early).
+    // pool_owner = who actually holds a POOL-phase order: the Pool slot
+    // (order_assignments Quality/Tech Support) if that slot exists, else the
+    // counselor (migrated orders where the custodian sits in the primary slot).
+    // An explicitly vacated slot ('') → NULL → shows as "Unassigned" in reporting.
     const base = `SELECT s.*, l.*,
         to_char(l.assigned_in,  'YYYY-MM-DD') AS assigned_in,
         to_char(l.assigned_out, 'YYYY-MM-DD') AS assigned_out,
         to_char(s.created_at,   'YYYY-MM-DD') AS person_created_at,
         to_char(s.updated_at,   'YYYY-MM-DD') AS person_updated_at,
         to_char(s.assigned_in,  'YYYY-MM-DD') AS person_assigned_in,
-        to_char(s.assigned_out, 'YYYY-MM-DD') AS person_assigned_out
-      FROM leads l JOIN students s ON s.student_id = l.person_id`;
+        to_char(s.assigned_out, 'YYYY-MM-DD') AS person_assigned_out,
+        -- phase_owner = who currently OWNS the order in its CURRENT phase, for per-owner
+        -- reporting. Prefer the explicit order_assignments slot for that phase (has_slot →
+        -- owner; vacated slot → NULL → "Unassigned"); else fall back to the legacy column /
+        -- counselor for orders whose owner still lives in the primary slot (migrated).
+        CASE
+          WHEN po.has_slot                 THEN po.owner
+          WHEN s.order_phase = 'Presales'  THEN COALESCE(NULLIF(s.presales,''),        NULLIF(s.counselor,''))
+          WHEN s.order_phase = 'Marketing' THEN COALESCE(NULLIF(s.marketing_staff,''), NULLIF(s.counselor,''))
+          ELSE NULLIF(s.counselor,'')
+        END AS phase_owner,
+        -- Positions that have NO legacy column (they live only in order_assignments):
+        -- surface each for the Leads list so every recipient type has its own column.
+        NULLIF(COALESCE(co.co_direct, co.co_sub), '') AS case_officer,
+        co.quality              AS quality,
+        co.tech_support         AS tech_support,
+        co.business_development AS business_development
+      FROM leads l JOIN students s ON s.student_id = l.person_id
+      LEFT JOIN LATERAL (
+        SELECT bool_or(true) AS has_slot,
+               (array_agg(NULLIF(oa.staff_name,'')
+                  ORDER BY (oa.staff_name IS NOT NULL AND oa.staff_name <> '') DESC, oa.updated_at DESC))[1] AS owner
+          FROM order_assignments oa
+         WHERE oa.student_id = s.student_id AND (
+            (s.order_phase = 'Pool'                AND oa.position IN ('Quality','Tech Support'))            OR
+            (s.order_phase = 'Presales'            AND oa.position = 'PreSales')                             OR
+            (s.order_phase = 'Marketing'           AND oa.position = 'Marketing Staff')                      OR
+            (s.order_phase = 'Counselling'         AND oa.position IN ('Counselor','Senior Counselor'))      OR
+            (s.order_phase = 'Business Development' AND oa.position = 'Business Development')                 OR
+            (s.order_phase = 'Case Officers'       AND oa.position IN ('Case Officer, Direct','Case Officer, Sub'))
+         )
+      ) po ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(CASE WHEN oa.position = 'Case Officer, Direct'  THEN NULLIF(oa.staff_name,'') END) AS co_direct,
+               MAX(CASE WHEN oa.position = 'Case Officer, Sub'     THEN NULLIF(oa.staff_name,'') END) AS co_sub,
+               MAX(CASE WHEN oa.position = 'Quality'               THEN NULLIF(oa.staff_name,'') END) AS quality,
+               MAX(CASE WHEN oa.position = 'Tech Support'          THEN NULLIF(oa.staff_name,'') END) AS tech_support,
+               MAX(CASE WHEN oa.position = 'Business Development'  THEN NULLIF(oa.staff_name,'') END) AS business_development
+          FROM order_assignments oa
+         WHERE oa.student_id = s.student_id
+      ) co ON true`;
     let query, params;
     if (!q || q.trim() === '') {
       query = `${base} ORDER BY s.created_at DESC NULLS LAST`;
@@ -1010,11 +1151,10 @@ async function getStudent(req, res, next) {
     // Sales Order phase mover + phase-gated staff fields on the person view.
     const OrderAssignment = require('../models/OrderAssignment');
     const phase = masked.orderPhase || null;
-    const [assignments, editablePositions, nextPhases] = await Promise.all([
-      OrderAssignment.getForOrder(id),
-      OrderAssignment.activePositions(phase),
-      OrderAssignment.allowedTransitions(phase),
-    ]);
+    const assignments = await OrderAssignment.getForOrder(id);
+    // Code-driven canonical phase model (onward phases + this phase's slots).
+    const editablePositions = phase ? slotsForPhase(phase) : [];
+    const nextPhases = phase ? allowedTransitions(phase) : [];
 
     res.json({ success: true, data: { ...masked, assignments, editablePositions, nextPhases } });
   } catch (err) { next(err); }

@@ -17,11 +17,12 @@ function requireStaffAuth(req, res, next) {
   next();
 }
 
-// Hard gate: only Admin / Director may touch the deep-cleanse tool at all.
+// Hard gate: only admin-tier profiles may touch the deep-cleanse tool at all.
+const { isAdminProfile } = require('../utils/authProfiles');
 function requireAdmin(req, res, next) {
-  const role = req.session && req.session.staffRole;
-  if (role === 'Admin' || role === 'Director') return next();
-  return res.status(403).json({ success: false, error: 'Deep Cleanse is restricted to Admin / Director.' });
+  const s = req.session || {};
+  if (isAdminProfile(s.staffRole) || isAdminProfile(s.staffPosition)) return next();
+  return res.status(403).json({ success: false, error: 'Deep Cleanse is restricted to admin profiles.' });
 }
 
 router.use(requireStaffAuth, requireAdmin);

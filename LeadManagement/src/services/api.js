@@ -33,17 +33,18 @@ async function request(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  // ── Session expiry ───────────────────────────────────────────
-  // A 401 means the staff session timed out (or the server restarted and
-  // dropped it). Fire a global event so the app shows the single "session
-  // expired" modal, then HALT the caller without throwing. Not throwing is
-  // deliberate: if we threw, each save handler's own catch would also pop a
-  // native "Not authenticated" alert, giving the user two messages. By
-  // returning a promise that never settles, the caller simply stops here
-  // (no success path, no error path, no alert). The modal handles the
-  // message and the redirect to /login; this dangling promise is discarded
-  // when the page reloads on login.
-  if (res.status === 401) {
+  // ── Session expiry vs. bad login ─────────────────────────────
+  // A 401 on an AUTHENTICATED request means the session timed out / the server
+  // restarted — fire the global "session expired" modal and HALT without
+  // throwing (so save handlers don't also pop a native alert). By returning a
+  // promise that never settles, the caller simply stops here; the modal handles
+  // the message + redirect, and it's discarded on the login reload.
+  //
+  // BUT a 401 from the LOGIN endpoint just means wrong email/password — it must
+  // NOT show the "rolling out updates" modal. Let it fall through so the login
+  // form displays the credentials error inline.
+  const isLoginAttempt = path.endsWith('/login');
+  if (res.status === 401 && !isLoginAttempt) {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('session-expired'));
     }
@@ -101,7 +102,7 @@ export const staffAPI = {
   resetPassword:   (id, password)             => request('PUT',  `/api/staff/${id}/password`, { password }),
   deactivate:      (id)                       => request('PUT',  `/api/staff/${id}/deactivate`),
   assign:          (studentId, data)          => request('PUT',  `/api/staff/assign/${studentId}`, data),
-  massMovePhase:   (studentIds, toPhase, staffName) => request('PUT', '/api/staff/mass-move-phase', { studentIds, toPhase, staffName }),
+  massMovePhase:   (studentIds, toPhase, staffName, position) => request('PUT', '/api/staff/mass-move-phase', { studentIds, toPhase, staffName, position }),
   listStaleReminders: (status) => request('GET', `/api/staff/maintenance/stale-reminders${status ? `?status=${encodeURIComponent(status)}` : ''}`),
   closeReminders:     (reminderIds) => request('POST', '/api/staff/maintenance/close-reminders', { reminderIds }),
   changePhase:     (studentId, data)          => request('PUT',  `/api/staff/phase/${studentId}`, data),

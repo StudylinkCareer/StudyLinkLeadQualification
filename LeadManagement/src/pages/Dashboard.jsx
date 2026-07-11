@@ -178,24 +178,43 @@ const TERMINAL_STATUSES = ['Contracted', 'Lost', 'Archived', 'Cancelled'];
 const ACTIVE_STATUSES = [
   'New', 'Engaged', 'Contracted', 'Proposal',
   'Met with customer and family', 'Vetted', 'Family negotiation/review',
-  'Nurturing', 'Not contactable',
+  'Nurturing', 'Not contactable', 'Renewed',
 ];
 // Back-compat alias — the active book is still the pipeline set for Counselling.
 const REPORTING_INCLUDED_STATUSES = ACTIVE_STATUSES;
 
-// Which lead STATUSES each department phase reports against. This is the ONLY
-// axis that differs between departments — the phase gate (order_phase === phase)
-// already decides WHICH orders belong to a department. Rules (2026-07-10):
-//   • Counselling → ACTIVE book only (closed leads drop off the report).
-//   • Pre-Sales   → EVERY status (they still follow up Lost/Archived/Cancelled).
-//   • Pool        → EVERY status (Quality/Admin oversight).
-// `null` = no status filter (all statuses count). Pre-Sales/Pool differ only by
-// which orders (phase), not by status.
-// KEEP IN SYNC with Server/src/utils/orderPhase.js → reportableStatusesForPhase().
+// Which lead STATUSES each department phase reports against. Connected-unit model
+// (2026-07-11): every FRONT-LINE phase reports ACTIVE leads only — terminal leads
+// (Lost/Archived/Cancelled) are frozen history and drop out. Pool is NOT a lead-
+// status report — it's a record-level (Sales-doc) queue rendered separately (P4),
+// so it keeps `null` (no lead-status gate) for now.
+// KEEP IN SYNC with Server/src/utils/orderPhase.js → REPORTABLE_STATUSES_BY_PHASE.
 const REPORTABLE_STATUSES_BY_PHASE = {
-  Counselling: ACTIVE_STATUSES,
-  Presales:    null,   // all statuses
-  Pool:        null,   // all statuses
+  Counselling:            ACTIVE_STATUSES,
+  Presales:               ACTIVE_STATUSES,
+  Marketing:              ACTIVE_STATUSES,
+  'Business Development': ACTIVE_STATUSES,
+  'Case Officers':        ACTIVE_STATUSES,
+  Pool:                   null,   // record-level view (P4) — no lead-status gate
+  Support:                null,
+};
+
+// Department tabs for the per-owner "Leads by …" panel — one per phase.
+const REPORT_DEPARTMENTS = [
+  ['Counselling',          { en: 'Counselling',          vi: 'Tư vấn' }],
+  ['Presales',             { en: 'Pre-Sales',            vi: 'Pre-Sales' }],
+  ['Marketing',            { en: 'Marketing',            vi: 'Marketing' }],
+  ['Business Development', { en: 'Bus. Dev',             vi: 'Bus. Dev' }],
+  ['Case Officers',        { en: 'Case Officers',        vi: 'Case Officers' }],
+  ['Pool',                 { en: 'Pool',                 vi: 'Pool' }],
+];
+const DEPARTMENT_TITLE = {
+  Counselling: { en: 'Leads by Counselor', vi: 'Khách hàng theo Tư vấn' },
+  Presales:    { en: 'Leads by Pre-Sales', vi: 'Khách hàng theo Pre-Sales' },
+  Marketing:   { en: 'Leads by Marketing', vi: 'Khách hàng theo Marketing' },
+  'Business Development': { en: 'Leads by Business Development', vi: 'Khách hàng theo Business Development' },
+  'Case Officers': { en: 'Leads by Case Officer', vi: 'Khách hàng theo Case Officer' },
+  Pool:        { en: 'Leads by Pool (Quality/Admin)', vi: 'Khách hàng theo Pool (Quality/Admin)' },
 };
 
 // Phase-driven ownership: a lead counts toward the current owner (the primary
@@ -207,6 +226,14 @@ function attributableTo(l, phase) {
   const set = REPORTABLE_STATUSES_BY_PHASE[phase];
   if (set == null) return true;                          // department reports all statuses
   return set.includes(l.leadStatus || 'New');            // blank == New
+}
+
+// Who "owns" a lead for per-owner reporting = the owner of its CURRENT phase's slot.
+// The server computes this per order (phase_owner): the explicit phase slot if set,
+// else the retained primary owner; a vacated slot → "Unassigned". The `phase` arg is
+// unused now (phase_owner already reflects the order's phase) but kept for call sites.
+function ownerForPhase(l /* , phase */) {
+  return l.phaseOwner || 'Unassigned';
 }
 
 // Labels for the Contracted period cards (kept local for now; can be moved
@@ -337,7 +364,7 @@ export default function Dashboard() {
   // Same format/philosophy for both — only the Order-phase gate differs.
   const [reportDept, setReportDept] = useState('Counselling');
   const { staff }    = useAuth();
-  const { scope, loading: permsLoading } = usePermissions();
+  const { scope, loading: permsLoading, error: permsError, perms, refresh: refreshPerms } = usePermissions();
   const { language } = useLanguage();
   const { push: pushTrail } = useNavTrail();
   const navigate     = useNavigate();
@@ -360,7 +387,12 @@ export default function Dashboard() {
   // While permsLoading is true, scope() returns a default that may not
   // reflect the real role — treating it as 'all' too early causes
   // counsellors to see every lead until permissions settle.
-  const hasAllScope = !permsLoading && scope('leads', 'view_list') === 'all';
+  // 'all' AND 'team' both mean "see beyond your own book": the backend feed
+  // (/lead-list) only self-filters for scope==='own', returning every in-scope
+  // lead for 'all'/'team'. So the Dashboard must NOT re-filter those by
+  // counselor name (which would wrongly zero out a team-scoped Manager whose
+  // own name isn't on any lead). Only true 'own' users get the client filter.
+  const hasAllScope = !permsLoading && ['all', 'team'].includes(scope('leads', 'view_list'));
   const isAdmin     = staff?.role === 'Admin';
 
   useEffect(() => {
@@ -473,7 +505,7 @@ export default function Dashboard() {
     const phaseMap = {};   // counselor → # of ALL leads in this phase (any status)
     leads.forEach(l => {
       if (l.orderPhase !== reportDept) return;       // different department → not this owner's book here
-      const counselor = l.counselor || 'Unassigned';
+      const counselor = ownerForPhase(l, reportDept);
       phaseMap[counselor] = (phaseMap[counselor] || 0) + 1;
       if (attributableTo(l, reportDept)) {           // reportable for this phase
         const stone = COUNSELOR_STONES.includes(l.stoneTier) ? l.stoneTier : 'Unscored';
@@ -493,7 +525,7 @@ export default function Dashboard() {
 
   const selectedCounselorLeads = useMemo(() => {
     if (!selectedCounselor) return [];
-    return leads.filter(l => (l.counselor || 'Unassigned') === selectedCounselor && attributableTo(l, reportDept));
+    return leads.filter(l => ownerForPhase(l, reportDept) === selectedCounselor && attributableTo(l, reportDept));
   }, [leads, selectedCounselor, reportDept]);
 
   // Per-counsellor backward (signed) figures for the pipeline's counsellor column.
@@ -580,7 +612,7 @@ export default function Dashboard() {
   }
   function drillCounselorStone(counselor, stone) {
     const ids = leads
-      .filter(l => (l.counselor || 'Unassigned') === counselor
+      .filter(l => ownerForPhase(l, reportDept) === counselor
                 && (l.stoneTier || 'Unscored')   === stone
                 && attributableTo(l, reportDept))
       .map(l => l.leadId);
@@ -588,7 +620,7 @@ export default function Dashboard() {
   }
   function drillCounselorStatus(counselor, status) {
     const ids = leads
-      .filter(l => (l.counselor || 'Unassigned') === counselor
+      .filter(l => ownerForPhase(l, reportDept) === counselor
                 && (l.leadStatus || 'New')       === status
                 && attributableTo(l, reportDept))
       .map(l => l.leadId);
@@ -596,6 +628,34 @@ export default function Dashboard() {
   }
 
   if (loading) return <div className="loading-center">{t('dashboard.loading', language)}</div>;
+
+  // Permissions failed to load (network/500/unexpected shape). Without this
+  // guard scope() silently returns 'none' → hasAllScope=false → the whole
+  // dashboard renders zeros, which looks like data loss. Show an explicit
+  // error + retry instead of a misleading empty dashboard. (A 401 is handled
+  // upstream by the session-expired modal, so it won't reach here.)
+  if (staff?.id && !permsLoading && (permsError || !perms)) {
+    return (
+      <div className="loading-center" style={{ flexDirection:'column', gap:12, textAlign:'center' }}>
+        <div style={{ fontWeight:600 }}>
+          {language==='vi'
+            ? 'Không tải được phân quyền của bạn.'
+            : "Couldn't load your permissions."}
+        </div>
+        <div style={{ color:'var(--text-muted, #6b7280)', maxWidth:420 }}>
+          {language==='vi'
+            ? 'Bảng điều khiển chưa hiển thị số liệu cho đến khi phân quyền được tải. Dữ liệu của bạn vẫn an toàn.'
+            : 'The dashboard is not showing figures until permissions load — your data is safe.'}
+        </div>
+        <button
+          className="btn btn-primary"
+          onClick={() => { setLoading(true); refreshPerms().finally(() => setLoading(false)); }}
+        >
+          {language==='vi' ? 'Thử lại' : 'Retry'}
+        </button>
+      </div>
+    );
+  }
 
   const isManagerOrAdmin = hasAllScope;
   const maxCounselorTotal = Math.max(...counselorData.map(d => d.total), 1);
@@ -887,20 +947,15 @@ export default function Dashboard() {
             <div className="section-card">
               <div className="section-header">
                 <span className="section-title">
-                  {reportDept === 'Presales'
-                    ? (language === 'vi' ? 'Khách hàng theo Pre-Sales' : 'Leads by Pre-Sales')
-                    : reportDept === 'Pool'
-                    ? (language === 'vi' ? 'Khách hàng theo Pool (Quality/Admin)' : 'Leads by Pool (Quality/Admin)')
-                    : t('dashboard.chart.leadsByCounselor', language)}
+                  {(DEPARTMENT_TITLE[reportDept]?.[language === 'vi' ? 'vi' : 'en'])
+                    || t('dashboard.chart.leadsByCounselor', language)}
                 </span>
-                <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
-                  {/* Department toggle — same reporting format/philosophy, phase gate differs */}
-                  <div style={{ display:'inline-flex', border:'1px solid var(--border)', borderRadius:'6px', overflow:'hidden' }}>
-                    {[
-                      ['Counselling', language === 'vi' ? 'Tư vấn'   : 'Counselling'],
-                      ['Presales',    language === 'vi' ? 'Pre-Sales' : 'Pre-Sales'],
-                      ['Pool',        language === 'vi' ? 'Pool'      : 'Pool'],
-                    ].map(([dep, label]) => (
+                <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', flexWrap:'wrap' }}>
+                  {/* Department toggle — one tab per phase; same reporting format, phase gate differs */}
+                  <div style={{ display:'inline-flex', flexWrap:'wrap', border:'1px solid var(--border)', borderRadius:'6px', overflow:'hidden' }}>
+                    {REPORT_DEPARTMENTS.map(([dep, lbl]) => {
+                      const label = language === 'vi' ? lbl.vi : lbl.en;
+                      return (
                       <button
                         key={dep}
                         onClick={() => { setReportDept(dep); setSelectedCounselor(null); }}
@@ -913,7 +968,8 @@ export default function Dashboard() {
                       >
                         {label}
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                   <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
                     {t('dashboard.clickCounselorToDrill', language)}

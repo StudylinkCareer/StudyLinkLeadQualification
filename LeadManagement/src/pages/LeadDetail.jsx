@@ -787,15 +787,36 @@ const EXTRA_POSITIONS = ASSIGN_ROWS.filter(r => !r.field).map(r => r.position);
 // Which staff positions are valid in each phase (mirrors the phase_positions
 // seed). Used to filter the staff dropdowns so you can only pick a recipient
 // whose position belongs to the phase being assigned.
+// Which positions can OWN an order in each phase. After the profile migration
+// staff.position holds profile names, so these list the profiles first; legacy
+// position values are kept so un-migrated staff still resolve.
 const PHASE_POSITIONS = {
-  'Marketing':          ['Marketing Staff'],
-  'Counselling':        ['Counselor', 'Senior Counselor'],
-  'Presales':           ['PreSales'],
-  'Pool':               ['Quality', 'Tech Support'],
-  'Case Officer - Dir': ['Case Officer, Direct'],
-  'Case Officer - Sub': ['Case Officer, Sub'],
-  'Archived - Dir':     ['Quality', 'Tech Support'],
-  'Archived - Sub':     ['Quality', 'Tech Support'],
+  'Marketing':            ['Staff, Marketing', 'Manager, Marketing', 'Marketing Staff', 'Marketing Manager'],
+  'Counselling':          ['Staff, Counsellor', 'Lead, Counsellor', 'Counselor', 'Senior Counselor'],
+  'Presales':             ['Staff, Pre-sales', 'Lead, Pre-sales', 'PreSales'],
+  'Pool':                 ['Staff, Data Quality', 'Staff, Technical Support', 'Manager, Technical Support', 'Administrator, Office', 'Quality', 'Tech Support'],
+  'Business Development': ['Staff, Business Development', 'Manager, Business Development'],
+  'Case Officer - Dir':   ['Staff, Case Officer - Dir', 'Lead, Case Officer', 'Case Officer, Direct'],
+  'Case Officer - Sub':   ['Staff, Case Officer - Sub', 'Case Officer, Sub'],
+  'Archived - Dir':       ['Staff, Data Quality', 'Staff, Technical Support', 'Quality', 'Tech Support'],
+  'Archived - Sub':       ['Staff, Data Quality', 'Staff, Technical Support', 'Quality', 'Tech Support'],
+};
+
+// Canonical phase model — KEEP IN SYNC with Server/src/utils/orderPhase.js.
+// The slot(s) a phase can be assigned to; a move picks phase → position → staff.
+const PHASE_SLOTS = {
+  'Marketing':            ['Marketing Staff'],
+  'Counselling':          ['Counselor'],
+  'Presales':             ['PreSales'],
+  'Pool':                 ['Quality', 'Tech Support'],
+  'Business Development':  ['Business Development'],
+  'Case Officers':        ['Case Officer, Direct', 'Case Officer, Sub'],
+};
+const RECIPIENT_REQUIRED = new Set(['Counselling', 'Presales', 'Case Officers']);
+const POSITION_LABEL = {
+  'Marketing Staff': 'Marketing Staff', 'Counselor': 'Counsellor', 'PreSales': 'Pre-Sales',
+  'Quality': 'Quality', 'Tech Support': 'Tech Support', 'Business Development': 'Business Development',
+  'Case Officer, Direct': 'Case Officer (Direct)', 'Case Officer, Sub': 'Case Officer (Sub)',
 };
 
 function formatDate(dt) {
@@ -998,8 +1019,9 @@ export default function LeadDetail() {
   //   editablePositions — staff positions the CURRENT phase allows editing
   //   nextPhases        — legal phase moves from here (allowed transitions)
   const [phaseInfo, setPhaseInfo] = useState({ editablePositions: [], nextPhases: [] });
-  const [phaseTarget, setPhaseTarget] = useState('');   // selected next phase
-  const [phaseOwner,  setPhaseOwner]  = useState('');   // owner to set for that phase
+  const [phaseTarget,   setPhaseTarget]   = useState('');   // selected next phase
+  const [phasePosition, setPhasePosition] = useState('');   // chosen slot within that phase
+  const [phaseOwner,    setPhaseOwner]    = useState('');   // owner to set for that phase
   const [movingPhase, setMovingPhase] = useState(false);
   // Owners for the non-legacy positions (Quality, Tech Support, Case Officer…),
   // which live only in order_assignments. Keyed by canonical position string.
@@ -1301,13 +1323,20 @@ export default function LeadDetail() {
       // Order-driven: staff is assigned on the Sales Order (person view) and
       // cascades to the person's ACTIVE leads. The lead view no longer assigns.
       if (isStudentView && canDoOnLead('leads', 'assign', lead)) {
-        await staffAPI.assign(lead.studentId, {
-          counselor:       assign.counselor,
-          seniorCounselor: assign.seniorCounselor,
-          presales:        assign.presales,
-          marketingStaff:  assign.marketingStaff,
-        });
-        setLead(l=>({...l,...assign}));
+        // Only re-save the 4 legacy staff slots when the CURRENT phase actually
+        // edits one of them (Counselling/Pre-Sales/Marketing). In Pool / Case
+        // Officers etc. those slots are greyed (retained history) — re-saving them
+        // would call syncOrderPhase on the old counselor and REVERT the phase move.
+        const LEGACY_POS = ['Counselor', 'Senior Counselor', 'PreSales', 'Marketing Staff'];
+        if (LEGACY_POS.some(p => phaseInfo.editablePositions.includes(p))) {
+          await staffAPI.assign(lead.studentId, {
+            counselor:       assign.counselor,
+            seniorCounselor: assign.seniorCounselor,
+            presales:        assign.presales,
+            marketingStaff:  assign.marketingStaff,
+          });
+          setLead(l=>({...l,...assign}));
+        }
         // Persist the non-legacy positions this phase lets us edit (order_assignments).
         for (const pos of EXTRA_POSITIONS) {
           if (phaseInfo.editablePositions.includes(pos)) {
@@ -1328,10 +1357,21 @@ export default function LeadDetail() {
   // returns the fresh assignment context.
   async function handleMovePhase() {
     if (!phaseTarget) return;
+    // Connected-unit rule: a working phase needs an active lead. If this record
+    // has none (all leads terminal), the move mints a new active lead — warn first.
+    // Pool is exempt (it can hold records with no active lead).
+    if (phaseTarget !== 'Pool') {
+      const TERMINAL = ['Contracted', 'Lost', 'Archived', 'Cancelled'];
+      const hasActive = (studentLeads || []).some(x => !TERMINAL.includes(x.leadStatus || 'New'));
+      if (!hasActive &&
+          !confirm(`This record has no active lead.\n\nA new active lead will be created so it can be worked in ${phaseTarget}.\n\nContinue?`)) return;
+    }
     setMovingPhase(true);
     try {
+      // position: the chosen slot (single-slot phases resolve it server-side).
       const res = await staffAPI.changePhase(lead.studentId, {
         toPhase:   phaseTarget,
+        position:  phasePosition || (PHASE_SLOTS[phaseTarget] || [])[0] || '',
         staffName: phaseOwner,
       });
       if (!res || res.success === false) throw new Error(res?.error || 'Phase change failed');
@@ -1342,6 +1382,8 @@ export default function LeadDetail() {
         editablePositions: data.editablePositions || [],
         nextPhases:        data.nextPhases || [],
       });
+      // Model-B: the move only touched the target phase's position — the legacy
+      // slots (counselor etc.) keep their retained staff and show greyed.
       setAssign(a => ({
         ...a,
         counselor:       (data.assignments && data.assignments['Counselor'])        ?? a.counselor,
@@ -1353,10 +1395,17 @@ export default function LeadDetail() {
         setPosAssign(Object.fromEntries(EXTRA_POSITIONS.map(p => [p, data.assignments[p] || ''])));
       }
       setPhaseTarget('');
+      setPhasePosition('');
       setPhaseOwner('');
       const al = await auditAPI.getForStudent(lead.studentId);
       setAuditLog(al.data || []);
-      alert(`Moved to ${data.orderPhase || phaseTarget}`);
+      // A new active lead may have been minted (record had none) — refresh the list.
+      if (data.createdLeadId) {
+        const sl = await leadAPI.listForStudent(lead.studentId).catch(() => null);
+        if (sl?.data) setStudentLeads(sl.data);
+      }
+      alert(`Moved to ${data.orderPhase || phaseTarget}` +
+            (data.createdLeadId ? `\nCreated new active lead #${data.createdLeadId} (record had no active lead).` : ''));
     } catch (e) { alert(e.message); }
     finally { setMovingPhase(false); }
   }
@@ -2105,7 +2154,8 @@ export default function LeadDetail() {
           </div>
           </>)}
 
-          {/* Notes */}
+          {/* Notes — Lead-level only; hidden on the Sales-record (student) view */}
+          {!isStudentView && (
           <div className="section-card">
             <div className="section-header"><span className="section-title">Notes</span></div>
             <div style={{ marginBottom:'1.25rem' }}>
@@ -2253,6 +2303,7 @@ export default function LeadDetail() {
               })()}
             </div>
           </div>
+          )}
 
           {isStudentView && (
           <div className="section-card">
@@ -2376,16 +2427,30 @@ export default function LeadDetail() {
                     <div className="form-group">
                       <label className="form-label">Move to phase</label>
                       <select className="form-select" value={phaseTarget}
-                        onChange={e => { setPhaseTarget(e.target.value); setPhaseOwner(''); }}>
+                        onChange={e => { setPhaseTarget(e.target.value); setPhasePosition(''); setPhaseOwner(''); }}>
                         <option value="">— select —</option>
                         {phaseInfo.nextPhases.map(p => (
                           <option key={p} value={p}>{p === 'Presales' ? 'Pre-Sales' : p}</option>
                         ))}
                       </select>
                     </div>
+                    {/* Position — only when the phase has more than one slot (Pool, Case Officers) */}
+                    {phaseTarget && (PHASE_SLOTS[phaseTarget] || []).length > 1 && (
+                      <div className="form-group">
+                        <label className="form-label">Position</label>
+                        <select className="form-select" value={phasePosition} onChange={e => setPhasePosition(e.target.value)}>
+                          <option value="">— select position —</option>
+                          {(PHASE_SLOTS[phaseTarget] || []).map(pos => (
+                            <option key={pos} value={pos}>{POSITION_LABEL[pos] || pos}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     {phaseTarget && (
                       <div className="form-group">
-                        <label className="form-label">Owner for new phase <span style={{ fontWeight:400, color:'var(--text-secondary)' }}>(optional)</span></label>
+                        <label className="form-label">Recipient {RECIPIENT_REQUIRED.has(phaseTarget)
+                          ? <span style={{ fontWeight:400, color:'var(--danger)' }}>(required)</span>
+                          : <span style={{ fontWeight:400, color:'var(--text-secondary)' }}>(optional)</span>}</label>
                         <select className="form-select" value={phaseOwner} onChange={e => setPhaseOwner(e.target.value)}>
                           <option value="">Leave unassigned</option>
                           {staffFor(PHASE_POSITIONS[phaseTarget], phaseOwner).map(s => (
@@ -2395,7 +2460,10 @@ export default function LeadDetail() {
                       </div>
                     )}
                     <button className="btn btn--primary btn--sm" style={{ alignSelf:'flex-start' }}
-                      onClick={handleMovePhase} disabled={!phaseTarget || movingPhase}>
+                      onClick={handleMovePhase}
+                      disabled={movingPhase || !phaseTarget
+                                || ((PHASE_SLOTS[phaseTarget] || []).length > 1 && !phasePosition)
+                                || (RECIPIENT_REQUIRED.has(phaseTarget) && !phaseOwner)}>
                       {movingPhase ? 'Moving…' : 'Move Phase'}
                     </button>
                   </>

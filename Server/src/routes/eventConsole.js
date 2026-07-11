@@ -239,12 +239,12 @@ router.post('/events/:id/checkin', requireStaffAuth, async (req, res) => {
 // Reads: any signed-in staff. Writes: Admin/Manager/Director.
 // ─────────────────────────────────────────────────────────────────────
 
-const DESK_ADMIN_ROLES = new Set(['Admin', 'Manager', 'Director']);
+const { isManagerOrAdmin } = require('../utils/authProfiles');
 function requireDeskAdmin(req, res, next) {
   if (!req.session || !req.session.staffId) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
   }
-  if (!DESK_ADMIN_ROLES.has(req.session.staffRole)) {
+  if (!isManagerOrAdmin(req.session.staffRole)) {
     return res.status(403).json({ success: false, error: 'Insufficient role' });
   }
   next();

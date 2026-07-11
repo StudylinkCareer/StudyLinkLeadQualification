@@ -83,6 +83,14 @@ async function getResourceScope(role, resource, operation) {
   return _cache.rolePerms?.get(role)?.get(resource)?.get(operation) ?? 'none';
 }
 
+// True if `name` has any seeded permission rows — i.e. it's a real authorisation
+// profile (or legacy role). Used at login to decide whether staff.position (the
+// profile, after migration) is the permission key, or to fall back to staff.role.
+async function profileExists(name) {
+  await _ensureCache();
+  return !!(name && _cache.rolePerms?.has(name));
+}
+
 // ─── Field-level lookups ─────────────────────────────────────────────────
 
 async function getFieldPermission(role, resource, fieldName) {
@@ -283,6 +291,7 @@ async function getAllPermissions(role) {
 module.exports = {
   clearCache,
   getResourceScope,
+  profileExists,
   getFieldPermission,
   canEditField,
   isLeadAssignedTo,

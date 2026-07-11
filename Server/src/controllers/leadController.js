@@ -16,8 +16,10 @@ const { logChanges } = require('./auditController');
 // update(). NOTE: Contracted is NOT terminal — a contracted lead stays OPEN and
 // editable; staff assignment is separately read-only on the lead (Order-driven).
 const TERMINAL_STATUSES = new Set(['Lost', 'Archived', 'Cancelled']);
-const ADMIN_ROLES        = new Set(['Admin', 'Director', 'Manager']);
-function canEditClosedLeads(role) { return ADMIN_ROLES.has(role); }
+const { isManagerOrAdmin } = require('../utils/authProfiles');
+// Closed leads are reversible by Admin/Director/Manager tiers — under the profile
+// model that's any admin or manager/lead profile (legacy roles still included).
+function canEditClosedLeads(role) { return isManagerOrAdmin(role); }
 
 // GET /api/leads — every lead (with student name) for the lead-level list.
 async function listAll(req, res, next) {
