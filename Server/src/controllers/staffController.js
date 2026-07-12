@@ -1024,13 +1024,17 @@ async function searchLeads(req, res, next) {
         to_char(s.assigned_in,  'YYYY-MM-DD') AS person_assigned_in,
         to_char(s.assigned_out, 'YYYY-MM-DD') AS person_assigned_out,
         -- phase_owner = who currently OWNS the order in its CURRENT phase, for per-owner
-        -- reporting. Prefer the explicit order_assignments slot for that phase (has_slot →
-        -- owner; vacated slot → NULL → "Unassigned"); else fall back to the legacy column /
-        -- counselor for orders whose owner still lives in the primary slot (migrated).
+        -- reporting. For phases that HAVE a maintained legacy column (Counselling→counselor,
+        -- Presales→presales, Marketing→marketing_staff), that column is the source of truth —
+        -- the order_assignments slot is a redundant mirror that can drift (empty, or a stale/
+        -- wrong name), so we read the COLUMN first and only fall back to the slot if the
+        -- column is blank. Pool / BD / Case Officers have NO legacy column, so the reconciled
+        -- order_assignments slot is authoritative there (empty slot = "Unassigned").
         CASE
-          WHEN po.has_slot                 THEN po.owner
-          WHEN s.order_phase = 'Presales'  THEN COALESCE(NULLIF(s.presales,''),        NULLIF(s.counselor,''))
-          WHEN s.order_phase = 'Marketing' THEN COALESCE(NULLIF(s.marketing_staff,''), NULLIF(s.counselor,''))
+          WHEN s.order_phase = 'Counselling' THEN COALESCE(NULLIF(s.counselor,''),        po.owner)
+          WHEN s.order_phase = 'Presales'    THEN COALESCE(NULLIF(s.presales,''),         po.owner, NULLIF(s.counselor,''))
+          WHEN s.order_phase = 'Marketing'   THEN COALESCE(NULLIF(s.marketing_staff,''),  po.owner, NULLIF(s.counselor,''))
+          WHEN po.has_slot                   THEN po.owner
           ELSE NULLIF(s.counselor,'')
         END AS phase_owner,
         -- Positions that have NO legacy column (they live only in order_assignments):
