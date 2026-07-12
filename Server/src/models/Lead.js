@@ -154,11 +154,11 @@ const SEED_FIELDS = [
 // most-recent PRIOR lead, so a repeat lead doesn't start blank. The FIRST lead
 // has no prior, so it keeps whatever the LQ-app intake passed in `data`.
 // Anything explicitly provided in `data` overrides the inherited value.
-async function create(studentId, data = {}) {
+async function create(studentId, data = {}, db = pool) {
   const now = toIndochinaISO();
 
   let seed = {};
-  const prior = await pool.query(
+  const prior = await db.query(
     `SELECT * FROM leads WHERE person_id = $1 ORDER BY created_at DESC, lead_id DESC LIMIT 1`,
     [studentId]
   );
@@ -172,7 +172,7 @@ async function create(studentId, data = {}) {
   // Staff assignment comes from the ORDER (students.*), the canonical owner —
   // NOT the prior lead. Every new lead inherits the order's current staff
   // (editable afterward; explicit `data` still overrides).
-  const ord = await pool.query(
+  const ord = await db.query(
     `SELECT counselor, senior_counselor, presales, marketing_staff FROM students WHERE student_id = $1`,
     [studentId]
   );
@@ -203,7 +203,7 @@ async function create(studentId, data = {}) {
   }
 
   const placeholders = vals.map((_, i) => `$${i + 1}`);
-  const result = await pool.query(
+  const result = await db.query(
     `INSERT INTO leads (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
     vals
   );
