@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import TierSelector from '../Form/TierSelector';
 import { getTranslatedAssessmentFields, STONE_TIERS } from '../../utils/formFields';
 import { calculateRiskScore } from '../../utils/riskCalculator';
@@ -32,6 +32,21 @@ export default function SelfAssessmentTab({ formData, updateField, saving, lastS
   });
 
   const [calculating, setCalculating] = useState(false);
+
+  // Re-hydrate the stored risk result when a DIFFERENT record loads (returning-student
+  // retrieval). The useState initializer above captures formData only at mount, so a
+  // record whose risk data arrives afterward would otherwise show no result banner.
+  // Keyed on studentId so it fires on load/retrieve, not on every in-session keystroke.
+  useEffect(() => {
+    // Show the stored result whenever a tier + score exist. The banner does its own
+    // STONE_TIERS lookup with a fallback, so don't gate on the lookup succeeding here.
+    if (formData?.stoneTier && formData?.riskScore) {
+      setRiskResult({ stoneTier: formData.stoneTier, totalScore: Number(formData.riskScore) });
+    } else {
+      setRiskResult(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.studentId]);
 
   const liveScore = calculateRiskScore(formData);
   const translatedFields = getTranslatedAssessmentFields(language);

@@ -7,6 +7,12 @@
 const otpService = require('../services/otpService');
 const emailService = require('../services/emailService');
 const { checkCounselor, searchDuplicates } = require('../services/dataService');
+const { Pool } = require('pg');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+});
+const ACTIVE_LEAD = `lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`;
 
 // Simple in-memory rate limiter for OTP requests (max 10 per email per 5 min)
 const otpRateLimit = new Map();
@@ -77,12 +83,30 @@ async function checkLogin(req, res, next) {
     // ── Analyze scenario (only Active records) ──
     let scenario = 'no_match';
     let activeRecord = null;
+    let hasActiveLead = false;
+    let activeLead = null;
 
     if (safeMatches.length === 0) {
-      scenario = 'no_match';
+      scenario = 'no_match';                 // case 3: brand-new student
     } else if (safeMatches.length === 1) {
       scenario = 'single_active';
       activeRecord = safeMatches[0];
+      // Returning-student 3-way: does the existing Sales doc have an ACTIVE lead?
+      //   yes → case 1 (retrieve the active lead for edits)
+      //   no  → case 2 (Sales doc exists, no active lead → create a new lead)
+      const r = await pool.query(
+        `SELECT lead_id, lead_status, counselor, study_plans, close_date, confidence
+           FROM leads WHERE person_id = $1 AND ${ACTIVE_LEAD}
+          ORDER BY lead_id DESC LIMIT 1`, [activeRecord.studentId]);
+      if (r.rows.length) {
+        hasActiveLead = true;
+        activeLead = {
+          leadId:     r.rows[0].lead_id,
+          leadStatus: r.rows[0].lead_status,
+          counselor:  r.rows[0].counselor,
+          studyPlans: r.rows[0].study_plans,
+        };
+      }
     } else {
       scenario = 'conflict';
     }
@@ -92,6 +116,8 @@ async function checkLogin(req, res, next) {
       scenario,
       matches: safeMatches,
       activeRecord,
+      hasActiveLead,   // single_active + true → case 1 (retrieve); false → case 2 (add lead)
+      activeLead,
     });
   } catch (err) {
     next(err);

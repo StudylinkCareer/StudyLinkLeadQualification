@@ -26,7 +26,7 @@ export default function OTPVerification() {
 
   const {
     email, phone, fullName, mode,
-    selectedRecordId, recordsToDeactivate,
+    selectedRecordId, recordsToDeactivate, existingStudentId,
     yearOfBirth, placeOfResidence, studyPlan,
     preferredSocial, connectWithYou,
     sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
@@ -116,7 +116,7 @@ export default function OTPVerification() {
       navigate('/dashboard', {
         state: {
           email, phone, fullName, mode,
-          selectedRecordId, recordsToDeactivate,
+          selectedRecordId, recordsToDeactivate, existingStudentId,
           yearOfBirth, placeOfResidence, studyPlan,
           preferredSocial, connectWithYou,
           sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,

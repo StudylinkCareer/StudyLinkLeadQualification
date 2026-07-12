@@ -4,7 +4,7 @@
 //   - calculateOcean API call now passes language for bilingual narrative
 //   - Responsive result layout: 2 columns on desktop, 1 column on mobile
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { studentAPI } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { t } from '../../i18n';
@@ -147,6 +147,27 @@ export default function CareerFitTab({ formData, updateField, saveAll, onStudent
 
   const [calculating, setCalculating] = useState(false);
   const [error, setError]             = useState('');
+
+  // Re-hydrate display state when a DIFFERENT record loads (e.g. returning-student
+  // retrieval). The useState initializers above capture formData only at mount, so a
+  // record whose OCEAN data arrives afterward would otherwise show a blank profile.
+  // Keyed on studentId so it fires on load/retrieve, NOT on every in-session keystroke.
+  useEffect(() => {
+    const r = {};
+    for (let i = 1; i <= 15; i++) r[i] = formData[`oceanQ${i}`] ? Number(formData[`oceanQ${i}`]) : null;
+    setResponses(r);
+    setResult(formData.oceanExtraversion ? {
+      scores: {
+        extraversion:      Number(formData.oceanExtraversion),
+        agreeableness:     Number(formData.oceanAgreeableness),
+        conscientiousness: Number(formData.oceanConscientiousness),
+        neuroticism:       Number(formData.oceanNeuroticism),
+        openness:          Number(formData.oceanOpenness),
+      },
+      narrative: formData.oceanNarrative || '',
+    } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.studentId]);
 
   function handleResponse(questionId, value) {
     setResponses(r => ({ ...r, [questionId]: value }));

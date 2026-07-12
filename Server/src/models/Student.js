@@ -32,6 +32,12 @@ const COLUMNS = [
   { db: 'lead_source',               js: 'leadSource' },
   { db: 'interaction',               js: 'interaction' },
   { db: 'residency',                 js: 'residency' },
+  // Study Information fields. Without these COLUMNS entries rowToJs returned them
+  // under snake_case keys (so the camelCase frontend read undefined) and update()
+  // silently dropped them on save — they neither persisted nor retrieved.
+  { db: 'destination_country',       js: 'destinationCountry' },
+  { db: 'timeline',                  js: 'timeline' },
+  { db: 'process_application',       js: 'processApplication' },
   { db: 'year_of_birth',             js: 'yearOfBirth' },
   { db: 'preferred_social',          js: 'preferredSocial' },
   { db: 'social_consent',            js: 'socialConsent' },
@@ -153,7 +159,7 @@ function validate(data, partial = false) {
 }
 
 // ── Generate unique ID: YYYYMMDD-NN ──────────────────────────
-async function generateUniqueId() {
+async function generateUniqueId(db = pool) {
   const now = new Date();
   const ict = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
   const y   = ict.getFullYear();
@@ -162,7 +168,7 @@ async function generateUniqueId() {
   const prefix = `${y}${m}${d}`;
 
   // Find the highest sequence number used today
-  const result = await pool.query(
+  const result = await db.query(
     `SELECT student_id FROM students WHERE student_id LIKE $1 ORDER BY student_id DESC LIMIT 1`,
     [`${prefix}-%`]
   );
@@ -177,11 +183,11 @@ async function generateUniqueId() {
 }
 
 // ── CREATE ────────────────────────────────────────────────────
-async function create(data) {
+async function create(data, db = pool) {
   const errors = validate(data);
   if (errors.length) throw new Error(errors.join(', '));
 
-  const studentId = await generateUniqueId();
+  const studentId = await generateUniqueId(db);
   const now = toIndochinaISO();
 
   // Build full JS record with defaults
@@ -287,7 +293,7 @@ async function create(data) {
   const values = COLUMNS.map(c => record[c.js] !== undefined ? record[c.js] : null);
   const placeholders = values.map((_, i) => `$${i + 1}`);
 
-  await pool.query(
+  await db.query(
     `INSERT INTO students (${dbCols.join(', ')}) VALUES (${placeholders.join(', ')})`,
     values
   );
@@ -295,7 +301,7 @@ async function create(data) {
   // Phase-aware creation: a new Sales Order is born into the phase of its owner
   // — a named counsellor → Counselling, no owner → Pool holding state — instead
   // of a NULL phase that would sit outside the phase model.
-  record.orderPhase = await syncOrderPhase(pool, studentId);
+  record.orderPhase = await syncOrderPhase(db, studentId);
 
   return record;
 }

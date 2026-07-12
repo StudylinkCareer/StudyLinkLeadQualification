@@ -18,7 +18,7 @@ const pool = new Pool({                                             // ← NEW
 // Appends one lead_events registration row, then populates the lead-level
 // Source-of-Lead / Source / Source detail fields *only if empty* and
 // auto-assigns the counsellor if the lead currently has none.
-async function appendRegistration(studentId, f = {}) {
+async function appendRegistration(studentId, f = {}, db = pool) {
   const sourceOfLead = (f.sourceOfLead || '').trim();
   const source       = (f.source       || '').trim();
   const sourceDetail = (f.sourceDetail || '').trim();
@@ -26,17 +26,27 @@ async function appendRegistration(studentId, f = {}) {
   const eventId      = f.eventId || null;
   const unverified   = !!f.sourceUnverified;
 
-  await pool.query(
+  // lead_events has UNIQUE(student_id, event_id). A returning student re-registering
+  // via the SAME event (event_id not null) would otherwise violate it, so upsert:
+  // refresh the source fields on the existing row. event_id = NULL rows are NULLS
+  // DISTINCT (Postgres default), so non-event re-registrations still insert a new row.
+  await db.query(
     `INSERT INTO lead_events
        (student_id, event_id, source_of_lead, source, source_detail, source_unverified, status, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, now(), now())`,
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, now(), now())
+     ON CONFLICT (student_id, event_id) DO UPDATE SET
+       source_of_lead    = EXCLUDED.source_of_lead,
+       source            = EXCLUDED.source,
+       source_detail     = EXCLUDED.source_detail,
+       source_unverified = EXCLUDED.source_unverified,
+       updated_at        = now()`,
     [studentId, eventId, sourceOfLead || null, source || null, sourceDetail || null, unverified]
   );
 
   // lead_source / source / source_detail are STUDENT-level (Source & Marketing) and
   // stay on students. The counsellor auto-assign is engagement and now lives on the
   // lead (set at Lead.create in register()), so it is no longer written here.
-  await pool.query(
+  await db.query(
     `UPDATE students SET
         lead_source   = CASE WHEN COALESCE(NULLIF(btrim(lead_source),''),'')   = '' THEN $2 ELSE lead_source   END,
         source        = CASE WHEN COALESCE(NULLIF(btrim(source),''),'')        = '' THEN $3 ELSE source        END,
@@ -45,10 +55,10 @@ async function appendRegistration(studentId, f = {}) {
       WHERE student_id = $1`,
     [studentId, sourceOfLead, source, sourceDetail]
   );
-  
+
   // Advance event QR: if this lead now qualifies, mint tokens for any future
   // exhibitions they're registered for that don't have one yet (no-op otherwise).
-  await issueAdvanceTokens(pool, studentId);
+  await issueAdvanceTokens(db, studentId);
 }
 
 async function register(req, res, next) {
@@ -56,12 +66,23 @@ async function register(req, res, next) {
     const { email, phone, fullName, contactMediums, studyPlans, leadSource,
             yearOfBirth, residency, schoolEvent, socialConsent,
             preferredSocial, phoneCountryCode, contactMedium1,
-            campaignType, campaignName, campaignStart, campaignEnd, 
+            campaignType, campaignName, campaignStart, campaignEnd,
             referralSource,
             sourceOfLead, source, sourceDetail, sourceUnverified,
-            counsellor, eventId } = req.body;
+            counsellor, eventId, existingStudentId } = req.body;
 
-    if (email || phone) {
+    // ── Guards / resolution (reads on committed data — run before the tx) ──
+    // Returning-student flow: if the LQ app resolved an existing Sales doc that has
+    // NO active lead (case 2), attach a new lead to it — skip the duplicate guard and
+    // Student.create. Otherwise it's a brand-new student (case 3).
+    let existingStudent = null;
+    if (existingStudentId) {
+      // findById returns { data: <record> }; Student.create returns the record
+      // directly. Unwrap so student.studentId is populated for Lead.create below.
+      const found = await Student.findById(existingStudentId);
+      if (!found || !found.data) return res.status(404).json({ success: false, error: 'Student not found' });
+      existingStudent = found.data;
+    } else if (email || phone) {
       const dupes = await Student.checkDuplicates(email, phone);
       const activeDupes = dupes.filter((d) => (d.status || 'Active') === 'Active');
       if (activeDupes.length > 0) {
@@ -73,47 +94,75 @@ async function register(req, res, next) {
       }
     }
 
-    const student = await Student.create({
-      email,
-      phone,
-      fullName:         fullName         || '',
-      phoneCountryCode: phoneCountryCode || '',
-      yearOfBirth:      yearOfBirth      || '',
-      residency:        residency        || '',
-      schoolEvent:      schoolEvent      || '',
-      socialConsent:    socialConsent    || '',
-      preferredSocial:  preferredSocial  || '',
-      contactMedium1:   contactMedium1   || '',
-      contactMediums:   contactMediums   || [],
-      contactDetails:   req.body.contactDetails || {},
-      studyPlans:       studyPlans       || '',
-      leadSource:       sourceOfLead     || leadSource || '',
-      campaignType:     campaignType     || '',
-      campaignName:     campaignName     || '',
-      campaignStart:    campaignStart    || null,
-      campaignEnd:      campaignEnd      || null,
-      referralSource:   referralSource   || '',
-      source:           source           || '',
-      sourceDetail:     sourceDetail     || '',
-    });
+    // ── Atomic write: student(create) + initial lead + ownership + registration ──
+    // A single transaction so a failure at ANY step (e.g. the lead_events insert)
+    // rolls the whole thing back — no orphan leads / half-registered records.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    req.session.studentId = student.studentId;
+      const student = existingStudent
+        ? existingStudent
+        : await Student.create({
+            email,
+            phone,
+            fullName:         fullName         || '',
+            phoneCountryCode: phoneCountryCode || '',
+            yearOfBirth:      yearOfBirth      || '',
+            residency:        residency        || '',
+            schoolEvent:      schoolEvent      || '',
+            socialConsent:    socialConsent    || '',
+            preferredSocial:  preferredSocial  || '',
+            contactMedium1:   contactMedium1   || '',
+            contactMediums:   contactMediums   || [],
+            contactDetails:   req.body.contactDetails || {},
+            studyPlans:       studyPlans       || '',
+            leadSource:       sourceOfLead     || leadSource || '',
+            campaignType:     campaignType     || '',
+            campaignName:     campaignName     || '',
+            campaignStart:    campaignStart    || null,
+            campaignEnd:      campaignEnd      || null,
+            referralSource:   referralSource   || '',
+            source:           source           || '',
+            sourceDetail:     sourceDetail     || '',
+          }, client);
 
-    // Create the initial engagement (lead) for this registration. Academic/target
-    // fields are filled in later by staff; at intake we set status = New, carry the
-    // study plans, and auto-assign the counsellor if one was provided (else the lead
-    // is left unassigned and surfaces in Distribution).
-    await Lead.create(student.studentId, {
-      leadStatus: 'New',
-      studyPlans: studyPlans || '',
-      counselor:  (counsellor || '').trim() || null,
-    });
+      // Create the initial engagement (lead). Academic/target fields are filled in
+      // later by staff; at intake we set status = New, carry the study plans, and
+      // auto-assign the counsellor if one was provided.
+      await Lead.create(student.studentId, {
+        leadStatus: 'New',
+        studyPlans: studyPlans || '',
+        counselor:  (counsellor || '').trim() || null,
+      }, client);
 
-    // Append the registration event row + populate student-level Source if empty.
-    await appendRegistration(student.studentId, {
-      sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
-    });
-    res.status(201).json({ success: true, data: student });
+      // Ownership rule (connected-unit model, 2026-07): a named counsellor puts the
+      // record in the Counselling phase owned by them; with no counsellor it defaults
+      // to Pool, owned by Quality (Mạch Nguyễn Phi Vân). Applies to console-launched
+      // and customer-facing self-registration alike.
+      const coun = (counsellor || '').trim();
+      if (coun) {
+        await client.query(`UPDATE students SET counselor=$2, order_phase='Counselling', updated_at=now() WHERE student_id=$1`, [student.studentId, coun]);
+        await OrderAssignment.setForOrder(client, student.studentId, 'Counselor', coun);
+      } else {
+        await client.query(`UPDATE students SET order_phase='Pool', updated_at=now() WHERE student_id=$1`, [student.studentId]);
+        await OrderAssignment.setForOrder(client, student.studentId, 'Quality', 'Mạch Nguyễn Phi Vân');
+      }
+
+      // Append the registration event row + populate student-level Source if empty.
+      await appendRegistration(student.studentId, {
+        sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
+      }, client);
+
+      await client.query('COMMIT');
+      req.session.studentId = student.studentId;
+      return res.status(201).json({ success: true, data: student });
+    } catch (txErr) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* connection already broken */ }
+      throw txErr;
+    } finally {
+      client.release();
+    }
   } catch (err) {
     next(err);
   }

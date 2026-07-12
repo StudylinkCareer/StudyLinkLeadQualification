@@ -62,6 +62,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const loadingRef = useRef(false);
+  // Guards the create/register branches so they fire exactly once per mount. The
+  // load effect depends on studentId, and a successful register calls setStudentId,
+  // which re-runs the effect — without this the create path would register twice.
+  const registeredRef = useRef(false);
 
   const [pendingHeadshot, setPendingHeadshot] = useState(null);
   const [pendingQrImage, setPendingQrImage] = useState(null);
@@ -81,6 +85,7 @@ export default function Dashboard() {
   const locationConnectWithYou = location.state?.connectWithYou;
   const locationSelectedRecordId = location.state?.selectedRecordId;
   const locationRecordsToDeactivate = location.state?.recordsToDeactivate;
+  const locationExistingStudentId = location.state?.existingStudentId;
   const locationCampaignType  = location.state?.campaignType;
   const locationCampaignName  = location.state?.campaignName;
   const locationCampaignStart = location.state?.campaignStart;
@@ -139,6 +144,10 @@ export default function Dashboard() {
   const [selectedRecordId] = useState(() => {
     if (locationSelectedRecordId) { sessionStorage.setItem('studylink_selectedRecordId', locationSelectedRecordId); return locationSelectedRecordId; }
     return sessionStorage.getItem('studylink_selectedRecordId') || null;
+  });
+  const [existingStudentId] = useState(() => {
+    if (locationExistingStudentId) { sessionStorage.setItem('studylink_existingStudentId', locationExistingStudentId); return locationExistingStudentId; }
+    return sessionStorage.getItem('studylink_existingStudentId') || null;
   });
   const [loginCampaignType] = useState(() => {
     if (locationCampaignType) { sessionStorage.setItem('studylink_campaignType', locationCampaignType); return locationCampaignType; }
@@ -273,6 +282,38 @@ export default function Dashboard() {
     return data;
   };
 
+  // Shared registration payload from the login-screen fields — used by both the
+  // new-student create (case 3) and the create-lead-on-existing-doc path (case 2).
+  const buildRegisterPayload = () => {
+    const safeEmail = (email && !email.includes('@studylink.temp')) ? email : '';
+    const spaceIdx = (phone || '').indexOf(' ');
+    const phoneCode = spaceIdx > 0 ? phone.slice(0, spaceIdx) : '+84';
+    const phoneNum  = spaceIdx > 0 ? phone.slice(spaceIdx + 1) : (phone || '');
+    return {
+      email:            safeEmail,
+      phone:            phoneNum,
+      phoneCountryCode: phoneCode,
+      fullName:         loginFullName        || '',
+      yearOfBirth:      loginYearOfBirth     || '',
+      residency:        loginPlaceOfResidence|| '',
+      referralSource:   loginReferralSource  || '',
+      socialConsent:    loginConnectWithYou  || '',
+      preferredSocial:  loginPreferredSocial || '',
+      contactMedium1:   loginPreferredSocial || '',
+      studyPlans:       loginStudyPlan       || '',
+      campaignType:     loginCampaignType    || '',
+      campaignName:     loginCampaignName    || '',
+      campaignStart:    loginCampaignStart   || null,
+      campaignEnd:      loginCampaignEnd     || null,
+      sourceOfLead:     loginSourceOfLead    || '',
+      source:           loginSource          || '',
+      sourceDetail:     loginSourceDetail    || '',
+      sourceUnverified: loginSourceUnverified || false,
+      counsellor:       loginCounsellor      || '',
+      eventId:          loginEventId         || null,
+    };
+  };
+
   const loadStudent = async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
@@ -299,6 +340,22 @@ export default function Dashboard() {
         sessionStorage.removeItem('studylink_selectedRecordId');
         return;
       }
+      // Case 2 — existing Sales doc, NO active lead: attach a fresh lead to it.
+      // Must run BEFORE the email lookup below, which would otherwise just load
+      // the existing student and short-circuit without creating the new lead.
+      if (existingStudentId && !registeredRef.current) {
+        registeredRef.current = true;
+        try {
+          const res = await studentAPI.register({ ...buildRegisterPayload(), existingStudentId });
+          setStudentData(cleanTempData(res.data));
+          setStudentId(res.data.studentId);
+          sessionStorage.removeItem('studylink_existingStudentId');
+        } catch (e) {
+          registeredRef.current = false;   // allow a retry on failure
+          throw e;
+        }
+        return;
+      }
       if (studentId) {
         const res = await studentAPI.getById(studentId);
         setStudentData(cleanTempData(res.data));
@@ -315,35 +372,10 @@ export default function Dashboard() {
         }
       }
       if (isCounselor) { setCounselorSearchMode(true); return; }
-      if (mode === 'create' || !studentId) {
+      if ((mode === 'create' || !studentId) && !registeredRef.current) {
+        registeredRef.current = true;
         try {
-          const safeEmail = (email && !email.includes('@studylink.temp')) ? email : '';
-          const spaceIdx = (phone || '').indexOf(' ');
-          const phoneCode = spaceIdx > 0 ? phone.slice(0, spaceIdx) : '+84';
-          const phoneNum  = spaceIdx > 0 ? phone.slice(spaceIdx + 1) : (phone || '');
-          const res = await studentAPI.register({
-            email:            safeEmail,
-            phone:            phoneNum,
-            phoneCountryCode: phoneCode,
-            fullName:         loginFullName        || '',
-            yearOfBirth:      loginYearOfBirth     || '',
-            residency:        loginPlaceOfResidence|| '',
-            referralSource:   loginReferralSource  || '',
-            socialConsent:    loginConnectWithYou  || '',
-            preferredSocial:  loginPreferredSocial || '',
-            contactMedium1:   loginPreferredSocial || '',
-            studyPlans:       loginStudyPlan       || '',
-            campaignType:     loginCampaignType    || '',
-            campaignName:     loginCampaignName    || '',
-            campaignStart:    loginCampaignStart   || null,
-            campaignEnd:      loginCampaignEnd     || null,
-            sourceOfLead:     loginSourceOfLead    || '',
-            source:           loginSource          || '',
-            sourceDetail:     loginSourceDetail    || '',
-            sourceUnverified: loginSourceUnverified || false,
-            counsellor:       loginCounsellor      || '',
-            eventId:          loginEventId         || null,
-          });
+          const res = await studentAPI.register(buildRegisterPayload());
           setStudentData(cleanTempData(res.data));
           setStudentId(res.data.studentId);
         } catch (regErr) {
@@ -351,6 +383,7 @@ export default function Dashboard() {
             setStudentData(cleanTempData(regErr.data.existing));
             setStudentId(regErr.data.existing.studentId);
           } else {
+            registeredRef.current = false;   // allow a retry on failure
             throw regErr;
           }
         }

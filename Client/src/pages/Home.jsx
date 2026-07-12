@@ -53,6 +53,7 @@ function Home() {
   const [lockoutUntil, setLockoutUntil] = useState(null);
   const [pendingNav, setPendingNav] = useState(null);
   const [duplicateModal, setDuplicateModal] = useState(null);
+  const [returningModal, setReturningModal] = useState(null);
 
   const [campaignType]  = useState(() => new URLSearchParams(window.location.search).get('ct')  || '');
   const [campaignName]  = useState(() => new URLSearchParams(window.location.search).get('en')  || '');
@@ -218,11 +219,40 @@ function Home() {
     try {
       const phone = `${phoneCountryCode} ${phoneNumber}`;
       const result = await authAPI.checkLogin(email.trim(), phone.trim(), fullName.trim());
-      const { scenario, matches, activeRecord } = result;
+      const { scenario, matches, activeRecord, hasActiveLead } = result;
       switch (scenario) {
         case 'counselor': await sendOtpAndNavigate('counselor'); break;
+        // Case 3 — no existing Sales doc: create both student + lead.
         case 'no_match': await sendOtpAndNavigate('create'); break;
-        case 'single_active': await sendOtpAndNavigate('change', { selectedRecordId: activeRecord.studentId }); break;
+        case 'single_active':
+          if (hasActiveLead) {
+            // Case 1 — existing Sales doc WITH an active lead: confirm, then retrieve it.
+            setReturningModal({
+              title: L('Welcome back', 'Chào mừng bạn trở lại'),
+              message: L(
+                'You already have an active enquiry with us. We’ll take you there so you can review and update your information.',
+                'Bạn đã có một hồ sơ đang hoạt động với chúng tôi. Chúng tôi sẽ chuyển bạn đến đó để xem và cập nhật thông tin.'),
+              confirmLabel: L('Continue', 'Tiếp tục'),
+              onConfirm: () => {
+                setReturningModal(null); setLoading(true);
+                sendOtpAndNavigate('change', { selectedRecordId: activeRecord.studentId });
+              },
+            });
+          } else {
+            // Case 2 — existing Sales doc, NO active lead: confirm a new enquiry, then create it.
+            setReturningModal({
+              title: L('Welcome back', 'Chào mừng bạn trở lại'),
+              message: L(
+                'You’re already registered with us. A new enquiry will be created for you.',
+                'Bạn đã đăng ký với chúng tôi. Một hồ sơ mới sẽ được tạo cho bạn.'),
+              confirmLabel: L('Create enquiry', 'Tạo hồ sơ mới'),
+              onConfirm: () => {
+                setReturningModal(null); setLoading(true);
+                sendOtpAndNavigate('create_lead', { existingStudentId: activeRecord.studentId });
+              },
+            });
+          }
+          break;
         case 'conflict': setDuplicateModal({ scenario: 'conflict', matches }); break;
         default: await sendOtpAndNavigate('create');
       }
@@ -676,6 +706,23 @@ function Home() {
           onSelectRecord={handleSelectRecord}
           onCancel={() => setDuplicateModal(null)}
         />
+      )}
+
+      {returningModal && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <h2 className="modal-title">{returningModal.title}</h2>
+            <p className="modal-message">{returningModal.message}</p>
+            <div className="modal-actions">
+              <button className="btn btn--ghost" onClick={() => setReturningModal(null)}>
+                {L('Cancel', 'Huỷ')}
+              </button>
+              <button className="btn btn--primary" onClick={returningModal.onConfirm}>
+                {returningModal.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <HeadshotCapture
