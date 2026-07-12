@@ -49,7 +49,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import Watermark from '../components/Watermark';
-import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiPrinter, FiDownload, FiSave, FiTrash2, FiStar, FiUserPlus } from 'react-icons/fi';
+import { FiSearch, FiChevronUp, FiChevronDown, FiFilter, FiX, FiPrinter, FiDownload, FiSave, FiTrash2, FiStar } from 'react-icons/fi';
 import {
   useReactTable,
   getCoreRowModel,
@@ -621,16 +621,6 @@ export default function Leads() {
   const canMassAssign    = scope('leads', 'assign') === 'all';        // mass-assign / bulk-select column
   const canDeleteLeads   = canDo('leads', 'delete');                  // delete button
   const canPrintList     = canDo('leads', 'export');                   // print/export — Director only via DB
-  const canCreateSales   = canDo('leads', 'create');                  // "Create Sales/Lead" launcher
-
-  // Open the LQ (Client) intake app in a new desktop tab. The operator completes
-  // the login-screen mandatory fields; the LQ app then creates the Sales/Lead
-  // combination (Pool / Mạch Nguyễn Phi Vân unless a counsellor is named).
-  const handleCreateSales = () => {
-    const base = (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, '');
-    if (!base) { alert('LQ app URL not configured (VITE_LQ_BASE_URL).'); return; }
-    window.open(`${base}/?src=console`, '_blank', 'noopener');
-  };
 
   // ── Field masking helper ──────────────────────────────────────
   // fieldList(key) returns 'view_masked' when the role can see a field
@@ -1887,13 +1877,6 @@ export default function Leads() {
           <div style={{ marginLeft:'auto', display:'flex', gap:'8px', alignItems:'center' }}>
             {activeFilterCount > 0 && (
               <button className="btn btn--ghost btn--sm" onClick={clearFilters}>Clear filters ({activeFilterCount})</button>
-            )}
-            {canCreateSales && (
-              <button className="btn btn--primary btn--sm" onClick={handleCreateSales}
-                style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}
-                title="Open the intake app to create a new Sales/Lead record">
-                <FiUserPlus size={13}/> Create Sales/Lead
-              </button>
             )}
             {canPrintList && (
               <button className="btn btn--secondary btn--sm" onClick={handlePrint}

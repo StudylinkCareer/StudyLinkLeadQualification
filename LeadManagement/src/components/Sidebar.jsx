@@ -16,7 +16,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -30,6 +30,7 @@ export default function Sidebar() {
 
   const isActive = (path) => location.pathname.startsWith(path);
 
+  const canCreateSales        = canDo('leads', 'create');
   const canManageStaff        = canDo('staff', 'manage');
   const canManageColumns      = canDo('column_config', 'manage');
   const canViewReports        = canDo('reports', 'view');
@@ -41,6 +42,14 @@ export default function Sidebar() {
   async function handleLogout() {
     await logout();
     navigate('/login');
+  }
+
+  // Create Sales/Lead — opens the LQ intake app (VITE_LQ_BASE_URL) in a new tab.
+  // It's an action, not a route, so it has no active state.
+  function handleCreateSales() {
+    const base = (import.meta.env.VITE_LQ_BASE_URL || '').replace(/\/+$/, '');
+    if (!base) { alert('LQ app URL not configured (VITE_LQ_BASE_URL).'); return; }
+    window.open(`${base}/?src=console`, '_blank', 'noopener');
   }
 
   return (
@@ -78,6 +87,16 @@ export default function Sidebar() {
         >
           <FiUsers size={16} /> {t('sidebar.leads', language)}
         </button>
+
+        {canCreateSales && (
+          <button
+            className="nav-item"
+            onClick={handleCreateSales}
+            title={language === 'vi' ? 'Mở ứng dụng nhập liệu để tạo Sales/Lead mới' : 'Open the intake app to create a new Sales/Lead'}
+          >
+            <FiUserPlus size={16} /> {language === 'vi' ? 'Tạo Sales/Lead' : 'Create Sales/Lead'}
+          </button>
+        )}
 
         <button
           className={`nav-item ${isActive('/client-followup') ? 'active' : ''}`}
