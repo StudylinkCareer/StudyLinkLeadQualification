@@ -293,6 +293,118 @@ async function findDuplicates({ by = 'email' } = {}) {
   }
 }
 
+// ── Lead-level (single-Lead) delete ─────────────────────────────────────────
+// Removes a SPECIFIC lead (engagement) WITHOUT touching its Sales record, the
+// other leads on that record, or Sales-level children. Only rows tied to THIS
+// lead_id go: the `leads` row itself, plus audit_log / documents / student_notes
+// / phase_transfer_exceptions rows carrying that lead_id. Rows with a NULL lead_id
+// (Sales-level notes/docs), lead_events, order_assignments and the students row
+// are all left intact — so a Sales record with several leads keeps the rest, and
+// if this was its last active lead the connected-unit model just auto-Pools it.
+const LEAD_CHILD_CANDIDATES = [
+  { table: 'audit_log',                 col: 'lead_id' },
+  { table: 'documents',                 col: 'lead_id' },
+  { table: 'student_notes',             col: 'lead_id' },
+  { table: 'phase_transfer_exceptions', col: 'lead_id' },
+];
+
+// Lead ids are integer/bigint PKs — keep only positive-integer strings.
+function normalizeLeadIds(leadIds) {
+  return [...new Set((leadIds || []).map(s => String(s).trim()).filter(s => /^\d+$/.test(s)))];
+}
+
+async function detectLeadPlan(client) {
+  const hasLeads = await tableExists(client, 'leads');
+  const children = [];
+  if (hasLeads) {
+    for (const c of LEAD_CHILD_CANDIDATES) {
+      if ((await tableExists(client, c.table)) && (await columnExists(client, c.table, c.col))) children.push(c);
+    }
+  }
+  return { hasLeads, children };
+}
+
+// DRY-RUN: per-table lead-scoped row counts that WOULD be deleted for these leads.
+async function previewByLeadIds(leadIds) {
+  const ids = normalizeLeadIds(leadIds);
+  if (!ids.length) return { ids: [], counts: {}, leads: 0 };
+  const client = await pool.connect();
+  try {
+    const plan = await detectLeadPlan(client);
+    if (!plan.hasLeads) return { ids, counts: {}, leads: 0, reason: 'no_leads_table' };
+    const counts = {};
+    for (const c of plan.children) {
+      const r = await client.query(`SELECT count(*)::int AS n FROM ${c.table} WHERE ${c.col} = ANY($1::bigint[])`, [ids]);
+      counts[c.table] = r.rows[0].n;
+    }
+    const lr = await client.query(`SELECT count(*)::int AS n FROM leads WHERE lead_id = ANY($1::bigint[])`, [ids]);
+    return { ids, counts, leads: lr.rows[0].n };
+  } finally {
+    client.release();
+  }
+}
+
+// DELETE the given leads + their lead-scoped children, transactionally. Children
+// first, then the lead rows. Returns the preview when apply!==true (no writes).
+async function deleteByLeadIds(leadIds, { apply = false } = {}) {
+  const preview = await previewByLeadIds(leadIds);
+  if (!apply) return { applied: false, ...preview };
+  if (!preview.ids.length) return { applied: false, reason: 'no_ids', ...preview };
+  if (preview.leads === 0) return { applied: false, reason: 'no_matching_leads', ...preview };
+
+  const ids = preview.ids;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const plan = await detectLeadPlan(client);
+    const deleted = {};
+    for (const c of plan.children) {
+      const r = await client.query(`DELETE FROM ${c.table} WHERE ${c.col} = ANY($1::bigint[])`, [ids]);
+      deleted[c.table] = r.rowCount;
+    }
+    const lr = await client.query(`DELETE FROM leads WHERE lead_id = ANY($1::bigint[])`, [ids]);
+    deleted.leads = lr.rowCount;
+    await client.query('COMMIT');
+    return { applied: true, deleted, ids };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return { applied: false, error: err.message, ids };
+  } finally {
+    client.release();
+  }
+}
+
+// Search LEADS (not Sales records) — joins each lead to its Sales record for the
+// person's name/email/phone, plus the lead's own id, Sales id and status. Same
+// substring/wildcard behaviour as findByPattern. New schema only (leads table).
+async function findLeadsByPattern(pattern, { limit = 500 } = {}) {
+  const raw = String(pattern || '').trim();
+  if (!raw) return { pattern: raw, matches: [] };
+  const q = /[%_]/.test(raw) ? raw : `%${raw}%`;
+  const client = await pool.connect();
+  try {
+    const plan = await detectSchema(client);
+    if (plan.schema !== 'new') return { pattern: raw, matches: [], reason: 'no_leads_schema' };
+    const r = await client.query(
+      `SELECT l.lead_id AS lead_id, l.person_id AS student_id, l.lead_status AS status,
+              s.full_name AS name, s.email, s.phone
+         FROM leads l
+         LEFT JOIN students s ON s.${plan.studentPk} = l.person_id
+        WHERE l.lead_id::text ILIKE $1
+           OR l.person_id::text ILIKE $1
+           OR s.full_name ILIKE $1
+           OR s.email     ILIKE $1
+           OR s.phone     ILIKE $1
+        ORDER BY s.full_name NULLS LAST, l.lead_id
+        LIMIT $2`,
+      [q, limit]
+    );
+    return { pattern: raw, matches: r.rows };
+  } finally {
+    client.release();
+  }
+}
+
 // Convenience: detect schema with its own connection (for the UI status call).
 async function schemaInfo() {
   const client = await pool.connect();
@@ -302,7 +414,8 @@ async function schemaInfo() {
 
 module.exports = {
   detectSchema, schemaInfo, normalizeIds, pool,
-  previewByIds, deleteByIds,        // targeted (by id) — also the engine for pattern/dedupe
+  previewByIds, deleteByIds,        // targeted (by Sales id) — also the engine for pattern/dedupe
+  previewByLeadIds, deleteByLeadIds, findLeadsByPattern,  // lead-level (single Lead) delete + search
   findOrphans, findOrphanKeys, purgeOrphans,  // orphan sweep (+ selectable missing-student keys + scoped purge)
   findByPattern,                    // pattern → ids (test-data bulk purge)
   findDuplicates,                   // dedupe detection (resolve via deleteByIds)

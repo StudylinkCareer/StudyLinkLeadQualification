@@ -30,6 +30,7 @@ const LABELS = {
   students: 'Sales (people)', leads: 'Leads', student_notes: 'Notes', documents: 'Documents',
   lead_events: 'Event registrations', event_attendees: 'Event attendees', event_desk_visits: 'Event desk visits',
   audit_log: 'Audit-log entries', duplicate_reviews: 'Parked duplicates',
+  phase_transfer_exceptions: 'Phase-transfer exceptions',
 };
 const lbl = (k) => LABELS[k] || k;
 
@@ -72,6 +73,14 @@ export default function DataCleanup() {
   // Duplicates
   const [dupBy, setDupBy] = useState('email');
   const [dups, setDups]   = useState(null);
+
+  // 5. Lead-level deletion (single leads — NOT whole Sales records)
+  const [leadPattern, setLeadPattern] = useState('');
+  const [leadMatches, setLeadMatches] = useState(null);
+  const [leadSel, setLeadSel]         = useState([]); // [{ leadId, name, status, studentId }]
+  const [leadPreview, setLeadPreview] = useState(null);
+  const [leadBusy, setLeadBusy]       = useState(false);
+  const [leadResult, setLeadResult]   = useState(null);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -151,6 +160,32 @@ export default function DataCleanup() {
   const doDuplicates = async () => {
     setErr(''); setDups(null);
     try { const r = await cleanupAPI.duplicates(dupBy); setDups(r.data.groups || []); } catch (e) { setErr(e.message); }
+  };
+
+  // ── Lead-level deletion handlers ──
+  const leadIds = leadSel.map(l => l.leadId);
+  const addLead = (rows) => setLeadSel(prev => {
+    const seen = new Set(prev.map(p => p.leadId));
+    return [...prev, ...rows.filter(r => r.leadId != null && !seen.has(r.leadId))];
+  });
+  const removeLead = (leadId) => setLeadSel(prev => prev.filter(p => p.leadId !== leadId));
+  const doLeadSearch = async () => {
+    setErr(''); setLeadMatches(null);
+    try { const r = await cleanupAPI.leadsByPattern(leadPattern); setLeadMatches(r.data.matches || []); } catch (e) { setErr(e.message); }
+  };
+  const doLeadPreview = async () => {
+    setErr(''); setLeadResult(null); setLeadPreview(null);
+    if (!leadIds.length) { setErr('Add at least one lead first.'); return; }
+    try { const r = await cleanupAPI.leadPreview(leadIds); setLeadPreview(r.data); } catch (e) { setErr(e.message); }
+  };
+  const doLeadDelete = async () => {
+    if (!leadPreview) return;
+    if (!window.confirm(`Permanently delete ${leadIds.length} lead(s) and their lead-level notes / documents / history? The Sales record(s) and any OTHER leads are kept. This cannot be undone.`)) return;
+    setLeadBusy(true); setErr('');
+    try {
+      const r = await cleanupAPI.leadApply(leadIds);
+      setLeadResult(r.data); setLeadPreview(null); setLeadSel([]);
+    } catch (e) { setErr(e.message); } finally { setLeadBusy(false); }
   };
 
   return (
@@ -357,6 +392,97 @@ export default function DataCleanup() {
                 </div>
               ))}
             {dups.length > 0 && <p style={{ ...td, color: '#6b7280', border: 0 }}>Add the record(s) to delete to the selection above, then Preview → Confirm.</p>}
+          </div>
+        )}
+      </div>
+
+      {/* 5. Lead-level deletion — remove a single Lead, keep its Sales record */}
+      <div style={card}>
+        <h2 style={{ fontSize: '1.05rem', marginTop: 0 }}>5. Delete individual Leads</h2>
+        <p style={{ color: '#6b7280', marginTop: 0 }}>
+          Removes a <b>single Lead</b> (engagement) and only the notes / documents / history tied to that lead.
+          The <b>Sales record and any other leads on it are kept</b>. Use this to drop one erroneous or duplicate lead
+          without deleting the whole Sales record (for that, use section&nbsp;1).
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input style={input} value={leadPattern} onChange={e => setLeadPattern(e.target.value)}
+                 onKeyDown={e => { if (e.key === 'Enter') doLeadSearch(); }}
+                 placeholder="Search leads by name, Lead ID, Sales ID, email or phone…" />
+          <button onClick={doLeadSearch} style={btn(false)}>Search leads</button>
+        </div>
+
+        {leadMatches && (
+          <div style={{ marginTop: 10 }}>
+            <span><b>{leadMatches.length}</b> lead(s){leadMatches.length >= 500 ? ' (showing first 500 — refine)' : ''}.</span>
+            {leadMatches.length > 0 && (
+              <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid #eee', borderRadius: 8, marginTop: 6 }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                  <thead><tr>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Name</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Lead ID</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Status</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Sales ID</th>
+                    <th style={{ ...td, textAlign: 'left', fontWeight: 700 }}>Email</th>
+                    <th style={{ ...td, width: 60 }}></th>
+                  </tr></thead>
+                  <tbody>
+                    {leadMatches.map(m => (
+                      <tr key={m.lead_id}>
+                        <td style={td}>{m.name || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={{ ...td, fontFamily: 'monospace' }}>{m.lead_id}</td>
+                        <td style={td}>{m.status || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={{ ...td, fontFamily: 'monospace', color: '#6b7280' }}>{m.student_id}</td>
+                        <td style={td}>{m.email || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td style={td}>
+                          <button onClick={() => addLead([{ leadId: m.lead_id, name: m.name, status: m.status, studentId: m.student_id }])} style={btn(false)}>Add</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* selection */}
+        <div style={{ margin: '10px 0' }}>
+          <b>Selected leads ({leadSel.length})</b>
+          {leadSel.length > 0 && <button onClick={() => setLeadSel([])} style={{ ...btn(false), marginLeft: 10, padding: '4px 10px' }}>Clear</button>}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+            {leadSel.map(l => (
+              <span key={l.leadId} style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 16, padding: '3px 10px', fontSize: '.8rem' }}>
+                {l.name ? `${l.name} · ` : ''}lead {l.leadId}{l.status ? ` · ${l.status}` : ''}
+                <span onClick={() => removeLead(l.leadId)} style={{ marginLeft: 6, cursor: 'pointer', color: '#6b7280' }}>✕</span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={doLeadPreview} disabled={!leadIds.length} style={btn(false)}>Preview{leadIds.length ? ` (${leadIds.length})` : ''}</button>
+          {leadPreview && <button onClick={doLeadDelete} disabled={leadBusy} style={btn(true, '#dc2626')}>{leadBusy ? 'Deleting…' : 'Confirm delete leads'}</button>}
+        </div>
+
+        {leadPreview && (
+          <div style={{ marginTop: 12 }}>
+            <p style={{ fontWeight: 600, margin: '0 0 6px' }}>Will delete:</p>
+            <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 440 }}>
+              <tbody>
+                <tr><td style={td}>{lbl('leads')}</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{leadPreview.leads}</td></tr>
+                {Object.entries(leadPreview.counts || {}).map(([k, v]) => (
+                  <tr key={k}><td style={td}>{lbl(k)}</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{v}</td></tr>
+                ))}
+              </tbody>
+            </table>
+            {!leadPreview.leads && <p style={{ color: '#b45309', marginTop: 8 }}>No matching leads — check the Lead IDs.</p>}
+            <p style={{ color: '#6b7280', fontSize: '.8rem', marginTop: 8 }}>Sales records, event registrations and Sales-level notes/documents are <b>not</b> touched.</p>
+          </div>
+        )}
+        {leadResult && (
+          <div style={{ ...card, marginTop: 12, marginBottom: 0, borderColor: '#86efac', background: '#f0fdf4' }}>
+            Deleted <b>{leadResult.deleted?.leads || 0}</b> lead(s)
+            {leadResult.deleted && <span style={{ color: '#6b7280' }}> ({Object.entries(leadResult.deleted).filter(([k, v]) => v && k !== 'leads').map(([k, v]) => `${v} ${lbl(k)}`).join(', ') || 'no lead-level children'})</span>}. Sales records kept.
           </div>
         )}
       </div>

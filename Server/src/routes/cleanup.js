@@ -34,9 +34,12 @@ router.get ('/orphans',      ctrl.orphans);
 router.get ('/orphans/keys', ctrl.orphanKeys);   // selectable missing-student owners
 router.get ('/by-pattern',   ctrl.byPattern);    // ?pattern=
 router.get ('/duplicates',  ctrl.duplicates);    // ?by=email|phone
+router.get ('/leads-by-pattern', ctrl.leadsByPattern); // ?pattern= (lead-level)
+router.post('/lead-preview',     ctrl.leadPreview);    // { leadIds }
 
 // ── Destructive (require confirm:true in body) ──
 router.post('/apply',          ctrl.apply);        // { ids, confirm }
 router.post('/orphans/purge',  ctrl.purgeOrphans); // { confirm }
+router.post('/lead-apply',     ctrl.leadApply);    // { leadIds, confirm } — lead-level
 
 module.exports = router;

@@ -88,4 +88,39 @@ async function duplicates(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { getSchema, preview, apply, orphans, orphanKeys, purgeOrphans, byPattern, duplicates };
+// ── Lead-level (single Lead) deletion ───────────────────────────────────────
+
+// GET /api/cleanup/leads-by-pattern?pattern=  — leads matching a substring/LIKE.
+async function leadsByPattern(req, res, next) {
+  try {
+    const result = await svc.findLeadsByPattern(req.query.pattern || '');
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+}
+
+// POST /api/cleanup/lead-preview  { leadIds: [...] }  — dry-run lead-scoped counts.
+async function leadPreview(req, res, next) {
+  try {
+    const result = await svc.previewByLeadIds(req.body.leadIds || []);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+}
+
+// POST /api/cleanup/lead-apply  { leadIds: [...], confirm: true }  — delete leads.
+async function leadApply(req, res, next) {
+  try {
+    if (req.body.confirm !== true) {
+      return res.status(400).json({ success: false, error: 'confirm:true is required to delete' });
+    }
+    const result = await svc.deleteByLeadIds(req.body.leadIds || [], { apply: true });
+    if (!result.applied && result.error) {
+      return res.status(500).json({ success: false, error: result.error, data: result });
+    }
+    res.json({ success: result.applied, data: result });
+  } catch (err) { next(err); }
+}
+
+module.exports = {
+  getSchema, preview, apply, orphans, orphanKeys, purgeOrphans, byPattern, duplicates,
+  leadsByPattern, leadPreview, leadApply,
+};

@@ -133,6 +133,9 @@ export const cleanupAPI = {
   purgeOrphans: (ids)     => request('POST', '/api/cleanup/orphans/purge', { confirm: true, ids: ids || null }),
   byPattern:    (pattern) => request('GET',  `/api/cleanup/by-pattern?pattern=${encodeURIComponent(pattern || '')}`),
   duplicates:   (by)      => request('GET',  `/api/cleanup/duplicates?by=${encodeURIComponent(by || 'email')}`),
+  leadsByPattern: (pattern) => request('GET',  `/api/cleanup/leads-by-pattern?pattern=${encodeURIComponent(pattern || '')}`),
+  leadPreview:    (leadIds) => request('POST', '/api/cleanup/lead-preview', { leadIds }),
+  leadApply:      (leadIds) => request('POST', '/api/cleanup/lead-apply', { leadIds, confirm: true }),
 };
 
 export const studentAPI = {
