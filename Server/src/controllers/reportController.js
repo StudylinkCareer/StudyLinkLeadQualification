@@ -729,10 +729,16 @@ function buildWeeklyCtx(weekStart, asOfMs) {
 // flow in/out), not the RBAC role (role='Counselor' can be held by PreSales/PM/
 // Marketing-position staff, which would inflate the Counsellors group).
 async function weeklyStaffNames() {
-  const byPos = async (p) => (await pool.query(
-    `SELECT full_name FROM staff WHERE position = $1 AND is_active = true`, [p])).rows.map(x => x.full_name);
-  const counsellorNames = await byPos('Counselor');
-  const presalesNames   = await byPos('PreSales');
+  // Match by ILIKE so this survives the auth-profile rename: 'Counselor'/'PreSales'
+  // became 'Staff, Counsellor' / 'Lead, Counsellor' / 'Staff, Pre-sales' etc.
+  // ILIKE '%counsel%' catches both spellings + Staff/Lead/Senior variants (and the
+  // legacy exact names); '%pre%sale%' catches 'Pre-sales' and legacy 'PreSales'.
+  const byLike = async (pattern) => (await pool.query(
+    `SELECT full_name FROM staff
+       WHERE position ILIKE $1 AND is_active = true
+         AND COALESCE(staff_type,'permanent') <> 'event'`, [pattern])).rows.map(x => x.full_name);
+  const counsellorNames = await byLike('%counsel%');
+  const presalesNames   = await byLike('%pre%sale%');
   return { counsellorNames, presalesNames, allNames: Array.from(new Set([...counsellorNames, ...presalesNames])) };
 }
 
