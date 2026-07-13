@@ -428,11 +428,14 @@ export default function Dashboard() {
 
   const scopedLeads = useMemo(() => {
     if (hasAllScope) return leads;
+    // Normalize (trim + lowercase) to match the server's isLeadAssignedTo — a strict
+    // === on fullName silently zeroed out counsellors' own pipeline when the lead's
+    // stored name differed by whitespace/casing (staff are referenced by name string).
+    const me = (staff?.fullName || '').trim().toLowerCase();
+    if (!me) return [];
+    const eq = v => (v || '').trim().toLowerCase() === me;
     return leads.filter(l =>
-      l.counselor       === staff?.fullName ||
-      l.seniorCounselor === staff?.fullName ||
-      l.presales        === staff?.fullName ||
-      l.marketingStaff  === staff?.fullName
+      eq(l.counselor) || eq(l.seniorCounselor) || eq(l.presales) || eq(l.marketingStaff)
     );
   }, [leads, hasAllScope, staff]);
 

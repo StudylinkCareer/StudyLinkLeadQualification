@@ -618,7 +618,9 @@ export default function Leads() {
   const { canDo, canDoOnLead, scope, fieldList } = usePermissions();
   // Derived booleans, table-driven. Replaces the old isManager/isAdmin checks.
   const canManageColumns = canDo('column_config', 'manage');         // admin-only column config persistence
-  const canMassAssign    = scope('leads', 'assign') === 'all';        // mass-assign / bulk-select column
+  // Leads-list = RU (leads.list_manage) exposes the select checkbox + mass-move bar.
+  // Leads-list = R/None → display-only list (no selection).
+  const canMassAssign    = canDo('leads', 'list_manage');            // select checkbox + mass-move bar
   const canDeleteLeads   = canDo('leads', 'delete');                  // delete button
   const canPrintList     = canDo('leads', 'export');                   // print/export — Director only via DB
 

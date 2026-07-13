@@ -118,11 +118,20 @@ function isLeadAssignedTo(staff, lead) {
   );
 }
 
+// Read-type lead operations. 'team' scope grants these like 'all' (read-all);
+// write operations under 'team' fall through to the ownership check (edit
+// team-only — currently the owner's own leads until a team-membership rule is
+// defined). See canAccessLead.
+const READ_OPS = new Set(['view_detail', 'view_list', 'read', 'view']);
+
 async function canAccessLead(staff, lead, operation) {
   const scope = await getResourceScope(staff.role, 'leads', operation);
   if (scope === 'all')  return true;
   if (scope === 'none') return false;
-  if (scope !== 'own')  return false;
+  // 'team' = read-all, edit team-only: reads pass like 'all'; writes drop to
+  // the ownership check below (same path as 'own').
+  if (scope === 'team' && READ_OPS.has(operation)) return true;
+  if (scope !== 'own' && scope !== 'team') return false;
 
   // A LEAD object (has a leadId): ownership is that lead's own assignment.
   if (lead && (lead.leadId != null || lead.lead_id != null)) {
@@ -230,11 +239,16 @@ async function applyFieldPermissions(staff, lead, context) {
   if (!lead || typeof lead !== 'object') return lead;
   await _ensureCache();
   const role = staff.role;
+  // Staff responsible for the account (assigned to this lead) always see real
+  // contact data — masking applies to everyone else. Un-masking here (rather
+  // than in each frontend) makes the rule hold on both the list and the detail.
+  const owns = isLeadAssignedTo(staff, lead);
   const result = {};
 
   for (const [fieldName, value] of Object.entries(lead)) {
     const perm = await getFieldPermission(role, 'leads', fieldName);
-    const permValue = context === 'list' ? perm.list : perm.detail;
+    let permValue = context === 'list' ? perm.list : perm.detail;
+    if (permValue === 'view_masked' && owns) permValue = 'view';   // owner sees real data
 
     if (permValue === 'none') continue;
     if (permValue === 'view_masked') {

@@ -131,20 +131,22 @@ export function PermissionsProvider({ children }) {
     return perms?.resources?.[resource]?.[operation] || 'none';
   }, [perms]);
 
-  // canDo: true if scope is anything other than 'none'.
-  // For ownership-aware checks (scope='own') use canDoOnLead.
+  // canDo: true if scope grants the operation at all ('all', 'own', or 'team').
+  // For ownership-aware checks ('own'/'team' writes) use canDoOnLead.
   const canDo = useCallback((resource, operation) => {
     const s = scope(resource, operation);
-    return s === 'all' || s === 'own';
+    return s === 'all' || s === 'own' || s === 'team';
   }, [scope]);
 
-  // canDoOnLead: ownership-aware. scope='all' always passes;
-  // scope='own' passes only if the lead is assigned to the current user.
+  // canDoOnLead: ownership-aware. 'all' always passes; 'team' is read-all
+  // (view passes) + edit team-only (writes use the ownership check, same as
+  // 'own'); 'own' passes only if the lead is assigned to the current user.
   const canDoOnLead = useCallback((resource, operation, lead) => {
     const s = scope(resource, operation);
     if (s === 'all')  return true;
     if (s === 'none') return false;
-    if (s === 'own') {
+    if (s === 'team' && (operation === 'view_detail' || operation === 'view_list')) return true;
+    if (s === 'own' || s === 'team') {
       if (!lead || !staff?.fullName) return false;
       // Normalize: trim whitespace and compare case-insensitively. This avoids
       // false negatives when DB values have trailing spaces or different casing

@@ -30,7 +30,7 @@ export default function Sidebar() {
 
   const isActive = (path) => location.pathname.startsWith(path);
 
-  const canCreateSales        = canDo('leads', 'create');
+  const canCreateSales        = canDo('leads', 'create_sales');
   const canManageStaff        = canDo('staff', 'manage');
   const canManageColumns      = canDo('column_config', 'manage');
   const canViewReports        = canDo('reports', 'view');
