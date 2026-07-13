@@ -24,6 +24,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { studentAPI, leadAPI, staffAPI, notesAPI, auditAPI, leadEventsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { isManagerOrAdmin } from '../utils/roleProfiles';
 import { useLookup } from '../contexts/LookupContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
@@ -1522,7 +1523,7 @@ export default function LeadDetail() {
   // Contracted now stays OPEN (editable) per business change. Only applies on the
   // Lead view (the Student record has no lead_status).
   const TERMINAL_STATUSES = ['Lost', 'Archived', 'Cancelled'];
-  const isAdminRole = ['Admin', 'Director', 'Manager'].includes(staff?.role);
+  const isAdminRole = isManagerOrAdmin(staff?.position);
   const leadLocked  = !isStudentView && TERMINAL_STATUSES.includes(lead.leadStatus) && !isAdminRole;
 
   // Phase chip (Sales Order department) — colour + label for the header.

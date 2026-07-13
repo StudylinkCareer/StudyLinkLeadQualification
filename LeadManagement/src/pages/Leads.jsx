@@ -44,6 +44,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { studentAPI, leadAPI, staffAPI, columnConfigAPI, variantsAPI, notesAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { isAdminProfile, isManagerOrAdmin } from '../utils/roleProfiles';
 import { useLookup } from '../contexts/LookupContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { usePermissions } from '../contexts/PermissionsContext';
@@ -61,13 +62,9 @@ import {
 // Column catalog (label, width, order) comes from the DB. See the
 // staffAPI.listColumns() call in the useEffect below.
 
-// Maps staff role → config key suffix
-const ROLE_KEY_MAP = {
-  Admin:     'admin',
-  Manager:   'manager',
-  Director:  'director',
-  Counselor: 'counselor',
-};
+// Column-layout bucket is derived from the auth PROFILE (staff.position) via
+// roleProfiles — see the roleKey memo below. (Legacy ROLE_KEY_MAP removed: it
+// keyed on staff.role, which post-migration holds a tier, not a role name.)
 
 // Sentinel for the "(none)" filter option — matches leads with empty/null value
 // for that field. Stored as this string in the selected[] array; rendered as "(none)".
@@ -778,10 +775,12 @@ export default function Leads() {
     return labeller(raw);
   };
 
-  // Derive config key from role
+  // Derive config key from the auth PROFILE (staff.position).
   const roleKey = useMemo(() => {
-    const r = staff?.role || 'Counselor';
-    return ROLE_KEY_MAP[r] || 'counselor';
+    const p = staff?.position;
+    if (isAdminProfile(p)) return 'admin';
+    if (isManagerOrAdmin(p)) return 'manager';
+    return 'counselor';
   }, [staff]);
 
   // ── Load leads + staff + columns (from API) ────────────────

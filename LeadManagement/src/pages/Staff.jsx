@@ -16,18 +16,33 @@
 import { useState, useEffect } from 'react';
 import { staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { canManageTargets } from '../utils/roleProfiles';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import { FiPlus, FiEdit2, FiUserX, FiKey, FiX, FiTarget } from 'react-icons/fi';
 
+// Canonical authorisation PROFILE names (must match Server auth_profiles.json).
+// Assigning any value NOT in this list leaves the staff member without a seeded
+// profile, so they fall back to their coarse tier and lose all RBAC permissions.
 const POSITIONS = [
-  'CEO', 'Tech Support', 'Product Manager', 'Marketing Manager',
-  'Sales Manager', 'Quality', 'Senior Counselor', 'Counselor',
-  'PreSales', 'Marketing Staff',
-  'Case Officer, Direct', 'Case Officer, Sub', 'Customer Service',
+  'CEO', 'COO',
+  'Manager, Marketing', 'Manager, Products', 'Manager, Business Development',
+  'Manager, HR', 'Manager, Finance', 'Manager, Technical Support',
+  'Administrator, Office',
+  'Lead, Counsellor', 'Lead, Case Officer', 'Lead, Pre-sales',
+  'Staff, Counsellor', 'Staff, Pre-sales',
+  'Staff, Case Officer - Dir', 'Staff, Case Officer - Sub',
+  'Staff, Marketing', 'Staff, Business Development',
+  'Staff, Data Quality', 'Staff, Technical Support',
+  'Staff, HR', 'Staff, Finance',
 ];
+
+// The Role field is the coarse authorisation TIER (NOT the profile — that's the
+// Position field, which drives permissions). Fixed list so the tier column can
+// never be set to a profile name (which would break session tier + reporting).
+const TIERS = ['Executive', 'Manager', 'Staff', 'Tech'];
 // ROLES list removed — now fetched from GET /api/staff/roles which reads
 // DISTINCT role from the role_permissions table. See StaffModal below.
 
@@ -112,15 +127,6 @@ function StaffModal({ staff, onClose, onSaved }) {
   });
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
-  const [roles, setRoles]   = useState([]);
-
-  // Fetch valid roles from the RBAC table (DISTINCT role FROM role_permissions).
-  // Replaces the previous hardcoded ROLES = [...] array.
-  useEffect(() => {
-    staffAPI.listRoles()
-      .then(d => setRoles(d.data || []))
-      .catch(() => setRoles([]));
-  }, []);
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
@@ -199,7 +205,7 @@ function StaffModal({ staff, onClose, onSaved }) {
             <label className="form-label">{t('staff.form.role', language)}</label>
             <select className="form-select" value={form.role} onChange={e=>set('role',e.target.value)}>
               <option value="">{t('staff.form.rolePlaceholder', language)}</option>
-              {roles.map(r=><option key={r} value={r}>{r}</option>)}
+              {TIERS.map(r=><option key={r} value={r}>{r}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -421,7 +427,10 @@ export default function Staff() {
   const { push: pushTrail }             = useNavTrail();
 
   const canManage   = canDo('staff', 'manage');
-  const canSetTgt   = canDo('staff', 'set_target');
+  // Target-setting is owned by the Staff Targets group (Exec / Quality / Tech).
+  // (The old canDo('staff','set_target') grant was still tied to legacy role
+  // names, so the 🎯 option had vanished for everyone post auth-profile migration.)
+  const canSetTgt   = canManageTargets(staff?.position);
   const canViewPage = canManage || canSetTgt;
 
   useEffect(() => { loadStaff(); }, []);

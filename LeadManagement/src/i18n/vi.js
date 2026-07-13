@@ -91,7 +91,7 @@ const vi = {
   'dashboard.counselor.total':           'Tổng',
   'dashboard.counselor.closeDrilldown':  'Đóng chi tiết',
   'dashboard.pipeline.title':            'Thống kê Pipeline',
-  'dashboard.pipeline.target':           'Mục tiêu (Hợp đồng trong tháng)',
+  'dashboard.pipeline.target':           'Mục tiêu tháng',
   'dashboard.pipeline.target.aggregated':'Tổng hợp từ {n} tư vấn viên',
   'dashboard.pipeline.target.aggregatedPlural':'Tổng hợp từ {n} tư vấn viên',
   'dashboard.pipeline.target.none':      'Chưa đặt mục tiêu cho tư vấn viên nào',

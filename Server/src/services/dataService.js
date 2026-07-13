@@ -1,20 +1,24 @@
 require('dotenv').config();
 const pool = require('./db');
+const { isManagerOrAdmin } = require('../utils/authProfiles');
 
 // ── Counselor check ──────────────────────────────────────────────────────────
-// Any active staff with role Counselor/Manager/Director/Admin counts as a
-// "counselor" for Student app tab-access purposes.
+// Any active staff who is a counsellor (by position) OR a manager/admin profile
+// counts as a "counselor" for Student app tab-access purposes.
+// Post auth-profile migration `staff.position` holds the profile name (e.g.
+// 'Staff, Counsellor' / 'Lead, Counsellor') and `staff.role` holds a coarse
+// tier — so match on position, not the legacy role strings.
 async function checkCounselor(email) {
   if (!email) return false;
-  const allowedRoles = ['Counselor', 'Manager', 'Director', 'Admin'];
   const result = await pool.query(
-    `SELECT role FROM staff
+    `SELECT position FROM staff
      WHERE LOWER(email) = LOWER($1)
-       AND is_active = true
-       AND role = ANY($2::text[])`,
-    [email.trim(), allowedRoles]
+       AND is_active = true`,
+    [email.trim()]
   );
-  return result.rows.length > 0;
+  return result.rows.some(
+    (r) => /counsel/i.test(r.position || '') || isManagerOrAdmin(r.position)
+  );
 }
 
 // ── Search duplicates ────────────────────────────────────────────────────────

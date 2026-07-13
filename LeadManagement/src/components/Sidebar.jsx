@@ -10,13 +10,14 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
+import { isManagerOrAdmin, canManageTargets } from '../utils/roleProfiles';
 import { useNavCollapse } from '../contexts/NavCollapseContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus, FiTarget,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -36,8 +37,13 @@ export default function Sidebar() {
   const canViewReports        = canDo('reports', 'view');
   const canManageDistribution = canDo('distribution', 'manage');
   const canDeleteLeads        = canDo('leads', 'delete');
-  const canMaintenance        = staff?.role === 'Admin' || staff?.position === 'Tech Support';
-  const showAdminSection      = canManageStaff || canManageDistribution || canDeleteLeads || canMaintenance;
+  // Admin-page navs match their backend guards so nothing is "visible but 403":
+  //   • Maintenance    → data-driven maintenance.use (staff.js requirePermission)
+  //   • Marketing/Refdata → isManagerOrAdmin (marketingEvents/referenceData routes)
+  //   • Deep Cleanse   → isAdminProfile (cleanup.js requireAdmin) — gated on its page
+  const canMaintenance        = canDo('maintenance', 'use');
+  const canStaffTargets       = canManageTargets(staff?.position);   // Exec / Quality / Tech Support
+  const showAdminSection      = canManageStaff || canManageDistribution || canDeleteLeads || canMaintenance || canStaffTargets;
 
   async function handleLogout() {
     await logout();
@@ -128,7 +134,7 @@ export default function Sidebar() {
           <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần (tĩnh)' : 'Weekly Report (static)'}
         </button>
 
-        {['Admin', 'Manager', 'Director'].includes(staff?.role) && (
+        {isManagerOrAdmin(staff?.position) && (
         <button
           className={`nav-item ${isActive('/marketing-events') ? 'active' : ''}`}
           onClick={() => navigate('/marketing-events')}
@@ -137,7 +143,7 @@ export default function Sidebar() {
         </button>
       )}
 
-        {['Admin', 'Manager', 'Director'].includes(staff?.role) && (
+        {isManagerOrAdmin(staff?.position) && (
         <button
           className={`nav-item ${isActive('/reference-data') ? 'active' : ''}`}
           onClick={() => navigate('/reference-data')}
@@ -187,6 +193,14 @@ export default function Sidebar() {
                 onClick={() => navigate('/admin/maintenance')}
               >
                 <FiTool size={16} /> {language === 'vi' ? 'Bảo trì' : 'Maintenance'}
+              </button>
+            )}
+            {canStaffTargets && (
+              <button
+                className={`nav-item ${isActive('/admin/staff-targets') ? 'active' : ''}`}
+                onClick={() => navigate('/admin/staff-targets')}
+              >
+                <FiTarget size={16} /> {language === 'vi' ? 'Chỉ tiêu nhân viên' : 'Staff Targets'}
               </button>
             )}
           </>

@@ -1,6 +1,7 @@
 // src/contexts/AuthContext.jsx
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authAPI } from '../services/api';
+import { isAdminProfile, isManagerOrAdmin } from '../utils/roleProfiles';
 
 const AuthContext = createContext(null);
 
@@ -50,9 +51,12 @@ export function AuthProvider({ children }) {
     setStaff(null);
   }
 
-  const isAdmin    = staff?.role === 'Admin';
-  const isManager  = ['Admin', 'Manager'].includes(staff?.role);
-  const isDirector = ['Admin', 'Manager', 'Director'].includes(staff?.role);
+  // Derive from the auth PROFILE (staff.position), not staff.role — see
+  // utils/roleProfiles.js. isManager/isDirector both mean "manager-or-above"
+  // now that Director is folded into the admin profiles.
+  const isAdmin    = isAdminProfile(staff?.position);
+  const isManager  = isManagerOrAdmin(staff?.position);
+  const isDirector = isManagerOrAdmin(staff?.position);
 
   return (
     <AuthContext.Provider value={{ staff, loading, login, logout, isAdmin, isManager, isDirector }}>

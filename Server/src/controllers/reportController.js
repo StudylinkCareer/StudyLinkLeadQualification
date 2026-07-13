@@ -36,6 +36,7 @@
 
 const { Pool } = require('pg');
 const permissionService    = require('../services/permissionService');
+const { canManageTargets } = require('../utils/authProfiles');
 const { containsPhoneMention } = require('../services/phoneAliases');
 const { objectToCamelCase }    = require('../utils/caseConvert');
 
@@ -958,6 +959,13 @@ async function isManagerScope(req) {
   return scope === 'all';
 }
 
+// Who may view/manage the Staff Targets tracker: manager-scope (so the Weekly
+// Report grid keeps working for managers) PLUS the dedicated Staff Targets
+// group — Executive level, Quality and Tech Support (see authProfiles).
+async function canAccessTargets(req) {
+  return (await isManagerScope(req)) || canManageTargets(req.session.staffRole);
+}
+
 // Months from Jan 2026 to the current month, in Vietnam local time (UTC+7).
 // Each month carries its half-open [startMs, endMs) window for bucketing.
 function buildTargetMonths() {
@@ -979,17 +987,21 @@ function buildTargetMonths() {
 
 async function monthlyTargets(req, res, next) {
   try {
-    if (!(await isManagerScope(req))) {
+    if (!(await canAccessTargets(req))) {
       return res.status(403).json({ success: false, error: 'Not authorised to view monthly targets' });
     }
 
     const { months, yearStartISO } = buildTargetMonths();
 
     // Tracked counsellors, in display order, with their staff-level fallback target.
+    // Only ACTIVE tracked staff appear (inactive counsellors are excluded from
+    // both the Staff Targets and Weekly Report grids). The tracked row is kept,
+    // so re-activating the staff member restores them automatically.
     const tracked = (await pool.query(
       `SELECT t.staff_id, t.sort_order, s.full_name, COALESCE(s.target, 0) AS fallback_target
          FROM target_tracked_staff t
          JOIN staff s ON s.id = t.staff_id
+        WHERE s.is_active = true
         ORDER BY t.sort_order, s.full_name`
     )).rows;
     const names = tracked.map(r => r.full_name);
@@ -1060,7 +1072,7 @@ async function monthlyTargets(req, res, next) {
 
 async function saveMonthlyTarget(req, res, next) {
   try {
-    if (!(await isManagerScope(req))) {
+    if (!(await canAccessTargets(req))) {
       return res.status(403).json({ success: false, error: 'Not authorised to edit targets' });
     }
     const { staffId, month, target } = req.body || {};
@@ -1102,7 +1114,7 @@ async function saveMonthlyTarget(req, res, next) {
 
 async function addTrackedStaff(req, res, next) {
   try {
-    if (!(await isManagerScope(req))) {
+    if (!(await canAccessTargets(req))) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
     const { staffId } = req.body || {};
@@ -1126,7 +1138,7 @@ async function addTrackedStaff(req, res, next) {
 
 async function removeTrackedStaff(req, res, next) {
   try {
-    if (!(await isManagerScope(req))) {
+    if (!(await canAccessTargets(req))) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
     const staffId = req.params.staffId;

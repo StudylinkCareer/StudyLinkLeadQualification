@@ -5,13 +5,16 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { staffAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 
 const STATUSES = ['Contracted', 'Lost', 'Archived', 'Not contactable'];
 
 export default function AdminMaintenance() {
   const { staff } = useAuth();
+  const { canDo } = usePermissions();
   const navigate = useNavigate();
-  const allowed = staff?.role === 'Admin' || staff?.position === 'Tech Support';
+  // Matches the backend maintenance-route guard (requirePermission maintenance.use).
+  const allowed = canDo('maintenance', 'use');
 
   const [statusFilter, setStatusFilter] = useState('');   // '' = all
   const [search, setSearch] = useState('');               // name / Sales ID filter

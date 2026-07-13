@@ -22,7 +22,20 @@ const MANAGER_PROFILES = new Set([
   'Manager', 'Senior Counselor',
 ]);
 
+// Who may manage staff targets (the "Staff Targets" admin page): Executive
+// level (CEO/COO), Quality (Data Quality) and Tech Support. Kept separate from
+// the admin/manager tiers because it's a deliberately narrow, business-defined
+// access list. Mirror in LeadManagement/src/utils/roleProfiles.js.
+const TARGETS_PROFILES = new Set([
+  'CEO', 'COO',                                              // Executive
+  'Staff, Data Quality',                                     // Quality
+  'Staff, Technical Support', 'Manager, Technical Support',  // Tech Support
+  // legacy
+  'Quality', 'Tech Support',
+]);
+
 function isAdminProfile(x)   { return ADMIN_PROFILES.has(x); }
 function isManagerOrAdmin(x) { return ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x); }
+function canManageTargets(x) { return TARGETS_PROFILES.has(x); }
 
-module.exports = { ADMIN_PROFILES, MANAGER_PROFILES, isAdminProfile, isManagerOrAdmin };
+module.exports = { ADMIN_PROFILES, MANAGER_PROFILES, TARGETS_PROFILES, isAdminProfile, isManagerOrAdmin, canManageTargets };

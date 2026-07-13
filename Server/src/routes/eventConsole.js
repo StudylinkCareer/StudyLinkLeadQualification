@@ -239,7 +239,7 @@ router.post('/events/:id/checkin', requireStaffAuth, async (req, res) => {
 // Reads: any signed-in staff. Writes: Admin/Manager/Director.
 // ─────────────────────────────────────────────────────────────────────
 
-const { isManagerOrAdmin } = require('../utils/authProfiles');
+const { isManagerOrAdmin, isAdminProfile } = require('../utils/authProfiles');
 function requireDeskAdmin(req, res, next) {
   if (!req.session || !req.session.staffId) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
@@ -660,7 +660,7 @@ function requireAdminOnly(req, res, next) {
   if (!req.session || !req.session.staffId) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
   }
-  if (req.session.staffRole !== 'Admin') {
+  if (!isAdminProfile(req.session.staffRole)) {
     return res.status(403).json({ success: false, error: 'Admin only' });
   }
   next();

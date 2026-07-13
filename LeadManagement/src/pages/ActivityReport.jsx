@@ -28,6 +28,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiX, FiDownload, FiPhone, FiMessageSquare, FiRefreshCw, FiArrowRight } from 'react-icons/fi';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
+import { isAdminProfile } from '../utils/roleProfiles';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { reportsAPI, staffAPI } from '../services/api';
@@ -229,7 +230,8 @@ export default function ActivityReport() {
 
   // Permissions — gate the page itself and the Excel-export button.
   const hasAllScope    = scope('reports', 'view') === 'all';
-  const canExportExcel = (staff?.role === 'Admin' || staff?.role === 'Director');
+  // Admin/Director-only (execs + office/tech admins) — gate on the auth PROFILE.
+  const canExportExcel = isAdminProfile(staff?.position);
 
   // ── Filter / date state ─────────────────────────────────────
   const [dateFrom, setDateFrom] = useState(isoDaysAgo(10));

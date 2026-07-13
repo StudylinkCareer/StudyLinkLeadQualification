@@ -80,7 +80,7 @@ const en = {
   'dashboard.counselor.total':           'Total',
   'dashboard.counselor.closeDrilldown':  'Close drill-down',
   'dashboard.pipeline.title':            'Pipeline Statistics',
-  'dashboard.pipeline.target':           'Target (Contracted this month)',
+  'dashboard.pipeline.target':           'Monthly target',
   'dashboard.pipeline.target.aggregated':'Aggregated from {n} counselor',
   'dashboard.pipeline.target.aggregatedPlural':'Aggregated from {n} counselors',
   'dashboard.pipeline.target.none':      'No counselor targets set',

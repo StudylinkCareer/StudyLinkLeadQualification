@@ -41,6 +41,7 @@ import { FiX } from 'react-icons/fi';
 import { studentAPI, staffAPI, reportsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
+import { isAdminProfile, isCounsellorProfile } from '../utils/roleProfiles';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
@@ -393,7 +394,7 @@ export default function Dashboard() {
   // counselor name (which would wrongly zero out a team-scoped Manager whose
   // own name isn't on any lead). Only true 'own' users get the client filter.
   const hasAllScope = !permsLoading && ['all', 'team'].includes(scope('leads', 'view_list'));
-  const isAdmin     = staff?.role === 'Admin';
+  const isAdmin     = isAdminProfile(staff?.position);
 
   useEffect(() => {
     // Wait for permissions to resolve before fetching, so hasAllScope
@@ -574,7 +575,7 @@ export default function Dashboard() {
   // company's). We implement this by pre-filtering leads to ownership and
   // passing the matching IDs through the existing `_ids` drill mechanism.
   // Non-Counselors fall through to the original behavior.
-  const isCounselor = staff?.role === 'Counselor';
+  const isCounselor = isCounsellorProfile(staff?.position);
   function ownsLead(l) {
     if (!staff?.fullName) return false;
     return (
@@ -686,34 +687,38 @@ export default function Dashboard() {
     { kind:'pipeline', key:'noCloseDate',     label: language==='vi'?'Chưa có ngày chốt':'No close date', sub: null,                                                                                         color:'#9CA3AF' },
   ];
 
+  // Monthly target. Management (any all-scope viewer INCLUDING execs/admins)
+  // sees the aggregated monthly target of every active counsellor. An own-scope
+  // counsellor sees their individual target. (Previously admins saw nothing and
+  // the row was hidden — that's why execs had no Monthly target metric.)
+  const activeCounsellorsWithTarget = activeStaff.filter(
+    s => (isCounsellorProfile(s.position) || isCounsellorProfile(s.role)) && s.target != null
+  );
+
   const managerTargetCount = (() => {
-    // Manager OR Director (anyone with all-scope view who isn't Admin)
-    // sees the aggregated counselor target total.
-    if (hasAllScope && !isAdmin) {
-      const cw = activeStaff.filter(s => s.role === 'Counselor' && s.target != null);
-      return cw.length > 0 ? cw.reduce((sum, s) => sum + Number(s.target || 0), 0) : '—';
+    if (hasAllScope) {
+      return activeCounsellorsWithTarget.length > 0
+        ? activeCounsellorsWithTarget.reduce((sum, s) => sum + Number(s.target || 0), 0)
+        : '—';
     }
-    if (!isAdmin) return myStaff?.target ?? '—';
-    return null;
+    return myStaff?.target ?? '—';
   })();
 
   const managerTargetSub = (() => {
-    if (hasAllScope && !isAdmin) {
-      const n = activeStaff.filter(s => s.role === 'Counselor' && s.target != null).length;
+    if (hasAllScope) {
+      const n = activeCounsellorsWithTarget.length;
       if (n === 0) return t('dashboard.pipeline.target.none', language);
       const key = n === 1 ? 'dashboard.pipeline.target.aggregated' : 'dashboard.pipeline.target.aggregatedPlural';
       return fmt(t(key, language), { n });
     }
-    if (!isAdmin) {
-      return myStaff?.targetSetBy
-        ? fmt(t('dashboard.pipeline.target.setBy', language), { name: myStaff.targetSetBy })
-        : t('dashboard.pipeline.target.notSet', language);
-    }
-    return '';
+    return myStaff?.targetSetBy
+      ? fmt(t('dashboard.pipeline.target.setBy', language), { name: myStaff.targetSetBy })
+      : t('dashboard.pipeline.target.notSet', language);
   })();
 
   const counselorTargetCount = selectedCounselorStaff?.target ?? '—';
-  const showTargetRow = !isAdmin;
+  // Show for management (aggregate) and for own-scope users who have a target.
+  const showTargetRow = hasAllScope || myStaff?.target != null;
 
   const pipelineCard = (
     <div className="section-card" style={{ height:'100%', overflowY:'auto', alignSelf:'stretch' }}>

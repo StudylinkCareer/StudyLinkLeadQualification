@@ -210,11 +210,14 @@ async function updateReminder(req, res, next) {
   }
 }
 
+const { isManagerOrAdmin } = require('../utils/authProfiles');
+
 async function getReminders(req, res, next) {
   try {
     const staffName  = req.session.staffName;
     const staffRole  = req.session.staffRole;
-    const hasAllScope = ['Admin', 'Manager', 'Director'].includes(staffRole);
+    // staffRole holds the auth PROFILE post-migration — managers + admins get all-scope.
+    const hasAllScope = isManagerOrAdmin(staffRole);
     const reminders = await StudentNote.listReminders({ staffName, hasAllScope });
     res.json({ success: true, data: reminders });
   } catch (err) {
@@ -226,7 +229,7 @@ async function getCommunications(req, res, next) {
   try {
     const staffName   = req.session.staffName;
     const staffRole   = req.session.staffRole;
-    const hasAllScope = ['Admin', 'Manager', 'Director'].includes(staffRole);
+    const hasAllScope = isManagerOrAdmin(staffRole);
 
     // Default: 3 months back
     const until = new Date();

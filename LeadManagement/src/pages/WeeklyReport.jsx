@@ -438,6 +438,16 @@ function WeeklyReportInner() {
     reportsAPI.removeTrackedStaff(staffId).then(() => reloadTargets()).catch(() => {});
   }
 
+  // Total column — aggregate actual / target across all tracked staff. The grid
+  // here is DISPLAY-ONLY; targets are maintained under Administration › Staff Targets.
+  const wrMonthTotals = (label) => (targets?.rows || []).reduce((acc, r) => {
+    const c = r.cells[label] || { actual: 0, target: 0 };
+    return { actual: acc.actual + Number(c.actual || 0), target: acc.target + Number(c.target || 0) };
+  }, { actual: 0, target: 0 });
+  const wrGrandTotals = (targets?.rows || []).reduce((acc, r) =>
+    ({ actual: acc.actual + Number(r.ytd?.actual || 0), target: acc.target + Number(r.ytd?.target || 0) }),
+    { actual: 0, target: 0 });
+
   const currentViewLabel = !isManager
     ? (staff?.fullName || L('Me', 'Tôi'))
     : mode === 'groups' ? L('Counsellors & Pre-Sales', 'Tư vấn & Pre-Sales')
@@ -681,23 +691,7 @@ function WeeklyReportInner() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.6rem' }}>
             <div>
               <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{L('Monthly Targets', 'Chỉ tiêu tháng')}</h2>
-              <span style={sub}>{L('Contracts per month — actual / target · click a target to edit', 'Hợp đồng mỗi tháng — thực tế / chỉ tiêu · nhấn để sửa')}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              {showAdd ? (
-                <>
-                  <select value={addId} onChange={e => setAddId(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }}>
-                    <option value="">{L('— Select staff —', '— Chọn nhân viên —')}</option>
-                    {roster
-                      .filter(s => !(targets?.rows || []).some(r => r.staffId === s.id))
-                      .map(s => <option key={s.id} value={s.id}>{s.fullName}{s.role ? ` (${s.role})` : ''}</option>)}
-                  </select>
-                  <button className="btn" onClick={addTracked} disabled={!addId}>{L('Add', 'Thêm')}</button>
-                  <button className="btn" onClick={() => { setShowAdd(false); setAddId(''); }}>{L('Cancel', 'Hủy')}</button>
-                </>
-              ) : (
-                <button className="btn" onClick={() => setShowAdd(true)}>+ {L('Add counsellor', 'Thêm tư vấn')}</button>
-              )}
+              <span style={sub}>{L('Contracts per month — actual / target · maintained under Administration › Staff Targets', 'Hợp đồng mỗi tháng — thực tế / chỉ tiêu · quản lý tại Quản trị › Chỉ tiêu nhân viên')}</span>
             </div>
           </div>
 
@@ -715,44 +709,34 @@ function WeeklyReportInner() {
                     {targets.rows.map(r => (
                       <th key={r.staffId} style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {r.fullName}
-                        <span onClick={() => removeTracked(r.staffId)} title={L('Remove', 'Xóa')}
-                          style={{ marginLeft: 6, cursor: 'pointer', color: 'var(--text-secondary,#9ca3af)' }}>×</span>
                       </th>
                     ))}
+                    <th style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap', color: 'var(--primary,#2563eb)' }}>{L('Total', 'Tổng')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {targets.months.map(mo => (
-                    <tr key={mo.label}>
-                      <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{mo.label}</td>
-                      {targets.rows.map(r => {
-                        const c = r.cells[mo.label] || { actual: 0, target: 0, isFallback: true };
-                        const editing = editCell && editCell.staffId === r.staffId && editCell.month === mo.label;
-                        return (
-                          <td key={r.staffId} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <span style={{ color: cellColor(c.actual, c.target), fontWeight: 600 }}>{c.actual}</span>
-                            <span style={{ color: 'var(--text-secondary,#9ca3af)' }}> / </span>
-                            {editing ? (
-                              <input type="number" min="0" value={editVal} autoFocus
-                                onChange={e => setEditVal(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter')  { skipBlurRef.current = true; saveTarget(r.staffId, mo.label, editVal); }
-                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
-                                }}
-                                onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } saveTarget(r.staffId, mo.label, editVal); }}
-                                style={{ width: 44, padding: '2px 4px', fontSize: '0.8rem', textAlign: 'right' }} />
-                            ) : (
-                              <span onClick={() => { setEditCell({ staffId: r.staffId, month: mo.label }); setEditVal(String(c.target)); }}
-                                title={c.isFallback ? L('Inherited staff target — click to set a monthly target', 'Chỉ tiêu mặc định — nhấn để đặt theo tháng') : L('Click to edit', 'Nhấn để sửa')}
-                                style={{ cursor: 'pointer', fontStyle: c.isFallback ? 'italic' : 'normal', color: c.isFallback ? 'var(--text-secondary,#9ca3af)' : 'inherit' }}>
-                                {c.target}
-                              </span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  {targets.months.map(mo => {
+                    const tot = wrMonthTotals(mo.label);
+                    return (
+                      <tr key={mo.label}>
+                        <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{mo.label}</td>
+                        {targets.rows.map(r => {
+                          const c = r.cells[mo.label] || { actual: 0, target: 0, isFallback: true };
+                          return (
+                            <td key={r.staffId} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              <span style={{ color: cellColor(c.actual, c.target), fontWeight: 600 }}>{c.actual}</span>
+                              <span style={{ color: 'var(--text-secondary,#9ca3af)' }}> / </span>
+                              <span style={{ fontStyle: c.isFallback ? 'italic' : 'normal', color: c.isFallback ? 'var(--text-secondary,#9ca3af)' : 'inherit' }}>{c.target}</span>
+                            </td>
+                          );
+                        })}
+                        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, background: 'var(--bg-secondary,#f8fafc)' }}>
+                          <span style={{ color: cellColor(tot.actual, tot.target) }}>{tot.actual}</span>
+                          <span style={{ color: 'var(--text-secondary,#9ca3af)' }}> / {tot.target}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   <tr>
                     <td style={{ ...td, fontWeight: 700, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{L('YTD', 'Năm')}</td>
                     {targets.rows.map(r => (
@@ -761,6 +745,10 @@ function WeeklyReportInner() {
                         <span style={{ color: 'var(--text-secondary,#9ca3af)' }}> / {r.ytd.target}</span>
                       </td>
                     ))}
+                    <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, background: 'var(--bg-secondary,#f8fafc)' }}>
+                      <span style={{ color: cellColor(wrGrandTotals.actual, wrGrandTotals.target) }}>{wrGrandTotals.actual}</span>
+                      <span style={{ color: 'var(--text-secondary,#9ca3af)' }}> / {wrGrandTotals.target}</span>
+                    </td>
                   </tr>
                 </tbody>
               </table>

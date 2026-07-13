@@ -29,6 +29,19 @@ function requireStaffAuth(req, res, next) {
   next();
 }
 
+// Target maintenance (staff.target) belongs to the Staff Targets group —
+// Executive / Quality / Tech Support (see authProfiles.canManageTargets).
+const { canManageTargets } = require('../utils/authProfiles');
+function requireTargetManager(req, res, next) {
+  if (!req.session || !req.session.staffId) {
+    return res.status(401).json({ success: false, error: 'Not authenticated' });
+  }
+  if (!canManageTargets(req.session.staffRole)) {
+    return res.status(403).json({ success: false, error: 'Not authorised to set targets' });
+  }
+  next();
+}
+
 // Generic permission middleware: checks role_permissions table for any
 // scope (all/own) on (resource, operation). If scope is 'none' or no row
 // exists, returns 403. For operations where ownership of a specific
@@ -126,11 +139,11 @@ router.post('/',             requireStaffAuth, requirePermission('staff', 'manag
 router.put('/assign/:studentId', requireStaffAuth, requirePermission('leads', 'assign'), staffCtrl.assignStaff);
 router.put('/mass-assign',   requireStaffAuth, requirePermission('leads', 'assign'),     staffCtrl.massAssign);
 router.put('/mass-move-phase', requireStaffAuth, requirePermission('leads', 'assign'),   staffCtrl.massMovePhase);
-router.get('/maintenance/stale-reminders',  requireStaffAuth,                            staffCtrl.listStaleReminders);
-router.post('/maintenance/close-reminders', requireStaffAuth,                            staffCtrl.closeReminders);
+router.get('/maintenance/stale-reminders',  requireStaffAuth, requirePermission('maintenance', 'use'), staffCtrl.listStaleReminders);
+router.post('/maintenance/close-reminders', requireStaffAuth, requirePermission('maintenance', 'use'), staffCtrl.closeReminders);
 router.put('/phase/:studentId', requireStaffAuth, requirePermission('leads', 'assign'),  staffCtrl.changePhase);
 router.put('/assignment/:studentId', requireStaffAuth, requirePermission('leads', 'assign'), staffCtrl.setAssignment);
-router.put('/:id/target',    requireStaffAuth, requirePermission('staff', 'set_target'), staffCtrl.setTarget);
+router.put('/:id/target',    requireStaffAuth, requireTargetManager, staffCtrl.setTarget);
 router.put('/:id/password',  requireStaffAuth, requirePermission('staff', 'manage'),     staffCtrl.resetPassword);
 router.put('/:id/deactivate',requireStaffAuth, requirePermission('staff', 'delete'),     staffCtrl.deactivateStaff);
 router.put('/:id',           requireStaffAuth, requirePermission('staff', 'manage'),     staffCtrl.updateStaff);

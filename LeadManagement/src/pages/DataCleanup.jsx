@@ -18,6 +18,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { cleanupAPI, studentAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { isAdminProfile } from '../utils/roleProfiles';
 
 const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: '1.25rem', background: '#fff', marginBottom: '1.25rem' };
 const td   = { padding: '6px 10px', borderBottom: '1px solid #f3f4f6' };
@@ -34,7 +35,8 @@ const lbl = (k) => LABELS[k] || k;
 
 export default function DataCleanup() {
   const { staff } = useAuth();
-  const isAdmin = ['Admin', 'Director'].includes(staff?.role);
+  // Matches the backend cleanup.js guard (requireAdmin = isAdminProfile).
+  const isAdmin = isAdminProfile(staff?.position);
 
   const [schema, setSchema]   = useState(null);
   const [err, setErr]         = useState('');

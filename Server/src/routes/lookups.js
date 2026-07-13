@@ -28,8 +28,10 @@ function requireStaffAuth(req, res, next) {
   }
   next();
 }
+const { isAdminProfile } = require('../utils/authProfiles');
 function requireAdmin(req, res, next) {
-  if (!req.session || req.session.staffRole !== 'Admin') {
+  // staffRole holds the auth PROFILE post-migration (not the legacy 'Admin' tier).
+  if (!req.session || !isAdminProfile(req.session.staffRole)) {
     return res.status(403).json({ success: false, error: 'Admin access required' });
   }
   next();
