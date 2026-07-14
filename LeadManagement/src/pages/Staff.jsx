@@ -21,7 +21,7 @@ import { usePermissions } from '../contexts/PermissionsContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
-import { FiPlus, FiEdit2, FiUserX, FiKey, FiX, FiTarget } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiUserX, FiKey, FiX } from 'react-icons/fi';
 
 // Canonical authorisation PROFILE names (must match Server auth_profiles.json).
 // Assigning any value NOT in this list leaves the staff member without a seeded
@@ -42,7 +42,28 @@ const POSITIONS = [
 // The Role field is the coarse authorisation TIER (NOT the profile — that's the
 // Position field, which drives permissions). Fixed list so the tier column can
 // never be set to a profile name (which would break session tier + reporting).
-const TIERS = ['Executive', 'Manager', 'Staff', 'Tech'];
+const TIERS = ['Executive', 'Manager', 'Staff', 'Tech', 'Event staff'];
+
+// ISO/timestamptz → <input type="datetime-local"> value (LOCAL 'YYYY-MM-DDTHH:mm').
+const toLocalDT = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+// datetime-local value (local) → ISO (UTC) for the API, or null when blank.
+const fromLocalDT = (v) => (v ? new Date(v).toISOString() : null);
+// Compact "dd MMM HH:mm" for the list; em-dash when no window is set.
+const fmtAccessWindow = (from, until) => {
+  if (!from && !until) return '—';
+  const f = (d) => {
+    if (!d) return '…';
+    try { return new Date(d).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+    catch { return '—'; }
+  };
+  return `${f(from)} → ${f(until)}`;
+};
 // ROLES list removed — now fetched from GET /api/staff/roles which reads
 // DISTINCT role from the role_permissions table. See StaffModal below.
 
@@ -112,6 +133,9 @@ function StaffModal({ staff, onClose, onSaved }) {
     password:           '',
     viewThreshold:      staff?.viewThreshold      ?? 20,
     lqSelectable:       staff?.lqSelectable       ?? false,
+    // Optional console-access window (blank = unrestricted; only Inactive gates).
+    accessValidFrom:    toLocalDT(staff?.accessValidFrom),
+    accessValidUntil:   toLocalDT(staff?.accessValidUntil),
     // ── Communication fields ──
     emailClient:        staff?.emailClient        || 'outlook',
     contactMobile:      staff?.contactMobile      || '',
@@ -162,6 +186,10 @@ function StaffModal({ staff, onClose, onSaved }) {
         messengerUsername: form.messengerUsername  || null,
         messengerQrCode:   form.messengerQrCode    || null,
       };
+      const accessWindow = {
+        accessValidFrom:  fromLocalDT(form.accessValidFrom),
+        accessValidUntil: fromLocalDT(form.accessValidUntil),
+      };
       if (isEdit) {
         await staffAPI.update(staff.id, {
           fullName: form.fullName, email: form.email,
@@ -169,9 +197,10 @@ function StaffModal({ staff, onClose, onSaved }) {
           viewThreshold: Number(form.viewThreshold),
           lqSelectable: form.lqSelectable,
           ...commsPayload,
+          ...accessWindow,
         });
       } else {
-        await staffAPI.create({ ...form, ...commsPayload });
+        await staffAPI.create({ ...form, ...commsPayload, ...accessWindow });
       }
       onSaved();
     } catch(e) { setError(e.message); }
@@ -218,6 +247,34 @@ function StaffModal({ staff, onClose, onSaved }) {
               <input type="checkbox" checked={!!form.lqSelectable} onChange={e=>set('lqSelectable', e.target.checked)}/>
               {language === 'vi' ? 'Hi\u1ec3n th\u1ecb tr\u00ean form LQ (danh s\u00e1ch t\u01b0 v\u1ea5n vi\u00ean)' : 'Show on LQ form (counsellor pick list)'}
             </label>
+          </div>
+          <div className="form-group">
+            <label className="form-label">
+              {language === 'vi' ? 'Khung thời gian truy cập (tùy chọn)' : 'Console access window (optional)'}
+            </label>
+            <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', alignItems:'flex-end' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:2, flex:'1 1 190px' }}>
+                <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)' }}>{language === 'vi' ? 'Từ' : 'From'}</span>
+                <input className="form-input" type="datetime-local" value={form.accessValidFrom}
+                  onChange={e=>set('accessValidFrom', e.target.value)} />
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:2, flex:'1 1 190px' }}>
+                <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)' }}>{language === 'vi' ? 'Đến' : 'Until'}</span>
+                <input className="form-input" type="datetime-local" value={form.accessValidUntil}
+                  onChange={e=>set('accessValidUntil', e.target.value)} />
+              </div>
+              {(form.accessValidFrom || form.accessValidUntil) && (
+                <button type="button" onClick={() => { set('accessValidFrom',''); set('accessValidUntil',''); }}
+                  style={{ fontSize:'0.75rem', color:'var(--primary)', background:'none', border:'none', cursor:'pointer', padding:'8px 2px' }}>
+                  {language === 'vi' ? 'Xóa' : 'Clear'}
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', marginTop:'0.35rem' }}>
+              {language === 'vi'
+                ? 'Để trống = không giới hạn (chỉ trạng thái Ngừng hoạt động kiểm soát). Nếu đặt, chỉ đăng nhập trong khoảng này.'
+                : 'Blank = unrestricted (only the Inactive status controls access). If set, sign-in is limited to this window.'}
+            </div>
           </div>
           {!isEdit && (
             <div className="form-group">
@@ -364,55 +421,8 @@ function PasswordModal({ staff, onClose, onSaved }) {
   );
 }
 
-function TargetModal({ member, onClose, onSaved }) {
-  const { language } = useLanguage();
-  const [target, setTarget] = useState(member?.target ?? 0);
-  const [error, setError]   = useState('');
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    if (isNaN(target) || target < 0) return setError(t('staff.targetModal.error', language));
-    setSaving(true);
-    try {
-      await staffAPI.setTarget(member.id, Number(target));
-      onSaved();
-    } catch(e) { setError(e.message); }
-    finally { setSaving(false); }
-  }
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal">
-        <div className="modal-header">
-          <h2 className="modal-title">{fmt(t('staff.targetModal.title', language), { name: member.fullName })}</h2>
-          <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX /></button>
-        </div>
-        <div className="modal-body">
-          <div className="form-group">
-            <label className="form-label">{t('staff.targetModal.monthlyLabel', language)}</label>
-            <input className="form-input" type="number" min="0" value={target}
-              onChange={e=>setTarget(e.target.value)} autoFocus/>
-          </div>
-          {member.targetSetBy && (
-            <div style={{ fontSize:'0.8125rem', color:'var(--text-secondary)', marginTop:'0.5rem' }}>
-              {fmt(t('staff.targetModal.lastSet', language), {
-                name: member.targetSetBy,
-                date: member.targetSetAt ? new Date(member.targetSetAt).toLocaleDateString() : '—',
-              })}
-            </div>
-          )}
-          {error && <div className="alert alert--error">{error}</div>}
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn--ghost" onClick={onClose}>{t('common.cancel', language)}</button>
-          <button className="btn btn--primary" onClick={handleSave} disabled={saving}>
-            {saving ? t('common.saving', language) : t('staff.targetModal.submit', language)}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// (TargetModal removed — base/default targets are now set on the Targets page,
+//  which owns all target management. staff.target is edited via its Default row.)
 
 export default function Staff() {
   const [staffList, setStaffList] = useState([]);
@@ -420,7 +430,8 @@ export default function Staff() {
   const [showModal, setShowModal] = useState(false);
   const [editStaff, setEditStaff] = useState(null);
   const [pwdStaff, setPwdStaff]   = useState(null);
-  const [targetMember, setTargetMember] = useState(null);
+  // Access-window pop-up target (the staff row being edited)
+  const [winStaff, setWinStaff]   = useState(null);
   const { staff }                       = useAuth();
   const { canDo }                       = usePermissions();
   const { language }                    = useLanguage();
@@ -455,6 +466,7 @@ export default function Staff() {
     catch(e) { alert(e.message); }
   }
 
+
   if (!canViewPage) return (
     <div className="page-body">
       <div className="alert alert--error">{t('staff.needsAccess', language)}</div>
@@ -487,9 +499,8 @@ export default function Staff() {
                     <th>{t('staff.col.position', language)}</th>
                     <th>{t('staff.col.role', language)}</th>
                     <th>{t('staff.col.status', language)}</th>
+                    <th>{language === 'vi' ? 'Khung truy cập' : 'Access window'}</th>
                     <th>{t('staff.col.viewThreshold', language)}</th>
-                    <th>{t('staff.col.target', language)}</th>
-                    <th>{t('staff.col.targetSet', language)}</th>
                     <th>{t('staff.col.actions', language)}</th>
                   </tr>
                 </thead>
@@ -505,18 +516,27 @@ export default function Staff() {
                           {s.isActive ? t('common.active', language) : t('common.inactive', language)}
                         </span>
                       </td>
+                      <td style={{ fontSize:'0.75rem' }}>
+                        {(s.accessValidFrom || s.accessValidUntil) ? (
+                          <span
+                            onClick={canManage ? () => setWinStaff(s) : undefined}
+                            title={canManage ? (language === 'vi' ? 'Nhấn để sửa' : 'Click to edit') : ''}
+                            style={{ cursor: canManage ? 'pointer' : 'default', color:'var(--text-primary)', whiteSpace:'nowrap',
+                              borderBottom: canManage ? '1px dashed var(--border)' : 'none', paddingBottom:1 }}>
+                            {fmtAccessWindow(s.accessValidFrom, s.accessValidUntil)}
+                          </span>
+                        ) : canManage ? (
+                          <button onClick={()=>setWinStaff(s)}
+                            title={language === 'vi' ? 'Đặt khung truy cập' : 'Set an access window'}
+                            style={{ background:'none', border:'1px dashed var(--border)', borderRadius:6, color:'var(--text-secondary)',
+                              cursor:'pointer', fontSize:'0.72rem', padding:'3px 9px', whiteSpace:'nowrap' }}>
+                            + {language === 'vi' ? 'Đặt' : 'Set window'}
+                          </button>
+                        ) : (
+                          <span style={{ color:'var(--text-secondary)' }}>—</span>
+                        )}
+                      </td>
                       <td style={{ fontFamily:'DM Mono', fontSize:'0.875rem' }}>{s.viewThreshold ?? 20}</td>
-                      <td style={{ fontFamily:'DM Mono', fontSize:'0.875rem', fontWeight:600, color:'var(--primary)' }}>
-                        {s.target ?? '—'}
-                      </td>
-                      <td style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
-                        {s.targetSetBy ? (
-                          <>
-                            <div>{s.targetSetBy}</div>
-                            <div>{s.targetSetAt ? new Date(s.targetSetAt).toLocaleDateString() : ''}</div>
-                          </>
-                        ) : '—'}
-                      </td>
                       <td>
                         <div style={{ display:'flex', gap:'0.5rem' }}>
                           {canManage && (
@@ -529,13 +549,6 @@ export default function Staff() {
                             <button className="btn btn--ghost btn--icon" title={t('staff.action.resetPassword', language)}
                               onClick={() => setPwdStaff(s)}>
                               <FiKey size={14}/>
-                            </button>
-                          )}
-                          {canSetTgt && (
-                            <button className="btn btn--ghost btn--icon" title={t('staff.action.setTarget', language)}
-                              onClick={() => setTargetMember(s)}
-                              style={{ color:'var(--primary)' }}>
-                              <FiTarget size={14}/>
                             </button>
                           )}
                           {canManage && s.isActive && (
@@ -570,14 +583,74 @@ export default function Staff() {
           onSaved={() => { setPwdStaff(null); alert(t('staff.passwordModal.saved', language)); }}
         />
       )}
-      {targetMember && (
-        <TargetModal
-          member={targetMember}
-          setterName={staff?.fullName}
-          onClose={() => setTargetMember(null)}
-          onSaved={() => { setTargetMember(null); loadStaff(); }}
+      {winStaff && (
+        <AccessWindowModal
+          staff={winStaff}
+          onClose={() => setWinStaff(null)}
+          onSaved={() => { setWinStaff(null); loadStaff(); }}
         />
       )}
+    </div>
+  );
+}
+
+// Set/clear a staff member's console access window in a roomy centred dialog —
+// the datetime fields are stacked and full-width so the native picker never
+// covers the other field, and the dialog position is stable. Blank = cleared.
+function AccessWindowModal({ staff, onClose, onSaved }) {
+  const { language } = useLanguage();
+  const L = (en, vi) => (language === 'vi' ? vi : en);
+  const [from, setFrom]     = useState(toLocalDT(staff?.accessValidFrom));
+  const [until, setUntil]   = useState(toLocalDT(staff?.accessValidUntil));
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+
+  async function handleSave() {
+    if (from && until && new Date(until) < new Date(from)) {
+      return setError(L('“Until” must be after “From”.', '“Đến” phải sau “Từ”.'));
+    }
+    setSaving(true); setError('');
+    try {
+      // Only the window fields — the model COALESCEs everything else.
+      await staffAPI.update(staff.id, {
+        accessValidFrom:  fromLocalDT(from),
+        accessValidUntil: fromLocalDT(until),
+      });
+      onSaved();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{ width:'min(460px, calc(100vw - 32px))' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">{L('Access window', 'Khung truy cập')} — {staff.fullName}</h2>
+          <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX /></button>
+        </div>
+        <div className="modal-body">
+          <p style={{ fontSize:'0.8rem', color:'var(--text-secondary)', marginTop:0 }}>
+            {L('Leave blank for unrestricted access (only the Inactive status gates). If set, sign-in is limited to this window.',
+               'Để trống = không giới hạn (chỉ trạng thái Ngừng hoạt động kiểm soát). Nếu đặt, chỉ đăng nhập trong khoảng này.')}
+          </p>
+          <div className="form-group">
+            <label className="form-label">{L('Valid from', 'Có hiệu lực từ')}</label>
+            <input className="form-input" type="datetime-local" value={from} onChange={e=>setFrom(e.target.value)} autoFocus />
+          </div>
+          <div className="form-group">
+            <label className="form-label">{L('Valid until', 'Có hiệu lực đến')}</label>
+            <input className="form-input" type="datetime-local" value={until} onChange={e=>setUntil(e.target.value)} />
+          </div>
+          {error && <div className="alert alert--error">{error}</div>}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn--ghost" onClick={onClose}>{L('Cancel', 'Hủy')}</button>
+          <button className="btn btn--ghost" onClick={() => { setFrom(''); setUntil(''); }}>{L('Clear', 'Xóa')}</button>
+          <button className="btn btn--primary" onClick={handleSave} disabled={saving}>
+            {saving ? '…' : L('Enter', 'Xác nhận')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

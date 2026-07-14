@@ -192,7 +192,7 @@ const vi = {
   'staff.col.position':             'Chức vụ',
   'staff.col.role':                 'Vai trò',
   'staff.col.status':               'Trạng thái',
-  'staff.col.viewThreshold':        'Ngưỡng xem',
+  'staff.col.viewThreshold':        'Ngưỡng',
   'staff.col.target':               'Mục tiêu',
   'staff.col.targetSet':            'Người đặt mục tiêu',
   'staff.col.actions':              'Thao tác',

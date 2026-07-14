@@ -146,12 +146,17 @@ export default function RepsPanel({ eventId, selected }) {
     <>
       {/* Add rep */}
       <div style={{ ...card, marginBottom:12 }}>
-        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+        {/* Single row: staff + institution grow to fill; the validity window stays
+            a tidy group; Add rep pins to the right. Wraps gracefully when narrow.
+            Hidden by request: "New recruit" free-text and the rep-type selector —
+            adds are always an existing staff member as an Institution rep
+            (kind stays 'institution', newName stays ''). */}
+        <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
           <select
             value={staffId}
             onChange={(e) => { setStaffId(e.target.value); if (e.target.value) setNewName(''); }}
-            disabled={!eventId || !!newName.trim()}
-            style={{ ...input, flex:1, minWidth:180, opacity: newName.trim() ? 0.5 : 1 }}
+            disabled={!eventId}
+            style={{ ...input, flex:'2 1 220px' }}
           >
             <option value="">Select staff member…</option>
             {staffPool.map((s) => (
@@ -160,38 +165,24 @@ export default function RepsPanel({ eventId, selected }) {
               </option>
             ))}
           </select>
-          <span style={{ fontSize:12, color:'#9ca3af' }}>or</span>
-          <input
-            value={newName}
-            onChange={(e) => { setNewName(e.target.value); if (e.target.value) setStaffId(''); }}
-            disabled={!eventId || !!staffId}
-            placeholder="New recruit — full name"
-            title="Creates a new event-only account and returns their login to forward"
-            style={{ ...input, minWidth:200, opacity: staffId ? 0.5 : 1 }}
-          />
-          <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...input }}>
-            <option value="institution">Institution rep</option>
-            <option value="studylink">StudyLink staff (roving)</option>
-          </select>
           <select
             value={institutionId}
             onChange={(e) => setInstId(e.target.value)}
-            disabled={kind !== 'institution'}
-            style={{ ...input, minWidth:180, opacity: kind === 'institution' ? 1 : 0.5 }}
+            style={{ ...input, flex:'1 1 180px' }}
           >
-            <option value="">{kind === 'institution' ? 'Pick institution…' : 'Roving (any desk)'}</option>
+            <option value="">Pick institution…</option>
             {desks.map((d) => <option key={d.id} value={d.institutionId}>{d.institutionName}</option>)}
           </select>
-        </div>
-        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginTop:10 }}>
-          <label style={{ fontSize:13, color:'#6b7280' }}>Valid from</label>
-          <input type="datetime-local" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} style={input} />
-          <label style={{ fontSize:13, color:'#6b7280' }}>until</label>
-          <input type="datetime-local" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} style={input} />
+          <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+            <label style={{ fontSize:13, color:'#6b7280' }}>Valid from</label>
+            <input type="datetime-local" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} style={input} />
+            <label style={{ fontSize:13, color:'#6b7280' }}>until</label>
+            <input type="datetime-local" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} style={input} />
+          </div>
           <button
             onClick={handleAdd}
-            disabled={busy || !eventId || (!staffId && !newName.trim())}
-            style={{ ...blue, opacity: (busy || (!staffId && !newName.trim())) ? 0.6 : 1, marginLeft:'auto' }}
+            disabled={busy || !eventId || !staffId}
+            style={{ ...blue, opacity: (busy || !staffId) ? 0.6 : 1, marginLeft:'auto' }}
           >{busy ? 'Adding…' : 'Add rep'}</button>
         </div>
       </div>

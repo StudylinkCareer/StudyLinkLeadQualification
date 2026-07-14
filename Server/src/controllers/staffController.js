@@ -54,6 +54,19 @@ const STUDENT_CHILD_TABLES = [
 ];
 
 // ── Auth ──────────────────────────────────────────────────────
+// Console access window: returns a rejection message if the account's OPTIONAL
+// valid-from/valid-until window is closed right now, else null. Both NULL =
+// unrestricted (only is_active gates access). Distinct from the event_reps desk
+// window — this gates LM-console login + session.
+function accessWindowRejection(row) {
+  const now = Date.now();
+  const from  = row.access_valid_from  ? new Date(row.access_valid_from).getTime()  : null;
+  const until = row.access_valid_until ? new Date(row.access_valid_until).getTime() : null;
+  if (from  && now < from)  return 'Your access to StudyLink has not started yet.';
+  if (until && now > until) return 'Your access to StudyLink has ended.';
+  return null;
+}
+
 async function login(req, res, next) {
   try {
     const { email, password } = req.body;
@@ -71,6 +84,9 @@ async function login(req, res, next) {
     if (!valid) {
       return res.status(401).json({ success: false, error: 'Incorrect email or password.' });
     }
+    // Optional access window (blank = unrestricted; only is_active gates).
+    const windowErr = accessWindowRejection(staff);
+    if (windowErr) return res.status(401).json({ success: false, error: windowErr });
     req.session.staffId       = staff.id;
     req.session.staffEmail    = staff.email;
     // Permission key = the authorisation PROFILE, which after the profile
@@ -112,6 +128,18 @@ async function logout(req, res) {
 
 async function checkSession(req, res) {
   if (req.session && req.session.staffId) {
+    // Re-validate on every reconcile: a mid-session deactivation or an expired
+    // access window ends the session (the frontend re-checks on mount/focus).
+    try {
+      const r = await pool.query(
+        'SELECT is_active, access_valid_from, access_valid_until FROM staff WHERE id = $1',
+        [req.session.staffId]
+      );
+      const row = r.rows[0];
+      if (!row || row.is_active === false || accessWindowRejection(row)) {
+        return req.session.destroy(() => res.json({ success: true, authenticated: false }));
+      }
+    } catch (_) { /* DB blip — keep the current session rather than lock out */ }
     return res.json({
       success:       true,
       authenticated: true,
@@ -294,6 +322,7 @@ async function createStaff(req, res, next) {
       fullName, email, position, role, password,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
+      accessValidFrom, accessValidUntil,
     } = req.body;
     if (!fullName || !email || !position || !role || !password) {
       return res.status(400).json({ success: false, error: 'All fields are required' });
@@ -302,6 +331,7 @@ async function createStaff(req, res, next) {
       fullName, email, position, role, password,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
+      accessValidFrom: accessValidFrom || null, accessValidUntil: accessValidUntil || null,
     });
     res.status(201).json({ success: true, data: staff });
   } catch (err) {
@@ -319,13 +349,17 @@ async function updateStaff(req, res, next) {
       fullName, email, position, role, isActive, viewThreshold,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
-      lqSelectable,
+      lqSelectable, accessValidFrom, accessValidUntil,
     } = req.body;
     const staff = await Staff.update(id, {
       fullName, email, position, role, isActive, viewThreshold,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
       lqSelectable,
+      // Passed straight through (may be null to clear). Only reaches here from
+      // the Staff edit form, which always sends both.
+      accessValidFrom:  accessValidFrom  ?? null,
+      accessValidUntil: accessValidUntil ?? null,
     });
     if (!staff) return res.status(404).json({ success: false, error: 'Staff member not found' });
     res.json({ success: true, data: staff });

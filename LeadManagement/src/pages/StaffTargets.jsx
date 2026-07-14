@@ -41,6 +41,8 @@ export default function StaffTargets() {
   const [addId, setAddId]       = useState('');
   const [editCell, setEditCell] = useState(null); // { staffId, month }
   const [editVal, setEditVal]   = useState('');
+  const [editDefaultId, setEditDefaultId] = useState(null); // base-target row
+  const [defaultVal, setDefaultVal]       = useState('');
   const skipBlurRef = useRef(false);
 
   useEffect(() => { pushTrail && pushTrail({ label: L('Staff Targets', 'Chỉ tiêu nhân viên') }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -64,6 +66,13 @@ export default function StaffTargets() {
     reportsAPI.saveMonthlyTarget(staffId, month, value)
       .then(() => { setEditCell(null); reloadTargets(); })
       .catch(() => setEditCell(null));
+  }
+  // Base / default target = staff.target (the fallback every month inherits when
+  // it has no monthly override). Set ONLY here now (the Staff-page 🎯 was removed).
+  function saveDefault(staffId, value) {
+    staffAPI.setTarget(staffId, Number(value) || 0)
+      .then(() => { setEditDefaultId(null); reloadTargets(); })
+      .catch(() => setEditDefaultId(null));
   }
   function addTracked() {
     if (!addId) return;
@@ -101,7 +110,7 @@ export default function StaffTargets() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{L('Staff Targets', 'Chỉ tiêu nhân viên')}</h1>
-          <div style={sub}>{L('Monthly contract targets — click a value to edit · the Total column aggregates all staff', 'Chỉ tiêu hợp đồng theo tháng — nhấn để sửa · cột Tổng cộng dồn tất cả nhân viên')}</div>
+          <div style={sub}>{L('Monthly contract targets — click a value to edit. The Default row sets each person’s base target; a month cell overrides it. Total aggregates all staff.', 'Chỉ tiêu hợp đồng theo tháng — nhấn để sửa. Hàng Mặc định đặt chỉ tiêu cơ bản; ô tháng ghi đè. Tổng cộng dồn tất cả.')}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           {showAdd ? (
@@ -144,6 +153,37 @@ export default function StaffTargets() {
                 </tr>
               </thead>
               <tbody>
+                {/* Default / base target row — the value each month inherits unless
+                    it has a monthly override. This is where staff.target is now set. */}
+                <tr>
+                  <td style={{ ...td, fontWeight: 700, position: 'sticky', left: 0, background: 'var(--bg-secondary,#f8fafc)' }}>
+                    {L('Default', 'Mặc định')}
+                  </td>
+                  {targets.rows.map(r => {
+                    const editing = editDefaultId === r.staffId;
+                    return (
+                      <td key={r.staffId} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', background: 'var(--bg-secondary,#f8fafc)' }}>
+                        {editing ? (
+                          <input type="number" min="0" value={defaultVal} autoFocus
+                            onChange={e => setDefaultVal(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter')  { skipBlurRef.current = true; saveDefault(r.staffId, defaultVal); }
+                              if (e.key === 'Escape') { skipBlurRef.current = true; setEditDefaultId(null); }
+                            }}
+                            onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } saveDefault(r.staffId, defaultVal); }}
+                            style={{ width: 48, padding: '2px 4px', fontSize: '0.8rem', textAlign: 'right' }} />
+                        ) : (
+                          <span onClick={() => { setEditDefaultId(r.staffId); setDefaultVal(String(r.fallbackTarget ?? 0)); }}
+                            title={L('Base monthly target — inherited by months with no override. Click to edit.', 'Chỉ tiêu mặc định — nhấn để sửa.')}
+                            style={{ cursor: 'pointer', fontWeight: 700 }}>
+                            {r.fallbackTarget ?? 0}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td style={totalCellStyle}>{(targets.rows || []).reduce((s, r) => s + Number(r.fallbackTarget || 0), 0)}</td>
+                </tr>
                 {targets.months.map(mo => (
                   <tr key={mo.label}>
                     <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{mo.label}</td>

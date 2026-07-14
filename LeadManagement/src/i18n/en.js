@@ -181,7 +181,7 @@ const en = {
   'staff.col.position':             'Position',
   'staff.col.role':                 'Role',
   'staff.col.status':               'Status',
-  'staff.col.viewThreshold':        'View Threshold',
+  'staff.col.viewThreshold':        'Threshold',
   'staff.col.target':               'Target',
   'staff.col.targetSet':            'Target Set',
   'staff.col.actions':              'Actions',
