@@ -37,7 +37,8 @@
       "leads.view_list": "all",
       "leads.list_manage": "all",
       "leads.create_sales": "all",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "all"
     }
   },
   {
@@ -78,7 +79,8 @@
       "leads.view_list": "all",
       "leads.list_manage": "all",
       "leads.create_sales": "all",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "all"
     }
   },
   {
@@ -110,7 +112,8 @@
       "leads.assign": "team",
       "leads.view_list": "team",
       "leads.create_sales": "team",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "team"
     }
   },
   {
@@ -141,7 +144,8 @@
       "leads.assign": "team",
       "leads.view_list": "team",
       "leads.create_sales": "team",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "team"
     }
   },
   {
@@ -175,7 +179,8 @@
       "leads.view_list": "team",
       "leads.list_manage": "team",
       "leads.create_sales": "team",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "team"
     }
   },
   {
@@ -237,7 +242,8 @@
       "leads.view_list": "all",
       "leads.list_manage": "all",
       "leads.create_sales": "all",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "all"
     }
   },
   {
@@ -280,7 +286,8 @@
       "leads.view_list": "all",
       "leads.list_manage": "all",
       "leads.create_sales": "all",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "all"
     }
   },
   {
@@ -302,7 +309,8 @@
       "leads.edit": "own",
       "leads.assign": "own",
       "leads.view_list": "own",
-      "leads.create_sales": "own"
+      "leads.create_sales": "own",
+      "leads.recalculate": "own"
     }
   },
   {
@@ -327,7 +335,8 @@
       "leads.assign": "own",
       "leads.view_list": "own",
       "leads.list_manage": "own",
-      "leads.create_sales": "own"
+      "leads.create_sales": "own",
+      "leads.recalculate": "own"
     }
   },
   {
@@ -385,7 +394,8 @@
       "leads.view_list": "team",
       "leads.list_manage": "team",
       "leads.create_sales": "team",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "team"
     }
   },
   {
@@ -415,7 +425,8 @@
       "leads.view_list": "team",
       "leads.list_manage": "team",
       "leads.create_sales": "team",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "team"
     }
   },
   {
@@ -447,7 +458,8 @@
       "leads.view_list": "team",
       "leads.list_manage": "team",
       "leads.create_sales": "team",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "team"
     }
   },
   {
@@ -477,7 +489,8 @@
       "leads.edit": "own",
       "leads.assign": "own",
       "leads.view_list": "own",
-      "leads.create_sales": "own"
+      "leads.create_sales": "own",
+      "leads.recalculate": "own"
     }
   },
   {
@@ -507,7 +520,8 @@
       "leads.edit": "own",
       "leads.assign": "own",
       "leads.view_list": "own",
-      "leads.create_sales": "own"
+      "leads.create_sales": "own",
+      "leads.recalculate": "own"
     }
   },
   {
@@ -535,7 +549,8 @@
       "leads.edit": "own",
       "leads.assign": "own",
       "leads.view_list": "own",
-      "leads.create_sales": "own"
+      "leads.create_sales": "own",
+      "leads.recalculate": "own"
     }
   },
   {
@@ -561,7 +576,8 @@
       "leads.edit": "own",
       "leads.assign": "own",
       "leads.view_list": "own",
-      "leads.create_sales": "own"
+      "leads.create_sales": "own",
+      "leads.recalculate": "own"
     }
   },
   {
@@ -604,7 +620,8 @@
       "leads.delete": "all",
       "leads.view_list": "all",
       "leads.create_sales": "all",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "all"
     }
   },
   {
@@ -647,7 +664,8 @@
       "leads.delete": "all",
       "leads.view_list": "all",
       "leads.create_sales": "all",
-      "leads.delay_close_date": "all"
+      "leads.delay_close_date": "all",
+      "leads.recalculate": "all"
     }
   },
   {
