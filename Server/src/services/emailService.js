@@ -85,8 +85,9 @@ async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', 
 //   to     - recipient email
 //   fields - { name, eventName, stone: { tier, label, message, imageUrl },
 //              profileUrl, badgeImageUrl (hosted URL of the updated badge; PROD),
-//              badgePngBase64 (inline fallback; dev) }
-async function sendStoneResultEmail(to, { name = '', eventName = '', stone = null, profileUrl = '', badgeImageUrl = '', badgePngBase64 = '' } = {}) {
+//              badgePngBase64 (inline fallback; dev),
+//              invite: { time, venue, infoUrl } (exhibition logistics, optional) }
+async function sendStoneResultEmail(to, { name = '', eventName = '', stone = null, profileUrl = '', badgeImageUrl = '', badgePngBase64 = '', invite = null } = {}) {
   const gasUrl = config.gas.sendOtpUrl;
   if (!stone || !stone.tier) {
     throw new Error('stone is required');
@@ -110,6 +111,9 @@ async function sendStoneResultEmail(to, { name = '', eventName = '', stone = nul
       profileUrl,
       badgeImageUrl,
       badgePng: badgePngBase64,
+      inviteTime:  invite ? (invite.time    || '') : '',
+      inviteVenue: invite ? (invite.venue   || '') : '',
+      inviteUrl:   invite ? (invite.infoUrl || '') : '',
       from: 'info@studylink.org',
     }),
     redirect: 'follow',

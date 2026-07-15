@@ -892,7 +892,8 @@ router.get('/profile/:token', async (req, res) => {
 // failure is logged + stamped, never surfaced to the student.
 async function sendEvaluationMessages({ token, stone, origin, badgePng = '' }) {
   const r = await pool.query(
-    `SELECT ea.event_id, ea.student_unique_id, s.full_name, s.email, s.phone, e.name AS event_name
+    `SELECT ea.event_id, ea.student_unique_id, s.full_name, s.email, s.phone,
+            e.name AS event_name, e.meta AS event_meta
        FROM event_attendees ea
        JOIN students s  ON s.student_id = ea.student_unique_id
        LEFT JOIN events e ON e.id = ea.event_id
@@ -903,6 +904,9 @@ async function sendEvaluationMessages({ token, stone, origin, badgePng = '' }) {
   const { event_id: eventId, student_unique_id: studentId, full_name: name, event_name: eventName } = r.rows[0];
   const email = String(r.rows[0].email || '').trim();
   const phone = String(r.rows[0].phone || '').trim();
+  // Exhibition logistics, authored per event via setEventInvite.js.
+  const meta = r.rows[0].event_meta || {};
+  const invite = (meta.invite && typeof meta.invite === 'object') ? meta.invite : null;
 
   // The evaluation lands on the profile page too — link back to it. The submit
   // came from that very page, so its Origin header IS the LQ base URL.
@@ -924,7 +928,7 @@ async function sendEvaluationMessages({ token, stone, origin, badgePng = '' }) {
   if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     try {
       await sendStoneResultEmail(email, {
-        name, eventName, stone, profileUrl, badgeImageUrl,
+        name, eventName, stone, profileUrl, badgeImageUrl, invite,
         badgePngBase64: isProd ? '' : badgePng,
       });
       await pool.query(
@@ -949,6 +953,7 @@ async function sendEvaluationMessages({ token, stone, origin, badgePng = '' }) {
       profileUrl,
       registrationCode: studentId,
       token,
+      invite,
     });
     if (zres.sent) {
       const msgId = (zres.raw && zres.raw.data && (zres.raw.data.msg_id || zres.raw.data.message_id)) || null;

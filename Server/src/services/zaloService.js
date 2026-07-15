@@ -238,7 +238,7 @@ async function sendEventBadge({ method, phone, zaloUserId, name = '', eventName 
 //     shows the stone). DORMANT until that template id is configured.
 //   * OA path  — free-form text with the stone label + full banner message
 //     (followers / 48h window only).
-async function sendStoneResultViaZns({ phone, name, eventName, stoneLabel, registrationCode, token }) {
+async function sendStoneResultViaZns({ phone, name, eventName, stoneLabel, registrationCode, token, invite }) {
   const c = cfg();
   const to = normalizeVnPhone(phone);
   if (!to || to.length < 9) {
@@ -254,6 +254,8 @@ async function sendStoneResultViaZns({ phone, name, eventName, stoneLabel, regis
       stone_name: stoneLabel || '',
       registration_code: registrationCode || '',
       token: token || '',
+      event_time:  (invite && invite.time)  || '',
+      event_venue: (invite && invite.venue) || '',
     },
     // "result_<studentId>_<ts>" — same webhook-fallback convention as the badge.
     tracking_id: `result_${registrationCode || 'x'}_${Date.now()}`,
@@ -287,15 +289,17 @@ async function sendStoneResultViaZns({ phone, name, eventName, stoneLabel, regis
   }
 }
 
-async function sendStoneResultViaOa({ zaloUserId, name, stoneLabel, stoneMessage, profileUrl }) {
+async function sendStoneResultViaOa({ zaloUserId, name, stoneLabel, stoneMessage, profileUrl, invite }) {
   if (!zaloUserId) {
     return { sent: false, reason: 'no_user_id', detail: 'OA send needs a zalo_user_id' };
   }
   const text = [
     name ? `Chúc mừng ${name}!` : 'Chúc mừng bạn!',
+    'Cảm ơn bạn đã hoàn thành bảng tự đánh giá – chúng tôi rất mong được chào đón bạn tại triển lãm!',
     stoneLabel ? `Kết quả đánh giá của bạn: ${stoneLabel}.` : '',
     stoneMessage || '',
-    'Cảm ơn bạn đã đăng ký tham dự triển lãm của chúng tôi – chúng tôi rất mong được đón tiếp bạn!',
+    invite && invite.time  ? `📅 Thời gian: ${invite.time}.`  : '',
+    invite && invite.venue ? `📍 Địa điểm: ${invite.venue}.` : '',
     profileUrl ? `Xem thẻ tham dự mới của bạn: ${profileUrl}` : '',
   ].filter(Boolean).join(' ');
 
@@ -315,7 +319,7 @@ async function sendStoneResultViaOa({ zaloUserId, name, stoneLabel, stoneMessage
   }
 }
 
-async function sendStoneResult({ method, phone, zaloUserId, name = '', eventName = '', stoneLabel = '', stoneMessage = '', profileUrl = '', registrationCode = '', token = '' } = {}) {
+async function sendStoneResult({ method, phone, zaloUserId, name = '', eventName = '', stoneLabel = '', stoneMessage = '', profileUrl = '', registrationCode = '', token = '', invite = null } = {}) {
   const c = cfg();
   const m = (method || c.method || 'zns').toLowerCase();
 
@@ -329,9 +333,9 @@ async function sendStoneResult({ method, phone, zaloUserId, name = '', eventName
   }
 
   if (m === 'oa') {
-    return sendStoneResultViaOa({ zaloUserId, name, stoneLabel, stoneMessage, profileUrl });
+    return sendStoneResultViaOa({ zaloUserId, name, stoneLabel, stoneMessage, profileUrl, invite });
   }
-  return sendStoneResultViaZns({ phone, name, eventName, stoneLabel, registrationCode, token });
+  return sendStoneResultViaZns({ phone, name, eventName, stoneLabel, registrationCode, token, invite });
 }
 
 // ---- ZNS delivery-status PULL (Phase 2) ------------------------------------

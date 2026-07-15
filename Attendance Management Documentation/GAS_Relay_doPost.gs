@@ -123,6 +123,22 @@ function sendStoneResult_(data) {
   var subject = 'Kết quả đánh giá & thẻ tham dự mới của bạn'
     + (eventName ? ' — ' + eventName : '');
 
+  // Exhibition logistics (from events.meta.invite, sent as inviteTime /
+  // inviteVenue / inviteUrl) — same style as the badge e-mail's block.
+  var inviteBlock = '';
+  if (data.inviteTime || data.inviteVenue || data.inviteUrl) {
+    inviteBlock =
+        '<div style="background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;padding:16px;margin:0 0 20px;font-size:14px;color:#1a1a1a;">'
+      + '<p style="margin:0 0 8px;font-weight:bold;">Bạn nhớ đừng quên</p>'
+      + (data.inviteTime  ? '<p style="margin:0 0 4px;">📅 Thời gian: ' + data.inviteTime + '</p>' : '')
+      + (data.inviteVenue ? '<p style="margin:0 0 12px;">📍 Địa điểm: ' + data.inviteVenue + '</p>' : '')
+      + (data.inviteUrl
+          ? '<p style="margin:0 0 4px;">Xem lại thông tin sự kiện tại:</p>'
+            + '<p style="margin:0;"><a href="' + String(data.inviteUrl).replace(/"/g, '&quot;') + '" style="color:#2563eb;word-break:break-all;">' + data.inviteUrl + '</a></p>'
+          : '')
+      + '</div>';
+  }
+
   // The updated badge: hosted URL on PROD; inline cid fallback (dev sends).
   var badgeBlock = '';
   if (badgeImageUrl || badgePng) {
@@ -146,14 +162,18 @@ function sendStoneResult_(data) {
       + '</div>';
   }
 
+  // Sequence: greeting + thank-you -> exhibition logistics -> updated badge
+  // (stone glyph in the QR) + save note -> stone banner -> button.
   var html = '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px;color:#1a1a1a;">'
     + '<h2 style="color:#c8102e;margin:0 0 12px;">Kết Quả Đánh Giá Của Bạn</h2>'
     + (name ? '<p style="margin:0 0 12px;">Chào ' + name + ',</p>' : '')
-    + '<p style="margin:0 0 16px;">Cảm ơn bạn đã đăng ký tham dự triển lãm của chúng tôi'
-    + (eventName ? ' — <strong>' + eventName + '</strong>' : '')
-    + ' — chúng tôi rất mong được đón tiếp bạn! Dưới đây là kết quả đánh giá và thẻ tham dự mới của bạn.</p>'
-    + stoneBlock_(data, 0)
+    + '<p style="margin:0 0 16px;">Cảm ơn bạn đã hoàn thành bảng tự đánh giá — '
+    + 'chúng tôi rất mong được chào đón bạn tại '
+    + (eventName ? '<strong>' + eventName + '</strong>' : 'triển lãm của chúng tôi')
+    + '! Dưới đây là kết quả đánh giá và thẻ tham dự mới của bạn.</p>'
+    + inviteBlock
     + badgeBlock
+    + stoneBlock_(data, 0)
     + profileBtn
     + '<p style="color:#888;font-size:12px;margin-top:24px;">StudyLink - Kiến tạo tương lai của bạn</p>'
     + '</div>';

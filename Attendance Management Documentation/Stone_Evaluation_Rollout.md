@@ -143,15 +143,19 @@ if (data.type === 'stone_result') {
 Same OA/app as the badge template (601036). Suggested content:
 
 > **Kết quả đánh giá — StudyLink**
-> Chào **{{customer_name}}**, cảm ơn bạn đã hoàn thành bảng câu hỏi cho sự kiện
-> **{{event_name}}**.
+> Chào **{{customer_name}}**, cảm ơn bạn đã hoàn thành bảng tự đánh giá — chúng
+> tôi rất mong được chào đón bạn tại **{{event_name}}**!
 > Kết quả đánh giá của bạn: **{{stone_name}}**
+> 📅 Thời gian: **{{event_time}}**
+> 📍 Địa điểm: **{{event_venue}}**
 > Mã đăng ký: **{{registration_code}}**
-> Button "Xem kết quả" → `https://slcareerguidance.netlify.app/profile?t={{token}}`
+> Button "Xem thẻ & kết quả" → `https://slcareerguidance.netlify.app/profile?t={{token}}`
 
-Params the server sends: `customer_name, event_name, stone_name,
-registration_code, token`. Once approved, set `ZALO_ZNS_RESULT_TEMPLATE_ID` on
-Railway (and dev `.env`) — no code change needed to go live.
+Params the server sends: `customer_name, event_name, stone_name, event_time,
+event_venue, registration_code, token` (time/venue come from
+`events.meta.invite`, set via `setEventInvite.js`). Once approved, set
+`ZALO_ZNS_RESULT_TEMPLATE_ID` on Railway (and dev `.env`) — no code change
+needed to go live.
 
 ## Test steps (dev)
 
