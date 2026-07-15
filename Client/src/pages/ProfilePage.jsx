@@ -13,6 +13,14 @@
 import { useState, useEffect } from 'react';
 import { profileAPI } from '../services/api';
 import { renderBadgePng } from '../utils/badgeRenderer';
+import quartzImg   from '../Assets/Stones/quartz.png';
+import agateImg    from '../Assets/Stones/agate.png';
+import sapphireImg from '../Assets/Stones/sapphire.png';
+import rubyImg     from '../Assets/Stones/ruby.png';
+import diamondImg  from '../Assets/Stones/diamond.png';
+
+// Local stone art keyed by the canonical tier returned in the evaluation.
+const STONE_IMAGES = { Quartz: quartzImg, Agate: agateImg, Sapphire: sapphireImg, Ruby: rubyImg, Diamond: diamondImg };
 
 const wrap  = { maxWidth: 560, margin: '0 auto', padding: '16px', fontFamily: 'system-ui, sans-serif', color: '#1a1a1a' };
 const card  = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 18, marginBottom: 14 };
@@ -31,6 +39,7 @@ export default function ProfilePage() {
   const [error, setError]       = useState('');
   const [done, setDone]         = useState(false);
   const [badgeImg, setBadgeImg] = useState('');
+  const [evaluation, setEvaluation] = useState(null);  // { tier, label, message, imageUrl } after submit
 
   useEffect(() => {
     if (!token) { setError('Liên kết này thiếu mã. Vui lòng dùng liên kết trong tin nhắn đăng ký của bạn.'); setLoading(false); return; }
@@ -65,7 +74,8 @@ export default function ProfilePage() {
   const submit = async () => {
     setBusy(true); setError('');
     try {
-      await profileAPI.save(token, values);
+      const res = await profileAPI.save(token, values);
+      setEvaluation((res && res.data && res.data.evaluation) || null);
       setDone(true);
     } catch (e) {
       setError(e.message || 'Không thể lưu câu trả lời của bạn. Vui lòng thử lại.');
@@ -95,13 +105,30 @@ export default function ProfilePage() {
   }
 
   if (done) {
+    const stoneImg = evaluation && (STONE_IMAGES[evaluation.tier] || evaluation.imageUrl || '');
     return (
       <div style={wrap}>
+        {/* Stone reveal — the evaluation of the questionnaire. Also sent to the
+            student via e-mail/Zalo; this is their instant on-screen copy. */}
+        {evaluation && (
+          <div style={{ ...card, textAlign: 'center', padding: 28, background: 'linear-gradient(180deg,#fff 0%,#fdf4f5 100%)', border: '1px solid #f3d6da' }}>
+            {stoneImg && (
+              <img src={stoneImg} alt={evaluation.label || evaluation.tier} style={{ width: 96, height: 96, objectFit: 'contain', marginBottom: 10 }} />
+            )}
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#c8102e', marginBottom: 8 }}>
+              Chúc mừng Bạn! {evaluation.label ? `— ${evaluation.label}` : ''}
+            </div>
+            <div style={{ color: '#374151', fontSize: 14, lineHeight: 1.6, textAlign: 'left' }}>
+              {evaluation.message}
+            </div>
+          </div>
+        )}
         {badgeBlock}
         <div style={{ ...card, textAlign: 'center', padding: 28 }}>
           <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, color: '#15803d' }}>Cảm ơn bạn!</div>
           <div style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.5 }}>
-            Câu trả lời của bạn đã được lưu. Các trường tại triển lãm sẽ biết trước mục tiêu của bạn,
+            Câu trả lời của bạn đã được lưu.{evaluation ? ' Kết quả đánh giá cũng đã được gửi tới bạn qua e-mail/Zalo.' : ''} Các
+            trường tại triển lãm sẽ biết trước mục tiêu của bạn,
             giúp bạn dành thời gian cho những điều quan trọng. Hẹn gặp bạn tại sự kiện!
           </div>
         </div>

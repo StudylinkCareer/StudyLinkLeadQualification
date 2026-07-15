@@ -33,6 +33,10 @@ function cfg() {
     oaAccessToken: (process.env.ZALO_OA_ACCESS_TOKEN || '').trim(),
     // The approved ZNS template id (only needed for the ZNS path).
     znsTemplateId: (process.env.ZALO_ZNS_TEMPLATE_ID || '').trim(),
+    // The approved ZNS template id for the questionnaire-evaluation (stone)
+    // message. Separate template, separate approval. Until it is set the
+    // stone-result Zalo send is DORMANT (same pattern as the badge send).
+    znsResultTemplateId: (process.env.ZALO_ZNS_RESULT_TEMPLATE_ID || '').trim(),
     // Which mechanism to use: 'zns' or 'oa'. Defaults to 'zns'.
     method: (process.env.ZALO_SEND_METHOD || 'zns').trim().toLowerCase(),
   };
@@ -225,6 +229,110 @@ async function sendEventBadge({ method, phone, zaloUserId, name = '', eventName 
   return sendBadgeViaZns({ phone, name, eventName, registrationCode, token });
 }
 
+// ---- Stone result (questionnaire evaluation) --------------------------------
+// Send the student their stone evaluation after they submit the "Know you
+// better" questionnaire. Mirrors sendEventBadge:
+//   * ZNS path — pre-approved template ZALO_ZNS_RESULT_TEMPLATE_ID with params
+//       customer_name, event_name, stone_name, registration_code, token
+//     (the template's own button URL points at /profile?t=<token>, which now
+//     shows the stone). DORMANT until that template id is configured.
+//   * OA path  — free-form text with the stone label + full banner message
+//     (followers / 48h window only).
+async function sendStoneResultViaZns({ phone, name, eventName, stoneLabel, registrationCode, token }) {
+  const c = cfg();
+  const to = normalizeVnPhone(phone);
+  if (!to || to.length < 9) {
+    return { sent: false, reason: 'bad_phone', detail: `Unusable phone: ${phone}` };
+  }
+
+  const body = {
+    phone: to,
+    template_id: c.znsResultTemplateId,
+    template_data: {
+      customer_name: name || '',
+      event_name: eventName || '',
+      stone_name: stoneLabel || '',
+      registration_code: registrationCode || '',
+      token: token || '',
+    },
+    // "result_<studentId>_<ts>" — same webhook-fallback convention as the badge.
+    tracking_id: `result_${registrationCode || 'x'}_${Date.now()}`,
+  };
+
+  const post = async (accessToken) => {
+    const res = await fetch('https://business.openapi.zalo.me/message/template', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', access_token: accessToken },
+      body: JSON.stringify(body),
+    });
+    return res.json().catch(() => ({}));
+  };
+
+  try {
+    let data = await post(await getOaAccessToken());
+    if (data && data.error === -124) {
+      try {
+        const fresh = await tokenManager.forceRefresh();
+        data = await post(fresh);
+      } catch (e) {
+        return { sent: false, reason: 'token_refresh_failed', detail: e.message, raw: data };
+      }
+    }
+    if (data && data.error === 0) {
+      return { sent: true, via: 'zns', to, raw: data };
+    }
+    return { sent: false, reason: 'zalo_api_error', detail: friendlyZnsFailure(data), raw: data };
+  } catch (err) {
+    return { sent: false, reason: 'network_error', detail: err.message };
+  }
+}
+
+async function sendStoneResultViaOa({ zaloUserId, name, stoneLabel, stoneMessage, profileUrl }) {
+  if (!zaloUserId) {
+    return { sent: false, reason: 'no_user_id', detail: 'OA send needs a zalo_user_id' };
+  }
+  const text = [
+    name ? `Chúc mừng ${name}!` : 'Chúc mừng bạn!',
+    stoneLabel ? `Kết quả đánh giá của bạn: ${stoneLabel}.` : '',
+    stoneMessage || '',
+    profileUrl ? `Xem chi tiết: ${profileUrl}` : '',
+  ].filter(Boolean).join(' ');
+
+  try {
+    const res = await fetch('https://openapi.zalo.me/v3.0/oa/message/cs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', access_token: await getOaAccessToken() },
+      body: JSON.stringify({ recipient: { user_id: zaloUserId }, message: { text } }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data && data.error === 0) {
+      return { sent: true, via: 'oa', to: zaloUserId, raw: data };
+    }
+    return { sent: false, reason: 'zalo_api_error', detail: friendlyZnsFailure(data), raw: data };
+  } catch (err) {
+    return { sent: false, reason: 'network_error', detail: err.message };
+  }
+}
+
+async function sendStoneResult({ method, phone, zaloUserId, name = '', eventName = '', stoneLabel = '', stoneMessage = '', profileUrl = '', registrationCode = '', token = '' } = {}) {
+  const c = cfg();
+  const m = (method || c.method || 'zns').toLowerCase();
+
+  if (!c.oaAccessToken || (m === 'zns' && !c.znsResultTemplateId)) {
+    return {
+      sent: false,
+      reason: 'zalo_not_configured',
+      detail: 'Stone-result Zalo sending is not set up yet '
+            + '(no OA access token, or ZALO_ZNS_RESULT_TEMPLATE_ID not configured).',
+    };
+  }
+
+  if (m === 'oa') {
+    return sendStoneResultViaOa({ zaloUserId, name, stoneLabel, stoneMessage, profileUrl });
+  }
+  return sendStoneResultViaZns({ phone, name, eventName, stoneLabel, registrationCode, token });
+}
+
 // ---- ZNS delivery-status PULL (Phase 2) ------------------------------------
 // Zalo's US-IP geo-filter blocks the delivery WEBHOOK, so we PULL status by
 // message id instead (an outbound call, which works from our server). Returns
@@ -247,6 +355,7 @@ async function getZnsMessageStatus(messageId) {
 
 module.exports = {
   sendEventBadge,
+  sendStoneResult,
   getZnsMessageStatus,
   isConfigured,
   getStatus,

@@ -17,6 +17,7 @@ import { eventConsoleAPI } from '../services/api';
 import RepsPanel from './RepsPanel';
 import QualificationPanel from './QualificationPanel';
 import { renderBadgePng, dataUrlToBase64 } from '../utils/badgeRenderer';
+import { STONE_IMAGES } from '../utils/stones';
 
 const fmtDate = (d) => { try { return d ? new Date(d).toLocaleDateString() : ''; } catch { return ''; } };
 const fmtTime = (d) => { try { return d ? new Date(d).toLocaleString()    : ''; } catch { return ''; } };
@@ -489,6 +490,14 @@ export default function EventConsole() {
                           <span style={{ color:'#6b7280', fontSize:13, whiteSpace:'nowrap' }}>
                             ✓ Checked in{r.checkedInByName ? ` · ${r.checkedInByName}` : ''}
                           </span>
+                        )}
+                        {STONE_IMAGES[r.stoneTier] && (
+                          <img
+                            src={STONE_IMAGES[r.stoneTier]}
+                            alt={r.stoneTier}
+                            title={r.stoneTier}
+                            style={{ width:30, height:30, objectFit:'contain', flexShrink:0 }}
+                          />
                         )}
                         {r.badgeEmailedAt ? (
                           <span title={`Emailed ${fmtTime(r.badgeEmailedAt)}${r.badgeEmailedTo ? ' to ' + r.badgeEmailedTo : ''}`}

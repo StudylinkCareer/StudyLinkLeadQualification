@@ -25,11 +25,17 @@
 
 const express = require('express');
 const crypto  = require('crypto');
+const path    = require('path');
 const { Pool } = require('pg');
 const { clearQualificationCache, checkStudent } = require('../services/eventQualification');
-const { sendEventQrEmail, sendRepLinkEmail } = require('../services/emailService');
-const { sendEventBadge } = require('../services/zaloService');
+const { sendEventQrEmail, sendStoneResultEmail, sendRepLinkEmail } = require('../services/emailService');
+const { sendEventBadge, sendStoneResult } = require('../services/zaloService');
 const zaloDeliveryPoller = require('../services/zaloDeliveryPoller');
+const { stoneContent, isStoneTier } = require('../utils/stoneContent');
+
+// Public URL of THIS API (e-mail clients fetch badge/stone images from here).
+const publicBase = () => (process.env.PUBLIC_BASE_URL
+  || 'https://studylinkleadqualification-production.up.railway.app').replace(/\/+$/, '');
 
 // Engagement qualification fields collected at check-in belong to the lead, not the
 // person; everything else stays on students.
@@ -59,6 +65,37 @@ async function persistQualificationFields(db, studentId, incoming, allowed) {
                           LIMIT 1)`, lVals);
   }
   return sSets.length + lSets.length;
+}
+
+// Recalculate the questionnaire evaluation (risk score → stone tier) and
+// persist it on the student. Mirrors staffController.calculateRisk: post-split,
+// two scored fields live ONLY on the lead (destination_country, timeline), so
+// overlay them from the first active lead before scoring. Returns the
+// riskResult ({ totalScore, stoneTier, ... }) or null if the student is gone.
+async function recalcStone(studentId) {
+  const Student = require('../models/Student');
+  const { calculateRiskScore } = require('../utils/riskCalculator');
+  const result = await Student.findById(studentId);
+  if (!result) return null;
+
+  const leadRow = (await pool.query(
+    `SELECT destination_country, timeline
+       FROM leads WHERE person_id = $1
+      ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id ASC
+      LIMIT 1`,
+    [studentId]
+  )).rows[0] || {};
+
+  const riskInput = { ...result.data };
+  if (leadRow.destination_country) riskInput.destinationCountry = leadRow.destination_country;
+  if (leadRow.timeline)            riskInput.timeline           = leadRow.timeline;
+
+  const riskResult = calculateRiskScore(riskInput);
+  await Student.update(studentId, {
+    riskScore: String(riskResult.totalScore),
+    stoneTier: riskResult.stoneTier,
+  });
+  return riskResult;
 }
 
 const pool = new Pool({
@@ -142,6 +179,7 @@ router.get('/events/:id/roster', requireStaffAuth, async (req, res) => {
               s.full_name,
               s.email,
               s.phone,
+              s.stone_tier,
               le.status,
               ea.attended_at,
               ea.attendance_token,
@@ -831,7 +869,83 @@ router.get('/profile/:token', async (req, res) => {
   }
 });
 
-// POST /profile/:token — save the student's answers back to their lead.
+// Deliver the questionnaire evaluation (stone + banner message) to the student
+// via e-mail AND Zalo, then stamp the attendee row (result_* columns) so the
+// console can see what went out. Runs fire-and-forget after a questionnaire
+// submit — every failure is logged + stamped, never surfaced to the student.
+async function sendEvaluationMessages({ token, stone, origin }) {
+  const r = await pool.query(
+    `SELECT ea.event_id, ea.student_unique_id, s.full_name, s.email, s.phone, e.name AS event_name
+       FROM event_attendees ea
+       JOIN students s  ON s.student_id = ea.student_unique_id
+       LEFT JOIN events e ON e.id = ea.event_id
+      WHERE ea.attendance_token = $1 LIMIT 1`,
+    [token]
+  );
+  if (r.rowCount === 0) return;
+  const { event_id: eventId, student_unique_id: studentId, full_name: name, event_name: eventName } = r.rows[0];
+  const email = String(r.rows[0].email || '').trim();
+  const phone = String(r.rows[0].phone || '').trim();
+
+  // The evaluation lands on the profile page too — link back to it. The submit
+  // came from that very page, so its Origin header IS the LQ base URL.
+  const lqBase = String(origin || '').trim().replace(/\/+$/, '');
+  const profileUrl = /^https?:\/\//i.test(lqBase)
+    ? `${lqBase}/profile?t=${encodeURIComponent(token)}`
+    : '';
+
+  // E-mail leg.
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    try {
+      await sendStoneResultEmail(email, { name, eventName, stone, profileUrl });
+      await pool.query(
+        `UPDATE event_attendees
+            SET result_emailed_at = NOW(), result_emailed_to = $3, updated_at = NOW()
+          WHERE event_id = $1 AND student_unique_id = $2`,
+        [eventId, studentId, email]
+      );
+    } catch (e) {
+      console.error('[event-console] stone-result email:', e.message);
+    }
+  }
+
+  // Zalo leg (dormant until ZALO_ZNS_RESULT_TEMPLATE_ID is configured).
+  try {
+    const zres = await sendStoneResult({
+      phone,
+      name,
+      eventName,
+      stoneLabel: stone.label,
+      stoneMessage: stone.message,
+      profileUrl,
+      registrationCode: studentId,
+      token,
+    });
+    if (zres.sent) {
+      const msgId = (zres.raw && zres.raw.data && (zres.raw.data.msg_id || zres.raw.data.message_id)) || null;
+      await pool.query(
+        `UPDATE event_attendees
+            SET result_zalo_sent_at = NOW(), result_zalo_status = 'accepted',
+                result_zalo_msg_id = $3, result_zalo_error = NULL, updated_at = NOW()
+          WHERE event_id = $1 AND student_unique_id = $2`,
+        [eventId, studentId, msgId]
+      );
+    } else if (zres.reason !== 'zalo_not_configured') {
+      await pool.query(
+        `UPDATE event_attendees
+            SET result_zalo_status = 'failed', result_zalo_error = $3, updated_at = NOW()
+          WHERE event_id = $1 AND student_unique_id = $2`,
+        [eventId, studentId, zres.detail || zres.reason || 'error']
+      );
+    }
+  } catch (e) {
+    console.error('[event-console] stone-result zalo:', e.message);
+  }
+}
+
+// POST /profile/:token — save the student's answers back to their lead, then
+// recalculate their evaluation (stone). The fresh evaluation is returned to the
+// page (thank-you reveal) and sent to the student via e-mail + Zalo.
 router.post('/profile/:token', async (req, res) => {
   const token = String(req.params.token || '').trim();
   if (!token) return res.status(400).json({ success: false, error: 'Missing link code' });
@@ -849,7 +963,23 @@ router.post('/profile/:token', async (req, res) => {
     const allowed = new Set(cat.rows.map((x) => x.field_key).filter((k) => !PROFILE_EXCLUDE.includes(k)));
     const saved = await persistQualificationFields(pool, uid, incoming, allowed);
     if (!saved) return res.status(400).json({ success: false, error: 'Nothing to save' });
-    res.json({ success: true });
+
+    // Evaluate the questionnaire. Never let scoring/sending break the save —
+    // the student's answers are already committed at this point.
+    let evaluation = null;
+    try {
+      const risk = await recalcStone(uid);
+      if (risk && isStoneTier(risk.stoneTier)) {
+        const stone = stoneContent(risk.stoneTier, 'vi', publicBase());
+        evaluation = { ...stone, score: risk.totalScore, maxScore: risk.maxScore };
+        sendEvaluationMessages({ token, stone, origin: req.get('origin') || '' })
+          .catch((e) => console.error('[event-console] evaluation send:', e.message));
+      }
+    } catch (e) {
+      console.error('[event-console] profile recalc:', e.message);
+    }
+
+    res.json({ success: true, data: { evaluation } });
   } catch (err) {
     console.error('[event-console] profile save:', err);
     res.status(500).json({ success: false, error: 'Failed to save your answers' });
@@ -878,6 +1008,18 @@ router.get('/badge-image/:token', async (req, res) => {
     console.error('[event-console] badge-image:', err);
     return res.status(500).send('Error');
   }
+});
+
+// GET /stone-image/:tier -- PUBLIC (no auth). Serves the stone-tier PNG so the
+// evaluation e-mails can embed it as a plain <img>. Tier is whitelisted against
+// the canonical names, so no path input ever reaches the filesystem.
+router.get('/stone-image/:tier', (req, res) => {
+  const tier = String(req.params.tier || '').trim();
+  if (!isStoneTier(tier)) return res.status(404).send('Not found');
+  res.set('Cache-Control', 'public, max-age=604800');
+  res.sendFile(path.join(__dirname, '..', 'assets', 'stones', `${tier.toLowerCase()}.png`), (err) => {
+    if (err && !res.headersSent) res.status(404).send('Not found');
+  });
 });
 
 // POST /events/:id/issue-token/:studentId -- unconditionally mint (or return
@@ -941,9 +1083,11 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
       [eventId, studentId, mintToken]
     );
 
-    // Real (unmasked) name + email straight from the students row.
+    // Real (unmasked) name + email straight from the students row. stone_tier
+    // rides along: when the student already has an evaluation the badge e-mail
+    // includes the stone banner (image + congratulatory message).
     const sres = await pool.query(
-      `SELECT full_name, email FROM students WHERE student_id = $1 LIMIT 1`,
+      `SELECT full_name, email, stone_tier FROM students WHERE student_id = $1 LIMIT 1`,
       [studentId]
     );
     if (sres.rowCount === 0) {
@@ -964,9 +1108,11 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
     // Public URL where Gmail will fetch the badge image when the student opens
     // the email. Token is an unguessable UUID, so the route can be public.
     const attToken = att.rows[0].attendance_token;
-    const PUBLIC_BASE = (process.env.PUBLIC_BASE_URL
-      || 'https://studylinkleadqualification-production.up.railway.app').replace(/\/+$/, '');
+    const PUBLIC_BASE = publicBase();
     const badgeImageUrl = `${PUBLIC_BASE}/api/event-console/badge-image/${attToken}`;
+
+    // Stone banner content (null when unscored -> e-mail renders as before).
+    const stone = stoneContent(sres.rows[0].stone_tier, 'vi', PUBLIC_BASE);
 
     // Public "Know you better" form link — pre-fills known fields, lets the
     // student complete the rest, Submit writes back to their lead. Base URL is
@@ -983,6 +1129,7 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
       badgeImageUrl,
       badgePngBase64: badgePng,
       profileUrl,
+      stone,
     });
 
     const upd = await pool.query(

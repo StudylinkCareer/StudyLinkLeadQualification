@@ -27,16 +27,20 @@ async function sendOTPEmail(to, otp) {
 // Email a rendered event registration badge (PNG) via the same GAS relay.
 // The relay's doPost branches on type === 'event_badge'.
 //   to     - recipient email
-//   fields - { name, eventName, badgeUrl, badgePngBase64, profileUrl }
+//   fields - { name, eventName, badgeUrl, badgePngBase64, profileUrl, stone }
 //   profileUrl - public "Know you better" form link (/profile?t=<token>); when
 //                present the relay renders a button under the badge image.
-async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', badgePngBase64 = '', profileUrl = '' } = {}) {
+//   stone      - { tier, label, message, imageUrl } from utils/stoneContent;
+//                when present the relay renders the stone banner (image +
+//                congratulatory message) under the badge. Omitted for
+//                unscored students -> the e-mail renders exactly as before.
+async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', badgePngBase64 = '', profileUrl = '', stone = null } = {}) {
   const gasUrl = config.gas.sendOtpUrl;
   if (!badgePngBase64) {
     throw new Error('badgePngBase64 is required');
   }
   if (!gasUrl) {
-    console.log(`[DEV] event badge email for ${to} (${eventName || 'event'})`);
+    console.log(`[DEV] event badge email for ${to} (${eventName || 'event'})${stone ? ` incl. stone ${stone.tier}` : ''}`);
     return { success: true, mode: 'dev-console' };
   }
   const response = await fetch(gasUrl, {
@@ -50,6 +54,10 @@ async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', 
       badgeUrl,
       badgePng: badgePngBase64,
       profileUrl,
+      stoneTier:     stone ? stone.tier     : '',
+      stoneLabel:    stone ? stone.label    : '',
+      stoneMessage:  stone ? stone.message  : '',
+      stoneImageUrl: stone ? stone.imageUrl : '',
       from: 'info@studylink.org',
     }),
     redirect: 'follow',
@@ -62,6 +70,48 @@ async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', 
     throw new Error(result.error || 'GAS badge email sending failed');
   }
   console.log(`Event badge email sent to ${to} via GAS`);
+  return result;
+}
+
+// Email a student their questionnaire evaluation (stone) via the same GAS
+// relay. Sent automatically when the "Know you better" questionnaire is
+// submitted. The relay's doPost branches on type === 'stone_result'.
+//   to     - recipient email
+//   fields - { name, eventName, stone: { tier, label, message, imageUrl }, profileUrl }
+async function sendStoneResultEmail(to, { name = '', eventName = '', stone = null, profileUrl = '' } = {}) {
+  const gasUrl = config.gas.sendOtpUrl;
+  if (!stone || !stone.tier) {
+    throw new Error('stone is required');
+  }
+  if (!gasUrl) {
+    console.log(`[DEV] stone result email for ${to}: ${stone.tier}`);
+    return { success: true, mode: 'dev-console' };
+  }
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'stone_result',
+      email: to,
+      name,
+      eventName,
+      stoneTier:     stone.tier,
+      stoneLabel:    stone.label,
+      stoneMessage:  stone.message,
+      stoneImageUrl: stone.imageUrl,
+      profileUrl,
+      from: 'info@studylink.org',
+    }),
+    redirect: 'follow',
+  });
+  if (!response.ok) {
+    throw new Error(`GAS stone-result email failed: ${response.status} ${response.statusText}`);
+  }
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(result.error || 'GAS stone-result email sending failed');
+  }
+  console.log(`Stone result email sent to ${to} via GAS`);
   return result;
 }
 
@@ -102,4 +152,4 @@ async function sendRepLinkEmail(to, { name = '', eventName = '', link = '' } = {
   return result;
 }
 
-module.exports = { sendOTPEmail, sendEventQrEmail, sendRepLinkEmail };
+module.exports = { sendOTPEmail, sendEventQrEmail, sendStoneResultEmail, sendRepLinkEmail };
