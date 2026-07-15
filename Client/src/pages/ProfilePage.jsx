@@ -12,7 +12,7 @@
 
 import { useState, useEffect } from 'react';
 import { profileAPI } from '../services/api';
-import { renderBadgePng } from '../utils/badgeRenderer';
+import { renderBadgePng, dataUrlToBase64 } from '../utils/badgeRenderer';
 import quartzImg   from '../Assets/Stones/quartz.png';
 import agateImg    from '../Assets/Stones/agate.png';
 import sapphireImg from '../Assets/Stones/sapphire.png';
@@ -41,6 +41,16 @@ export default function ProfilePage() {
   const [badgeImg, setBadgeImg] = useState('');
   const [evaluation, setEvaluation] = useState(null);  // { tier, label, message, imageUrl } after submit
 
+  // Render the badge QR. Once the student has a stone, it sits in the centre
+  // of the QR in place of the StudyLink logo (error correction level H keeps
+  // the code scannable).
+  const renderBadge = (name, stoneTier) =>
+    renderBadgePng({
+      data: token,
+      title: name,
+      ...(stoneTier && STONE_IMAGES[stoneTier] ? { logoUrl: STONE_IMAGES[stoneTier] } : {}),
+    });
+
   useEffect(() => {
     if (!token) { setError('Liên kết này thiếu mã. Vui lòng dùng liên kết trong tin nhắn đăng ký của bạn.'); setLoading(false); return; }
     (async () => {
@@ -55,19 +65,16 @@ export default function ProfilePage() {
         fs.forEach((f) => { init[f.fieldKey] = f.value || ''; });
         setValues(init);
 
-        // Render the registration badge (QR encodes the bare token, same as
-        // BadgePage). The badge is a bonus on top of the form - never let a
-        // render hiccup block the page, so swallow its errors.
-        renderBadgePng({ data: token, title: name })
-          .then(setBadgeImg)
-          .catch(() => {});
+        // The badge is a bonus on top of the form - never let a render hiccup
+        // block the page, so swallow its errors.
+        renderBadge(name, d.stoneTier).then(setBadgeImg).catch(() => {});
       } catch (e) {
         setError(e.message || 'Chúng tôi không tìm thấy đăng ký của bạn cho liên kết này.');
       } finally {
         setLoading(false);
       }
     })();
-  }, [token]);
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setVal = (k, v) => setValues((prev) => ({ ...prev, [k]: v }));
 
@@ -75,8 +82,23 @@ export default function ProfilePage() {
     setBusy(true); setError('');
     try {
       const res = await profileAPI.save(token, values);
-      setEvaluation((res && res.data && res.data.evaluation) || null);
+      const evln = (res && res.data && res.data.evaluation) || null;
+      setEvaluation(evln);
       setDone(true);
+
+      // Render the UPDATED badge (stone now in the centre) and post it back —
+      // the server attaches it to the follow-up e-mail/Zalo. Best-effort with
+      // one retry; the answers are already saved either way.
+      if (evln && evln.tier) {
+        renderBadge(fullName, evln.tier)
+          .then(async (url) => {
+            setBadgeImg(url);
+            const png = dataUrlToBase64(url);
+            try { await profileAPI.saveBadge(token, png); }
+            catch { try { await profileAPI.saveBadge(token, png); } catch { /* answers already saved */ } }
+          })
+          .catch(() => {});
+      }
     } catch (e) {
       setError(e.message || 'Không thể lưu câu trả lời của bạn. Vui lòng thử lại.');
     } finally {

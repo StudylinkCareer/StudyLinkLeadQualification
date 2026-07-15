@@ -295,7 +295,8 @@ async function sendStoneResultViaOa({ zaloUserId, name, stoneLabel, stoneMessage
     name ? `Chúc mừng ${name}!` : 'Chúc mừng bạn!',
     stoneLabel ? `Kết quả đánh giá của bạn: ${stoneLabel}.` : '',
     stoneMessage || '',
-    profileUrl ? `Xem chi tiết: ${profileUrl}` : '',
+    'Cảm ơn bạn đã đăng ký tham dự triển lãm của chúng tôi – chúng tôi rất mong được đón tiếp bạn!',
+    profileUrl ? `Xem thẻ tham dự mới của bạn: ${profileUrl}` : '',
   ].filter(Boolean).join(' ');
 
   try {

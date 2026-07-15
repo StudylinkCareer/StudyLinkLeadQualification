@@ -862,18 +862,24 @@ router.get('/profile/:token', async (req, res) => {
     const student = r.rows[0];
     const all = await buildCheckinFields(student, 'vi');   // student-facing page is Vietnamese
     const fields = all.filter((f) => !PROFILE_EXCLUDE.includes(f.fieldKey));
-    res.json({ success: true, data: { fullName: student.full_name, fields } });
+    // stoneTier lets the page centre the badge QR on the student's stone.
+    res.json({ success: true, data: {
+      fullName: student.full_name,
+      fields,
+      stoneTier: isStoneTier(student.stone_tier) ? student.stone_tier : '',
+    } });
   } catch (err) {
     console.error('[event-console] profile get:', err);
     res.status(500).json({ success: false, error: 'Failed to load your questions' });
   }
 });
 
-// Deliver the questionnaire evaluation (stone + banner message) to the student
-// via e-mail AND Zalo, then stamp the attendee row (result_* columns) so the
-// console can see what went out. Runs fire-and-forget after a questionnaire
-// submit — every failure is logged + stamped, never surfaced to the student.
-async function sendEvaluationMessages({ token, stone, origin }) {
+// Deliver the questionnaire evaluation to the student via e-mail AND Zalo,
+// then stamp the attendee row (result_* columns) so the console can see what
+// went out. The e-mail carries the UPDATED badge (stone-centred QR, uploaded
+// by the page after submit) + the stone banner. Runs fire-and-forget — every
+// failure is logged + stamped, never surfaced to the student.
+async function sendEvaluationMessages({ token, stone, origin, badgePng = '' }) {
   const r = await pool.query(
     `SELECT ea.event_id, ea.student_unique_id, s.full_name, s.email, s.phone, e.name AS event_name
        FROM event_attendees ea
@@ -894,10 +900,17 @@ async function sendEvaluationMessages({ token, stone, origin }) {
     ? `${lqBase}/profile?t=${encodeURIComponent(token)}`
     : '';
 
+  // The updated badge is served from the public badge-image route (stored just
+  // before this runs) — referenced by URL, never attached, so mail clients
+  // can't render a duplicate thumbnail of it.
+  const badgeImageUrl = badgePng
+    ? `${publicBase()}/api/event-console/badge-image/${encodeURIComponent(token)}?v=${Date.now()}`
+    : '';
+
   // E-mail leg.
   if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     try {
-      await sendStoneResultEmail(email, { name, eventName, stone, profileUrl });
+      await sendStoneResultEmail(email, { name, eventName, stone, profileUrl, badgeImageUrl });
       await pool.query(
         `UPDATE event_attendees
             SET result_emailed_at = NOW(), result_emailed_to = $3, updated_at = NOW()
@@ -964,16 +977,17 @@ router.post('/profile/:token', async (req, res) => {
     const saved = await persistQualificationFields(pool, uid, incoming, allowed);
     if (!saved) return res.status(400).json({ success: false, error: 'Nothing to save' });
 
-    // Evaluate the questionnaire. Never let scoring/sending break the save —
-    // the student's answers are already committed at this point.
+    // Evaluate the questionnaire. Never let scoring break the save — the
+    // student's answers are already committed at this point. The follow-up
+    // e-mail/Zalo is NOT sent here: the page renders the updated stone-centred
+    // badge and posts it to /profile/:token/badge, which sends the follow-up
+    // with that badge attached.
     let evaluation = null;
     try {
       const risk = await recalcStone(uid);
       if (risk && isStoneTier(risk.stoneTier)) {
         const stone = stoneContent(risk.stoneTier, 'vi', publicBase());
         evaluation = { ...stone, score: risk.totalScore, maxScore: risk.maxScore };
-        sendEvaluationMessages({ token, stone, origin: req.get('origin') || '' })
-          .catch((e) => console.error('[event-console] evaluation send:', e.message));
       }
     } catch (e) {
       console.error('[event-console] profile recalc:', e.message);
@@ -983,6 +997,42 @@ router.post('/profile/:token', async (req, res) => {
   } catch (err) {
     console.error('[event-console] profile save:', err);
     res.status(500).json({ success: false, error: 'Failed to save your answers' });
+  }
+});
+
+// POST /profile/:token/badge — the page posts the freshly rendered
+// stone-centred badge PNG right after a questionnaire submit. We store it
+// (badge_png feeds /badge-image/:token) and send the follow-up communication:
+// updated badge + stone banner + thank-you, via e-mail and Zalo.
+router.post('/profile/:token/badge', async (req, res) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) return res.status(400).json({ success: false, error: 'Missing link code' });
+  const badgePng = String(req.body.badgePng || '').trim();
+  if (!badgePng) return res.status(400).json({ success: false, error: 'badgePng is required' });
+  if (badgePng.length > 2 * 1024 * 1024) {
+    return res.status(400).json({ success: false, error: 'Badge image too large' });
+  }
+  try {
+    const r = await pool.query(
+      `UPDATE event_attendees ea
+          SET badge_png = $2, updated_at = NOW()
+         FROM students s
+        WHERE ea.attendance_token = $1 AND s.student_id = ea.student_unique_id
+        RETURNING s.stone_tier`,
+      [token, badgePng]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ success: false, error: 'Link not recognised' });
+
+    const tier = r.rows[0].stone_tier;
+    if (isStoneTier(tier)) {
+      const stone = stoneContent(tier, 'vi', publicBase());
+      sendEvaluationMessages({ token, stone, origin: req.get('origin') || '', badgePng })
+        .catch((e) => console.error('[event-console] evaluation send:', e.message));
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[event-console] profile badge:', err);
+    res.status(500).json({ success: false, error: 'Failed to store your badge' });
   }
 });
 
@@ -1083,11 +1133,12 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
       [eventId, studentId, mintToken]
     );
 
-    // Real (unmasked) name + email straight from the students row. stone_tier
-    // rides along: when the student already has an evaluation the badge e-mail
-    // includes the stone banner (image + congratulatory message).
+    // Real (unmasked) name + email straight from the students row. The full row
+    // rides along: stone_tier drives the stone banner, and the qualification
+    // gate (checkStudent) decides which questionnaire copy the e-mail shows
+    // ("please complete" vs "review/update your answers").
     const sres = await pool.query(
-      `SELECT full_name, email, stone_tier FROM students WHERE student_id = $1 LIMIT 1`,
+      `SELECT * FROM students WHERE student_id = $1 LIMIT 1`,
       [studentId]
     );
     if (sres.rowCount === 0) {
@@ -1109,10 +1160,15 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
     // the email. Token is an unguessable UUID, so the route can be public.
     const attToken = att.rows[0].attendance_token;
     const PUBLIC_BASE = publicBase();
-    const badgeImageUrl = `${PUBLIC_BASE}/api/event-console/badge-image/${attToken}`;
+    // ?v busts mail-proxy caches when the badge is later re-rendered (stone).
+    const badgeImageUrl = `${PUBLIC_BASE}/api/event-console/badge-image/${attToken}?v=${Date.now()}`;
 
     // Stone banner content (null when unscored -> e-mail renders as before).
     const stone = stoneContent(sres.rows[0].stone_tier, 'vi', PUBLIC_BASE);
+
+    // Has the student answered every required questionnaire field?
+    let questionnaireComplete = false;
+    try { questionnaireComplete = (await checkStudent(pool, sres.rows[0])).qualified; } catch (_) {}
 
     // Public "Know you better" form link — pre-fills known fields, lets the
     // student complete the rest, Submit writes back to their lead. Base URL is
@@ -1122,14 +1178,25 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
       ? `${lqBase}/profile?t=${encodeURIComponent(attToken)}`
       : '';
 
+    // Store the rendered badge BEFORE sending: the e-mail shows it via the
+    // public /badge-image/:token URL (no attachment -> mail clients can't
+    // render a duplicate thumbnail of it at the end of the message).
+    await pool.query(
+      `UPDATE event_attendees
+          SET badge_png = $3, updated_at = NOW()
+        WHERE event_id = $1 AND student_unique_id = $2`,
+      [eventId, studentId, badgePng]
+    );
+
     await sendEventQrEmail(recipient, {
       name: studentName,
       eventName,
       badgeUrl,
       badgeImageUrl,
-      badgePngBase64: badgePng,
+      badgePngBase64: badgePng,   // legacy fallback while the old GAS template is live
       profileUrl,
       stone,
+      questionnaireComplete,
     });
 
     const upd = await pool.query(

@@ -2,11 +2,17 @@
 // One web app, four message types:
 //   1) OTP email (EXISTING, unchanged):   { email, otp }
 //   2) Event registration badge:          { type:'event_badge', email, name, eventName, badgeUrl,
-//                                           badgePng(base64), profileUrl,
+//                                           badgeImageUrl (hosted), badgePng(base64, legacy fallback),
+//                                           profileUrl, questionnaireComplete,
 //                                           stoneTier, stoneLabel, stoneMessage, stoneImageUrl }
 //   3) Rep one-click sign-in link:        { type:'rep_link', email, name, eventName, link }
-//   4) Questionnaire evaluation (NEW):    { type:'stone_result', email, name, eventName,
-//                                           stoneTier, stoneLabel, stoneMessage, stoneImageUrl, profileUrl }
+//   4) Questionnaire evaluation:          { type:'stone_result', email, name, eventName,
+//                                           stoneTier, stoneLabel, stoneMessage, stoneImageUrl,
+//                                           profileUrl, badgeImageUrl (hosted updated badge) }
+//
+// Badge images are referenced by HOSTED URL (the server's /badge-image route),
+// NOT attached inline - attachments show up a second time as a thumbnail at
+// the end of the message in iPhone Mail and some other clients.
 //
 // IMPORTANT when updating: Deploy > Manage deployments > edit the EXISTING
 // deployment > New version. That keeps the same /exec URL so OTP + badge both
@@ -91,9 +97,11 @@ function stoneBlock_(data, imgWidth) {
 }
 
 // -- Questionnaire evaluation (stone) result sender ----------------------
-// Sent automatically when the student submits the "Know you better"
-// questionnaire. { type:'stone_result', email, name, eventName, stoneTier,
-// stoneLabel, stoneMessage, stoneImageUrl, profileUrl }
+// Sent automatically every time the student submits the "Know you better"
+// questionnaire: their UPDATED badge (stone-centred QR, hosted image), the
+// stone banner, and a thank-you. { type:'stone_result', email, name,
+// eventName, stoneTier, stoneLabel, stoneMessage, stoneImageUrl, profileUrl,
+// badgeImageUrl }
 function sendStoneResult_(data) {
   var to = data.email;
 
@@ -107,25 +115,39 @@ function sendStoneResult_(data) {
   var eventName = data.eventName || '';
   var profileUrl = data.profileUrl || '';
   var safeProfile = String(profileUrl).replace(/"/g, '&quot;');
+  var badgeImageUrl = data.badgeImageUrl || '';
 
-  var subject = 'Kết quả đánh giá của bạn'
+  var subject = 'Kết quả đánh giá & thẻ tham dự mới của bạn'
     + (eventName ? ' — ' + eventName : '');
+
+  // The updated badge, referenced by hosted URL (never attached).
+  var badgeBlock = '';
+  if (badgeImageUrl) {
+    badgeBlock =
+        '<div style="text-align:center;margin:20px 0;">'
+      + '<img src="' + String(badgeImageUrl).replace(/"/g, '&quot;') + '" alt="Thẻ tham dự của bạn" style="max-width:320px;width:100%;height:auto;border:0;"/>'
+      + '</div>'
+      + '<p style="background:#fff1f2;border:1px solid #fed7aa;border-radius:8px;padding:12px;font-size:14px;color:#9a3412;margin:0 0 16px;">'
+      + 'Đây là thẻ tham dự MỚI của bạn (viên đá của bạn nằm giữa mã QR). '
+      + 'Trên điện thoại, nhấn giữ vào thẻ rồi chọn Lưu hình ảnh; sau đó xuất trình tại mỗi gian hàng.</p>';
+  }
 
   var profileBtn = '';
   if (profileUrl) {
     profileBtn =
         '<div style="text-align:center;margin:24px 0 0;">'
-      + '<a href="' + safeProfile + '" style="display:inline-block;background:#c8102e;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 28px;border-radius:8px;font-size:16px;">Xem hồ sơ &amp; thẻ tham dự của tôi</a>'
+      + '<a href="' + safeProfile + '" style="display:inline-block;background:#c8102e;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 28px;border-radius:8px;font-size:16px;">Xem thẻ &amp; cập nhật câu trả lời</a>'
       + '</div>';
   }
 
   var html = '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px;color:#1a1a1a;">'
     + '<h2 style="color:#c8102e;margin:0 0 12px;">Kết Quả Đánh Giá Của Bạn</h2>'
     + (name ? '<p style="margin:0 0 12px;">Chào ' + name + ',</p>' : '')
-    + '<p style="margin:0 0 16px;">Cảm ơn bạn đã hoàn thành bảng câu hỏi'
-    + (eventName ? ' cho <strong>' + eventName + '</strong>' : '')
-    + '. Đây là kết quả đánh giá của bạn:</p>'
+    + '<p style="margin:0 0 16px;">Cảm ơn bạn đã đăng ký tham dự triển lãm của chúng tôi'
+    + (eventName ? ' — <strong>' + eventName + '</strong>' : '')
+    + ' — chúng tôi rất mong được đón tiếp bạn! Dưới đây là kết quả đánh giá và thẻ tham dự mới của bạn.</p>'
     + stoneBlock_(data, 110)
+    + badgeBlock
     + profileBtn
     + '<p style="color:#888;font-size:12px;margin-top:24px;">StudyLink - Kiến tạo tương lai của bạn</p>'
     + '</div>';
@@ -192,17 +214,21 @@ function sendRepLink_(data) {
 }
 
 // -- Event registration badge sender -----------------------------------
-// Emails the badge PNG inline (cid). When a profileUrl is supplied, also shows
-// a "Help us know you better" button that opens the student's pre-filled form.
-// When stoneTier is supplied (student already evaluated), a stone banner with
-// the congratulatory message renders under the badge.
+// Emails the badge via its hosted image URL (preferred; no attachment so mail
+// clients can't render a duplicate thumbnail). Falls back to inline cid if
+// only badgePng is supplied. The questionnaire block adapts:
+//   questionnaireComplete=false -> "please complete the remaining questions"
+//   questionnaireComplete=true  -> "you can review/update your answers"
+// When stoneTier is supplied (student already evaluated), the stone banner
+// with the congratulatory message renders under the badge.
 function sendEventBadge_(data) {
   var to = data.email;
+  var badgeImageUrl = data.badgeImageUrl || '';
   var pngB64 = data.badgePng || '';
 
-  if (!to || !pngB64) {
+  if (!to || (!badgeImageUrl && !pngB64)) {
     return ContentService.createTextOutput(
-      JSON.stringify({ success: false, error: 'Missing email or badgePng' })
+      JSON.stringify({ success: false, error: 'Missing email or badge image' })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -210,25 +236,34 @@ function sendEventBadge_(data) {
   var eventName = data.eventName || '';
   var profileUrl = data.profileUrl || '';
   var safeProfile = String(profileUrl).replace(/"/g, '&quot;');
-
-  var blob = Utilities.newBlob(
-    Utilities.base64Decode(pngB64), 'image/png', 'studylink-registration-badge.png'
-  );
+  var complete = data.questionnaireComplete === true || data.questionnaireComplete === 'true';
 
   var subject = 'Thẻ đăng ký StudyLink của bạn'
     + ' — Sự Kiện Quốc Tế VIP 18.7.2026';
 
-  // Optional "know you better" form block - only when a profileUrl is sent.
+  // Optional questionnaire block - only when a profileUrl is sent. Copy and
+  // button depend on whether every required question is already answered.
   var profileBlock = '';
   if (profileUrl) {
+    var pIntro, pButton;
+    if (complete) {
+      pIntro = '<h3 style="color:#c8102e;margin:0 0 8px;font-size:16px;">Câu trả lời của bạn đã đầy đủ</h3>'
+        + '<p style="margin:0 0 16px;">Cảm ơn bạn đã hoàn thành bảng câu hỏi. '
+        + 'Nếu có gì thay đổi, bạn có thể xem lại và cập nhật câu trả lời bất cứ lúc nào trước sự kiện — '
+        + 'thẻ tham dự và kết quả đánh giá của bạn sẽ được cập nhật theo.</p>';
+      pButton = 'Xem / cập nhật câu trả lời';
+    } else {
+      pIntro = '<h3 style="color:#c8102e;margin:0 0 8px;font-size:16px;">Giúp chúng tôi hiểu bạn hơn</h3>'
+        + '<p style="margin:0 0 16px;">Chúng tôi đã bắt đầu hồ sơ của bạn với những thông tin hiện có. '
+        + 'Vui lòng dành chút thời gian điền nốt phần còn lại để Cố vấn của chúng tôi có thể đưa ra lời khuyên tốt nhất cho bạn tại '
+        + '<strong>Sự Kiện Quốc Tế VIP 18.7.2026</strong>. Việc này chỉ mất một chút thời gian.</p>';
+      pButton = 'Hoàn tất hồ sơ của tôi';
+    }
     profileBlock =
         '<div style="border-top:1px solid #eee;margin:24px 0 0;padding-top:18px;">'
-      + '<h3 style="color:#c8102e;margin:0 0 8px;font-size:16px;">Giúp chúng tôi hiểu bạn hơn</h3>'
-      + '<p style="margin:0 0 16px;">Chúng tôi đã bắt đầu hồ sơ của bạn với những thông tin hiện có. '
-      + 'Vui lòng dành chút thời gian điền nốt phần còn lại để Cố vấn của chúng tôi có thể đưa ra lời khuyên tốt nhất cho bạn tại '
-      + '<strong>Sự Kiện Quốc Tế VIP 18.7.2026 </strong>' + '. Việc này chỉ mất một chút thời gian.</p>'
+      + pIntro
       + '<div style="text-align:center;margin:20px 0;">'
-      + '<a href="' + safeProfile + '" style="display:inline-block;background:#c8102e;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 28px;border-radius:8px;font-size:16px;">Hoàn tất hồ sơ của tôi</a>'
+      + '<a href="' + safeProfile + '" style="display:inline-block;background:#c8102e;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 28px;border-radius:8px;font-size:16px;">' + pButton + '</a>'
       + '</div>'
       + '<p style="font-size:13px;color:#666;margin:0 0 6px;">Nếu nút này không hoạt động, vui lòng dán liên kết sau vào trình duyệt của bạn:</p>'
       + '<p style="font-size:12px;color:#2563eb;word-break:break-all;margin:0 0 16px;">' + safeProfile + '</p>'
@@ -244,6 +279,11 @@ function sendEventBadge_(data) {
     + '<p style="margin:0;"><a href="https://www.facebook.com/share/p/1NwkSnZFbe/" style="color:#2563eb;word-break:break-all;">https://www.facebook.com/share/p/1NwkSnZFbe/</a></p>'
     + '</div>';
 
+  // Badge: hosted URL preferred; cid inline only as legacy fallback.
+  var badgeImgTag = badgeImageUrl
+    ? '<img src="' + String(badgeImageUrl).replace(/"/g, '&quot;') + '" alt="Thẻ đăng ký" style="max-width:320px;width:100%;height:auto;border:0;"/>'
+    : '<img src="cid:badge" alt="Thẻ đăng ký" style="max-width:320px;width:100%;height:auto;border:0;"/>';
+
   var html = '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px;color:#1a1a1a;">'
     + '<h2 style="color:#c8102e;margin:0 0 12px;">Thẻ Tham Dự Sự Kiện Quốc Tế VIP 18/7</h2>'
     + (name ? '<p style="margin:0 0 12px;">Chào ' + name + ',</p>' : '')
@@ -251,7 +291,7 @@ function sendEventBadge_(data) {
     + 'Vui lòng xuất trình mã QR này tại Sự Kiện và tại mỗi gian hàng để được Trường cố vấn học bổng và lộ trình cho Bạn.</p>'
     + eventInfoBlock
     + '<div style="text-align:center;margin:20px 0;">'
-    + '<img src="cid:badge" alt="Thẻ đăng ký" style="max-width:320px;width:100%;height:auto;border:0;"/>'
+    + badgeImgTag
     + '</div>'
     + '<p style="background:#fff1f2;border:1px solid #fed7aa;border-radius:8px;padding:12px;font-size:14px;color:#9a3412;margin:0 0 16px;">'
     + 'Để lưu lại: trên điện thoại, nhấn giữ vào thẻ ở trên rồi chọn Lưu hình ảnh; '
@@ -261,13 +301,18 @@ function sendEventBadge_(data) {
     + '<p style="color:#888;font-size:12px;margin-top:24px;">StudyLink - Kiến tạo tương lai của bạn</p>'
     + '</div>';
 
-  MailApp.sendEmail({
+  var mail = {
     to: to,
     subject: subject,
     htmlBody: html,
-    inlineImages: { badge: blob },
     name: 'StudyLink'
-  });
+  };
+  if (!badgeImageUrl) {
+    mail.inlineImages = {
+      badge: Utilities.newBlob(Utilities.base64Decode(pngB64), 'image/png', 'studylink-registration-badge.png')
+    };
+  }
+  MailApp.sendEmail(mail);
 
   return ContentService.createTextOutput(
     JSON.stringify({ success: true })

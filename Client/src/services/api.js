@@ -77,6 +77,9 @@ export const lookupAPI = {
 export const profileAPI = {
   get:  (token)         => api.get(`/event-console/profile/${encodeURIComponent(token)}`),
   save: (token, fields) => api.post(`/event-console/profile/${encodeURIComponent(token)}`, { fields }),
+  // Post the freshly rendered stone-centred badge; the server stores it and
+  // sends the follow-up e-mail/Zalo with this badge attached.
+  saveBadge: (token, badgePng) => api.post(`/event-console/profile/${encodeURIComponent(token)}/badge`, { badgePng }),
 };
 
 // ── Event desk (Phase 2.2) — public rep flow, Bearer-token auth ──

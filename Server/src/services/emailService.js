@@ -34,7 +34,10 @@ async function sendOTPEmail(to, otp) {
 //                when present the relay renders the stone banner (image +
 //                congratulatory message) under the badge. Omitted for
 //                unscored students -> the e-mail renders exactly as before.
-async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', badgePngBase64 = '', profileUrl = '', stone = null } = {}) {
+//   questionnaireComplete - drives the questionnaire block's copy: false ->
+//                "please complete the remaining questions"; true -> "you can
+//                review/update your answers".
+async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', badgeImageUrl = '', badgePngBase64 = '', profileUrl = '', stone = null, questionnaireComplete = false } = {}) {
   const gasUrl = config.gas.sendOtpUrl;
   if (!badgePngBase64) {
     throw new Error('badgePngBase64 is required');
@@ -52,12 +55,14 @@ async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', 
       name,
       eventName,
       badgeUrl,
+      badgeImageUrl,
       badgePng: badgePngBase64,
       profileUrl,
       stoneTier:     stone ? stone.tier     : '',
       stoneLabel:    stone ? stone.label    : '',
       stoneMessage:  stone ? stone.message  : '',
       stoneImageUrl: stone ? stone.imageUrl : '',
+      questionnaireComplete: !!questionnaireComplete,
       from: 'info@studylink.org',
     }),
     redirect: 'follow',
@@ -73,12 +78,14 @@ async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', 
   return result;
 }
 
-// Email a student their questionnaire evaluation (stone) via the same GAS
-// relay. Sent automatically when the "Know you better" questionnaire is
-// submitted. The relay's doPost branches on type === 'stone_result'.
+// Email a student their questionnaire evaluation via the same GAS relay:
+// the UPDATED stone-centred badge (inline PNG) + the stone banner + thank-you.
+// Sent automatically when the "Know you better" questionnaire is submitted.
+// The relay's doPost branches on type === 'stone_result'.
 //   to     - recipient email
-//   fields - { name, eventName, stone: { tier, label, message, imageUrl }, profileUrl }
-async function sendStoneResultEmail(to, { name = '', eventName = '', stone = null, profileUrl = '' } = {}) {
+//   fields - { name, eventName, stone: { tier, label, message, imageUrl },
+//              profileUrl, badgeImageUrl (public URL of the updated badge) }
+async function sendStoneResultEmail(to, { name = '', eventName = '', stone = null, profileUrl = '', badgeImageUrl = '' } = {}) {
   const gasUrl = config.gas.sendOtpUrl;
   if (!stone || !stone.tier) {
     throw new Error('stone is required');
@@ -100,6 +107,7 @@ async function sendStoneResultEmail(to, { name = '', eventName = '', stone = nul
       stoneMessage:  stone.message,
       stoneImageUrl: stone.imageUrl,
       profileUrl,
+      badgeImageUrl,
       from: 'info@studylink.org',
     }),
     redirect: 'follow',

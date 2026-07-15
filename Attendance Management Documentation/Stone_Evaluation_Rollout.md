@@ -1,5 +1,29 @@
 # Stone evaluation in customer messages + Roster — rollout notes
 
+> **UPDATE 2026-07-15 (v2) — communication-flow rework.** Superseding details below where they conflict:
+>
+> **The two-message flow per student interaction:**
+> 1. **Badge send (staff-triggered):** badge + questionnaire link, always. If the questionnaire is
+>    *incomplete* → "please complete" copy. If *complete* → stone-centred badge + stone banner +
+>    "you can review/update your answers" copy. (Completeness = the check-in qualification gate.)
+> 2. **Follow-up (automatic on every questionnaire submit/resubmit):** the UPDATED badge with the
+>    student's **stone in the centre of the QR** (replacing the StudyLink logo), the stone
+>    banner/message, and a thank-you-for-registering message. Via e-mail + Zalo.
+>
+> **Mechanics:** the profile page renders the stone-centred badge after submit and posts it to the new
+> `POST /profile/:token/badge`, which stores it (`event_attendees.badge_png`) and sends the follow-up.
+> E-mails now reference the badge by **hosted URL** (`/badge-image/:token?v=…`) instead of attaching
+> it — attachments were showing a second, miniaturised copy of the badge at the end of the message in
+> iPhone Mail. The LM "Send badge" modal also renders the stone-centred badge for evaluated students.
+>
+> **Actions:**
+> - **Re-run the migration** (adds `badge_png`, which `/badge-image` always needed):
+>   `node src/migrations/addStoneResultColumns.js` (dev) / `--allow-remote` (PROD).
+> - **Replace the whole GAS script** with `GAS_Relay_doPost.gs` (same folder) and redeploy
+>   (Manage deployments → ✏️ → New version).
+> - Note: e-mail images (badge + stone) resolve against the PROD server URL, so image rendering can
+>   only be fully verified with PROD deployed — dev-sent e-mails will show broken images until then.
+
 **Built:** 2026-07-15 (dev, uncommitted). Two requests from the field:
 
 1. Include the **evaluation of the questionnaire** (the stone) in the response

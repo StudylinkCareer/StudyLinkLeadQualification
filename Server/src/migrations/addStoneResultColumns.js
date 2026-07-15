@@ -35,9 +35,10 @@ const pool = new Pool({ connectionString: url, ssl: isLocal ? false : { rejectUn
         ADD COLUMN IF NOT EXISTS result_zalo_sent_at timestamptz,
         ADD COLUMN IF NOT EXISTS result_zalo_status  text,
         ADD COLUMN IF NOT EXISTS result_zalo_msg_id  text,
-        ADD COLUMN IF NOT EXISTS result_zalo_error   text
+        ADD COLUMN IF NOT EXISTS result_zalo_error   text,
+        ADD COLUMN IF NOT EXISTS badge_png           text
     `);
-    console.log('ensured event_attendees result_* columns');
+    console.log('ensured event_attendees result_* + badge_png columns');
     await client.query('COMMIT');
     console.log(`✓ COMMITTED on ${host}`);
   } catch (e) {

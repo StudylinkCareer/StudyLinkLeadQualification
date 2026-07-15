@@ -194,6 +194,9 @@ export default function EventConsole() {
       data: row.attendanceToken,
       title: row.fullName || row.studentId,
       metaLines: [ev && ev.name, dateStr].filter(Boolean),
+      // Evaluated students carry their stone in the QR centre (in place of
+      // the StudyLink logo); unscored students keep the default logo.
+      ...(STONE_IMAGES[row.stoneTier] ? { logoUrl: STONE_IMAGES[row.stoneTier] } : {}),
     })
       .then((url) => setBadgePreview(url))
       .catch((e) => setBadgeMsg(e.message || 'Failed to render badge'));
