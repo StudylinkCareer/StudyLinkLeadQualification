@@ -80,14 +80,16 @@ function doPost(e) {
 // -- Shared: stone banner block (congratulations + message) --------------
 // Renders the questionnaire-evaluation banner. Used by both the badge email
 // (when the student is already scored) and the stone_result email.
+// Pass imgWidth = 0 to omit the stone image (text-only banner — the stone
+// already appears inside the QR badge itself).
 function stoneBlock_(data, imgWidth) {
   if (!data.stoneTier) return '';
-  var img = data.stoneImageUrl
+  var img = (imgWidth && data.stoneImageUrl)
     ? '<img src="' + String(data.stoneImageUrl).replace(/"/g, '&quot;') + '" alt="'
       + (data.stoneLabel || data.stoneTier)
       + '" width="' + imgWidth + '" style="width:' + imgWidth + 'px;height:auto;border:0;margin:0 0 10px;"/>'
     : '';
-  return '<div style="margin:24px 0 0;padding:20px;border:1px solid #f3d6da;border-radius:12px;background:#fdf4f5;text-align:center;">'
+  return '<div style="margin:20px 0;padding:20px;border:1px solid #f3d6da;border-radius:12px;background:#fdf4f5;text-align:center;">'
     + img
     + '<div style="font-size:18px;font-weight:bold;color:#c8102e;margin:0 0 8px;">'
     + 'Chúc mừng Bạn! — ' + (data.stoneLabel || data.stoneTier) + '</div>'
@@ -150,7 +152,7 @@ function sendStoneResult_(data) {
     + '<p style="margin:0 0 16px;">Cảm ơn bạn đã đăng ký tham dự triển lãm của chúng tôi'
     + (eventName ? ' — <strong>' + eventName + '</strong>' : '')
     + ' — chúng tôi rất mong được đón tiếp bạn! Dưới đây là kết quả đánh giá và thẻ tham dự mới của bạn.</p>'
-    + stoneBlock_(data, 110)
+    + stoneBlock_(data, 0)
     + badgeBlock
     + profileBtn
     + '<p style="color:#888;font-size:12px;margin-top:24px;">StudyLink - Kiến tạo tương lai của bạn</p>'
@@ -251,30 +253,32 @@ function sendEventBadge_(data) {
   var subject = 'Thẻ đăng ký StudyLink của bạn'
     + ' — Sự Kiện Quốc Tế VIP 18.7.2026';
 
-  // Optional questionnaire block - only when a profileUrl is sent. Copy and
-  // button depend on whether every required question is already answered.
+  // Optional questionnaire block - only when a profileUrl is sent.
+  // Structure: heading -> ACTION BUTTON -> instructions -> fallback link.
+  // Copy depends on whether every required question is already answered.
   var profileBlock = '';
   if (profileUrl) {
-    var pIntro, pButton;
+    var pHeading, pButton, pInstructions;
     if (complete) {
-      pIntro = '<h3 style="color:#c8102e;margin:0 0 8px;font-size:16px;">Câu trả lời của bạn đã đầy đủ</h3>'
-        + '<p style="margin:0 0 16px;">Cảm ơn bạn đã hoàn thành bảng câu hỏi. '
+      pHeading = 'Câu trả lời của bạn đã đầy đủ';
+      pButton = 'Xem / cập nhật câu trả lời';
+      pInstructions = '<p style="margin:0 0 16px;">Cảm ơn bạn đã hoàn thành bảng câu hỏi. '
         + 'Nếu có gì thay đổi, bạn có thể xem lại và cập nhật câu trả lời bất cứ lúc nào trước sự kiện — '
         + 'thẻ tham dự và kết quả đánh giá của bạn sẽ được cập nhật theo.</p>';
-      pButton = 'Xem / cập nhật câu trả lời';
     } else {
-      pIntro = '<h3 style="color:#c8102e;margin:0 0 8px;font-size:16px;">Giúp chúng tôi hiểu bạn hơn</h3>'
-        + '<p style="margin:0 0 16px;">Chúng tôi đã bắt đầu hồ sơ của bạn với những thông tin hiện có. '
+      pHeading = 'Giúp chúng tôi hiểu bạn hơn';
+      pButton = 'Hoàn tất hồ sơ của tôi';
+      pInstructions = '<p style="margin:0 0 16px;">Chúng tôi đã bắt đầu hồ sơ của bạn với những thông tin hiện có. '
         + 'Vui lòng dành chút thời gian điền nốt phần còn lại để Cố vấn của chúng tôi có thể đưa ra lời khuyên tốt nhất cho bạn tại '
         + '<strong>Sự Kiện Quốc Tế VIP 18.7.2026</strong>. Việc này chỉ mất một chút thời gian.</p>';
-      pButton = 'Hoàn tất hồ sơ của tôi';
     }
     profileBlock =
         '<div style="border-top:1px solid #eee;margin:24px 0 0;padding-top:18px;">'
-      + pIntro
-      + '<div style="text-align:center;margin:20px 0;">'
+      + '<h3 style="color:#c8102e;margin:0 0 8px;font-size:16px;">' + pHeading + '</h3>'
+      + '<div style="text-align:center;margin:16px 0 20px;">'
       + '<a href="' + safeProfile + '" style="display:inline-block;background:#c8102e;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 28px;border-radius:8px;font-size:16px;">' + pButton + '</a>'
       + '</div>'
+      + pInstructions
       + '<p style="font-size:13px;color:#666;margin:0 0 6px;">Nếu nút này không hoạt động, vui lòng dán liên kết sau vào trình duyệt của bạn:</p>'
       + '<p style="font-size:12px;color:#2563eb;word-break:break-all;margin:0 0 16px;">' + safeProfile + '</p>'
       + '</div>';
@@ -291,22 +295,25 @@ function sendEventBadge_(data) {
 
   // Badge: hosted URL preferred; cid inline only as legacy fallback.
   var badgeImgTag = badgeImageUrl
-    ? '<img src="' + String(badgeImageUrl).replace(/"/g, '&quot;') + '" alt="Thẻ đăng ký" style="max-width:320px;width:100%;height:auto;border:0;"/>'
-    : '<img src="cid:badge" alt="Thẻ đăng ký" style="max-width:320px;width:100%;height:auto;border:0;"/>';
+    ? '<img src="' + String(badgeImageUrl).replace(/"/g, '&quot;') + '" alt="Thẻ đăng ký" style="max-width:240px;width:80%;height:auto;border:0;"/>'
+    : '<img src="cid:badge" alt="Thẻ đăng ký" style="max-width:240px;width:80%;height:auto;border:0;"/>';
 
+  // Sequence: greeting -> event info -> save-to-phone note -> badge (small)
+  // -> stone banner (text only, no image) -> questionnaire button ->
+  // questionnaire instructions.
   var html = '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px;color:#1a1a1a;">'
     + '<h2 style="color:#c8102e;margin:0 0 12px;">Thẻ Tham Dự Sự Kiện Quốc Tế VIP 18/7</h2>'
     + (name ? '<p style="margin:0 0 12px;">Chào ' + name + ',</p>' : '')
     + '<p style="margin:0 0 16px;">Đây là Thẻ Tham Dự Sự Kiện VIP – Xem Mắt Trường Đại Học của Bạn. '
     + 'Vui lòng xuất trình mã QR này tại Sự Kiện và tại mỗi gian hàng để được Trường cố vấn học bổng và lộ trình cho Bạn.</p>'
     + eventInfoBlock
+    + '<p style="background:#fff1f2;border:1px solid #fed7aa;border-radius:8px;padding:12px;font-size:14px;color:#9a3412;margin:0 0 16px;">'
+    + 'Để lưu lại: trên điện thoại, nhấn giữ vào thẻ bên dưới rồi chọn Lưu hình ảnh; '
+    + 'trên máy tính, nhấp chuột phải vào thẻ và chọn Lưu hình ảnh thành. Sau đó xuất trình tại mỗi gian hàng.</p>'
     + '<div style="text-align:center;margin:20px 0;">'
     + badgeImgTag
     + '</div>'
-    + '<p style="background:#fff1f2;border:1px solid #fed7aa;border-radius:8px;padding:12px;font-size:14px;color:#9a3412;margin:0 0 16px;">'
-    + 'Để lưu lại: trên điện thoại, nhấn giữ vào thẻ ở trên rồi chọn Lưu hình ảnh; '
-    + 'trên máy tính, nhấp chuột phải vào thẻ và chọn Lưu hình ảnh thành. Sau đó xuất trình tại mỗi gian hàng.</p>'
-    + stoneBlock_(data, 96)
+    + stoneBlock_(data, 0)
     + profileBlock
     + '<p style="color:#888;font-size:12px;margin-top:24px;">StudyLink - Kiến tạo tương lai của bạn</p>'
     + '</div>';

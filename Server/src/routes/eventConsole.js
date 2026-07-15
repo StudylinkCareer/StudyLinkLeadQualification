@@ -862,11 +862,14 @@ router.get('/profile/:token', async (req, res) => {
     const student = r.rows[0];
     const all = await buildCheckinFields(student, 'vi');   // student-facing page is Vietnamese
     const fields = all.filter((f) => !PROFILE_EXCLUDE.includes(f.fieldKey));
-    // stoneTier lets the page centre the badge QR on the student's stone.
+    // stoneTier lets the page centre the badge QR on the student's stone;
+    // stone carries the Vietnamese banner (label + message) shown under it.
+    const stone = stoneContent(student.stone_tier, 'vi');
     res.json({ success: true, data: {
       fullName: student.full_name,
       fields,
-      stoneTier: isStoneTier(student.stone_tier) ? student.stone_tier : '',
+      stoneTier: stone ? stone.tier : '',
+      stone,
     } });
   } catch (err) {
     console.error('[event-console] profile get:', err);
