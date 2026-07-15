@@ -39,6 +39,7 @@ export default function ProfilePage() {
   const [done, setDone]         = useState(false);
   const [badgeImg, setBadgeImg] = useState('');
   const [stone, setStone]       = useState(null);       // { tier, label, message } from GET (vi)
+  const [invite, setInvite]     = useState(null);       // { time, venue, infoUrl } from events.meta.invite
   const [showForm, setShowForm] = useState(false);      // questionnaire opens only on demand
   const [evaluation, setEvaluation] = useState(null);   // { tier, label, message } after submit
 
@@ -61,6 +62,7 @@ export default function ProfilePage() {
         const name = d.fullName || '';
         setFullName(name);
         setStone(d.stone || null);
+        setInvite(d.invite || null);
         const fs = d.fields || [];
         setFields(fs);
         const init = {};
@@ -124,6 +126,27 @@ export default function ProfilePage() {
     </div>
   ) : null;
 
+  // Meeting-invite card (time / venue / info link, authored per event via
+  // events.meta.invite) - mirrors the e-mail's "Bạn nhớ đừng quên" block so
+  // Zalo recipients get the invite details too. Omitted when not configured.
+  const inviteBlock = invite ? (
+    <div style={{ ...card, background: '#fff1f2', border: '1px solid #fecdd3' }}>
+      <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Bạn nhớ đừng quên</div>
+      {invite.time && (
+        <div style={{ fontSize: 14, marginBottom: 4 }}>📅 Thời gian: {invite.time}</div>
+      )}
+      {invite.venue && (
+        <div style={{ fontSize: 14, marginBottom: invite.infoUrl ? 12 : 0 }}>📍 Địa điểm: {invite.venue}</div>
+      )}
+      {invite.infoUrl && (
+        <div style={{ fontSize: 14 }}>
+          Xem lại thông tin sự kiện tại:{' '}
+          <a href={invite.infoUrl} style={{ color: '#2563eb', wordBreak: 'break-all' }}>{invite.infoUrl}</a>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   // Stone banner (text only - the stone already shows inside the QR badge),
   // rendered directly below the badge whenever the student has an evaluation.
   const stoneBanner = (s) => s ? (
@@ -145,6 +168,7 @@ export default function ProfilePage() {
     return (
       <div style={wrap}>
         {badgeBlock}
+        {inviteBlock}
         {stoneBanner(evaluation)}
         <div style={{ ...card, textAlign: 'center', padding: 28 }}>
           <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, color: '#15803d' }}>Cảm ơn bạn!</div>
@@ -167,6 +191,7 @@ export default function ProfilePage() {
     return (
       <div style={wrap}>
         {badgeBlock}
+        {inviteBlock}
         {stoneBanner(stone)}
         <div style={{ ...card, textAlign: 'center' }}>
           <h2 style={{ fontSize: 18, fontWeight: 800, margin: '4px 0 8px' }}>

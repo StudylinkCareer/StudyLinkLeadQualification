@@ -853,8 +853,10 @@ router.get('/profile/:token', async (req, res) => {
   if (!token) return res.status(400).json({ success: false, error: 'Missing link code' });
   try {
     const r = await pool.query(
-      `SELECT s.*
-         FROM event_attendees ea JOIN students s ON s.student_id = ea.student_unique_id
+      `SELECT s.*, e.name AS event_name, e.meta AS event_meta
+         FROM event_attendees ea
+         JOIN students s ON s.student_id = ea.student_unique_id
+         LEFT JOIN events e ON e.id = ea.event_id
         WHERE ea.attendance_token = $1 LIMIT 1`,
       [token]
     );
@@ -865,11 +867,17 @@ router.get('/profile/:token', async (req, res) => {
     // stoneTier lets the page centre the badge QR on the student's stone;
     // stone carries the Vietnamese banner (label + message) shown under it.
     const stone = stoneContent(student.stone_tier, 'vi');
+    // Meeting-invite details (time/venue/info link) authored per event via
+    // events.meta.invite — see migrations/setEventInvite.js. Null-safe: the
+    // page simply omits the card when an event has no invite configured.
+    const meta = student.event_meta || {};
     res.json({ success: true, data: {
       fullName: student.full_name,
       fields,
       stoneTier: stone ? stone.tier : '',
       stone,
+      eventName: student.event_name || '',
+      invite: (meta.invite && typeof meta.invite === 'object') ? meta.invite : null,
     } });
   } catch (err) {
     console.error('[event-console] profile get:', err);
