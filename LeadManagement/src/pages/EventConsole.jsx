@@ -18,6 +18,7 @@ import RepsPanel from './RepsPanel';
 import QualificationPanel from './QualificationPanel';
 import { renderBadgePng, dataUrlToBase64 } from '../utils/badgeRenderer';
 import { STONE_IMAGES } from '../utils/stones';
+import { STONE_GLYPHS } from '../utils/stoneGlyphs';
 
 const fmtDate = (d) => { try { return d ? new Date(d).toLocaleDateString() : ''; } catch { return ''; } };
 const fmtTime = (d) => { try { return d ? new Date(d).toLocaleString()    : ''; } catch { return ''; } };
@@ -194,9 +195,9 @@ export default function EventConsole() {
       data: row.attendanceToken,
       title: row.fullName || row.studentId,
       metaLines: [ev && ev.name, dateStr].filter(Boolean),
-      // Evaluated students carry their stone in the QR centre (in place of
-      // the StudyLink logo); unscored students keep the default logo.
-      ...(STONE_IMAGES[row.stoneTier] ? { logoUrl: STONE_IMAGES[row.stoneTier] } : {}),
+      // Evaluated students get their tier's flat gem glyph in the QR centre
+      // (logo-style treatment); unscored students keep the StudyLink logo.
+      ...(STONE_GLYPHS[row.stoneTier] ? { logoUrl: STONE_GLYPHS[row.stoneTier] } : {}),
     })
       .then((url) => setBadgePreview(url))
       .catch((e) => setBadgeMsg(e.message || 'Failed to render badge'));

@@ -69,7 +69,8 @@ function loadOk(src) {
 //   data      - the string encoded in the QR (event URL or attendance_token)
 //   title     - bold caption under the QR (event name or student name); wraps to 2 lines
 //   metaLines - array of secondary caption lines, e.g. [eventName, dateRange]
-//   logoUrl   - centre logo (defaults to /studylinklogo.png)
+//   logoUrl   - centre image (defaults to /studylinklogo.png; pass a
+//               STONE_GLYPHS entry for an evaluated student's badge)
 export async function renderBadgePng({ data, title = '', metaLines = [], logoUrl = DEFAULT_LOGO }) {
   if (!data) throw new Error('renderBadgePng: data is required');
 

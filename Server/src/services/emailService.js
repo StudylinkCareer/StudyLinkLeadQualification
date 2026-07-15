@@ -84,8 +84,9 @@ async function sendEventQrEmail(to, { name = '', eventName = '', badgeUrl = '', 
 // The relay's doPost branches on type === 'stone_result'.
 //   to     - recipient email
 //   fields - { name, eventName, stone: { tier, label, message, imageUrl },
-//              profileUrl, badgeImageUrl (public URL of the updated badge) }
-async function sendStoneResultEmail(to, { name = '', eventName = '', stone = null, profileUrl = '', badgeImageUrl = '' } = {}) {
+//              profileUrl, badgeImageUrl (hosted URL of the updated badge; PROD),
+//              badgePngBase64 (inline fallback; dev) }
+async function sendStoneResultEmail(to, { name = '', eventName = '', stone = null, profileUrl = '', badgeImageUrl = '', badgePngBase64 = '' } = {}) {
   const gasUrl = config.gas.sendOtpUrl;
   if (!stone || !stone.tier) {
     throw new Error('stone is required');
@@ -108,6 +109,7 @@ async function sendStoneResultEmail(to, { name = '', eventName = '', stone = nul
       stoneImageUrl: stone.imageUrl,
       profileUrl,
       badgeImageUrl,
+      badgePng: badgePngBase64,
       from: 'info@studylink.org',
     }),
     redirect: 'follow',

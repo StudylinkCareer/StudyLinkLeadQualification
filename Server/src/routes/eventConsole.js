@@ -900,17 +900,22 @@ async function sendEvaluationMessages({ token, stone, origin, badgePng = '' }) {
     ? `${lqBase}/profile?t=${encodeURIComponent(token)}`
     : '';
 
-  // The updated badge is served from the public badge-image route (stored just
-  // before this runs) — referenced by URL, never attached, so mail clients
-  // can't render a duplicate thumbnail of it.
-  const badgeImageUrl = badgePng
+  // On PROD the updated badge is served from the public badge-image route
+  // (stored just before this runs) — referenced by URL, never attached, so
+  // mail clients can't render a duplicate thumbnail. On dev that URL wouldn't
+  // resolve (PROD host, dev token), so we attach the PNG inline instead.
+  const isProd = process.env.NODE_ENV === 'production';
+  const badgeImageUrl = (badgePng && isProd)
     ? `${publicBase()}/api/event-console/badge-image/${encodeURIComponent(token)}?v=${Date.now()}`
     : '';
 
   // E-mail leg.
   if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     try {
-      await sendStoneResultEmail(email, { name, eventName, stone, profileUrl, badgeImageUrl });
+      await sendStoneResultEmail(email, {
+        name, eventName, stone, profileUrl, badgeImageUrl,
+        badgePngBase64: isProd ? '' : badgePng,
+      });
       await pool.query(
         `UPDATE event_attendees
             SET result_emailed_at = NOW(), result_emailed_to = $3, updated_at = NOW()
@@ -1160,8 +1165,13 @@ router.post('/email-badge', requireStaffAuth, async (req, res) => {
     // the email. Token is an unguessable UUID, so the route can be public.
     const attToken = att.rows[0].attendance_token;
     const PUBLIC_BASE = publicBase();
-    // ?v busts mail-proxy caches when the badge is later re-rendered (stone).
-    const badgeImageUrl = `${PUBLIC_BASE}/api/event-console/badge-image/${attToken}?v=${Date.now()}`;
+    // Hosted badge URL only on PROD (?v busts mail-proxy caches when the badge
+    // is later re-rendered with the stone). On dev the URL would point at PROD
+    // with a dev-only token, so we send no URL — the GAS relay then falls back
+    // to attaching the PNG inline, keeping dev e-mails testable.
+    const badgeImageUrl = process.env.NODE_ENV === 'production'
+      ? `${PUBLIC_BASE}/api/event-console/badge-image/${attToken}?v=${Date.now()}`
+      : '';
 
     // Stone banner content (null when unscored -> e-mail renders as before).
     const stone = stoneContent(sres.rows[0].stone_tier, 'vi', PUBLIC_BASE);

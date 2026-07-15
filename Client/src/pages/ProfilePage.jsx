@@ -13,6 +13,7 @@
 import { useState, useEffect } from 'react';
 import { profileAPI } from '../services/api';
 import { renderBadgePng, dataUrlToBase64 } from '../utils/badgeRenderer';
+import { STONE_GLYPHS } from '../utils/stoneGlyphs';
 import quartzImg   from '../Assets/Stones/quartz.png';
 import agateImg    from '../Assets/Stones/agate.png';
 import sapphireImg from '../Assets/Stones/sapphire.png';
@@ -48,7 +49,9 @@ export default function ProfilePage() {
     renderBadgePng({
       data: token,
       title: name,
-      ...(stoneTier && STONE_IMAGES[stoneTier] ? { logoUrl: STONE_IMAGES[stoneTier] } : {}),
+      // Evaluated students get their tier's flat gem glyph in the QR centre
+      // (logo-style treatment); unscored students keep the StudyLink logo.
+      ...(stoneTier && STONE_GLYPHS[stoneTier] ? { logoUrl: STONE_GLYPHS[stoneTier] } : {}),
     });
 
   useEffect(() => {

@@ -116,16 +116,20 @@ function sendStoneResult_(data) {
   var profileUrl = data.profileUrl || '';
   var safeProfile = String(profileUrl).replace(/"/g, '&quot;');
   var badgeImageUrl = data.badgeImageUrl || '';
+  var badgePng = data.badgePng || '';
 
   var subject = 'Kết quả đánh giá & thẻ tham dự mới của bạn'
     + (eventName ? ' — ' + eventName : '');
 
-  // The updated badge, referenced by hosted URL (never attached).
+  // The updated badge: hosted URL on PROD; inline cid fallback (dev sends).
   var badgeBlock = '';
-  if (badgeImageUrl) {
+  if (badgeImageUrl || badgePng) {
+    var badgeSrc = badgeImageUrl
+      ? String(badgeImageUrl).replace(/"/g, '&quot;')
+      : 'cid:resultbadge';
     badgeBlock =
         '<div style="text-align:center;margin:20px 0;">'
-      + '<img src="' + String(badgeImageUrl).replace(/"/g, '&quot;') + '" alt="Thẻ tham dự của bạn" style="max-width:320px;width:100%;height:auto;border:0;"/>'
+      + '<img src="' + badgeSrc + '" alt="Thẻ tham dự của bạn" style="max-width:320px;width:100%;height:auto;border:0;"/>'
       + '</div>'
       + '<p style="background:#fff1f2;border:1px solid #fed7aa;border-radius:8px;padding:12px;font-size:14px;color:#9a3412;margin:0 0 16px;">'
       + 'Đây là thẻ tham dự MỚI của bạn (viên đá của bạn nằm giữa mã QR). '
@@ -152,12 +156,18 @@ function sendStoneResult_(data) {
     + '<p style="color:#888;font-size:12px;margin-top:24px;">StudyLink - Kiến tạo tương lai của bạn</p>'
     + '</div>';
 
-  MailApp.sendEmail({
+  var mail = {
     to: to,
     subject: subject,
     htmlBody: html,
     name: 'StudyLink'
-  });
+  };
+  if (!badgeImageUrl && badgePng) {
+    mail.inlineImages = {
+      resultbadge: Utilities.newBlob(Utilities.base64Decode(badgePng), 'image/png', 'studylink-badge.png')
+    };
+  }
+  MailApp.sendEmail(mail);
 
   return ContentService.createTextOutput(
     JSON.stringify({ success: true })
