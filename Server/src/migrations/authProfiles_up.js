@@ -22,8 +22,10 @@ const pool = new Pool({ connectionString: url, ssl: url.includes('localhost') ? 
 const profiles = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'auth_profiles.json'), 'utf8'));
 
 async function run() {
-  // Guard: no empty profile may be seeded.
-  const empty = profiles.filter(p => !p.grants || Object.keys(p.grants).length === 0);
+  // Guard: no empty profile may be seeded — EXCEPT profiles flagged kioskOnly
+  // ('StudyLink event staff'): those are deliberately zero-permission identities
+  // that only exist for the event desk (kiosk auth is via event_reps, not RBAC).
+  const empty = profiles.filter(p => !p.kioskOnly && (!p.grants || Object.keys(p.grants).length === 0));
   if (empty.length) { console.error('✗ ABORT — empty profiles would lock users out:', empty.map(p => p.name)); process.exit(1); }
 
   const client = await pool.connect();

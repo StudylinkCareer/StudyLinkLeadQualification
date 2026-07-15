@@ -649,5 +649,13 @@
       "leads.create_sales": "all",
       "leads.delay_close_date": "all"
     }
+  },
+  {
+    "name": "StudyLink event staff",
+    "scope": "own",
+    "phase": "Pool",
+    "transfer": "None",
+    "kioskOnly": true,
+    "grants": {}
   }
 ]

@@ -37,6 +37,7 @@ const POSITIONS = [
   'Staff, Marketing', 'Staff, Business Development',
   'Staff, Data Quality', 'Staff, Technical Support',
   'Staff, HR', 'Staff, Finance',
+  'StudyLink event staff',
 ];
 
 // The Role field is the coarse authorisation TIER (NOT the profile — that's the
