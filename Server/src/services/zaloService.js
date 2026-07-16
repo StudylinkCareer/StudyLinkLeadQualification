@@ -85,6 +85,15 @@ function normalizeVnPhone(raw) {
   return s;
 }
 
+// ZNS rejects the whole send when a template parameter exceeds its length
+// limit (name-type params: 30 chars — seen live: "customer_name data breaks
+// max length"). Truncate rather than fail. Codepoint-safe so decorative
+// unicode names don't get split mid-character.
+function znsParam(value, max = 30) {
+  const chars = Array.from(String(value || '').trim());
+  return chars.length <= max ? chars.join('') : chars.slice(0, max - 1).join('') + '…';
+}
+
 // Translate Zalo's cryptic ZNS error codes into a clear reason staff can act on.
 // (Confirmed empirically: sending a ZNS to a number that is NOT a Zalo user
 //  returns error -110 "Zalo version unsupported" — not an actual version issue.)
@@ -122,7 +131,7 @@ async function sendBadgeViaZns({ phone, name, eventName, registrationCode, token
     phone: to,
     template_id: c.znsTemplateId,
     template_data: {
-      customer_name: name || '',
+      customer_name: znsParam(name),
       event_name: eventName || '',
       registration_code: registrationCode || '',
       token: token || '',
@@ -249,7 +258,7 @@ async function sendStoneResultViaZns({ phone, name, eventName, stoneLabel, regis
     phone: to,
     template_id: c.znsResultTemplateId,
     template_data: {
-      customer_name: name || '',
+      customer_name: znsParam(name),
       event_name: eventName || '',
       stone_name: stoneLabel || '',
       registration_code: registrationCode || '',
