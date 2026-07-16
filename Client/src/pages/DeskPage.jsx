@@ -9,6 +9,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { eventDeskAPI } from '../services/api';
 import InlineQrScanner from '../components/Camera/InlineQrScanner';
+import quartzImg   from '../Assets/Stones/quartz.png';
+import agateImg    from '../Assets/Stones/agate.png';
+import sapphireImg from '../Assets/Stones/sapphire.png';
+import rubyImg     from '../Assets/Stones/ruby.png';
+import diamondImg  from '../Assets/Stones/diamond.png';
+
+// Stone art keyed by the tier returned with the scan lookup.
+const STONE_IMAGES = { Quartz: quartzImg, Agate: agateImg, Sapphire: sapphireImg, Ruby: rubyImg, Diamond: diamondImg };
 
 const SS_KEY = 'studylink_desk_auth';
 
@@ -248,6 +256,18 @@ export default function DeskPage() {
 
       {student && (
         <div style={card}>
+          {/* Questionnaire title + the student's stone (image + name) on one row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, margin: '0 0 12px' }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: '#c8102e' }}>Giải Mã Chỉ Số Xuất Ngoại</div>
+            {student.stoneTier && STONE_IMAGES[student.stoneTier] && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fdf4f5', border: '1px solid #f3d6da', borderRadius: 8, padding: '3px 10px' }}>
+                <img src={STONE_IMAGES[student.stoneTier]} alt={student.stoneTier}
+                     style={{ width: 26, height: 26, objectFit: 'contain' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#c8102e' }}>{student.stoneTier}</span>
+              </span>
+            )}
+          </div>
+
           <div style={label}>Student</div>
           <div style={{ fontSize: 22, fontWeight: 800, margin: '4px 0 14px' }}>{student.fullName}</div>
 

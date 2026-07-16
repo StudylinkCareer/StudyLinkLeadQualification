@@ -213,10 +213,15 @@ export default function ProfilePage() {
   // ── Questionnaire view (opened on demand, never automatically) ──
   return (
     <div style={wrap}>
+      {/* Questionnaire title */}
+      <h1 style={{ fontSize: 20, fontWeight: 800, color: '#c8102e', margin: '6px 0 10px' }}>
+        Giải Mã Chỉ Số Xuất Ngoại
+      </h1>
+
       <div style={{ marginBottom: 14 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: '6px 0 8px' }}>
+        <h2 style={{ fontSize: 17, fontWeight: 800, margin: '0 0 8px' }}>
           Tìm hiểu về bạn{fullName ? `, ${fullName}` : ''}
-        </h1>
+        </h2>
         <p style={{ color: '#6b7280', margin: 0, fontSize: 14, lineHeight: 1.5 }}>
           Vui lòng trả lời những câu hỏi sau để mỗi trường không phải hỏi lại bạn cùng một điều.
           Điều này giúp bạn tiết kiệm thời gian và có trải nghiệm mượt mà hơn tại triển lãm.

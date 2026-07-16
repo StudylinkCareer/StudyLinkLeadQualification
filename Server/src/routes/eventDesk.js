@@ -11,6 +11,7 @@ const crypto   = require('crypto');
 const { Pool } = require('pg');
 const config   = require('../config');
 const StudentNote = require('../models/StudentNote');
+const { isStoneTier } = require('../utils/stoneContent');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -246,10 +247,13 @@ router.post('/lookup', requireRep, async (req, res) => {
       console.error('[event-desk] lookup profile:', e.message);   // non-fatal
     }
 
-    // Name + required profile only — email/phone/Zalo never leave this endpoint.
+    // Name + stone + required profile only — email/phone/Zalo never leave
+    // this endpoint. The stone tier is fine to show reps: it's already
+    // visible to them in the centre of the badge QR they just scanned.
     res.json({ success: true, data: {
       studentUniqueId: student.student_id,
       fullName: student.full_name,
+      stoneTier: isStoneTier(student.stone_tier) ? student.stone_tier : '',
       profile,
     } });
   } catch (err) {
