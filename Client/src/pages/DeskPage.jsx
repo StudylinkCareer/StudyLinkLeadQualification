@@ -256,14 +256,18 @@ export default function DeskPage() {
 
       {student && (
         <div style={card}>
-          {/* Questionnaire title + the student's stone (image + name) on one row */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, margin: '0 0 12px' }}>
-            <div style={{ fontSize: 17, fontWeight: 800, color: '#c8102e' }}>Giải Mã Chỉ Số Xuất Ngoại</div>
+          {/* Questionnaire title + the student's stone (image + name), kept on
+              ONE row even on phone widths: the chip never shrinks or wraps,
+              the title flexes (and is sized to fit beside the chip). */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: 8, margin: '0 0 12px' }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 800, color: '#c8102e', lineHeight: 1.3 }}>
+              Giải Mã Chỉ Số Xuất Ngoại
+            </div>
             {student.stoneTier && STONE_IMAGES[student.stoneTier] && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fdf4f5', border: '1px solid #f3d6da', borderRadius: 8, padding: '3px 10px' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, background: '#fdf4f5', border: '1px solid #f3d6da', borderRadius: 8, padding: '3px 10px' }}>
                 <img src={STONE_IMAGES[student.stoneTier]} alt={student.stoneTier}
-                     style={{ width: 26, height: 26, objectFit: 'contain' }} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#c8102e' }}>{student.stoneTier}</span>
+                     style={{ width: 24, height: 24, objectFit: 'contain' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#c8102e', whiteSpace: 'nowrap' }}>{student.stoneTier}</span>
               </span>
             )}
           </div>
