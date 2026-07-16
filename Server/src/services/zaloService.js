@@ -86,12 +86,18 @@ function normalizeVnPhone(raw) {
 }
 
 // ZNS rejects the whole send when a template parameter exceeds its length
-// limit (name-type params: 30 chars — seen live: "customer_name data breaks
-// max length"). Truncate rather than fail. Codepoint-safe so decorative
-// unicode names don't get split mid-character.
+// limit (name-type params: 30 — seen live: "customer_name data breaks max
+// length"). Zalo counts UTF-16 units, so decorative astral-plane characters
+// (𝙗𝙤𝙡𝙙 gamer-tag glyphs etc.) count DOUBLE — strip them entirely (they are
+// never legitimate Vietnamese), collapse whitespace, then hard-cap on
+// .length. Plain truncation, no ellipsis (avoid special-char rejections).
 function znsParam(value, max = 30) {
-  const chars = Array.from(String(value || '').trim());
-  return chars.length <= max ? chars.join('') : chars.slice(0, max - 1).join('') + '…';
+  let s = String(value || '')
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (s.length > max) s = s.slice(0, max).trimEnd();
+  return s;
 }
 
 // Translate Zalo's cryptic ZNS error codes into a clear reason staff can act on.
