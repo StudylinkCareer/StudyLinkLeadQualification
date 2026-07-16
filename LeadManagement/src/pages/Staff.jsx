@@ -433,6 +433,8 @@ export default function Staff() {
   const [pwdStaff, setPwdStaff]   = useState(null);
   // Access-window pop-up target (the staff row being edited)
   const [winStaff, setWinStaff]   = useState(null);
+  // Per-column filters (client-side, over the loaded list)
+  const [filters, setFilters]     = useState({ name:'', email:'', position:'', role:'', status:'', window:'', threshold:'' });
   const { staff }                       = useAuth();
   const { canDo }                       = usePermissions();
   const { language }                    = useLanguage();
@@ -474,6 +476,34 @@ export default function Staff() {
     </div>
   );
 
+  // Diacritic-tolerant contains-match, so "tuong vy" finds "Tường Vy".
+  const fold = (s) => String(s || '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+  const setF = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
+  const anyFilter = Object.values(filters).some(Boolean);
+
+  const positionOpts = [...new Set(staffList.map((s) => s.position).filter(Boolean))].sort();
+  const roleOpts     = [...new Set(staffList.map((s) => s.role).filter(Boolean))].sort();
+
+  const visibleStaff = staffList.filter((s) => {
+    if (filters.name  && !fold(s.fullName).includes(fold(filters.name))) return false;
+    if (filters.email && !fold(s.email).includes(fold(filters.email)))   return false;
+    if (filters.position && s.position !== filters.position) return false;
+    if (filters.role && s.role !== filters.role) return false;
+    if (filters.status === 'active'   && !s.isActive) return false;
+    if (filters.status === 'inactive' &&  s.isActive) return false;
+    const hasWindow = !!(s.accessValidFrom || s.accessValidUntil);
+    if (filters.window === 'set'  && !hasWindow) return false;
+    if (filters.window === 'none' &&  hasWindow) return false;
+    if (filters.threshold && !String(s.viewThreshold ?? 20).includes(filters.threshold.trim())) return false;
+    return true;
+  });
+
+  const fIn  = { width:'100%', boxSizing:'border-box', padding:'4px 8px', borderRadius:6,
+                 border:'1px solid var(--border)', fontSize:'0.75rem', background:'var(--bg-primary, #fff)' };
+  const fSel = { ...fIn, cursor:'pointer' };
+  const fPh  = language === 'vi' ? 'Lọc…' : 'Filter…';
+
   return (
     <div>
       <div className="page-header">
@@ -504,9 +534,60 @@ export default function Staff() {
                     <th>{t('staff.col.viewThreshold', language)}</th>
                     <th>{t('staff.col.actions', language)}</th>
                   </tr>
+                  <tr>
+                    <th style={{ padding:'4px 8px' }}>
+                      <input style={fIn} value={filters.name} onChange={(e)=>setF('name', e.target.value)} placeholder={fPh}/>
+                    </th>
+                    <th style={{ padding:'4px 8px' }}>
+                      <input style={fIn} value={filters.email} onChange={(e)=>setF('email', e.target.value)} placeholder={fPh}/>
+                    </th>
+                    <th style={{ padding:'4px 8px' }}>
+                      <select style={fSel} value={filters.position} onChange={(e)=>setF('position', e.target.value)}>
+                        <option value="">{language === 'vi' ? 'Tất cả' : 'All'}</option>
+                        {positionOpts.map((p)=><option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </th>
+                    <th style={{ padding:'4px 8px' }}>
+                      <select style={fSel} value={filters.role} onChange={(e)=>setF('role', e.target.value)}>
+                        <option value="">{language === 'vi' ? 'Tất cả' : 'All'}</option>
+                        {roleOpts.map((r)=><option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </th>
+                    <th style={{ padding:'4px 8px' }}>
+                      <select style={fSel} value={filters.status} onChange={(e)=>setF('status', e.target.value)}>
+                        <option value="">{language === 'vi' ? 'Tất cả' : 'All'}</option>
+                        <option value="active">{t('common.active', language)}</option>
+                        <option value="inactive">{t('common.inactive', language)}</option>
+                      </select>
+                    </th>
+                    <th style={{ padding:'4px 8px' }}>
+                      <select style={fSel} value={filters.window} onChange={(e)=>setF('window', e.target.value)}>
+                        <option value="">{language === 'vi' ? 'Tất cả' : 'All'}</option>
+                        <option value="set">{language === 'vi' ? 'Đã đặt' : 'Set'}</option>
+                        <option value="none">{language === 'vi' ? 'Chưa đặt' : 'Not set'}</option>
+                      </select>
+                    </th>
+                    <th style={{ padding:'4px 8px' }}>
+                      <input style={fIn} value={filters.threshold} onChange={(e)=>setF('threshold', e.target.value)} placeholder={fPh}/>
+                    </th>
+                    <th style={{ padding:'4px 8px' }}>
+                      {anyFilter && (
+                        <button
+                          onClick={()=>setFilters({ name:'', email:'', position:'', role:'', status:'', window:'', threshold:'' })}
+                          style={{ ...fIn, cursor:'pointer', whiteSpace:'nowrap', color:'var(--text-secondary)' }}>
+                          {language === 'vi' ? 'Xóa lọc' : 'Clear'} ({visibleStaff.length}/{staffList.length})
+                        </button>
+                      )}
+                    </th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {staffList.map(s => (
+                  {visibleStaff.length === 0 && (
+                    <tr><td colSpan={8} style={{ color:'var(--text-secondary)', padding:'1rem' }}>
+                      {language === 'vi' ? 'Không có nhân viên nào khớp bộ lọc.' : 'No staff match the filters.'}
+                    </td></tr>
+                  )}
+                  {visibleStaff.map(s => (
                     <tr key={s.id}>
                       <td style={{ fontWeight:500 }}>{s.fullName}</td>
                       <td style={{ color:'var(--text-secondary)' }}>{s.email}</td>
