@@ -145,11 +145,11 @@ export default function DeskPage() {
   }, [auth]);
 
   const saveVisit = async () => {
-    if (!note.trim()) { setError('Add a note before saving.'); return; }
+    if (!note.trim()) { setError('Vui lòng nhập ghi chú trước khi lưu.'); return; }
     setBusy(true); setError('');
     try {
       await eventDeskAPI.visit(auth, { studentUniqueId: student.studentUniqueId, note: note.trim(), repRating: rating || null });
-      setToast(`Saved · ${student.fullName}`);
+      setToast(`Đã lưu · ${student.fullName}`);
       setStudent(null); setNote(''); setRating('');
       setTimeout(() => setToast(''), 2500);
     } catch (e) { setError(e.message || 'Failed to save'); }
@@ -249,7 +249,7 @@ export default function DeskPage() {
 
       {!student && (
         <div style={card}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Scan the student's QR</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Quét mã QR của học sinh</div>
           <InlineQrScanner active onScan={onScan} />
         </div>
       )}
@@ -272,7 +272,7 @@ export default function DeskPage() {
             )}
           </div>
 
-          <div style={label}>Student</div>
+          <div style={label}>Học sinh</div>
           <div style={{ fontSize: 22, fontWeight: 800, margin: '4px 0 14px' }}>{student.fullName}</div>
 
           {student.profile && student.profile.length > 0 && (
@@ -286,16 +286,16 @@ export default function DeskPage() {
             </div>
           )}
 
-          <label style={label}>Note</label>
+          <label style={label}>Ghi chú</label>
           <textarea
             style={{ ...input, marginTop: 6, marginBottom: 14, minHeight: 120, resize: 'vertical' }}
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="What did you discuss at the desk?"
+            placeholder="Bạn đã trao đổi những gì tại bàn tư vấn?"
             autoFocus
           />
 
-          <label style={label}>Engagement (optional, 1–10)</label>
+          <label style={label}>Mức độ quan tâm (không bắt buộc, 1–10)</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '8px 0 16px' }}>
             {[1,2,3,4,5,6,7,8,9,10].map((n) => (
               <button
@@ -312,8 +312,8 @@ export default function DeskPage() {
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>
-            <button style={{ ...btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={saveVisit}>{busy ? 'Saving…' : 'Save note'}</button>
-            <button style={{ ...btnGhost, flexShrink: 0 }} onClick={cancelStudent}>Cancel</button>
+            <button style={{ ...btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={saveVisit}>{busy ? 'Đang lưu…' : 'Lưu ghi chú'}</button>
+            <button style={{ ...btnGhost, flexShrink: 0 }} onClick={cancelStudent}>Hủy</button>
           </div>
         </div>
       )}

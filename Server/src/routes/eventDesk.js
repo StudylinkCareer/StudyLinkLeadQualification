@@ -232,17 +232,38 @@ router.post('/lookup', requireRep, async (req, res) => {
     }
     const student = r.rows[0];
 
-    // Currently-required fields, minus contact identifiers. Read live so
+    // Currently-required fields, minus contact identifiers, in VIETNAMESE:
+    // field labels prefer event_qualification_fields.label_vi (when the column
+    // exists), and stored codes are translated via lookup_values.label_vi —
+    // the same resolution the student-facing questionnaire uses. Read live so
     // toggling fields in the Qualification tab changes the scan automatically.
+    const FIELD_LOOKUP_CATEGORY = { residency: 'vietnam_province', destination_country: 'country' };
     let profile = [];
     try {
+      const hasQfVi = (await pool.query(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_name='event_qualification_fields' AND column_name='label_vi' LIMIT 1`)).rowCount > 0;
+      const labelExpr = hasQfVi ? `COALESCE(NULLIF(label_vi, ''), label)` : `label`;
       const qf = await pool.query(
-        `SELECT field_key, label FROM event_qualification_fields
+        `SELECT field_key, ${labelExpr} AS label FROM event_qualification_fields
           WHERE is_required = true ORDER BY sort_order`
       );
-      profile = qf.rows
-        .filter((f) => !LOOKUP_EXCLUDE.includes(f.field_key) && _present(student[f.field_key]))
-        .map((f) => ({ label: f.label, value: String(student[f.field_key]).trim() }));
+      for (const f of qf.rows) {
+        if (LOOKUP_EXCLUDE.includes(f.field_key) || !_present(student[f.field_key])) continue;
+        const raw = String(student[f.field_key]).trim();
+        let value = raw;
+        try {
+          const lv = await pool.query(
+            `SELECT COALESCE(NULLIF(label_vi, ''), NULLIF(label_en, ''), code) AS label
+               FROM lookup_values
+              WHERE category = $1 AND code = $2 AND is_active = true
+              LIMIT 1`,
+            [FIELD_LOOKUP_CATEGORY[f.field_key] || f.field_key, raw]
+          );
+          if (lv.rowCount) value = lv.rows[0].label;
+        } catch (_) { /* keep the raw value */ }
+        profile.push({ label: f.label, value });
+      }
     } catch (e) {
       console.error('[event-desk] lookup profile:', e.message);   // non-fatal
     }
