@@ -62,7 +62,17 @@ export default function RepsPanel({ eventId, selected }) {
     } catch { /* desk picker just stays empty */ }
   }, []);
 
-  useEffect(() => { loadReps(eventId); loadDesks(eventId); }, [eventId, loadReps, loadDesks]);
+  // Assignment audit log — every kiosk desk sign-in/switch, newest first.
+  const [sessions, setSessions] = useState([]);
+  const loadSessions = useCallback(async (id) => {
+    if (!id) { setSessions([]); return; }
+    try {
+      const res = await eventConsoleAPI.deskSessions(id);
+      setSessions(res.data || []);
+    } catch { /* log just stays empty */ }
+  }, []);
+
+  useEffect(() => { loadReps(eventId); loadDesks(eventId); loadSessions(eventId); }, [eventId, loadReps, loadDesks, loadSessions]);
 
   // Staff pool for the rep picker (real staff only; global, load once).
   useEffect(() => {
@@ -115,12 +125,9 @@ export default function RepsPanel({ eventId, selected }) {
     catch (e) { setError(e.message || 'Failed to regenerate PIN'); }
   };
 
-  // Reassign a rep's desk in place ('' -> To be assigned / NULL).
-  const handleReassign = async (repId, instId) => {
-    setError('');
-    try { await eventConsoleAPI.updateEventRep(eventId, repId, { institutionId: instId || null }); await loadReps(eventId); }
-    catch (e) { setError(e.message || 'Failed to update institution'); }
-  };
+  // NOTE: the Desk column is DISPLAY-ONLY by design. Assignments are made
+  // (1) when a rep is added with an institution, and (2) by the rep's own
+  // kiosk sign-ins / desk switches, which write back to the assignment.
 
   const handleRemove = async (repId) => {
     if (!window.confirm('Deactivate this rep? They will no longer be able to sign in.')) return;
@@ -249,20 +256,7 @@ export default function RepsPanel({ eventId, selected }) {
                   <div style={{ fontWeight:600 }}>{r.fullName}</div>
                   <div style={{ color:'#9ca3af', fontSize:12 }}>{r.position}{r.isActive ? '' : ' · deactivated'}</div>
                 </td>
-                <td style={td}>
-                  <select
-                    value={String(r.institutionId || '')}
-                    onChange={(e) => handleReassign(r.id, e.target.value)}
-                    disabled={!r.isActive}
-                    title="Change this rep's desk"
-                    style={{ padding:'6px 8px', borderRadius:8, border:'1px solid #d1d5db', fontSize:13,
-                             background:'#fff', maxWidth:190, cursor:'pointer',
-                             color: r.institutionId ? '#111827' : '#6b7280' }}
-                  >
-                    <option value="">To be assigned</option>
-                    {desks.map((d) => <option key={d.id} value={String(d.institutionId)}>{d.institutionName}</option>)}
-                  </select>
-                </td>
+                <td style={td}>{r.institutionName || <span style={{ color:'#6b7280' }}>To be assigned</span>}</td>
                 <td style={td}>
                   <span style={{ fontFamily:'monospace', fontSize:18, fontWeight:700, letterSpacing:'0.08em' }}>{r.eventPin}</span>
                 </td>
@@ -289,6 +283,41 @@ export default function RepsPanel({ eventId, selected }) {
                       <button style={{ ...ghost, border:'1px solid #fecaca', color:'#b91c1c' }} onClick={() => handleRemove(r.id)}>Deactivate</button>
                     </>
                   )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Assignment audit log — every kiosk desk sign-in / switch */}
+      <div style={{ ...card, padding:0, overflow:'hidden', marginTop:12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 18px', borderBottom:'1px solid #e5e7eb' }}>
+          <span style={{ fontWeight:700, fontSize:14 }}>Assignment log</span>
+          <button style={ghost} onClick={() => loadSessions(eventId)} title="Re-pull the latest sign-ins">Refresh</button>
+        </div>
+        <table style={{ width:'100%', borderCollapse:'collapse' }}>
+          <thead>
+            <tr>
+              <th style={th}>Rep</th>
+              <th style={th}>Institution</th>
+              <th style={th}>Signed in</th>
+              <th style={th}>Signed out</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sessions.length === 0 && (
+              <tr><td style={{ ...td, color:'#6b7280' }} colSpan={4}>No desk sign-ins yet.</td></tr>
+            )}
+            {sessions.map((x) => (
+              <tr key={x.id}>
+                <td style={{ ...td, fontWeight:600 }}>{x.fullName}</td>
+                <td style={td}>{x.institutionName || <span style={{ color:'#6b7280' }}>—</span>}</td>
+                <td style={{ ...td, whiteSpace:'nowrap' }}>{x.startedAt ? new Date(x.startedAt).toLocaleString() : '—'}</td>
+                <td style={{ ...td, whiteSpace:'nowrap' }}>
+                  {x.endedAt
+                    ? new Date(x.endedAt).toLocaleString()
+                    : <span style={{ color:'#15803d', fontWeight:600 }}>Active now</span>}
                 </td>
               </tr>
             ))}

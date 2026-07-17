@@ -12,6 +12,7 @@ const { Pool } = require('pg');
 const config   = require('../config');
 const StudentNote = require('../models/StudentNote');
 const { isStoneTier } = require('../utils/stoneContent');
+const { checkStudent } = require('../services/eventQualification');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -277,6 +278,13 @@ router.post('/lookup', requireRep, async (req, res) => {
       console.error('[event-desk] lookup profile:', e.message);   // non-fatal
     }
 
+    // Gate: the scanner note view only opens for students who have FULLY
+    // completed the questionnaire — same canonical check as check-in
+    // (checkStudent overlays the lead-stored fields). Incomplete students get
+    // a blocking "guide them back to registration" pop-up on the desk page.
+    let profileComplete = true;
+    try { profileComplete = (await checkStudent(pool, student)).qualified; } catch (_) {}
+
     // Name + stone + required profile only — email/phone/Zalo never leave
     // this endpoint. The stone tier is fine to show reps: it's already
     // visible to them in the centre of the badge QR they just scanned.
@@ -284,6 +292,7 @@ router.post('/lookup', requireRep, async (req, res) => {
       studentUniqueId: student.student_id,
       fullName: student.full_name,
       stoneTier: isStoneTier(student.stone_tier) ? student.stone_tier : '',
+      profileComplete,
       profile,
     } });
   } catch (err) {

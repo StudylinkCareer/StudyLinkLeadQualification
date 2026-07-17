@@ -222,6 +222,7 @@ export const eventConsoleAPI = {
   emailRepLink:   (id, repId, baseUrl) => request('POST', `/api/event-console/events/${id}/reps/${repId}/email-link`, { baseUrl }),
   addEventRep:    (id, body)       => request('POST',   `/api/event-console/events/${id}/reps`, body),
   updateEventRep: (id, repId, b)   => request('PATCH',  `/api/event-console/events/${id}/reps/${repId}`, b),
+  deskSessions:   (id)             => request('GET',    `/api/event-console/events/${id}/desk-sessions`),
   regenRepPin:    (id, repId)      => request('POST',   `/api/event-console/events/${id}/reps/${repId}/regen-pin`),
   removeEventRep: (id, repId)      => request('DELETE', `/api/event-console/events/${id}/reps/${repId}`),
 

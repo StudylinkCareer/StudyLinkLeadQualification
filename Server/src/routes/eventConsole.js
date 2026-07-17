@@ -759,6 +759,30 @@ async function buildCheckinFields(student, lang = 'en') {
   return out;
 }
 
+// ── GET /events/:id/desk-sessions ── assignment audit log for the Reps tab:
+// every kiosk desk sign-in/switch (rep name, institution, in/out times),
+// newest first.
+router.get('/events/:id/desk-sessions', requireStaffAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  try {
+    const r = await pool.query(
+      `SELECT ds.id, s.full_name, i.name AS institution_name, ds.started_at, ds.ended_at
+         FROM desk_sessions ds
+         JOIN staff s ON s.id = ds.staff_id
+         LEFT JOIN institutions i ON i.id = ds.institution_id
+        WHERE ds.event_id = $1
+        ORDER BY ds.started_at DESC
+        LIMIT 300`,
+      [id]
+    );
+    res.json({ success: true, data: r.rows });
+  } catch (err) {
+    console.error('[event-console] desk-sessions:', err);
+    res.status(500).json({ success: false, error: 'Failed to load the assignment log' });
+  }
+});
+
 // GET /qualification-fields — the full catalog (for the admin grid)
 router.get('/qualification-fields', requireAdminOnly, async (req, res) => {
   try {

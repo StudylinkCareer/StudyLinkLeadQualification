@@ -254,7 +254,25 @@ export default function DeskPage() {
         </div>
       )}
 
-      {student && (
+      {/* Incomplete questionnaire → blocking pop-up: the note view never
+          opens; the rep sends the student back to registration instead. */}
+      {student && student.profileComplete === false && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 22, maxWidth: 420, width: '100%', textAlign: 'center' }}>
+            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{student.fullName}</div>
+            <div style={{ fontSize: 34, margin: '6px 0' }}>⚠️</div>
+            <p style={{ fontSize: 15, fontWeight: 600, color: '#b91c1c', margin: '0 0 8px', lineHeight: 1.5 }}>
+              Student has not completed his profile — please ask one of the support staff to guide him back to registration.
+            </p>
+            <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 16px', lineHeight: 1.5 }}>
+              Học sinh chưa hoàn thành hồ sơ — vui lòng nhờ nhân viên hỗ trợ hướng dẫn bạn ấy quay lại quầy đăng ký.
+            </p>
+            <button style={btn} onClick={cancelStudent}>OK — quét tiếp</button>
+          </div>
+        </div>
+      )}
+
+      {student && student.profileComplete !== false && (
         <div style={card}>
           {/* Questionnaire title + the student's stone (image + name), kept on
               ONE row even on phone widths: the chip never shrinks or wraps,
