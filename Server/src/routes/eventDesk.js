@@ -280,10 +280,13 @@ router.post('/lookup', requireRep, async (req, res) => {
 
     // Gate: the scanner note view only opens for students who have FULLY
     // completed the questionnaire — same canonical check as check-in
-    // (checkStudent overlays the lead-stored fields). Incomplete students get
-    // a blocking "guide them back to registration" pop-up on the desk page.
+    // (checkStudent overlays the lead-stored fields), evaluated LIVE on every
+    // scan so later edits/deletions are always respected. Incomplete students
+    // get a blocking "guide them back to registration" pop-up on the desk
+    // page, and their questionnaire data is withheld.
     let profileComplete = true;
     try { profileComplete = (await checkStudent(pool, student)).qualified; } catch (_) {}
+    if (!profileComplete) profile = [];
 
     // Name + stone + required profile only — email/phone/Zalo never leave
     // this endpoint. The stone tier is fine to show reps: it's already
@@ -330,6 +333,23 @@ router.post('/visit', requireRep, async (req, res) => {
       [req.rep.event_id, studentUniqueId]
     );
     if (att.rowCount === 0) return res.status(404).json({ success: false, error: 'Student is not on this event' });
+
+    // 2b. SERVER-SIDE gate (mirrors the scan gate): the questionnaire must be
+    // fully complete AT SAVE TIME. This blocks stale kiosk tabs (old client
+    // code that ignores profileComplete) and any later field deletions.
+    try {
+      const sres = await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [studentUniqueId]);
+      if (sres.rowCount === 0) return res.status(404).json({ success: false, error: 'Student not found' });
+      const gate = await checkStudent(pool, sres.rows[0]);
+      if (!gate.qualified) {
+        return res.status(409).json({
+          success: false,
+          error: 'Student has not completed his profile — please ask one of the support staff to guide him back to registration.',
+        });
+      }
+    } catch (gateErr) {
+      console.error('[event-desk] visit gate:', gateErr.message);   // fail open on infra error
+    }
 
     // 3. topic = the event's name (e.g. "Fair First Date 18.7.2026").
     const ev = await pool.query(`SELECT name FROM events WHERE id = $1`, [req.rep.event_id]);
