@@ -527,7 +527,7 @@ router.post('/events/:id/reps', requireDeskAdmin, async (req, res) => {
   const validUntil    = (req.body.validUntil || '').trim() || null;
 
   if (kind === 'institution' && !institutionId) {
-    return res.status(400).json({ success: false, error: 'Institution reps need an institution (or set type to StudyLink for roving)' });
+    return res.status(400).json({ success: false, error: 'Pick an institution, or choose "To be assigned"' });
   }
 
   if (institutionId) {

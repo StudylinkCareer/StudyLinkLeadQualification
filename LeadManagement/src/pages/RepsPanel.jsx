@@ -83,15 +83,18 @@ export default function RepsPanel({ eventId, selected }) {
 
   const handleAdd = async () => {
     const nm = newName.trim();
+    // "To be assigned" = no institution yet (stored institution-less, same as
+    // the server's 'studylink' kind); they can be tied to a desk later.
+    const tba = institutionId === 'tba';
     if (!staffId && !nm) { setError('Pick a staff member, or type a new recruit’s name.'); return; }
-    if (kind === 'institution' && !institutionId) { setError('Pick an institution, or switch type to StudyLink (roving).'); return; }
+    if (!tba && !institutionId) { setError('Pick an institution, or choose “To be assigned”.'); return; }
     setBusy(true); setError(''); setNewCred(null);
     try {
       const res = await eventConsoleAPI.addEventRep(eventId, {
         staffId: staffId || undefined,
         fullName: staffId ? undefined : nm,   // new recruit → create by name
-        kind,
-        institutionId: kind === 'institution' ? institutionId : null,
+        kind: tba ? 'studylink' : kind,
+        institutionId: tba ? null : institutionId,
         validFrom:  validFrom  ? new Date(validFrom).toISOString()  : null,
         validUntil: validUntil ? new Date(validUntil).toISOString() : null,
       });
@@ -171,6 +174,7 @@ export default function RepsPanel({ eventId, selected }) {
             style={{ ...input, flex:'1 1 180px' }}
           >
             <option value="">Pick institution…</option>
+            <option value="tba">To be assigned</option>
             {desks.map((d) => <option key={d.id} value={d.institutionId}>{d.institutionName}</option>)}
           </select>
           <div style={{ display:'flex', gap:6, alignItems:'center' }}>
@@ -238,7 +242,7 @@ export default function RepsPanel({ eventId, selected }) {
                   <div style={{ fontWeight:600 }}>{r.fullName}</div>
                   <div style={{ color:'#9ca3af', fontSize:12 }}>{r.position}{r.isActive ? '' : ' · deactivated'}</div>
                 </td>
-                <td style={td}>{r.institutionName || <span style={{ color:'#6b7280' }}>Roving</span>}</td>
+                <td style={td}>{r.institutionName || <span style={{ color:'#6b7280' }}>To be assigned</span>}</td>
                 <td style={td}>
                   <span style={{ fontFamily:'monospace', fontSize:18, fontWeight:700, letterSpacing:'0.08em' }}>{r.eventPin}</span>
                 </td>
