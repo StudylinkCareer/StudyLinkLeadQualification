@@ -752,12 +752,20 @@ async function buildCheckinFields(student, lang = 'en') {
       [lookupCategoryFor(f.field_key)]
     );
     const options = lv.rows.map((x) => ({ value: x.code, label: x.label }));
+    const value = student[f.field_key] != null ? String(student[f.field_key]) : '';
+    // A stored value from outside the pickable lookup list (e.g. the
+    // system-stamped lead_source 'Event/Campaign') must still display —
+    // a <select> whose value has no matching option renders blank. Surface
+    // it as an extra option at the top instead.
+    if (value && options.length && !options.some((o) => o.value === value)) {
+      options.unshift({ value, label: value });
+    }
     out.push({
       fieldKey: f.field_key,
       label: f.label,
       type: options.length ? 'select' : 'text',
       options,
-      value: student[f.field_key] != null ? String(student[f.field_key]) : '',
+      value,
     });
   }
   return out;
