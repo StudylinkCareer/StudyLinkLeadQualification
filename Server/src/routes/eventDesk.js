@@ -252,6 +252,7 @@ router.post('/lookup', requireRep, async (req, res) => {
     // toggling fields in the Qualification tab changes the scan automatically.
     const FIELD_LOOKUP_CATEGORY = { residency: 'vietnam_province', destination_country: 'country' };
     let profile = [];
+    const labelByKey = {};   // field_key -> Vietnamese label (for the missing-fields list)
     try {
       const hasQfVi = (await pool.query(
         `SELECT 1 FROM information_schema.columns
@@ -262,6 +263,7 @@ router.post('/lookup', requireRep, async (req, res) => {
           WHERE is_required = true ORDER BY sort_order`
       );
       for (const f of qf.rows) {
+        labelByKey[f.field_key] = f.label;
         if (LOOKUP_EXCLUDE.includes(f.field_key) || !_present(student[f.field_key])) continue;
         const raw = String(student[f.field_key]).trim();
         let value = raw;
@@ -287,8 +289,20 @@ router.post('/lookup', requireRep, async (req, res) => {
     // scan so later edits/deletions are always respected. Incomplete students
     // get a blocking "guide them back to registration" pop-up on the desk
     // page, and their questionnaire data is withheld.
-    let profileComplete = true;
-    try { profileComplete = (await checkStudent(pool, student)).qualified; } catch (_) {}
+    let profileComplete = true, missing = [];
+    try {
+      const gate = await checkStudent(pool, student);
+      profileComplete = gate.qualified;
+      if (!profileComplete) {
+        // Translate missing field_keys to the questionnaire's labels. Special
+        // entries like "year_of_birth (out of range)" resolve via their first
+        // token; anything unmapped falls back to the raw key.
+        missing = (gate.missing || []).map((k) => {
+          const key = String(k).split(' ')[0];
+          return labelByKey[key] || k;
+        });
+      }
+    } catch (_) {}
     if (!profileComplete) profile = [];
 
     // Name + stone + required profile only — email/phone/Zalo never leave
@@ -299,6 +313,7 @@ router.post('/lookup', requireRep, async (req, res) => {
       fullName: student.full_name,
       stoneTier: isStoneTier(student.stone_tier) ? student.stone_tier : '',
       profileComplete,
+      missing,
       profile,
     } });
   } catch (err) {

@@ -264,9 +264,19 @@ export default function DeskPage() {
             <p style={{ fontSize: 15, fontWeight: 600, color: '#b91c1c', margin: '0 0 8px', lineHeight: 1.5 }}>
               Student has not completed his profile — please ask one of the support staff to guide him back to registration.
             </p>
-            <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 16px', lineHeight: 1.5 }}>
+            <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 12px', lineHeight: 1.5 }}>
               Học sinh chưa hoàn thành hồ sơ — vui lòng nhờ nhân viên hỗ trợ hướng dẫn bạn ấy quay lại quầy đăng ký.
             </p>
+            {student.missing && student.missing.length > 0 && (
+              <div style={{ textAlign: 'left', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', margin: '0 0 16px', maxHeight: 180, overflowY: 'auto' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#b91c1c', marginBottom: 6 }}>
+                  Thông tin còn thiếu ({student.missing.length}):
+                </div>
+                {student.missing.map((f, i) => (
+                  <div key={i} style={{ fontSize: 13, color: '#7f1d1d', padding: '2px 0' }}>• {f}</div>
+                ))}
+              </div>
+            )}
             <button style={btn} onClick={cancelStudent}>OK — quét tiếp</button>
           </div>
         </div>
