@@ -148,6 +148,10 @@ async function register(req, res, next) {
         await client.query(`UPDATE students SET order_phase='Pool', updated_at=now() WHERE student_id=$1`, [student.studentId]);
         await OrderAssignment.setForOrder(client, student.studentId, 'Quality', 'Mạch Nguyễn Phi Vân');
       }
+      // Keep the response snapshot in step with what was just written — the
+      // create() snapshot predates this block, and the LQ app round-trips it.
+      student.counselor  = coun || '';
+      student.orderPhase = coun ? 'Counselling' : 'Pool';
 
       // Append the registration event row + populate student-level Source if empty.
       await appendRegistration(student.studentId, {
@@ -202,7 +206,14 @@ async function getByEmail(req, res, next) {
 async function updateStudent(req, res, next) {
   try {
     const { id } = req.params;
-    const updated = await Student.update(id, req.body);
+    // Ownership fields are console-managed and must never be writable from the
+    // customer app: the LQ Dashboard round-trips its loaded snapshot, and a
+    // stale snapshot (taken before the register() ownership step) was wiping
+    // the counsellor and reverting order_phase to Pool on the first tab save.
+    const data = { ...req.body };
+    delete data.counselor;
+    delete data.orderPhase;
+    const updated = await Student.update(id, data);
     await issueAdvanceTokens(pool, id);
     res.json({ success: true, data: updated });
   } catch (err) {
