@@ -12,7 +12,10 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
-const NAMES = ['StudyLink 1', 'StudyLink 2', 'Deskin University'];
+// 'To be assigned' was a stop-gap institution created by hand before the real
+// no-institution option deployed; reps pointing at it are detached to NULL,
+// which IS "to be assigned" in the new model.
+const NAMES = ['StudyLink 1', 'StudyLink 2', 'Deskin University', 'To be assigned'];
 
 const ARGS = process.argv.slice(2);
 const ALLOW_REMOTE = ARGS.includes('--allow-remote');

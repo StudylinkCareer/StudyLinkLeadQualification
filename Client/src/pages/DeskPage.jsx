@@ -275,7 +275,7 @@ export default function DeskPage() {
           <div style={label}>Học sinh</div>
           <div style={{ fontSize: 22, fontWeight: 800, margin: '4px 0 14px' }}>{student.fullName}</div>
 
-          {student.profile && student.profile.length > 0 && (
+          {student.profile && student.profile.length > 0 ? (
             <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '8px 12px', margin: '0 0 16px' }}>
               {student.profile.map((f, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0', fontSize: 14, borderTop: i ? '1px solid #eef0f2' : 'none' }}>
@@ -283,6 +283,10 @@ export default function DeskPage() {
                   <span style={{ fontWeight: 600, textAlign: 'right' }}>{f.value}</span>
                 </div>
               ))}
+            </div>
+          ) : (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 12px', margin: '0 0 16px', fontSize: 13, color: '#92400e' }}>
+              Học sinh chưa trả lời bảng câu hỏi — mời bạn ấy mở liên kết trên thẻ để hoàn thành.
             </div>
           )}
 

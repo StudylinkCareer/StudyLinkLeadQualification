@@ -49,9 +49,10 @@ async function requireRep(req, res, next) {
   if (!payload) return res.status(401).json({ success: false, error: 'Session expired — sign in again' });
   try {
     // Bearer repId = event_reps.id (the link). Resolve to the real staff person;
-    // req.rep.id stays the STAFF id so desk sessions + note authorship are correct.
+    // req.rep.id stays the STAFF id so desk sessions + note authorship are
+    // correct; rep_link_id keeps the event_reps row for assignment write-back.
     const r = await pool.query(
-      `SELECT er.staff_id AS id, s.full_name, er.institution_id, er.event_id, er.is_active, er.valid_until
+      `SELECT er.staff_id AS id, er.id AS rep_link_id, s.full_name, er.institution_id, er.event_id, er.is_active, er.valid_until
          FROM event_reps er JOIN staff s ON s.id = er.staff_id
         WHERE er.id = $1`,
       [payload.repId]
@@ -182,6 +183,14 @@ router.post('/sign-in-desk', requireRep, async (req, res) => {
        VALUES ($1, $2, $3) RETURNING id, started_at`,
       [req.rep.event_id, institutionId, req.rep.id]
     );
+
+    // Write the choice back to the rep's assignment, so the console's Reps tab
+    // reflects where event staff actually signed in (a "To be assigned" rep
+    // picking a desk on their phone assigns themselves). Non-fatal.
+    pool.query(`UPDATE event_reps SET institution_id = $1 WHERE id = $2`,
+      [institutionId, req.rep.rep_link_id])
+      .catch((e) => console.error('[event-desk] assignment write-back:', e.message));
+
     res.json({ success: true, data: { sessionId: ins.rows[0].id, institutionId } });
   } catch (err) {
     console.error('[event-desk] sign-in-desk:', err);

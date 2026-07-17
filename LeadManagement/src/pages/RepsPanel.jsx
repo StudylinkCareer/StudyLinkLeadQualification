@@ -115,6 +115,13 @@ export default function RepsPanel({ eventId, selected }) {
     catch (e) { setError(e.message || 'Failed to regenerate PIN'); }
   };
 
+  // Reassign a rep's desk in place ('' -> To be assigned / NULL).
+  const handleReassign = async (repId, instId) => {
+    setError('');
+    try { await eventConsoleAPI.updateEventRep(eventId, repId, { institutionId: instId || null }); await loadReps(eventId); }
+    catch (e) { setError(e.message || 'Failed to update institution'); }
+  };
+
   const handleRemove = async (repId) => {
     if (!window.confirm('Deactivate this rep? They will no longer be able to sign in.')) return;
     setError('');
@@ -242,7 +249,20 @@ export default function RepsPanel({ eventId, selected }) {
                   <div style={{ fontWeight:600 }}>{r.fullName}</div>
                   <div style={{ color:'#9ca3af', fontSize:12 }}>{r.position}{r.isActive ? '' : ' · deactivated'}</div>
                 </td>
-                <td style={td}>{r.institutionName || <span style={{ color:'#6b7280' }}>To be assigned</span>}</td>
+                <td style={td}>
+                  <select
+                    value={String(r.institutionId || '')}
+                    onChange={(e) => handleReassign(r.id, e.target.value)}
+                    disabled={!r.isActive}
+                    title="Change this rep's desk"
+                    style={{ padding:'6px 8px', borderRadius:8, border:'1px solid #d1d5db', fontSize:13,
+                             background:'#fff', maxWidth:190, cursor:'pointer',
+                             color: r.institutionId ? '#111827' : '#6b7280' }}
+                  >
+                    <option value="">To be assigned</option>
+                    {desks.map((d) => <option key={d.id} value={String(d.institutionId)}>{d.institutionName}</option>)}
+                  </select>
+                </td>
                 <td style={td}>
                   <span style={{ fontFamily:'monospace', fontSize:18, fontWeight:700, letterSpacing:'0.08em' }}>{r.eventPin}</span>
                 </td>
