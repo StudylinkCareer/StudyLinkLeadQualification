@@ -112,11 +112,12 @@ async function overlayLeadQualFields(pool, student) {
     if (!r.rows.length) return student;
     const lead = r.rows[0];
     const out = { ...student };
-    for (const f of LEAD_QUAL_FIELDS) {
-      const lv = lead[f];
-      if (lv !== null && lv !== undefined && String(lv).trim() !== '') out[f] = lv;          // lead is source of truth
-      else if (out[f] === undefined || out[f] === null)                out[f] = lv;          // post-drop: students lacks the column
-    }
+    // The lead is the source of truth for these fields — INCLUDING when its
+    // value is NULL/cleared. Copy unconditionally: falling back to the stale
+    // pre-split students-table copies was resurrecting deleted data (a wiped
+    // destination_country kept showing — and passing the gate — via the old
+    // students column).
+    for (const f of LEAD_QUAL_FIELDS) out[f] = lead[f];
     return out;
   } catch (e) {
     return student; // never block qualification on a merge hiccup
@@ -188,6 +189,7 @@ module.exports = {
   loadRequiredFields,
   clearQualificationCache,
   checkStudent,
+  overlayLeadQualFields,
   issueAdvanceTokens,
   REQUIRED_FALLBACK,
 };

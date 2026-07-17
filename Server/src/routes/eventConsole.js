@@ -27,7 +27,7 @@ const express = require('express');
 const crypto  = require('crypto');
 const path    = require('path');
 const { Pool } = require('pg');
-const { clearQualificationCache, checkStudent } = require('../services/eventQualification');
+const { clearQualificationCache, checkStudent, overlayLeadQualFields } = require('../services/eventQualification');
 const { sendEventQrEmail, sendStoneResultEmail, sendRepLinkEmail } = require('../services/emailService');
 const { sendEventBadge, sendStoneResult } = require('../services/zaloService');
 const zaloDeliveryPoller = require('../services/zaloDeliveryPoller');
@@ -720,6 +720,10 @@ function lookupCategoryFor(k) { return FIELD_LOOKUP_CATEGORY[k] || k; }
 // CURRENTLY-required field, with options pulled from lookup_values (select) or
 // type 'text' when no list exists. Reads config live, so it tracks the toggles.
 async function buildCheckinFields(student, lang = 'en') {
+  // Lead-stored qualification fields must come from the LEAD (their source of
+  // truth) — the students-table copies are stale pre-split leftovers. This
+  // keeps the profile page and check-in form honest about deleted values.
+  student = await overlayLeadQualFields(pool, student);
   const vi = lang === 'vi';
   // Question label: use the Vietnamese column when available (added later), else
   // fall back to the English label. Guarded with to_regclass-free COALESCE on a

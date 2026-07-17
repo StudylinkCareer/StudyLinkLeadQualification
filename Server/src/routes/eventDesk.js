@@ -12,7 +12,7 @@ const { Pool } = require('pg');
 const config   = require('../config');
 const StudentNote = require('../models/StudentNote');
 const { isStoneTier } = require('../utils/stoneContent');
-const { checkStudent } = require('../services/eventQualification');
+const { checkStudent, overlayLeadQualFields } = require('../services/eventQualification');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -240,7 +240,10 @@ router.post('/lookup', requireRep, async (req, res) => {
     if (r.rowCount === 0) {
       return res.status(404).json({ success: false, error: 'Not recognised — is the student checked in?' });
     }
-    const student = r.rows[0];
+    // Overlay the lead-stored qualification fields (destination_country,
+    // timeline, …): the lead is their source of truth; the students-table
+    // copies are stale pre-split leftovers.
+    const student = await overlayLeadQualFields(pool, r.rows[0]);
 
     // Currently-required fields, minus contact identifiers, in VIETNAMESE:
     // field labels prefer event_qualification_fields.label_vi (when the column
