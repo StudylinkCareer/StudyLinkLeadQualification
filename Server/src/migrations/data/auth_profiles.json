@@ -619,6 +619,7 @@
       "leads.assign": "all",
       "leads.delete": "all",
       "leads.view_list": "all",
+      "leads.list_manage": "all",
       "leads.create_sales": "all",
       "leads.delay_close_date": "all",
       "leads.recalculate": "all"
