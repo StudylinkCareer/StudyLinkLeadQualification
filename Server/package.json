@@ -8,6 +8,7 @@
     "dev": "nodemon src/server.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.3",
     "connect-redis": "^9.0.0",
     "cors": "^2.8.5",
     "csv-parse": "^6.2.1",

@@ -37,9 +37,21 @@ export const TARGETS_PROFILES = new Set([
   'Quality', 'Tech Support',
 ]);
 
-export const isAdminProfile   = (x) => ADMIN_PROFILES.has(x);
-export const isManagerOrAdmin = (x) => ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x);
-export const canManageTargets = (x) => TARGETS_PROFILES.has(x);
+// Event reports (Event Check-in → Reports tab): Executives, Managers/Leads, Data
+// Quality. Excludes Admin Office + Tech Support staff. Mirror of authProfiles.
+export const EVENT_REPORT_PROFILES = new Set([
+  'CEO', 'COO',
+  'Manager, Marketing', 'Manager, Products', 'Manager, Business Development',
+  'Manager, HR', 'Manager, Finance', 'Manager, Technical Support',
+  'Lead, Counsellor', 'Lead, Case Officer', 'Lead, Pre-sales',
+  'Staff, Data Quality',
+  'Manager', 'Director', 'Quality',
+]);
+
+export const isAdminProfile     = (x) => ADMIN_PROFILES.has(x);
+export const isManagerOrAdmin   = (x) => ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x);
+export const canManageTargets   = (x) => TARGETS_PROFILES.has(x);
+export const canViewEventReports = (x) => EVENT_REPORT_PROFILES.has(x);
 
 // A counsellor is identified by their position/profile containing "counsel"
 // ('Counselor' legacy, 'Staff, Counsellor' / 'Lead, Counsellor' new).

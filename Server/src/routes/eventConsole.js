@@ -277,13 +277,23 @@ router.post('/events/:id/checkin', requireStaffAuth, async (req, res) => {
 // Reads: any signed-in staff. Writes: Admin/Manager/Director.
 // ─────────────────────────────────────────────────────────────────────
 
-const { isManagerOrAdmin, isAdminProfile } = require('../utils/authProfiles');
+const { isManagerOrAdmin, isAdminProfile, canViewEventReports } = require('../utils/authProfiles');
 function requireDeskAdmin(req, res, next) {
   if (!req.session || !req.session.staffId) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
   }
   if (!isManagerOrAdmin(req.session.staffRole)) {
     return res.status(403).json({ success: false, error: 'Insufficient role' });
+  }
+  next();
+}
+// Event reports access: Executives, Managers/Leads, Data Quality (see authProfiles).
+function requireEventReports(req, res, next) {
+  if (!req.session || !req.session.staffId) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  if (!canViewEventReports(req.session.staffRole)) {
+    return res.status(403).json({ success: false, error: 'Not authorised for event reports' });
   }
   next();
 }
@@ -1381,6 +1391,134 @@ router.post('/poll-zalo-delivery', requireStaffAuth, async (_req, res) => {
   } catch (err) {
     console.error('[event-console] poll-zalo-delivery:', err);
     res.status(500).json({ success: false, error: 'Poll failed' });
+  }
+});
+
+// ── Event reports (per-event uploaded + AI-generated report files) ──────────
+// Manager/admin-gated (they contain contract-potential / advisory PII). Files
+// stored as bytea; upload is base64 JSON (15mb body limit covers it). Generation
+// runs the Anthropic API in the background (see runReportGeneration).
+const { gatherEventReportData }   = require('../services/eventReportData');
+const { generateNarrative }       = require('../services/eventReportGenerator');
+const { buildEventReportWorkbook, workbookToBuffer } = require('../services/eventReportExcel');
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+// GET /events/:id/reports — list metadata (no file bytes).
+router.get('/events/:id/reports', requireEventReports, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, file_name, mime_type, byte_size, uploaded_by, uploaded_at, source, status, error
+         FROM event_reports WHERE event_id = $1 ORDER BY uploaded_at DESC`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: r.rows });
+  } catch (err) {
+    console.error('[event-console] list reports:', err);
+    res.status(500).json({ success: false, error: 'Failed to load reports' });
+  }
+});
+
+// POST /events/:id/reports/generate — AI-generate the report (async background job).
+router.post('/events/:id/reports/generate', requireEventReports, async (req, res) => {
+  try {
+    const mode = req.body && req.body.mode === 'data' ? 'data' : 'full';
+    if (mode === 'full' && !process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ success: false, error: 'AI generation is not configured (no API key / credits). Use the data-only report for now.' });
+    }
+    const eventId = req.params.id;
+    const ev = (await pool.query('SELECT name FROM events WHERE id = $1', [eventId])).rows[0];
+    const stamp = new Date().toISOString().slice(0, 10);
+    const label = mode === 'data' ? 'Event Report (data)' : 'Event Report';
+    const fileName = `${label} - ${(ev?.name || ('event ' + eventId))} - ${stamp}.xlsx`;
+    const ins = await pool.query(
+      `INSERT INTO event_reports (event_id, file_name, mime_type, source, status, uploaded_by)
+       VALUES ($1, $2, $3, 'generated', 'generating', $4) RETURNING id`,
+      [eventId, fileName, XLSX_MIME, req.session.staffName || null]
+    );
+    const reportId = ins.rows[0].id;
+    res.status(202).json({ success: true, data: { id: reportId, status: 'generating' } });
+    // Fire-and-forget; status is tracked on the row and polled by the UI.
+    runReportGeneration(eventId, reportId, mode).catch((e) => console.error('[event-report] generation:', e));
+  } catch (err) {
+    console.error('[event-console] start generate:', err);
+    res.status(500).json({ success: false, error: 'Failed to start generation' });
+  }
+});
+
+async function runReportGeneration(eventId, reportId, mode = 'full') {
+  try {
+    const data = await gatherEventReportData(eventId);
+    const narrative = mode === 'data' ? {} : await generateNarrative(data);
+    const wb  = buildEventReportWorkbook(data, narrative);
+    const buf = await workbookToBuffer(wb);
+    await pool.query(
+      `UPDATE event_reports SET data = $1, byte_size = $2, status = 'ready', error = NULL WHERE id = $3`,
+      [buf, buf.length, reportId]
+    );
+    console.log(`[event-report] generated report ${reportId} for event ${eventId} (${buf.length} bytes, ${narrative.batches} batches)`);
+  } catch (e) {
+    await pool.query(`UPDATE event_reports SET status = 'failed', error = $1 WHERE id = $2`,
+      [String(e && e.message || e).slice(0, 500), reportId]).catch(() => {});
+  }
+}
+
+// POST /events/:id/reports — { fileName, mimeType, dataBase64 }
+router.post('/events/:id/reports', requireEventReports, async (req, res) => {
+  try {
+    const fileName = String(req.body.fileName || '').trim();
+    const dataB64  = req.body.dataBase64 || '';
+    if (!fileName || !dataB64) {
+      return res.status(400).json({ success: false, error: 'fileName and dataBase64 are required' });
+    }
+    const buf = Buffer.from(dataB64, 'base64');
+    if (!buf.length) return res.status(400).json({ success: false, error: 'Empty file' });
+    if (buf.length > 12 * 1024 * 1024) {
+      return res.status(413).json({ success: false, error: 'File too large (max 12MB)' });
+    }
+    const r = await pool.query(
+      `INSERT INTO event_reports (event_id, file_name, mime_type, byte_size, data, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, file_name, mime_type, byte_size, uploaded_by, uploaded_at`,
+      [req.params.id, fileName, req.body.mimeType || null, buf.length, buf, req.session.staffName || null]
+    );
+    res.status(201).json({ success: true, data: r.rows[0] });
+  } catch (err) {
+    console.error('[event-console] upload report:', err);
+    res.status(500).json({ success: false, error: 'Upload failed' });
+  }
+});
+
+// GET /events/:id/reports/:reportId/download — stream the file back.
+router.get('/events/:id/reports/:reportId/download', requireEventReports, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT file_name, mime_type, data FROM event_reports WHERE id = $1 AND event_id = $2`,
+      [req.params.reportId, req.params.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ success: false, error: 'Report not found' });
+    const row = r.rows[0];
+    if (!row.data) return res.status(409).json({ success: false, error: 'Report is not ready yet' });
+    res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="${encodeURIComponent(row.file_name).replace(/['()]/g, '')}"`);
+    res.send(row.data);
+  } catch (err) {
+    console.error('[event-console] download report:', err);
+    res.status(500).json({ success: false, error: 'Download failed' });
+  }
+});
+
+// DELETE /events/:id/reports/:reportId
+router.delete('/events/:id/reports/:reportId', requireEventReports, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `DELETE FROM event_reports WHERE id = $1 AND event_id = $2`,
+      [req.params.reportId, req.params.id]
+    );
+    res.json({ success: true, deleted: r.rowCount });
+  } catch (err) {
+    console.error('[event-console] delete report:', err);
+    res.status(500).json({ success: false, error: 'Delete failed' });
   }
 });
 

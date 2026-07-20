@@ -34,8 +34,22 @@ const TARGETS_PROFILES = new Set([
   'Quality', 'Tech Support',
 ]);
 
-function isAdminProfile(x)   { return ADMIN_PROFILES.has(x); }
-function isManagerOrAdmin(x) { return ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x); }
-function canManageTargets(x) { return TARGETS_PROFILES.has(x); }
+// Who may see/manage Event reports (Event Check-in → Reports tab): Executives
+// (CEO/COO), all Managers + Leads, and Data Quality. Deliberately EXCLUDES
+// Administrator, Office and Technical Support staff. Mirror in roleProfiles.js.
+const EVENT_REPORT_PROFILES = new Set([
+  'CEO', 'COO',                                              // Executives
+  'Manager, Marketing', 'Manager, Products', 'Manager, Business Development',
+  'Manager, HR', 'Manager, Finance', 'Manager, Technical Support',
+  'Lead, Counsellor', 'Lead, Case Officer', 'Lead, Pre-sales',   // Managers / team leads
+  'Staff, Data Quality',                                     // Data Quality
+  // legacy
+  'Manager', 'Director', 'Quality',
+]);
 
-module.exports = { ADMIN_PROFILES, MANAGER_PROFILES, TARGETS_PROFILES, isAdminProfile, isManagerOrAdmin, canManageTargets };
+function isAdminProfile(x)     { return ADMIN_PROFILES.has(x); }
+function isManagerOrAdmin(x)   { return ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x); }
+function canManageTargets(x)   { return TARGETS_PROFILES.has(x); }
+function canViewEventReports(x){ return EVENT_REPORT_PROFILES.has(x); }
+
+module.exports = { ADMIN_PROFILES, MANAGER_PROFILES, TARGETS_PROFILES, EVENT_REPORT_PROFILES, isAdminProfile, isManagerOrAdmin, canManageTargets, canViewEventReports };

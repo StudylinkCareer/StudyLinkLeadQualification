@@ -16,6 +16,9 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import { eventConsoleAPI } from '../services/api';
 import RepsPanel from './RepsPanel';
 import QualificationPanel from './QualificationPanel';
+import EventReportsPanel from './EventReportsPanel';
+import { useAuth } from '../contexts/AuthContext';
+import { canViewEventReports } from '../utils/roleProfiles';
 import { renderBadgePng, dataUrlToBase64 } from '../utils/badgeRenderer';
 import { STONE_IMAGES } from '../utils/stones';
 import { STONE_GLYPHS } from '../utils/stoneGlyphs';
@@ -28,7 +31,9 @@ export default function EventConsole() {
   const trailCtx = useNavTrail();
   const [events, setEvents]   = useState([]);
   const [eventId, setEventId] = useState('');
-  const [tab, setTab]         = useState('roster');   // 'roster' | 'desks'
+  const [tab, setTab]         = useState('roster');   // 'roster' | 'desks' | 'reps' | 'qualification' | 'reports'
+  const { staff } = useAuth();
+  const canReports = canViewEventReports(staff?.position);   // Executives / Managers / Data Quality
   const [error, setError]     = useState('');
 
   // Roster tab state
@@ -384,6 +389,9 @@ export default function EventConsole() {
         <button style={tabBtn(tab === 'desks')}  onClick={() => setTab('desks')}>Desks</button>
         <button style={tabBtn(tab === 'reps')}   onClick={() => setTab('reps')}>Reps</button>
         <button style={tabBtn(tab === 'qualification')} onClick={() => setTab('qualification')}>Qualification</button>
+        {canReports && (
+          <button style={tabBtn(tab === 'reports')} onClick={() => setTab('reports')}>Reports</button>
+        )}
       </div>
 
       {error && (
@@ -611,6 +619,10 @@ export default function EventConsole() {
 
       {tab === 'reps' && (
         <RepsPanel eventId={eventId} selected={selected} />
+      )}
+
+      {tab === 'reports' && canReports && (
+        <EventReportsPanel eventId={eventId} />
       )}
 
       {tab === 'qualification' && (

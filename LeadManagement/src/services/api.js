@@ -226,6 +226,29 @@ export const eventConsoleAPI = {
   regenRepPin:    (id, repId)      => request('POST',   `/api/event-console/events/${id}/reps/${repId}/regen-pin`),
   removeEventRep: (id, repId)      => request('DELETE', `/api/event-console/events/${id}/reps/${repId}`),
 
+// ── Event reports (per-event uploaded report files) ──
+  listEventReports:  (id)          => request('GET',    `/api/event-console/events/${id}/reports`),
+  generateEventReport: (id, mode)  => request('POST',   `/api/event-console/events/${id}/reports/generate`, { mode: mode || 'full' }),
+  uploadEventReport: (id, body)    => request('POST',   `/api/event-console/events/${id}/reports`, body),
+  deleteEventReport: (id, reportId)=> request('DELETE', `/api/event-console/events/${id}/reports/${reportId}`),
+  // Streams the file back and triggers a browser download.
+  downloadEventReport: async (id, reportId, fileName) => {
+    const res = await fetch(`${BASE_URL}/api/event-console/events/${id}/reports/${reportId}/download`, {
+      method: 'GET', credentials: 'include',
+    });
+    if (!res.ok) {
+      let msg = `Download failed (${res.status})`;
+      try { const j = await res.json(); if (j.error) msg = j.error; } catch { /* binary */ }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = fileName || `event-report-${reportId}`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  },
+
 // ── Qualification config (Admin only) ──
   qualificationFields:     ()       => request('GET', '/api/event-console/qualification-fields'),
   saveQualificationFields: (fields) => request('PUT', '/api/event-console/qualification-fields', { fields }),
