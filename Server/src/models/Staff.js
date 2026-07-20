@@ -9,6 +9,16 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
+// Resolved target for the CURRENT month (Vietnam time): the monthly_targets
+// override if one exists for this month, else the base staff.target. Keeps the
+// Dashboard "Monthly target" consistent with the Staff Targets page (which shows
+// the override). Correlated on the outer `staff` row.
+const CURRENT_MONTH_TARGET_SQL =
+  `COALESCE((SELECT mt.target FROM monthly_targets mt
+              WHERE mt.staff_id = staff.id
+                AND mt.month = date_trunc('month', (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::date),
+            staff.target) AS current_month_target`;
+
 async function findAll() {
   const result = await pool.query(
     `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until
@@ -19,7 +29,8 @@ async function findAll() {
 
 async function findById(id) {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until,
+            ${CURRENT_MONTH_TARGET_SQL}
      FROM staff WHERE id = $1`,
     [id]
   );
@@ -48,7 +59,8 @@ async function findActiveByRole(role) {
 
 async function findAllActive() {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until,
+            ${CURRENT_MONTH_TARGET_SQL}
      FROM staff WHERE is_active = true AND COALESCE(staff_type,'') <> 'event' ORDER BY full_name ASC`
   );
   return result.rows.map(objectToCamelCase);

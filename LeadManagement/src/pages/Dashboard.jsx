@@ -695,13 +695,17 @@ export default function Dashboard() {
     s => (isCounsellorProfile(s.position) || isCounsellorProfile(s.role)) && s.target != null
   );
 
+  // Use the CURRENT-MONTH resolved target (monthly_targets override else base
+  // staff.target) so this matches the Staff Targets page. Falls back to base for
+  // safety if the backend field is absent (pre-deploy).
+  const resolvedTgt = (s) => Number((s?.currentMonthTarget ?? s?.target) || 0);
   const managerTargetCount = (() => {
     if (hasAllScope) {
       return activeCounsellorsWithTarget.length > 0
-        ? activeCounsellorsWithTarget.reduce((sum, s) => sum + Number(s.target || 0), 0)
+        ? activeCounsellorsWithTarget.reduce((sum, s) => sum + resolvedTgt(s), 0)
         : '—';
     }
-    return myStaff?.target ?? '—';
+    return (myStaff?.currentMonthTarget ?? myStaff?.target) ?? '—';
   })();
 
   const managerTargetSub = (() => {
@@ -716,7 +720,7 @@ export default function Dashboard() {
       : t('dashboard.pipeline.target.notSet', language);
   })();
 
-  const counselorTargetCount = selectedCounselorStaff?.target ?? '—';
+  const counselorTargetCount = (selectedCounselorStaff?.currentMonthTarget ?? selectedCounselorStaff?.target) ?? '—';
   // Show for management (aggregate) and for own-scope users who have a target.
   const showTargetRow = hasAllScope || myStaff?.target != null;
 

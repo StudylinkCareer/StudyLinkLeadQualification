@@ -14,10 +14,11 @@ const { Pool } = require('pg');
 
 // 'To be assigned' was a stop-gap institution created by hand before the real
 // no-institution option deployed; reps pointing at it are detached to NULL,
-// which IS "to be assigned" in the new model. 10A/10B are test desks from the
-// 2026-07-17 rehearsal. Idempotent: already-deleted names are skipped.
-const NAMES = ['StudyLink 1', 'StudyLink 2', 'Deskin University', 'To be assigned',
-               'StudyLink 10A', 'StudyLink 10B'];
+// which IS "to be assigned" in the new model. Idempotent: already-deleted
+// names are skipped. NOTE: StudyLink 10A/10B were once listed here as test
+// desks — they turned out to be REAL desks with 25 event visits (18.7.2026);
+// never delete them (the visit-guard would refuse anyway).
+const NAMES = ['StudyLink 1', 'StudyLink 2', 'Deskin University', 'To be assigned'];
 
 const ARGS = process.argv.slice(2);
 const ALLOW_REMOTE = ARGS.includes('--allow-remote');
