@@ -160,6 +160,9 @@ Server/rehearse_cutover.ps1
 Server/rerun_local.ps1
 Server/measure_drift.ps1
 
+# One-off script output containing real student PII - never commit
+Server/scripts/output/
+
 # Error logs
 *.log
 

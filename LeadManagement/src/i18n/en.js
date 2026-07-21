@@ -9,6 +9,7 @@ const en = {
   'sidebar.productName':       'StudyLink',
   'sidebar.productSubtitle':   'Lead Management',
   'sidebar.section.main':      'Main',
+  'sidebar.section.report':    'Report',
   'sidebar.section.admin':     'Admin',
   'sidebar.dashboard':         'Dashboard',
   'sidebar.leads':             'Leads',
