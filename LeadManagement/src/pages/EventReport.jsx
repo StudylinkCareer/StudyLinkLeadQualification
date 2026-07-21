@@ -76,9 +76,9 @@ function toPieData(rows, metricKey, nameFn, keyFn, otherLabel) {
 }
 
 // ── Stat card (matches ActivityReport.jsx / Dashboard.jsx) ─────
-function StatCard({ label, value, sub, color }) {
+function StatCard({ label, value, sub, color, title }) {
   return (
-    <div style={{
+    <div title={title} style={{
       background: 'var(--bg-primary)', border: '1px solid var(--border)',
       borderRadius: '10px', padding: '1rem 1.25rem',
       borderLeft: `4px solid ${color || 'var(--border)'}`,
@@ -541,7 +541,12 @@ export default function EventReport() {
                   <StatCard label={L('Schools present', 'Số trường')} value={fmtInt(ev.schoolsCount)} color={COLORS.neutral} />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
-                  <StatCard label={L('Contracted', 'Ký hợp đồng')} value={fmtInt(ev.contractedCount)} color={COLORS.primary} />
+                  <StatCard
+                    label={L('Contracted', 'Ký hợp đồng')}
+                    value={fmtInt(ev.contractedCount)}
+                    color={COLORS.primary}
+                    title={(ev.contractedLeads || []).map((c) => c.fullName).join(', ') || undefined}
+                  />
                   <StatCard
                     label={L('CPL (registered)', 'CPL (đăng ký)')}
                     value={budget?.totalCostActual != null && ev.registered ? fmtVnd(Math.round(budget.totalCostActual / ev.registered)) : '—'}
@@ -753,6 +758,7 @@ export default function EventReport() {
                                           <th style={{ textAlign: 'left' }}>{L('Status', 'Trạng thái')}</th>
                                           <th style={{ textAlign: 'center' }}>{L('Confirmed', 'Xác nhận')}</th>
                                           <th style={{ textAlign: 'center' }}>{L('Attended', 'Tham dự')}</th>
+                                          <th style={{ textAlign: 'center' }}>{L('Contracted', 'Ký HĐ')}</th>
                                           <th style={{ textAlign: 'left' }}>{L('Stone', 'Đá')}</th>
                                           <th style={{ textAlign: 'left' }}>{L('Counselor', 'Tư vấn viên')}</th>
                                           <th style={{ width: '40px' }}></th>
@@ -765,6 +771,7 @@ export default function EventReport() {
                                             <td>{l.status || '—'}</td>
                                             <td style={{ textAlign: 'center', color: l.confirmed ? COLORS.good : 'var(--text-secondary)' }}>{l.confirmed ? '✓' : '—'}</td>
                                             <td style={{ textAlign: 'center', color: l.attended ? COLORS.good : 'var(--text-secondary)' }}>{l.attended ? '✓' : '—'}</td>
+                                            <td style={{ textAlign: 'center', color: l.isContracted ? COLORS.good : 'var(--text-secondary)' }} title={l.leadStatus || ''}>{l.isContracted ? '✓' : '—'}</td>
                                             <td>
                                               {STONE_IMAGES[l.stoneTier] ? (
                                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>

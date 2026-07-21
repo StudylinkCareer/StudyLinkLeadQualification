@@ -26,7 +26,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { FiMenu } from 'react-icons/fi';
 import { useAuth } from './contexts/AuthContext';
-import { canViewEventReports } from './utils/roleProfiles';
+import { canViewEventAnalytics } from './utils/roleProfiles';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { NavCollapseProvider, useNavCollapse } from './contexts/NavCollapseContext';
 import { PermissionsProvider, usePermissions } from './contexts/PermissionsContext';
@@ -135,7 +135,7 @@ function EventReportRoute({ children }) {
   const { staff, loading } = useAuth();
   if (loading) return null;
   if (!staff) return <Navigate to="/login" replace />;
-  if (!canViewEventReports(staff.position)) return <Navigate to="/dashboard" replace />;
+  if (!canViewEventAnalytics(staff.position)) return <Navigate to="/dashboard" replace />;
   return <ConsoleShell>{children}</ConsoleShell>;
 }
 

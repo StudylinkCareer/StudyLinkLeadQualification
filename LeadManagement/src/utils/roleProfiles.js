@@ -48,10 +48,22 @@ export const EVENT_REPORT_PROFILES = new Set([
   'Manager', 'Director', 'Quality',
 ]);
 
+// Event Report ANALYTICS dashboard (Report -> Event Report): Executives
+// (CEO/COO) and Managers only — deliberately narrower than
+// EVENT_REPORT_PROFILES (Leads/Data Quality still get the separate Event
+// Console file-reports tab, unchanged). Mirror of authProfiles.js.
+export const EVENT_ANALYTICS_PROFILES = new Set([
+  'CEO', 'COO',
+  'Manager, Marketing', 'Manager, Products', 'Manager, Business Development',
+  'Manager, HR', 'Manager, Finance', 'Manager, Technical Support',
+  'Manager', 'Director',
+]);
+
 export const isAdminProfile     = (x) => ADMIN_PROFILES.has(x);
 export const isManagerOrAdmin   = (x) => ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x);
 export const canManageTargets   = (x) => TARGETS_PROFILES.has(x);
 export const canViewEventReports = (x) => EVENT_REPORT_PROFILES.has(x);
+export const canViewEventAnalytics = (x) => EVENT_ANALYTICS_PROFILES.has(x);
 
 // A counsellor is identified by their position/profile containing "counsel"
 // ('Counselor' legacy, 'Staff, Counsellor' / 'Lead, Counsellor' new).

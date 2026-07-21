@@ -47,9 +47,26 @@ const EVENT_REPORT_PROFILES = new Set([
   'Manager', 'Director', 'Quality',
 ]);
 
+// Who may see the Event Report ANALYTICS dashboard (LM console: Report ->
+// Event Report): Executives (CEO/COO) and Managers only. Deliberately
+// narrower than EVENT_REPORT_PROFILES (which also includes Lead-level team
+// leads and Data Quality — that set is for the separate Event Console file-
+// reports tab and is unchanged). Mirror in roleProfiles.js.
+const EVENT_ANALYTICS_PROFILES = new Set([
+  'CEO', 'COO',                                              // Executives
+  'Manager, Marketing', 'Manager, Products', 'Manager, Business Development',
+  'Manager, HR', 'Manager, Finance', 'Manager, Technical Support',
+  // legacy
+  'Manager', 'Director',
+]);
+
 function isAdminProfile(x)     { return ADMIN_PROFILES.has(x); }
 function isManagerOrAdmin(x)   { return ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x); }
 function canManageTargets(x)   { return TARGETS_PROFILES.has(x); }
 function canViewEventReports(x){ return EVENT_REPORT_PROFILES.has(x); }
+function canViewEventAnalytics(x){ return EVENT_ANALYTICS_PROFILES.has(x); }
 
-module.exports = { ADMIN_PROFILES, MANAGER_PROFILES, TARGETS_PROFILES, EVENT_REPORT_PROFILES, isAdminProfile, isManagerOrAdmin, canManageTargets, canViewEventReports };
+module.exports = {
+  ADMIN_PROFILES, MANAGER_PROFILES, TARGETS_PROFILES, EVENT_REPORT_PROFILES, EVENT_ANALYTICS_PROFILES,
+  isAdminProfile, isManagerOrAdmin, canManageTargets, canViewEventReports, canViewEventAnalytics,
+};

@@ -20,9 +20,16 @@ const pool = new Pool({
 // Resolve the display label for a registration's lead source. Priority:
 //   1. Channel (Facebook/Zalo/TikTok/...) from the event-registration record
 //   2. Referral (Sub-agent/Partner/Ex-client) + who — free text, shown as-is
-//   3. Per-registration source/source_detail mirror fields
+//   3. Per-registration source/source_detail mirror fields — UNLESS the
+//      Source-of-Lead picked was "Events" mode, in which case le.source is
+//      just the name of an event (usually THIS same event: the LQ app sets
+//      lead_events.event_id and the "source" event to the same picked value,
+//      so on-site registrants are tautologically "sourced from" the fair
+//      they're standing in). Showing that raw event name as if it were a
+//      channel like "FB ads" is meaningless noise, so it's collapsed to the
+//      Source-of-Lead lookup's own label instead (e.g. "Sự kiện / Event").
 //   4. Student-level fallback (older registrations captured before per-event
-//      attribution existed)
+//      attribution existed), same Events-mode collapse applied
 //   5. Unknown
 function resolveSourceLabel(row) {
   if (row.ev_heard_type === 'Channel' && row.ev_channel) {
@@ -32,9 +39,15 @@ function resolveSourceLabel(row) {
     const who = (row.ev_referral_who || '').trim();
     return `${row.ev_referral_kind}${who ? ': ' + who : ''}`;
   }
+  if (row.le_sol_mode === 'events') {
+    return row.le_sol_label || 'Event/Campaign';
+  }
   const leSource = [row.le_source, row.le_source_detail].filter(Boolean).join(' - ');
   if (leSource) return leSource;
 
+  if (row.s_sol_mode === 'events') {
+    return row.s_sol_label || 'Event/Campaign';
+  }
   const sSource = [row.s_lead_source || row.s_source, row.s_source_detail].filter(Boolean).join(' - ');
   if (sSource) return sSource;
 
@@ -86,7 +99,7 @@ async function gatherSourceBreakdown(eventIds) {
   const ids = (eventIds || []).map((x) => parseInt(x, 10)).filter((x) => !isNaN(x));
   if (!ids.length) return { events: [], bySource: [], byTier: [], byLead: [] };
 
-  const [regRes, schoolsRes, spendRes, contractedRes] = await Promise.all([
+  const [regRes, schoolsRes, spendRes, eventDatesRes] = await Promise.all([
     pool.query(
       `SELECT le.event_id, le.student_id, le.status AS lead_event_status,
               le.ev_heard_type, le.ev_channel, le.ev_referral_kind, le.ev_referral_who,
@@ -94,7 +107,10 @@ async function gatherSourceBreakdown(eventIds) {
               s.full_name, s.lead_source AS s_lead_source, s.source AS s_source, s.source_detail AS s_source_detail,
               s.stone_tier,
               ea.registered_at, ea.attended_at,
-              rl.counselor, rl.senior_counselor, rl.presales, rl.marketing_staff
+              rl.lead_id, rl.lead_status, rl.actual_close_date,
+              rl.counselor, rl.senior_counselor, rl.presales, rl.marketing_staff,
+              solv.meta->>'mode' AS le_sol_mode, COALESCE(solv.label_vi, solv.label_en, solv.code) AS le_sol_label,
+              ssolv.meta->>'mode' AS s_sol_mode, COALESCE(ssolv.label_vi, ssolv.label_en, ssolv.code) AS s_sol_label
          FROM (
                SELECT DISTINCT ON (student_id, event_id) *
                  FROM lead_events
@@ -104,12 +120,14 @@ async function gatherSourceBreakdown(eventIds) {
          JOIN students s ON s.student_id = le.student_id
          LEFT JOIN event_attendees ea ON ea.event_id = le.event_id AND ea.student_unique_id = le.student_id
          LEFT JOIN LATERAL (
-               SELECT counselor, senior_counselor, presales, marketing_staff
+               SELECT lead_id, lead_status, actual_close_date, counselor, senior_counselor, presales, marketing_staff
                  FROM leads
                 WHERE person_id = le.student_id
                 ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id DESC
                 LIMIT 1
-              ) rl ON true`,
+              ) rl ON true
+         LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = le.source_of_lead
+         LEFT JOIN lookup_values ssolv ON ssolv.category = 'source_of_lead' AND ssolv.code = s.lead_source`,
       [ids]
     ),
     pool.query(
@@ -126,32 +144,46 @@ async function gatherSourceBreakdown(eventIds) {
       [ids]
     ),
     pool.query(
-      `SELECT le.event_id, COUNT(DISTINCT le.student_id)::int AS contracted_count
-         FROM lead_events le
-        WHERE le.event_id = ANY($1)
-          AND EXISTS (SELECT 1 FROM leads l WHERE l.person_id = le.student_id AND l.lead_status = 'Contracted')
-        GROUP BY le.event_id`,
+      `SELECT id AS event_id, start_date FROM events WHERE id = ANY($1)`,
       [ids]
     ),
   ]);
 
   const schoolsByEvent = new Map(schoolsRes.rows.map((r) => [r.event_id, r.schools_count]));
   const spendByKey = new Map(spendRes.rows.map((r) => [`${r.event_id}::${r.source_label}`, r.spend_amount]));
-  const contractedByEvent = new Map(contractedRes.rows.map((r) => [r.event_id, r.contracted_count]));
+  const startDateByEvent = new Map(eventDatesRes.rows.map((r) => [r.event_id, r.start_date]));
 
-  const byLead = regRes.rows.map((row) => ({
-    eventId: row.event_id,
-    studentId: row.student_id,
-    fullName: row.full_name,
-    sourceLabel: resolveSourceLabel(row),
-    stoneTier: row.stone_tier || 'Unscored',
-    counselor: primaryStaffOf(row),
-    confirmed: row.lead_event_status === 'Confirmed',
-    status: row.lead_event_status,
-    attended: row.attended_at != null,
-    registeredAt: row.registered_at,
-    attendedAt: row.attended_at,
-  }));
+  // A registrant only counts as "Contracted via this event" if their
+  // representative lead (rl — same precedence used for counselor above) is
+  // itself Contracted AND it closed on/after this event's start date. There
+  // is no FK linking a lead to the event that produced it (a student/Sale
+  // can carry many unrelated leads over time per the connected-unit model),
+  // so "any Contracted lead ever" — the old query — wrongly credited this
+  // event with contracts from prior, unrelated engagements. The close-date
+  // guard is a best-effort proxy, not a guarantee; staff can verify exactly
+  // which leads are counted via the `isContracted` flag on each byLead row.
+  const byLead = regRes.rows.map((row) => {
+    const eventStart = startDateByEvent.get(row.event_id);
+    const isContracted = row.lead_status === 'Contracted'
+      && row.actual_close_date != null
+      && (!eventStart || new Date(row.actual_close_date) >= new Date(eventStart));
+    return {
+      eventId: row.event_id,
+      studentId: row.student_id,
+      fullName: row.full_name,
+      sourceLabel: resolveSourceLabel(row),
+      stoneTier: row.stone_tier || 'Unscored',
+      counselor: primaryStaffOf(row),
+      confirmed: row.lead_event_status === 'Confirmed',
+      status: row.lead_event_status,
+      attended: row.attended_at != null,
+      registeredAt: row.registered_at,
+      attendedAt: row.attended_at,
+      leadId: row.lead_id,
+      leadStatus: row.lead_status,
+      isContracted,
+    };
+  });
 
   // ── Per-event totals ──
   const eventTotals = new Map();
@@ -159,7 +191,8 @@ async function gatherSourceBreakdown(eventIds) {
     eventTotals.set(id, {
       eventId: id, registered: 0, confirmed: 0, attended: 0,
       schoolsCount: schoolsByEvent.get(id) || 0,
-      contractedCount: contractedByEvent.get(id) || 0,
+      contractedCount: 0,
+      contractedLeads: [],
     });
   }
   for (const lead of byLead) {
@@ -168,6 +201,12 @@ async function gatherSourceBreakdown(eventIds) {
     t.registered += 1;
     if (lead.confirmed) t.confirmed += 1;
     if (lead.attended) t.attended += 1;
+    if (lead.isContracted) {
+      t.contractedCount += 1;
+      t.contractedLeads.push({
+        studentId: lead.studentId, fullName: lead.fullName, leadId: lead.leadId, sourceLabel: lead.sourceLabel,
+      });
+    }
   }
   const events = Array.from(eventTotals.values()).map((t) => ({
     ...t,

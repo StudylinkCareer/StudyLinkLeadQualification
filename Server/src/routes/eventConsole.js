@@ -277,7 +277,7 @@ router.post('/events/:id/checkin', requireStaffAuth, async (req, res) => {
 // Reads: any signed-in staff. Writes: Admin/Manager/Director.
 // ─────────────────────────────────────────────────────────────────────
 
-const { isManagerOrAdmin, isAdminProfile, canViewEventReports } = require('../utils/authProfiles');
+const { isManagerOrAdmin, isAdminProfile, canViewEventReports, canViewEventAnalytics } = require('../utils/authProfiles');
 function requireDeskAdmin(req, res, next) {
   if (!req.session || !req.session.staffId) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
@@ -287,13 +287,26 @@ function requireDeskAdmin(req, res, next) {
   }
   next();
 }
-// Event reports access: Executives, Managers/Leads, Data Quality (see authProfiles).
+// Event reports access (Event Console -> Reports tab, file/AI-generated
+// reports): Executives, Managers/Leads, Data Quality (see authProfiles).
 function requireEventReports(req, res, next) {
   if (!req.session || !req.session.staffId) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
   }
   if (!canViewEventReports(req.session.staffRole)) {
     return res.status(403).json({ success: false, error: 'Not authorised for event reports' });
+  }
+  next();
+}
+// Event Report ANALYTICS dashboard (Report -> Event Report): narrower than
+// requireEventReports above — Executives + Managers only, per explicit
+// request to exclude Lead-level profiles and Data Quality from this page.
+function requireEventAnalytics(req, res, next) {
+  if (!req.session || !req.session.staffId) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  if (!canViewEventAnalytics(req.session.staffRole)) {
+    return res.status(403).json({ success: false, error: 'Not authorised for event report analytics' });
   }
   next();
 }
@@ -1524,12 +1537,14 @@ router.delete('/events/:id/reports/:reportId', requireEventReports, async (req, 
 
 // ── Event Report dashboard (LM console: Report -> Event Report) ────────────
 // Lead-source breakdown, cross-event comparison, and the budget/CPL ledger.
-// Same requireEventReports gate as the file-based reports above.
+// Gated by requireEventAnalytics (Executives + Managers only — narrower than
+// the file-based reports above, per explicit request to exclude Leads/Data
+// Quality from this specific dashboard).
 const { gatherSourceBreakdown, setSourceSpend } = require('../services/eventSourceBreakdown');
 const eventBudget = require('../services/eventBudget');
 
 // GET /events/:id/source-report — single-event breakdown + KPIs + Số trường.
-router.get('/events/:id/source-report', requireEventReports, async (req, res) => {
+router.get('/events/:id/source-report', requireEventAnalytics, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
   try {
@@ -1544,7 +1559,7 @@ router.get('/events/:id/source-report', requireEventReports, async (req, res) =>
 // GET /events-compare?ids=1,2,3 — event-level totals for the Compare view.
 // NOTE: deliberately NOT nested under /events/... — the pre-existing
 // /events/:id route above would swallow /events/compare with id='compare'.
-router.get('/events-compare', requireEventReports, async (req, res) => {
+router.get('/events-compare', requireEventAnalytics, async (req, res) => {
   const ids = String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean);
   if (!ids.length) return res.status(400).json({ success: false, error: 'ids query param is required' });
   try {
@@ -1557,7 +1572,7 @@ router.get('/events-compare', requireEventReports, async (req, res) => {
 });
 
 // GET /events/:id/budget — ledger + totals (+ derived 85%/remaining figures).
-router.get('/events/:id/budget', requireEventReports, async (req, res) => {
+router.get('/events/:id/budget', requireEventAnalytics, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
   try {
@@ -1572,7 +1587,7 @@ router.get('/events/:id/budget', requireEventReports, async (req, res) => {
 
 // PUT /events/:id/budget-totals — set total_sponsorship / khach_k_count.
 // (Total cost is no longer stored here — it's computed from event_budget_items.)
-router.put('/events/:id/budget-totals', requireEventReports, async (req, res) => {
+router.put('/events/:id/budget-totals', requireEventAnalytics, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
   try {
@@ -1585,7 +1600,7 @@ router.put('/events/:id/budget-totals', requireEventReports, async (req, res) =>
 });
 
 // POST /events/:id/budget-items — add a line item.
-router.post('/events/:id/budget-items', requireEventReports, async (req, res) => {
+router.post('/events/:id/budget-items', requireEventAnalytics, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
   try {
@@ -1598,7 +1613,7 @@ router.post('/events/:id/budget-items', requireEventReports, async (req, res) =>
 });
 
 // PUT /events/:id/budget-items/:itemId — edit a line item.
-router.put('/events/:id/budget-items/:itemId', requireEventReports, async (req, res) => {
+router.put('/events/:id/budget-items/:itemId', requireEventAnalytics, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const itemId = parseInt(req.params.itemId, 10);
   if (isNaN(id) || isNaN(itemId)) return res.status(400).json({ success: false, error: 'Invalid id' });
@@ -1613,7 +1628,7 @@ router.put('/events/:id/budget-items/:itemId', requireEventReports, async (req, 
 });
 
 // DELETE /events/:id/budget-items/:itemId
-router.delete('/events/:id/budget-items/:itemId', requireEventReports, async (req, res) => {
+router.delete('/events/:id/budget-items/:itemId', requireEventAnalytics, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const itemId = parseInt(req.params.itemId, 10);
   if (isNaN(id) || isNaN(itemId)) return res.status(400).json({ success: false, error: 'Invalid id' });
@@ -1628,7 +1643,7 @@ router.delete('/events/:id/budget-items/:itemId', requireEventReports, async (re
 
 // PUT /events/:id/source-spend — upsert the manual spend figure for one
 // source-breakdown row. Body: { sourceLabel, amount }.
-router.put('/events/:id/source-spend', requireEventReports, async (req, res) => {
+router.put('/events/:id/source-spend', requireEventAnalytics, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
   const sourceLabel = String((req.body && req.body.sourceLabel) || '').trim();

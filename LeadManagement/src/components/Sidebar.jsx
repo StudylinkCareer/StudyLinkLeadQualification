@@ -10,7 +10,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
-import { isManagerOrAdmin, canManageTargets, canViewEventReports } from '../utils/roleProfiles';
+import { isManagerOrAdmin, canManageTargets, canViewEventAnalytics } from '../utils/roleProfiles';
 import { useNavCollapse } from '../contexts/NavCollapseContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
@@ -145,7 +145,7 @@ export default function Sidebar() {
           <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần (tĩnh)' : 'Weekly Report (static)'}
         </button>
 
-        {canViewEventReports(staff?.position) && (
+        {canViewEventAnalytics(staff?.position) && (
           <button
             className={`nav-item ${isActive('/reports/event') ? 'active' : ''}`}
             onClick={() => navigate('/reports/event')}
