@@ -253,6 +253,16 @@ export const eventConsoleAPI = {
   qualificationFields:     ()       => request('GET', '/api/event-console/qualification-fields'),
   saveQualificationFields: (fields) => request('PUT', '/api/event-console/qualification-fields', { fields }),
 
+// ── Event Report dashboard (Report -> Event Report) ──
+  sourceReport:     (id)                  => request('GET',    `/api/event-console/events/${id}/source-report`),
+  eventsCompare:    (ids)                 => request('GET',    `/api/event-console/events-compare?ids=${ids.join(',')}`),
+  getBudget:        (id)                  => request('GET',    `/api/event-console/events/${id}/budget`),
+  setBudgetTotals:  (id, totals)          => request('PUT',    `/api/event-console/events/${id}/budget-totals`, totals),
+  addBudgetItem:    (id, item)            => request('POST',   `/api/event-console/events/${id}/budget-items`, item),
+  updateBudgetItem: (id, itemId, item)    => request('PUT',    `/api/event-console/events/${id}/budget-items/${itemId}`, item),
+  deleteBudgetItem: (id, itemId)          => request('DELETE', `/api/event-console/events/${id}/budget-items/${itemId}`),
+  setSourceSpend:   (id, sourceLabel, amount) => request('PUT', `/api/event-console/events/${id}/source-spend`, { sourceLabel, amount }),
+
 };
 
 // ── Notes ─────────────────────────────────────────────────────

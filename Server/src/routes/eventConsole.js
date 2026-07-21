@@ -1522,4 +1522,124 @@ router.delete('/events/:id/reports/:reportId', requireEventReports, async (req, 
   }
 });
 
+// ── Event Report dashboard (LM console: Report -> Event Report) ────────────
+// Lead-source breakdown, cross-event comparison, and the budget/CPL ledger.
+// Same requireEventReports gate as the file-based reports above.
+const { gatherSourceBreakdown, setSourceSpend } = require('../services/eventSourceBreakdown');
+const eventBudget = require('../services/eventBudget');
+
+// GET /events/:id/source-report — single-event breakdown + KPIs + Số trường.
+router.get('/events/:id/source-report', requireEventReports, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  try {
+    const data = await gatherSourceBreakdown([id]);
+    res.json({ success: true, data: { ...data, event: data.events[0] || null } });
+  } catch (err) {
+    console.error('[event-console] source-report:', err);
+    res.status(500).json({ success: false, error: 'Failed to load source report' });
+  }
+});
+
+// GET /events-compare?ids=1,2,3 — event-level totals for the Compare view.
+// NOTE: deliberately NOT nested under /events/... — the pre-existing
+// /events/:id route above would swallow /events/compare with id='compare'.
+router.get('/events-compare', requireEventReports, async (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ success: false, error: 'ids query param is required' });
+  try {
+    const data = await gatherSourceBreakdown(ids);
+    res.json({ success: true, data: { events: data.events } });
+  } catch (err) {
+    console.error('[event-console] events-compare:', err);
+    res.status(500).json({ success: false, error: 'Failed to load comparison' });
+  }
+});
+
+// GET /events/:id/budget — ledger + totals (+ derived 85%/remaining figures).
+router.get('/events/:id/budget', requireEventReports, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  try {
+    const data = await eventBudget.getBudget(id);
+    if (!data) return res.status(404).json({ success: false, error: 'Event not found' });
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[event-console] get budget:', err);
+    res.status(500).json({ success: false, error: 'Failed to load budget' });
+  }
+});
+
+// PUT /events/:id/budget-totals — set total_sponsorship / khach_k_count.
+// (Total cost is no longer stored here — it's computed from event_budget_items.)
+router.put('/events/:id/budget-totals', requireEventReports, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  try {
+    const data = await eventBudget.setTotals(id, req.body || {});
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[event-console] set budget totals:', err);
+    res.status(500).json({ success: false, error: 'Failed to save budget totals' });
+  }
+});
+
+// POST /events/:id/budget-items — add a line item.
+router.post('/events/:id/budget-items', requireEventReports, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  try {
+    const item = await eventBudget.addItem(id, req.body || {});
+    res.status(201).json({ success: true, data: item });
+  } catch (err) {
+    console.error('[event-console] add budget item:', err);
+    res.status(400).json({ success: false, error: err.message || 'Failed to add budget item' });
+  }
+});
+
+// PUT /events/:id/budget-items/:itemId — edit a line item.
+router.put('/events/:id/budget-items/:itemId', requireEventReports, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const itemId = parseInt(req.params.itemId, 10);
+  if (isNaN(id) || isNaN(itemId)) return res.status(400).json({ success: false, error: 'Invalid id' });
+  try {
+    const item = await eventBudget.updateItem(id, itemId, req.body || {});
+    if (!item) return res.status(404).json({ success: false, error: 'Budget item not found' });
+    res.json({ success: true, data: item });
+  } catch (err) {
+    console.error('[event-console] update budget item:', err);
+    res.status(400).json({ success: false, error: err.message || 'Failed to update budget item' });
+  }
+});
+
+// DELETE /events/:id/budget-items/:itemId
+router.delete('/events/:id/budget-items/:itemId', requireEventReports, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const itemId = parseInt(req.params.itemId, 10);
+  if (isNaN(id) || isNaN(itemId)) return res.status(400).json({ success: false, error: 'Invalid id' });
+  try {
+    const deleted = await eventBudget.deleteItem(id, itemId);
+    res.json({ success: true, deleted });
+  } catch (err) {
+    console.error('[event-console] delete budget item:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete budget item' });
+  }
+});
+
+// PUT /events/:id/source-spend — upsert the manual spend figure for one
+// source-breakdown row. Body: { sourceLabel, amount }.
+router.put('/events/:id/source-spend', requireEventReports, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  const sourceLabel = String((req.body && req.body.sourceLabel) || '').trim();
+  if (!sourceLabel) return res.status(400).json({ success: false, error: 'sourceLabel is required' });
+  try {
+    await setSourceSpend(id, sourceLabel, req.body.amount ?? null, req.session.staffName);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[event-console] set source spend:', err);
+    res.status(500).json({ success: false, error: 'Failed to save spend' });
+  }
+});
+
 module.exports = router;

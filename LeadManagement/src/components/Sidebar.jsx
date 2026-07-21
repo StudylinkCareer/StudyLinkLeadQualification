@@ -10,14 +10,14 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
-import { isManagerOrAdmin, canManageTargets } from '../utils/roleProfiles';
+import { isManagerOrAdmin, canManageTargets, canViewEventReports } from '../utils/roleProfiles';
 import { useNavCollapse } from '../contexts/NavCollapseContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus, FiTarget,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus, FiTarget, FiBarChart2,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -111,6 +111,15 @@ export default function Sidebar() {
           <FiBell size={16} /> {language === 'vi' ? 'Theo dõi Sales' : 'Sales Followup'}
         </button>
 
+        {isManagerOrAdmin(staff?.position) && (
+        <button
+          className={`nav-item ${isActive('/marketing-events') ? 'active' : ''}`}
+          onClick={() => navigate('/marketing-events')}
+        >
+          <FiCalendar size={16} /> {language === 'vi' ? 'Sự kiện Marketing' : 'Marketing Events'}
+        </button>
+      )}
+
         <button
           className={`nav-item ${isActive('/events') ? 'active' : ''}`}
           onClick={() => navigate('/events')}
@@ -127,6 +136,8 @@ export default function Sidebar() {
           </button>
         )}
 
+        <span className="nav-section">{t('sidebar.section.report', language)}</span>
+
         <button
           className={`nav-item ${isActive('/reports/weekly') ? 'active' : ''}`}
           onClick={() => navigate('/reports/weekly')}
@@ -134,14 +145,14 @@ export default function Sidebar() {
           <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần (tĩnh)' : 'Weekly Report (static)'}
         </button>
 
-        {isManagerOrAdmin(staff?.position) && (
-        <button
-          className={`nav-item ${isActive('/marketing-events') ? 'active' : ''}`}
-          onClick={() => navigate('/marketing-events')}
-        >
-          <FiCalendar size={16} /> {language === 'vi' ? 'Sự kiện Marketing' : 'Marketing Events'}
-        </button>
-      )}
+        {canViewEventReports(staff?.position) && (
+          <button
+            className={`nav-item ${isActive('/reports/event') ? 'active' : ''}`}
+            onClick={() => navigate('/reports/event')}
+          >
+            <FiBarChart2 size={16} /> {language === 'vi' ? 'Báo cáo sự kiện' : 'Event Report'}
+          </button>
+        )}
 
         {isManagerOrAdmin(staff?.position) && (
         <button

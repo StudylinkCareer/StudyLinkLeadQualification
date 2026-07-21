@@ -26,6 +26,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { FiMenu } from 'react-icons/fi';
 import { useAuth } from './contexts/AuthContext';
+import { canViewEventReports } from './utils/roleProfiles';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { NavCollapseProvider, useNavCollapse } from './contexts/NavCollapseContext';
 import { PermissionsProvider, usePermissions } from './contexts/PermissionsContext';
@@ -48,6 +49,7 @@ import MarketingEvents from './pages/MarketingEvents';
 import ActivityReport from './pages/ActivityReport';
 import ClientFollowup from './pages/ClientFollowup';
 import WeeklyReport from './pages/WeeklyReport';
+import EventReport from './pages/EventReport';
 import ReferralSources from './pages/ReferralSources';
 import ReferenceData from './pages/ReferenceData';
 import LeadDistribution from './pages/LeadDistribution';
@@ -126,6 +128,17 @@ function AdminRoute({ children }) {
   return <ConsoleShell>{children}</ConsoleShell>;
 }
 
+// Event Report route: gated on the same profile allowlist (EVENT_REPORT_PROFILES)
+// as the Event Console -> Reports tab, not the reports.view RBAC permission —
+// keeps continuity with who already sees event-level reports today.
+function EventReportRoute({ children }) {
+  const { staff, loading } = useAuth();
+  if (loading) return null;
+  if (!staff) return <Navigate to="/login" replace />;
+  if (!canViewEventReports(staff.position)) return <Navigate to="/dashboard" replace />;
+  return <ConsoleShell>{children}</ConsoleShell>;
+}
+
 export default function App() {
   return (
     <LanguageProvider>
@@ -148,6 +161,7 @@ export default function App() {
               <Route path="/reports/activity" element={<ProtectedLayout><ActivityReport /></ProtectedLayout>} />
               <Route path="/client-followup" element={<ProtectedLayout><ClientFollowup /></ProtectedLayout>} />
               <Route path="/reports/weekly"   element={<ProtectedLayout><WeeklyReport /></ProtectedLayout>} />
+              <Route path="/reports/event"    element={<EventReportRoute><EventReport /></EventReportRoute>} />
               <Route path="/reference-data" element={<ProtectedLayout><ReferenceData /></ProtectedLayout>} />
               <Route path="/admin/cleanup"  element={<ProtectedLayout><DataCleanup /></ProtectedLayout>} />
               <Route path="/admin/maintenance" element={<ProtectedLayout><AdminMaintenance /></ProtectedLayout>} />
