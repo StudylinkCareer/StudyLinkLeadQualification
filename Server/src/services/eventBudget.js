@@ -14,6 +14,7 @@
 // spend, not against the plan) - computed here, never stored.
 // ─────────────────────────────────────────────────────────────────────
 const { Pool } = require('pg');
+const { parseBudgetCsv } = require('./budgetCsvImport');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -126,4 +127,60 @@ async function deleteItem(eventId, itemId) {
   return r.rowCount > 0;
 }
 
-module.exports = { getBudget, setTotals, addItem, updateItem, deleteItem, BUDGET_TYPES };
+// importBudgetCsv(eventId, csvText) — parses the team's real budget
+// spreadsheet export and REPLACES the line items for whichever budget
+// type(s) are present in the file (planned always; actual only if the file
+// has a THỰC TẾ column set — a pre-event "Kế hoạch" file has no actual
+// column at all, so uploading it must not wipe out actuals entered since).
+// Sponsorship auto-fills from the file's own "Tổng tiền tài trợ" row when
+// present, per the agreed import behavior — still editable afterward.
+async function importBudgetCsv(eventId, csvText) {
+  const { plannedItems, actualItems, totalSponsorship, hasActualColumns } = parseBudgetCsv(csvText);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(`DELETE FROM event_budget_items WHERE event_id = $1 AND budget_type = 'planned'`, [eventId]);
+    for (const item of plannedItems) {
+      await client.query(
+        `INSERT INTO event_budget_items (event_id, category, line_item, unit, unit_price, quantity, amount, note, budget_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'planned')`,
+        [eventId, item.category, item.lineItem, item.unit, item.unitPrice, item.quantity, item.amount, item.note]
+      );
+    }
+
+    if (hasActualColumns) {
+      await client.query(`DELETE FROM event_budget_items WHERE event_id = $1 AND budget_type = 'actual'`, [eventId]);
+      for (const item of actualItems) {
+        await client.query(
+          `INSERT INTO event_budget_items (event_id, category, line_item, unit, unit_price, quantity, amount, note, budget_type)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'actual')`,
+          [eventId, item.category, item.lineItem, item.unit, item.unitPrice, item.quantity, item.amount, item.note]
+        );
+      }
+    }
+
+    if (totalSponsorship != null) {
+      await client.query(`UPDATE events SET total_sponsorship = $2 WHERE id = $1`, [eventId, totalSponsorship]);
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  return {
+    budget: await getBudget(eventId),
+    summary: {
+      plannedCount: plannedItems.length,
+      actualCount: hasActualColumns ? actualItems.length : null,
+      sponsorshipImported: totalSponsorship != null,
+    },
+  };
+}
+
+module.exports = { getBudget, setTotals, addItem, updateItem, deleteItem, importBudgetCsv, BUDGET_TYPES };

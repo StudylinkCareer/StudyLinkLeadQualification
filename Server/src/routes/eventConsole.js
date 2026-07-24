@@ -1641,6 +1641,25 @@ router.delete('/events/:id/budget-items/:itemId', requireEventAnalytics, async (
   }
 });
 
+// POST /events/:id/budget-import — parse the team's real budget spreadsheet
+// export (raw CSV text in the body) and replace the line items for whichever
+// budget type(s) the file contains. Body: { csvText }.
+router.post('/events/:id/budget-import', requireEventAnalytics, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  const csvText = req.body && req.body.csvText;
+  if (!csvText || typeof csvText !== 'string') {
+    return res.status(400).json({ success: false, error: 'csvText is required' });
+  }
+  try {
+    const result = await eventBudget.importBudgetCsv(id, csvText);
+    res.json({ success: true, data: result.budget, summary: result.summary });
+  } catch (err) {
+    console.error('[event-console] budget import:', err);
+    res.status(400).json({ success: false, error: err.message || 'Failed to import budget CSV' });
+  }
+});
+
 // PUT /events/:id/source-spend — upsert the manual spend figure for one
 // source-breakdown row. Body: { sourceLabel, amount }.
 router.put('/events/:id/source-spend', requireEventAnalytics, async (req, res) => {

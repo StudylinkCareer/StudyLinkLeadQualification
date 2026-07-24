@@ -99,9 +99,9 @@ async function gatherSourceBreakdown(eventIds) {
   const ids = (eventIds || []).map((x) => parseInt(x, 10)).filter((x) => !isNaN(x));
   if (!ids.length) return { events: [], bySource: [], byTier: [], byLead: [] };
 
-  const [regRes, schoolsRes, spendRes, eventDatesRes] = await Promise.all([
+  const [regRes, schoolsRes, spendRes] = await Promise.all([
     pool.query(
-      `SELECT le.event_id, le.student_id, le.status AS lead_event_status,
+      `SELECT le.event_id, le.student_id, le.status AS lead_event_status, le.created_at AS registered_for_event_at,
               le.ev_heard_type, le.ev_channel, le.ev_referral_kind, le.ev_referral_who,
               le.source AS le_source, le.source_detail AS le_source_detail,
               s.full_name, s.lead_source AS s_lead_source, s.source AS s_source, s.source_detail AS s_source_detail,
@@ -131,10 +131,11 @@ async function gatherSourceBreakdown(eventIds) {
       [ids]
     ),
     pool.query(
-      `SELECT event_id, COUNT(*)::int AS schools_count
-         FROM event_institutions
-        WHERE event_id = ANY($1) AND is_active = true
-        GROUP BY event_id`,
+      `SELECT ei.event_id, i.id AS institution_id, i.name
+         FROM event_institutions ei
+         JOIN institutions i ON i.id = ei.institution_id
+        WHERE ei.event_id = ANY($1) AND ei.is_active = true
+        ORDER BY ei.event_id, i.name`,
       [ids]
     ),
     pool.query(
@@ -143,30 +144,36 @@ async function gatherSourceBreakdown(eventIds) {
         WHERE event_id = ANY($1)`,
       [ids]
     ),
-    pool.query(
-      `SELECT id AS event_id, start_date FROM events WHERE id = ANY($1)`,
-      [ids]
-    ),
   ]);
 
-  const schoolsByEvent = new Map(schoolsRes.rows.map((r) => [r.event_id, r.schools_count]));
+  const schoolsByEvent = new Map();
+  for (const row of schoolsRes.rows) {
+    if (!schoolsByEvent.has(row.event_id)) schoolsByEvent.set(row.event_id, []);
+    schoolsByEvent.get(row.event_id).push({ id: row.institution_id, name: row.name });
+  }
   const spendByKey = new Map(spendRes.rows.map((r) => [`${r.event_id}::${r.source_label}`, r.spend_amount]));
-  const startDateByEvent = new Map(eventDatesRes.rows.map((r) => [r.event_id, r.start_date]));
 
   // A registrant only counts as "Contracted via this event" if their
   // representative lead (rl — same precedence used for counselor above) is
-  // itself Contracted AND it closed on/after this event's start date. There
-  // is no FK linking a lead to the event that produced it (a student/Sale
-  // can carry many unrelated leads over time per the connected-unit model),
-  // so "any Contracted lead ever" — the old query — wrongly credited this
-  // event with contracts from prior, unrelated engagements. The close-date
-  // guard is a best-effort proxy, not a guarantee; staff can verify exactly
-  // which leads are counted via the `isContracted` flag on each byLead row.
+  // itself Contracted AND it closed on/after they registered for THIS event.
+  // There is no FK linking a lead to the event that produced it (a
+  // student/Sale can carry many unrelated leads over time per the
+  // connected-unit model), so "any Contracted lead ever" — the old query —
+  // wrongly credited this event with contracts from prior, unrelated
+  // engagements. events.start_date turned out to be an unreliable cutoff too
+  // (it reflects when registration opened, sometimes weeks before the event
+  // itself, so it let old contracts through) — the registration timestamp on
+  // THIS student's own lead_events row is the only date directly tied to
+  // this specific event. It's still only a proxy, not a guarantee (a lead
+  // that closes hours after registering could be a coincidence, e.g. a
+  // pre-arranged deal just being logged the same day) — staff can verify
+  // exactly which leads are counted via the `isContracted` flag on each
+  // byLead row and the drill-down list this produces.
   const byLead = regRes.rows.map((row) => {
-    const eventStart = startDateByEvent.get(row.event_id);
     const isContracted = row.lead_status === 'Contracted'
       && row.actual_close_date != null
-      && (!eventStart || new Date(row.actual_close_date) >= new Date(eventStart));
+      && row.registered_for_event_at != null
+      && new Date(row.actual_close_date) >= new Date(row.registered_for_event_at);
     return {
       eventId: row.event_id,
       studentId: row.student_id,
@@ -188,9 +195,11 @@ async function gatherSourceBreakdown(eventIds) {
   // ── Per-event totals ──
   const eventTotals = new Map();
   for (const id of ids) {
+    const schools = schoolsByEvent.get(id) || [];
     eventTotals.set(id, {
       eventId: id, registered: 0, confirmed: 0, attended: 0,
-      schoolsCount: schoolsByEvent.get(id) || 0,
+      schoolsCount: schools.length,
+      schoolsList: schools,
       contractedCount: 0,
       contractedLeads: [],
     });

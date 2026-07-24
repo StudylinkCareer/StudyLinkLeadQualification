@@ -261,6 +261,7 @@ export const eventConsoleAPI = {
   addBudgetItem:    (id, item)            => request('POST',   `/api/event-console/events/${id}/budget-items`, item),
   updateBudgetItem: (id, itemId, item)    => request('PUT',    `/api/event-console/events/${id}/budget-items/${itemId}`, item),
   deleteBudgetItem: (id, itemId)          => request('DELETE', `/api/event-console/events/${id}/budget-items/${itemId}`),
+  importBudgetCsv:  (id, csvText)         => request('POST',   `/api/event-console/events/${id}/budget-import`, { csvText }),
   setSourceSpend:   (id, sourceLabel, amount) => request('PUT', `/api/event-console/events/${id}/source-spend`, { sourceLabel, amount }),
 
 };

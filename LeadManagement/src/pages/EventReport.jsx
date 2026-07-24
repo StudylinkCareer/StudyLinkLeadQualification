@@ -22,7 +22,7 @@
 
 import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiDownload, FiPlus, FiTrash2, FiEdit2, FiArrowRight, FiRefreshCw, FiChevronDown, FiChevronRight } from 'react-icons/fi';
+import { FiDownload, FiUpload, FiPlus, FiTrash2, FiEdit2, FiArrowRight, FiRefreshCw, FiChevronDown, FiChevronRight } from 'react-icons/fi';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
@@ -76,16 +76,70 @@ function toPieData(rows, metricKey, nameFn, keyFn, otherLabel) {
 }
 
 // ── Stat card (matches ActivityReport.jsx / Dashboard.jsx) ─────
-function StatCard({ label, value, sub, color, title }) {
+function StatCard({ label, value, sub, color, title, onClick, active }) {
+  const clickable = typeof onClick === 'function';
   return (
-    <div title={title} style={{
-      background: 'var(--bg-primary)', border: '1px solid var(--border)',
-      borderRadius: '10px', padding: '1rem 1.25rem',
-      borderLeft: `4px solid ${color || 'var(--border)'}`,
-    }}>
+    <div
+      title={title}
+      onClick={onClick}
+      style={{
+        background: active ? 'var(--primary-light)' : 'var(--bg-primary)',
+        border: `1px solid ${active ? (color || 'var(--primary, #2563EB)') : 'var(--border)'}`,
+        borderRadius: '10px', padding: '1rem 1.25rem',
+        borderLeft: `4px solid ${color || 'var(--border)'}`,
+        cursor: clickable ? 'pointer' : 'default',
+      }}>
       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 500, marginBottom: '0.25rem' }}>{label}</div>
       <div style={{ fontSize: '1.5rem', fontWeight: 600, color: color || 'var(--text-primary)' }}>{value}</div>
       {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{sub}</div>}
+    </div>
+  );
+}
+
+// Inline drill-down panel shown under the KPI strip when a tile is toggled
+// open — a plain list of leads (or schools) rather than another table, kept
+// deliberately simple since it's a quick "who's behind this number" check.
+function KpiDrilldownPanel({ kpi, leads, schools, navigate, L }) {
+  if (kpi === 'schools') {
+    return (
+      <div className="section-card" style={{ padding: '0.75rem 1rem' }}>
+        {schools.length ? (
+          <ul style={{ margin: 0, paddingLeft: '1.2rem', columns: 2, columnGap: '2rem' }}>
+            {schools.map((s) => <li key={s.id} style={{ fontSize: '0.85rem', padding: '0.15rem 0' }}>{s.name}</li>)}
+          </ul>
+        ) : (
+          <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{L('No schools recorded', 'Chưa có trường nào')}</div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="section-card" style={{ padding: 0, overflowX: 'auto' }}>
+      <table className="leads-data-table" style={{ width: '100%' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
+            <th style={{ textAlign: 'left' }}>{L('Source', 'Nguồn')}</th>
+            <th style={{ textAlign: 'left' }}>{L('Counselor', 'Tư vấn viên')}</th>
+            <th style={{ width: '40px' }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {leads.map((l) => (
+            <tr key={l.studentId} style={{ cursor: 'pointer' }} onClick={() => navigate(`/leads/${l.studentId}`)}>
+              <td style={{ fontWeight: 500 }}>{l.fullName || '—'}</td>
+              <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{l.sourceLabel}</td>
+              <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{l.counselor || ''}</td>
+              <td style={{ textAlign: 'center' }}><FiArrowRight size={13} style={{ color: 'var(--text-secondary)' }} /></td>
+            </tr>
+          ))}
+          {!leads.length && (
+            <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+              {L('Nothing here', 'Không có dữ liệu')}
+            </td></tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -177,6 +231,53 @@ function PieCard({ title, data, colorFor }) {
           </PieChart>
         </ResponsiveContainer>
       )}
+    </div>
+  );
+}
+
+// ── CSV budget import — reads the team's real spreadsheet export (raw text,
+// no server upload endpoint needed since it's just JSON body text) and
+// replaces line items for whichever budget type(s) the file contains. ──
+function CsvImportButton({ eventId, importing, setImporting, message, setMessage, onImported, L }) {
+  const inputId = 'budget-csv-input';
+
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file || !eventId) return;
+    const confirmMsg = L(
+      'This replaces the existing Planned line items (and Actual too, if the file has Actual columns). Continue?',
+      'Thao tác này sẽ thay thế các dòng Kế hoạch hiện có (và cả Thực tế nếu file có cột Thực tế). Tiếp tục?'
+    );
+    if (!window.confirm(confirmMsg)) return;
+
+    setImporting(true);
+    setMessage('');
+    try {
+      const text = await file.text();
+      const res = await eventConsoleAPI.importBudgetCsv(eventId, text);
+      onImported(res);
+      const s = res.summary || {};
+      const parts = [
+        L(`${s.plannedCount ?? 0} planned item(s)`, `${s.plannedCount ?? 0} dòng Kế hoạch`),
+        s.actualCount != null ? L(`${s.actualCount} actual item(s)`, `${s.actualCount} dòng Thực tế`) : null,
+        s.sponsorshipImported ? L('sponsorship updated', 'đã cập nhật tài trợ') : null,
+      ].filter(Boolean);
+      setMessage(L('Imported: ', 'Đã nhập: ') + parts.join(', '));
+    } catch (err) {
+      setMessage(L('Import failed: ', 'Nhập thất bại: ') + (err.message || ''));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+      <label htmlFor={inputId} className="btn btn--secondary btn--sm" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: importing ? 'default' : 'pointer', opacity: importing ? 0.6 : 1 }}>
+        <FiUpload size={13} /> {importing ? L('Importing…', 'Đang nhập…') : L('Upload budget CSV', 'Tải lên file CSV ngân sách')}
+      </label>
+      <input id={inputId} type="file" accept=".csv,text/csv" onChange={handleFile} disabled={importing} style={{ display: 'none' }} />
+      {message && <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', maxWidth: '320px', textAlign: 'right' }}>{message}</span>}
     </div>
   );
 }
@@ -294,6 +395,10 @@ export default function EventReport() {
   const [addingItem, setAddingItem] = useState(false);
   const [editingItemId, setEditingItemId] = useState(null);
   const [budgetTab, setBudgetTab] = useState('planned');
+  const [budgetView, setBudgetView] = useState('tabs'); // 'tabs' | 'side-by-side'
+  const [expandedKpi, setExpandedKpi] = useState(null); // 'registered'|'confirmed'|'attended'|'schools'|'contracted'|null
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportMsg, setCsvImportMsg] = useState('');
 
   // ── Load the Exhibition/Fair event list once ──
   useEffect(() => {
@@ -319,7 +424,7 @@ export default function EventReport() {
 
   const loadSingle = useCallback(async (eventId) => {
     if (!eventId) return;
-    setLoading(true); setError(''); setExpandedSources(new Set());
+    setLoading(true); setError(''); setExpandedSources(new Set()); setExpandedKpi(null);
     try {
       const [reportRes, budgetRes] = await Promise.all([
         eventConsoleAPI.sourceReport(eventId),
@@ -369,6 +474,32 @@ export default function EventReport() {
     });
     return rows;
   }, [report, sortKey, sortDir]);
+
+  const kpiDrilldownLeads = useMemo(() => {
+    if (!expandedKpi || expandedKpi === 'schools' || !report?.byLead) return [];
+    if (expandedKpi === 'registered') return report.byLead;
+    if (expandedKpi === 'confirmed') return report.byLead.filter((l) => l.confirmed);
+    if (expandedKpi === 'attended') return report.byLead.filter((l) => l.attended);
+    if (expandedKpi === 'contracted') return report.byLead.filter((l) => l.isContracted);
+    return [];
+  }, [expandedKpi, report]);
+
+  // Pairs planned+actual items sharing the same (category, lineItem) for the
+  // side-by-side comparison view — read-only (editing still happens per-tab,
+  // where a single item id/budgetType is unambiguous).
+  const sideBySideRows = useMemo(() => {
+    const items = budget?.items || [];
+    const map = new Map();
+    for (const item of items) {
+      const key = `${item.category}::${item.lineItem}`;
+      if (!map.has(key)) map.set(key, { key, category: item.category, lineItem: item.lineItem, unit: item.unit, planned: null, actual: null });
+      const row = map.get(key);
+      row[item.budgetType] = item;
+      if (!row.unit && item.unit) row.unit = item.unit;
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      (a.category || '').localeCompare(b.category) || a.lineItem.localeCompare(b.lineItem));
+  }, [budget]);
 
   const maxRegistered = useMemo(
     () => Math.max(1, ...(report?.bySource || []).map((s) => s.registered)),
@@ -533,19 +664,27 @@ export default function EventReport() {
 
             {ev && (
               <>
-                {/* ── KPI strip ── */}
+                {/* ── KPI strip — click a tile to toggle the list behind its number ── */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-                  <StatCard label={L('Registered', 'Đăng ký')} value={fmtInt(ev.registered)} color={COLORS.primary} />
-                  <StatCard label={L('Confirmed', 'Xác nhận')} value={fmtInt(ev.confirmed)} sub={fmtPct(ev.confirmedOverRegistered)} color={COLORS.warn} />
-                  <StatCard label={L('Attended', 'Tham dự')} value={fmtInt(ev.attended)} sub={fmtPct(ev.attendedOverRegistered)} color={COLORS.good} />
-                  <StatCard label={L('Schools present', 'Số trường')} value={fmtInt(ev.schoolsCount)} color={COLORS.neutral} />
+                  <StatCard label={L('Registered', 'Đăng ký')} value={fmtInt(ev.registered)} color={COLORS.primary}
+                    active={expandedKpi === 'registered'} onClick={() => setExpandedKpi((k) => k === 'registered' ? null : 'registered')} />
+                  <StatCard label={L('Confirmed', 'Xác nhận')} value={fmtInt(ev.confirmed)} sub={fmtPct(ev.confirmedOverRegistered)} color={COLORS.warn}
+                    active={expandedKpi === 'confirmed'} onClick={() => setExpandedKpi((k) => k === 'confirmed' ? null : 'confirmed')} />
+                  <StatCard label={L('Attended', 'Tham dự')} value={fmtInt(ev.attended)} sub={fmtPct(ev.attendedOverRegistered)} color={COLORS.good}
+                    active={expandedKpi === 'attended'} onClick={() => setExpandedKpi((k) => k === 'attended' ? null : 'attended')} />
+                  <StatCard label={L('Schools present', 'Số trường')} value={fmtInt(ev.schoolsCount)} color={COLORS.neutral}
+                    active={expandedKpi === 'schools'} onClick={() => setExpandedKpi((k) => k === 'schools' ? null : 'schools')} />
                 </div>
+                {expandedKpi && expandedKpi !== 'contracted' && (
+                  <KpiDrilldownPanel kpi={expandedKpi} leads={kpiDrilldownLeads} schools={ev.schoolsList || []} navigate={navigate} L={L} />
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                   <StatCard
                     label={L('Contracted', 'Ký hợp đồng')}
                     value={fmtInt(ev.contractedCount)}
                     color={COLORS.primary}
-                    title={(ev.contractedLeads || []).map((c) => c.fullName).join(', ') || undefined}
+                    active={expandedKpi === 'contracted'}
+                    onClick={() => setExpandedKpi((k) => k === 'contracted' ? null : 'contracted')}
                   />
                   <StatCard
                     label={L('CPL (registered)', 'CPL (đăng ký)')}
@@ -560,11 +699,35 @@ export default function EventReport() {
                     color={COLORS.good}
                   />
                 </div>
+                {expandedKpi === 'contracted' && (
+                  <KpiDrilldownPanel kpi={expandedKpi} leads={kpiDrilldownLeads} schools={[]} navigate={navigate} L={L} />
+                )}
 
                 {/* ── Budget summary + ledger ── */}
                 <div className="section-card">
-                  <div className="section-header">
+                  <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="section-title">{L('Budget', 'Ngân sách')}</span>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <CsvImportButton
+                        eventId={selectedEventId}
+                        importing={csvImporting}
+                        setImporting={setCsvImporting}
+                        message={csvImportMsg}
+                        setMessage={setCsvImportMsg}
+                        onImported={(res) => setBudget(res.data)}
+                        L={L}
+                      />
+                      <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
+                        <button className="btn btn--sm" onClick={() => setBudgetView('tabs')}
+                          style={{ borderRadius: 0, background: budgetView === 'tabs' ? 'var(--primary-light)' : 'transparent' }}>
+                          {L('Tabs', 'Tab')}
+                        </button>
+                        <button className="btn btn--sm" onClick={() => setBudgetView('side-by-side')}
+                          style={{ borderRadius: 0, background: budgetView === 'side-by-side' ? 'var(--primary-light)' : 'transparent' }}>
+                          {L('Side by side', 'So sánh')}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', padding: '0.5rem 0 1rem' }}>
                     <div>
@@ -598,88 +761,147 @@ export default function EventReport() {
                     </div>
                   </div>
 
-                  {/* ── Planned / Actual tabs — the ledger is two separate lists, matching
-                      how the source documents themselves are two separate things. ── */}
-                  <div style={{ display: 'flex', gap: '4px', marginBottom: '0.5rem' }}>
-                    {BUDGET_TABS.map((t) => (
-                      <button
-                        key={t.type}
-                        className="btn btn--sm"
-                        onClick={() => setBudgetTab(t.type)}
-                        style={{
-                          borderRadius: '6px 6px 0 0',
-                          background: budgetTab === t.type ? 'var(--bg-secondary)' : 'transparent',
-                          fontWeight: budgetTab === t.type ? 600 : 400,
-                          borderBottom: budgetTab === t.type ? '2px solid var(--primary, #2563EB)' : '2px solid transparent',
-                        }}>
-                        {L(t.en, t.vi)}
-                      </button>
-                    ))}
-                    <span style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      {L('Tab total', 'Tổng mục')}: {fmtVnd(totalForTab)}
-                    </span>
-                  </div>
+                  {budgetView === 'tabs' ? (
+                    <>
+                      {/* ── Planned / Actual tabs — the ledger is two separate lists, matching
+                          how the source documents themselves are two separate things. ── */}
+                      <div style={{ display: 'flex', gap: '4px', marginBottom: '0.5rem' }}>
+                        {BUDGET_TABS.map((t) => (
+                          <button
+                            key={t.type}
+                            className="btn btn--sm"
+                            onClick={() => setBudgetTab(t.type)}
+                            style={{
+                              borderRadius: '6px 6px 0 0',
+                              background: budgetTab === t.type ? 'var(--bg-secondary)' : 'transparent',
+                              fontWeight: budgetTab === t.type ? 600 : 400,
+                              borderBottom: budgetTab === t.type ? '2px solid var(--primary, #2563EB)' : '2px solid transparent',
+                            }}>
+                            {L(t.en, t.vi)}
+                          </button>
+                        ))}
+                        <span style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          {L('Tab total', 'Tổng mục')}: {fmtVnd(totalForTab)}
+                        </span>
+                      </div>
 
-                  <div style={{ overflowX: 'auto' }}>
-                    <table className="leads-data-table" style={{ width: '100%' }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: 'left' }}>{L('Category', 'Hạng mục')}</th>
-                          <th style={{ textAlign: 'left' }}>{L('Line item', 'Nội dung')}</th>
-                          <th style={{ textAlign: 'left' }}>{L('Unit', 'Đơn vị')}</th>
-                          <th style={{ textAlign: 'right' }}>{L('Unit price', 'Đơn giá')}</th>
-                          <th style={{ textAlign: 'right' }}>{L('Qty', 'SL')}</th>
-                          <th style={{ textAlign: 'right' }}>{L('Amount', 'Thành tiền')}</th>
-                          <th style={{ textAlign: 'left' }}>{L('Note', 'Ghi chú')}</th>
-                          <th style={{ width: '90px' }}></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {itemsForTab.map((item) => (
-                          editingItemId === item.id ? (
-                            <BudgetItemForm
-                              key={item.id}
-                              initial={item}
-                              defaultType={budgetTab}
-                              onSave={(data) => handleUpdateItem(item.id, data)}
-                              onCancel={() => setEditingItemId(null)}
-                              L={L}
-                            />
-                          ) : (
-                            <tr key={item.id}>
-                              <td>{item.category}</td>
-                              <td>{item.lineItem}</td>
-                              <td>{item.unit || '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{item.unitPrice != null ? fmtVnd(item.unitPrice) : '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{item.quantity ?? '—'}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtVnd(item.amount)}</td>
-                              <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{item.note || ''}</td>
-                              <td style={{ whiteSpace: 'nowrap' }}>
-                                <button className="btn btn--ghost btn--sm" title="Edit" onClick={() => setEditingItemId(item.id)}>
-                                  <FiEdit2 size={13} />
-                                </button>
-                                <button className="btn btn--ghost btn--sm" title="Delete" onClick={() => handleDeleteItem(item.id)}>
-                                  <FiTrash2 size={13} color={COLORS.danger} />
-                                </button>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table className="leads-data-table" style={{ width: '100%' }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: 'left' }}>{L('Category', 'Hạng mục')}</th>
+                              <th style={{ textAlign: 'left' }}>{L('Line item', 'Nội dung')}</th>
+                              <th style={{ textAlign: 'left' }}>{L('Unit', 'Đơn vị')}</th>
+                              <th style={{ textAlign: 'right' }}>{L('Unit price', 'Đơn giá')}</th>
+                              <th style={{ textAlign: 'right' }}>{L('Qty', 'SL')}</th>
+                              <th style={{ textAlign: 'right' }}>{L('Amount', 'Thành tiền')}</th>
+                              <th style={{ textAlign: 'left' }}>{L('Note', 'Ghi chú')}</th>
+                              <th style={{ width: '90px' }}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {itemsForTab.map((item) => (
+                              editingItemId === item.id ? (
+                                <BudgetItemForm
+                                  key={item.id}
+                                  initial={item}
+                                  defaultType={budgetTab}
+                                  onSave={(data) => handleUpdateItem(item.id, data)}
+                                  onCancel={() => setEditingItemId(null)}
+                                  L={L}
+                                />
+                              ) : (
+                                <tr key={item.id}>
+                                  <td>{item.category}</td>
+                                  <td>{item.lineItem}</td>
+                                  <td>{item.unit || '—'}</td>
+                                  <td style={{ textAlign: 'right' }}>{item.unitPrice != null ? fmtVnd(item.unitPrice) : '—'}</td>
+                                  <td style={{ textAlign: 'right' }}>{item.quantity ?? '—'}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtVnd(item.amount)}</td>
+                                  <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{item.note || ''}</td>
+                                  <td style={{ whiteSpace: 'nowrap' }}>
+                                    <button className="btn btn--ghost btn--sm" title="Edit" onClick={() => setEditingItemId(item.id)}>
+                                      <FiEdit2 size={13} />
+                                    </button>
+                                    <button className="btn btn--ghost btn--sm" title="Delete" onClick={() => handleDeleteItem(item.id)}>
+                                      <FiTrash2 size={13} color={COLORS.danger} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              )
+                            ))}
+                            {addingItem && (
+                              <BudgetItemForm defaultType={budgetTab} onSave={handleAddItem} onCancel={() => setAddingItem(false)} L={L} />
+                            )}
+                            {!itemsForTab.length && !addingItem && (
+                              <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                                {L('No line items yet in this tab', 'Chưa có dòng nào trong mục này')}
+                              </td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      {!addingItem && (
+                        <button className="btn btn--secondary btn--sm" onClick={() => setAddingItem(true)} style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <FiPlus size={13} /> {L('Add line item', 'Thêm dòng')}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="leads-data-table" style={{ width: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left' }}>{L('Category', 'Hạng mục')}</th>
+                            <th style={{ textAlign: 'left' }}>{L('Line item', 'Nội dung')}</th>
+                            <th style={{ textAlign: 'left' }}>{L('Unit', 'Đơn vị')}</th>
+                            <th style={{ textAlign: 'right' }}>{L('Planned', 'Kế hoạch')}</th>
+                            <th style={{ textAlign: 'right' }}>{L('Actual', 'Thực tế')}</th>
+                            <th style={{ textAlign: 'right' }}>{L('Δ (Actual − Planned)', 'Chênh lệch')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sideBySideRows.map((row) => {
+                            const p = row.planned?.amount ?? null;
+                            const a = row.actual?.amount ?? null;
+                            const delta = p != null && a != null ? a - p : null;
+                            return (
+                              <tr key={row.key}>
+                                <td>{row.category}</td>
+                                <td>{row.lineItem}</td>
+                                <td>{row.unit || '—'}</td>
+                                <td style={{ textAlign: 'right' }}>{p != null ? fmtVnd(p) : '—'}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>{a != null ? fmtVnd(a) : '—'}</td>
+                                <td style={{ textAlign: 'right', color: delta > 0 ? COLORS.danger : delta < 0 ? COLORS.good : 'var(--text-secondary)' }}>
+                                  {delta != null ? fmtVnd(delta) : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {!sideBySideRows.length && (
+                            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                              {L('No budget items yet', 'Chưa có dòng ngân sách nào')}
+                            </td></tr>
+                          )}
+                        </tbody>
+                        {sideBySideRows.length > 0 && (
+                          <tfoot>
+                            <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={3}>{L('Total', 'Tổng cộng')}</td>
+                              <td style={{ textAlign: 'right' }}>{fmtVnd(budget?.totalCostPlanned)}</td>
+                              <td style={{ textAlign: 'right' }}>{fmtVnd(budget?.totalCostActual)}</td>
+                              <td style={{ textAlign: 'right' }}>
+                                {budget?.totalCostPlanned != null && budget?.totalCostActual != null
+                                  ? fmtVnd(budget.totalCostActual - budget.totalCostPlanned) : '—'}
                               </td>
                             </tr>
-                          )
-                        ))}
-                        {addingItem && (
-                          <BudgetItemForm defaultType={budgetTab} onSave={handleAddItem} onCancel={() => setAddingItem(false)} L={L} />
+                          </tfoot>
                         )}
-                        {!itemsForTab.length && !addingItem && (
-                          <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
-                            {L('No line items yet in this tab', 'Chưa có dòng nào trong mục này')}
-                          </td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  {!addingItem && (
-                    <button className="btn btn--secondary btn--sm" onClick={() => setAddingItem(true)} style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      <FiPlus size={13} /> {L('Add line item', 'Thêm dòng')}
-                    </button>
+                      </table>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
+                        {L('Read-only comparison view — switch to Tabs to add/edit/delete items.', 'Chế độ chỉ xem để so sánh — chuyển sang Tab để thêm/sửa/xoá dòng.')}
+                      </div>
+                    </div>
                   )}
                 </div>
 
