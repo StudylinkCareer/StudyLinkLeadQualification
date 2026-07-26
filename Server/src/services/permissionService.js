@@ -247,7 +247,11 @@ async function applyFieldPermissions(staff, lead, context) {
   for (const [fieldName, value] of Object.entries(lead)) {
     const perm = await getFieldPermission(role, 'leads', fieldName);
     let permValue = context === 'list' ? perm.list : perm.detail;
-    if (permValue === 'view_masked' && owns) permValue = 'view';   // owner sees real data
+    // Owner normally sees real contact data (list + detail). EXCEPTION:
+    // counsellors see contact ONLY on the Sales/Lead detail page — never in
+    // the Leads list — so on the list we keep it masked for them.
+    const counsellorListView = context === 'list' && /counsel/i.test(role || '');
+    if (permValue === 'view_masked' && owns && !counsellorListView) permValue = 'view';
 
     if (permValue === 'none') continue;
     if (permValue === 'view_masked') {
