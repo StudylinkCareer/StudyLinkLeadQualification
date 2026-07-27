@@ -37,6 +37,10 @@ function cfg() {
     // message. Separate template, separate approval. Until it is set the
     // stone-result Zalo send is DORMANT (same pattern as the badge send).
     znsResultTemplateId: (process.env.ZALO_ZNS_RESULT_TEMPLATE_ID || '').trim(),
+    // The approved ZNS template id for the post-event follow-up / survey
+    // ("Khảo sát ý kiến sự kiện StudyLink - Chưa Tham Gia", template 611671).
+    // Separate template, separate approval. DORMANT until the env var is set.
+    znsFollowupTemplateId: (process.env.ZALO_ZNS_FOLLOWUP_TEMPLATE_ID || '').trim(),
     // Which mechanism to use: 'zns' or 'oa'. Defaults to 'zns'.
     method: (process.env.ZALO_SEND_METHOD || 'zns').trim().toLowerCase(),
   };
@@ -218,6 +222,75 @@ async function sendBadgeViaOa({ zaloUserId, name, eventName, profileUrl }) {
   }
 }
 
+// ---- ZNS path: post-event follow-up / survey (template 611671) --------------
+// The approved "Khảo sát ý kiến sự kiện StudyLink - Chưa Tham Gia" template has
+// exactly TWO blanks, and its survey button URL (a Google Form) is fixed in the
+// template — so we only fill the two params, nothing else:
+//   customer_name  - recipient's name                       (max 30)
+//   customer_code  - the student's Sales/registration ID    (max 15)
+async function sendFollowupViaZns({ phone, name, registrationCode }) {
+  const c = cfg();
+  const to = normalizeVnPhone(phone);
+  if (!to || to.length < 9) {
+    return { sent: false, reason: 'bad_phone', detail: `Unusable phone: ${phone}` };
+  }
+
+  const body = {
+    phone: to,
+    template_id: c.znsFollowupTemplateId,
+    template_data: {
+      customer_name: znsParam(name, 30),
+      customer_code: znsParam(registrationCode, 15),
+    },
+    tracking_id: `followup_${registrationCode || 'x'}_${Date.now()}`,
+  };
+
+  const post = async (accessToken) => {
+    const res = await fetch('https://business.openapi.zalo.me/message/template', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', access_token: accessToken },
+      body: JSON.stringify(body),
+    });
+    return res.json().catch(() => ({}));
+  };
+
+  try {
+    let data = await post(await getOaAccessToken());
+    if (data && data.error === -124) {
+      try {
+        const fresh = await tokenManager.forceRefresh();
+        data = await post(fresh);
+      } catch (e) {
+        return { sent: false, reason: 'token_refresh_failed', detail: e.message, raw: data };
+      }
+    }
+    if (data && data.error === 0) {
+      return { sent: true, via: 'zns', to, raw: data };
+    }
+    return { sent: false, reason: 'zalo_api_error', detail: friendlyZnsFailure(data), raw: data };
+  } catch (err) {
+    return { sent: false, reason: 'network_error', detail: err.message };
+  }
+}
+
+// ---- Public entry point: event follow-up ------------------------------------
+// Sends the approved survey follow-up (ZNS only — the template owns its button).
+// DORMANT until ZALO_ZNS_FOLLOWUP_TEMPLATE_ID is set. Returns the same
+// { sent, reason, detail, raw } shape as sendEventBadge; the route stamps
+// followup_zalo_sent_at ONLY when sent === true.
+async function sendEventFollowup({ phone, name = '', registrationCode = '' } = {}) {
+  const c = cfg();
+  if (!c.oaAccessToken || !c.znsFollowupTemplateId) {
+    return {
+      sent: false,
+      reason: 'zalo_not_configured',
+      detail: 'Zalo follow-up is not set up yet (no OA access token or '
+            + 'ZALO_ZNS_FOLLOWUP_TEMPLATE_ID). The follow-up was not sent via Zalo.',
+    };
+  }
+  return sendFollowupViaZns({ phone, name, registrationCode });
+}
+
 // ---- Public entry point -----------------------------------------------------
 // Pick the mechanism (explicit `method`, else env default). Returns
 //   { sent: true, via, to, ... }                  on success
@@ -375,6 +448,7 @@ async function getZnsMessageStatus(messageId) {
 
 module.exports = {
   sendEventBadge,
+  sendEventFollowup,
   sendStoneResult,
   getZnsMessageStatus,
   isConfigured,

@@ -188,6 +188,24 @@ export const leadAPI = {
   update:         (leadId, d)    => request('PUT',  `/api/leads/${leadId}`, d || {}),
 };
 
+// ── Counsellor AI Agent (weekly Top-10 + feedback) ────────────
+export const aiAPI = {
+  recommendations: (counselor)     => request('GET',  `/api/ai/recommendations${counselor ? `?counselor=${encodeURIComponent(counselor)}` : ''}`),
+  feedback:        (id, d)         => request('POST', `/api/ai/recommendations/${id}/feedback`, d),
+  forLead:         (leadId)        => request('GET',  `/api/ai/leads/${leadId}/recommendation`),
+  statusReason:    (leadId, d)     => request('POST', `/api/ai/leads/${leadId}/status-reason`, d),
+  runNow:          (counselor)     => request('POST', '/api/ai/run', counselor ? { counselor } : {}),
+  // Letters (P2/P3) — drafts only; counsellor sends from their own channels.
+  generateLetter:  (leadId, d)     => request('POST', `/api/ai/leads/${leadId}/letters`, d),
+  listLetters:     (leadId)        => request('GET',  `/api/ai/leads/${leadId}/letters`),
+  updateLetter:    (id, d)         => request('PUT',  `/api/ai/letters/${id}`, d),
+  markLetterSent:  (id, via, comment) => request('POST', `/api/ai/letters/${id}/sent`, { via, comment }),
+  markLetterResponded: (id, comment)  => request('POST', `/api/ai/letters/${id}/responded`, { comment }),
+  letterQueue:     (phase, counselor) => request('GET', `/api/ai/letter-queue?phase=${encodeURIComponent(phase)}${counselor ? `&counselor=${encodeURIComponent(counselor)}` : ''}`),
+  recordMeeting:   (leadId, d)     => request('POST', `/api/ai/leads/${leadId}/meetings`, d),
+  listMeetings:    (leadId)        => request('GET',  `/api/ai/leads/${leadId}/meetings`),
+};
+
 // ── Lead registrations (events) ───────────────────────────────
 export const leadEventsAPI = {
   list:         (studentId)  => request('GET', `/api/lead-events?studentId=${encodeURIComponent(studentId)}`),
@@ -208,6 +226,9 @@ export const eventConsoleAPI = {
   issueToken: (id, studentId) => request('POST', `/api/event-console/events/${id}/issue-token/${encodeURIComponent(studentId)}`),
   emailBadge: (body)         => request('POST', '/api/event-console/email-badge', body),
   zaloBadge:  (body)         => request('POST', '/api/event-console/zalo-badge', body),
+  // Feature 3 — event follow-up (survey) send, one student per call.
+  zaloFollowup:  (body)      => request('POST', '/api/event-console/zalo-followup', body),
+  emailFollowup: (body)      => request('POST', '/api/event-console/email-followup', body),
 
   // ── Desk setup (Phase 2.1) ──
   listInstitutions: ()         => request('GET',    '/api/event-console/institutions'),
