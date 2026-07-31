@@ -118,20 +118,19 @@ function isLeadAssignedTo(staff, lead) {
   );
 }
 
-// Read-type lead operations. 'team' scope grants these like 'all' (read-all);
-// write operations under 'team' fall through to the ownership check (edit
-// team-only — currently the owner's own leads until a team-membership rule is
-// defined). See canAccessLead.
+// Read-type lead operations. (Retained for reference; 'team' now grants both
+// read and write across all leads — see canAccessLead.)
 const READ_OPS = new Set(['view_detail', 'view_list', 'read', 'view']);
 
 async function canAccessLead(staff, lead, operation) {
   const scope = await getResourceScope(staff.role, 'leads', operation);
   if (scope === 'all')  return true;
   if (scope === 'none') return false;
-  // 'team' = read-all, edit team-only: reads pass like 'all'; writes drop to
-  // the ownership check below (same path as 'own').
-  if (scope === 'team' && READ_OPS.has(operation)) return true;
-  if (scope !== 'own' && scope !== 'team') return false;
+  // 'team' = read-all + edit-all: management profiles (Leads, department
+  // Managers) oversee the whole pipeline. A finer team-membership rule can
+  // narrow this later.
+  if (scope === 'team') return true;
+  if (scope !== 'own') return false;
 
   // A LEAD object (has a leadId): ownership is that lead's own assignment.
   if (lead && (lead.leadId != null || lead.lead_id != null)) {
@@ -248,7 +247,11 @@ async function applyFieldPermissions(staff, lead, context) {
   for (const [fieldName, value] of Object.entries(lead)) {
     const perm = await getFieldPermission(role, 'leads', fieldName);
     let permValue = context === 'list' ? perm.list : perm.detail;
-    if (permValue === 'view_masked' && owns) permValue = 'view';   // owner sees real data
+    // Owner normally sees real contact data (list + detail). EXCEPTION:
+    // counsellors see contact ONLY on the Sales/Lead detail page — never in
+    // the Leads list — so on the list we keep it masked for them.
+    const counsellorListView = context === 'list' && /counsel/i.test(role || '');
+    if (permValue === 'view_masked' && owns && !counsellorListView) permValue = 'view';
 
     if (permValue === 'none') continue;
     if (permValue === 'view_masked') {

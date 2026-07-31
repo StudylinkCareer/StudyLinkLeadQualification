@@ -29,7 +29,8 @@ const path    = require('path');
 const { Pool } = require('pg');
 const { clearQualificationCache, checkStudent, overlayLeadQualFields } = require('../services/eventQualification');
 const { sendEventQrEmail, sendStoneResultEmail, sendRepLinkEmail } = require('../services/emailService');
-const { sendEventBadge, sendStoneResult } = require('../services/zaloService');
+const { sendEventBadge, sendEventFollowup, sendStoneResult } = require('../services/zaloService');
+const { sendFollowupEmail } = require('../services/resendService');
 const zaloDeliveryPoller = require('../services/zaloDeliveryPoller');
 const { stoneContent, isStoneTier } = require('../utils/stoneContent');
 
@@ -190,6 +191,11 @@ router.get('/events/:id/roster', requireStaffAuth, async (req, res) => {
               ea.badge_zalo_msg_id,
               ea.badge_zalo_error,
               ea.badge_zalo_delivered_at,
+              ea.followup_zalo_sent_at,
+              ea.followup_zalo_status,
+              ea.followup_zalo_error,
+              ea.followup_emailed_at,
+              ea.followup_emailed_to,
               ea.checked_in_by,
               ci.full_name               AS checked_in_by_name
          FROM (
@@ -1404,6 +1410,150 @@ router.post('/poll-zalo-delivery', requireStaffAuth, async (_req, res) => {
   } catch (err) {
     console.error('[event-console] poll-zalo-delivery:', err);
     res.status(500).json({ success: false, error: 'Poll failed' });
+  }
+});
+
+// ── Feature 3: post-event follow-up (survey) ─────────────────────────────────
+// Personalised per recipient (customer_name + customer_code=Sales ID) via the
+// approved ZNS template 611671, with a Resend email backup that mirrors it.
+// Mirrors the badge senders; stamps its own followup_* tracking columns.
+
+// Ensure an event_attendees row exists so follow-up tracking has somewhere to
+// live (a no-show may never have had a badge minted). Idempotent.
+async function ensureAttendeeRow(eventId, studentId) {
+  await pool.query(
+    `INSERT INTO event_attendees
+            (event_id, student_unique_id, registered_at, attendance_token)
+          VALUES ($1, $2, NOW(), $3)
+     ON CONFLICT (event_id, student_unique_id) DO UPDATE
+          SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
+              updated_at       = NOW()`,
+    [eventId, studentId, crypto.randomUUID()]
+  );
+}
+
+// dd/mm/yyyy from a pg date/timestamp. Handles both the string form
+// ('YYYY-MM-DD…') and a JS Date (UTC parts, so the calendar day never shifts
+// under the server timezone). Returns '' if unparseable.
+function fmtDmy(d) {
+  if (!d) return '';
+  if (typeof d === 'string') {
+    const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${parseInt(m[3], 10)}/${parseInt(m[2], 10)}/${m[1]}`;
+  }
+  const dt = (d instanceof Date) ? d : new Date(d);
+  if (isNaN(dt)) return '';
+  return `${dt.getUTCDate()}/${dt.getUTCMonth() + 1}/${dt.getUTCFullYear()}`;
+}
+
+// POST /zalo-followup — send the survey follow-up to one student via Zalo.
+// Body: { studentId, eventId }
+router.post('/zalo-followup', requireStaffAuth, async (req, res) => {
+  const studentId = String(req.body.studentId || '').trim();
+  const eventId  = parseInt(req.body.eventId, 10);
+  if (!studentId || isNaN(eventId)) {
+    return res.status(400).json({ success: false, error: 'studentId and eventId are required' });
+  }
+
+  try {
+    const sres = await pool.query(
+      `SELECT full_name, phone FROM students WHERE student_id = $1 LIMIT 1`,
+      [studentId]
+    );
+    if (sres.rowCount === 0) {
+      return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+    await ensureAttendeeRow(eventId, studentId);
+
+    const result = await sendEventFollowup({
+      phone: String(sres.rows[0].phone || '').trim(),
+      name: sres.rows[0].full_name || '',
+      registrationCode: studentId,     // ZNS customer_code = Sales ID
+    });
+
+    if (!result.sent) {
+      const why = result.detail || result.reason || 'error';
+      await pool.query(
+        `UPDATE event_attendees
+            SET followup_zalo_status = 'failed', followup_zalo_error = $3, updated_at = NOW()
+          WHERE event_id = $1 AND student_unique_id = $2`,
+        [eventId, studentId, why]
+      ).catch((e) => console.error('[event-console] zalo-followup status(fail):', e.message));
+      return res.status(200).json({ success: false, error: why, reason: result.reason });
+    }
+
+    const msgId = (result.raw && result.raw.data && (result.raw.data.msg_id || result.raw.data.message_id)) || null;
+    const upd = await pool.query(
+      `UPDATE event_attendees
+          SET followup_zalo_sent_at = NOW(),
+              followup_zalo_status  = 'accepted',
+              followup_zalo_msg_id  = $3,
+              followup_zalo_error   = NULL,
+              updated_at            = NOW()
+        WHERE event_id = $1 AND student_unique_id = $2
+        RETURNING followup_zalo_sent_at, followup_zalo_msg_id`,
+      [eventId, studentId, msgId]
+    );
+    res.json({ success: true, data: upd.rows[0] || { followup_zalo_sent_at: new Date().toISOString() } });
+  } catch (err) {
+    console.error('[event-console] zalo-followup:', err);
+    res.status(500).json({ success: false, error: 'Failed to send Zalo follow-up' });
+  }
+});
+
+// POST /email-followup — send the survey follow-up to one student by email
+// (Resend). Body: { studentId, eventId, email? }
+router.post('/email-followup', requireStaffAuth, async (req, res) => {
+  const studentId     = String(req.body.studentId || '').trim();
+  const eventId       = parseInt(req.body.eventId, 10);
+  const overrideEmail = String(req.body.email || '').trim();
+  if (!studentId || isNaN(eventId)) {
+    return res.status(400).json({ success: false, error: 'studentId and eventId are required' });
+  }
+
+  try {
+    const sres = await pool.query(
+      `SELECT full_name, email FROM students WHERE student_id = $1 LIMIT 1`,
+      [studentId]
+    );
+    if (sres.rowCount === 0) {
+      return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+    const recipient = overrideEmail || String(sres.rows[0].email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+      return res.status(400).json({ success: false, error: 'No valid email address on file' });
+    }
+
+    const ev = await pool.query(`SELECT name, start_date, end_date FROM events WHERE id = $1 LIMIT 1`, [eventId]);
+    const eventName = (process.env.EVENT_FOLLOWUP_EVENT_LABEL || (ev.rowCount ? ev.rows[0].name : '') || '').trim();
+    // The fair day is the event's end date (e.g. 18/7), matching the Zalo copy;
+    // fall back to start date if end is unset.
+    const eventDate = ev.rowCount ? fmtDmy(ev.rows[0].end_date || ev.rows[0].start_date) : '';
+
+    await ensureAttendeeRow(eventId, studentId);
+
+    const result = await sendFollowupEmail(recipient, {
+      name: sres.rows[0].full_name || '',
+      customerCode: studentId,
+      eventName,
+      eventDate,
+    });
+
+    if (!result.sent) {
+      return res.status(200).json({ success: false, error: result.detail || 'Could not send email', reason: result.reason });
+    }
+
+    const upd = await pool.query(
+      `UPDATE event_attendees
+          SET followup_emailed_at = NOW(), followup_emailed_to = $3, updated_at = NOW()
+        WHERE event_id = $1 AND student_unique_id = $2
+        RETURNING followup_emailed_at, followup_emailed_to`,
+      [eventId, studentId, recipient]
+    );
+    res.json({ success: true, data: upd.rows[0] || { followup_emailed_to: recipient } });
+  } catch (err) {
+    console.error('[event-console] email-followup:', err);
+    res.status(500).json({ success: false, error: 'Failed to email follow-up' });
   }
 });
 

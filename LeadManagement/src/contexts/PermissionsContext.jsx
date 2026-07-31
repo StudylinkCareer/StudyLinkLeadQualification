@@ -138,15 +138,16 @@ export function PermissionsProvider({ children }) {
     return s === 'all' || s === 'own' || s === 'team';
   }, [scope]);
 
-  // canDoOnLead: ownership-aware. 'all' always passes; 'team' is read-all
-  // (view passes) + edit team-only (writes use the ownership check, same as
-  // 'own'); 'own' passes only if the lead is assigned to the current user.
+  // canDoOnLead: ownership-aware. 'all' always passes. 'team' grants read AND
+  // write across all leads (management profiles — Leads and department Managers
+  // — oversee the whole pipeline; a finer team-membership rule can narrow this
+  // later). 'own' passes only if the lead is assigned to the current user.
   const canDoOnLead = useCallback((resource, operation, lead) => {
     const s = scope(resource, operation);
     if (s === 'all')  return true;
     if (s === 'none') return false;
-    if (s === 'team' && (operation === 'view_detail' || operation === 'view_list')) return true;
-    if (s === 'own' || s === 'team') {
+    if (s === 'team') return true;
+    if (s === 'own') {
       if (!lead || !staff?.fullName) return false;
       // Normalize: trim whitespace and compare case-insensitively. This avoids
       // false negatives when DB values have trailing spaces or different casing
