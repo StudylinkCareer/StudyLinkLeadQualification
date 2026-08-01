@@ -152,7 +152,7 @@ async function getSalesMonthlyReport(monthLabel) {
   // ── Contract Resources ("Nguồn HĐ") — source of leads that Contracted this month ──
   const contractedLeadIds = contractedRows.map((r) => r.lead_id);
   const sourceRows = contractedLeadIds.length ? (await pool.query(
-    `SELECT l.lead_id, s.source, s.source_detail, s.lead_source,
+    `SELECT l.lead_id, s.student_id, s.full_name, s.source, s.source_detail, s.lead_source,
             solv.meta->>'mode' AS sol_mode, COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label
        FROM leads l
        JOIN students s ON s.student_id = l.person_id
@@ -160,14 +160,31 @@ async function getSalesMonthlyReport(monthLabel) {
       WHERE l.lead_id = ANY($1)`,
     [contractedLeadIds]
   )).rows : [];
-  const sourceLabelByLead = new Map(sourceRows.map((r) => [r.lead_id, resolveContractSourceLabel(r)]));
+  const sourceInfoByLead = new Map(sourceRows.map((r) => [r.lead_id, {
+    studentId: r.student_id, fullName: r.full_name, sourceLabel: resolveContractSourceLabel(r),
+  }]));
   const sourceCounts = new Map();
   for (const row of contractedRows) {
-    const label = sourceLabelByLead.get(row.lead_id) || '(Unknown / not recorded)';
+    const label = sourceInfoByLead.get(row.lead_id)?.sourceLabel || '(Unknown / not recorded)';
     sourceCounts.set(label, (sourceCounts.get(label) || 0) + 1);
   }
   const contractResources = Array.from(sourceCounts, ([sourceLabel, count]) => ({ sourceLabel, count }))
     .sort((a, b) => b.count - a.count);
+
+  // Flat list backing the "Contracted" KPI tile's drill-down (Event Report's
+  // KPI-tile-click-to-expand pattern) — every lead that Contracted this
+  // month, across all counselors, name + source + counselor for a quick
+  // "who's behind this number" check, click-through to the lead itself.
+  const contractedLeads = contractedRows.map((row) => {
+    const info = sourceInfoByLead.get(row.lead_id) || {};
+    return {
+      leadId: row.lead_id,
+      studentId: info.studentId,
+      fullName: info.fullName,
+      sourceLabel: info.sourceLabel || '(Unknown / not recorded)',
+      counselor: row.counselor,
+    };
+  });
 
   // ── Pre-sales stats (per presales staffer) ──
   const noteRows = presalesNames.length ? (await pool.query(
@@ -244,7 +261,7 @@ async function getSalesMonthlyReport(monthLabel) {
     };
   });
 
-  return { month: monthLabel, teamPerformance, contractResources, presalesReport };
+  return { month: monthLabel, teamPerformance, contractResources, contractedLeads, presalesReport };
 }
 
 // ── Giờ gọi (call hours) — manual entry, persisted per (staff, month). ──

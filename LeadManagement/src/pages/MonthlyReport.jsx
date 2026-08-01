@@ -116,16 +116,57 @@ function currentMonthLabel() {
 }
 
 // ── Stat card (matches EventReport.jsx / ActivityReport.jsx convention) ──
-function StatCard({ label, value, sub, color }) {
+// onClick/active are optional — same clickable-tile pattern EventReport.jsx's
+// KPI strip already uses for its drill-down panels.
+function StatCard({ label, value, sub, color, onClick, active }) {
+  const clickable = typeof onClick === 'function';
   return (
-    <div style={{
-      background: 'var(--bg-primary)', border: '1px solid var(--border)',
-      borderRadius: '10px', padding: '1rem 1.25rem',
-      borderLeft: `4px solid ${color || 'var(--border)'}`,
-    }}>
+    <div
+      onClick={onClick}
+      style={{
+        background: active ? 'var(--primary-light)' : 'var(--bg-primary)',
+        border: `1px solid ${active ? (color || 'var(--primary, #2563EB)') : 'var(--border)'}`,
+        borderRadius: '10px', padding: '1rem 1.25rem',
+        borderLeft: `4px solid ${color || 'var(--border)'}`,
+        cursor: clickable ? 'pointer' : 'default',
+      }}>
       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 500, marginBottom: '0.25rem' }}>{label}</div>
       <div style={{ fontSize: '1.5rem', fontWeight: 600, color: color || 'var(--text-primary)' }}>{value}</div>
       {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{sub}</div>}
+    </div>
+  );
+}
+
+// Same drill-down pattern as EventReport.jsx's KpiDrilldownPanel — a quick
+// "who's behind this number" list, click a row to jump to the lead.
+function ContractedDrilldownPanel({ leads, navigate, L }) {
+  return (
+    <div className="section-card" style={{ padding: 0, overflowX: 'auto' }}>
+      <table className="leads-data-table" style={{ width: '100%' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
+            <th style={{ textAlign: 'left' }}>{L('Source', 'Nguồn')}</th>
+            <th style={{ textAlign: 'left' }}>{L('Counselor', 'Tư vấn viên')}</th>
+            <th style={{ width: '40px' }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {leads.map((l) => (
+            <tr key={l.leadId} style={{ cursor: 'pointer' }} onClick={() => navigate(`/leads/${l.studentId}`)}>
+              <td style={{ fontWeight: 500 }}>{l.fullName || '—'}</td>
+              <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{l.sourceLabel}</td>
+              <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{l.counselor || ''}</td>
+              <td style={{ textAlign: 'center' }}><FiArrowRight size={13} style={{ color: 'var(--text-secondary)' }} /></td>
+            </tr>
+          ))}
+          {!leads.length && (
+            <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+              {L('Nothing here', 'Không có dữ liệu')}
+            </td></tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -171,6 +212,7 @@ export default function MonthlyReport() {
   const [error, setError] = useState('');
   const [expandedTransfers, setExpandedTransfers] = useState(new Set());
   const [expandedActivities, setExpandedActivities] = useState(new Set());
+  const [contractedExpanded, setContractedExpanded] = useState(false);
   const [notes, setNotes] = useState('');
   const [notesSaving, setNotesSaving] = useState(false);
   const [notesMsg, setNotesMsg] = useState('');
@@ -181,7 +223,7 @@ export default function MonthlyReport() {
   }, [pushTrail, language]);
 
   const load = useCallback(async (m) => {
-    setLoading(true); setError(''); setExpandedTransfers(new Set());
+    setLoading(true); setError(''); setExpandedTransfers(new Set()); setContractedExpanded(false);
     try {
       const [reportRes, notesRes] = await Promise.all([
         reportsAPI.monthlyReport(m),
@@ -303,11 +345,17 @@ export default function MonthlyReport() {
           <>
             {/* ── KPI strip ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-              <StatCard label={L('Contracted (Total)', 'Tổng HĐ')} value={fmtNum(totalContracted)} sub={`${L('Target', 'Chỉ tiêu')}: ${totalTarget}`} color={COLORS.primary} />
+              <StatCard
+                label={L('Contracted (Total)', 'Tổng HĐ')} value={fmtNum(totalContracted)} sub={`${L('Target', 'Chỉ tiêu')}: ${totalTarget}`} color={COLORS.primary}
+                active={contractedExpanded} onClick={() => setContractedExpanded((v) => !v)}
+              />
               <StatCard label={L('Total calls', 'Tổng cuộc gọi')} value={fmtNum(totalCalls)} color={COLORS.good} />
               <StatCard label={L('Unanswered (KBM)', 'Số cuộc KBM')} value={fmtNum(totalKbm)} color={COLORS.warn} />
               <StatCard label={L('Contract Resources', 'Nguồn HĐ')} value={fmtNum((report.contractResources || []).length)} sub={L('distinct sources', 'nguồn khác nhau')} color={COLORS.neutral} />
             </div>
+            {contractedExpanded && (
+              <ContractedDrilldownPanel leads={report.contractedLeads || []} navigate={navigate} L={L} />
+            )}
 
             {/* ── Team Performance / Convert Rate ── */}
             <div className="section-card">
