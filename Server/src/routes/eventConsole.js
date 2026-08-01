@@ -316,6 +316,19 @@ function requireEventAnalytics(req, res, next) {
   }
   next();
 }
+// Budget approval ("Duyệt"): the first per-INDIVIDUAL-account gate in this
+// app, not per-role — checks req.session.staffEmail against the single
+// BUDGET_APPROVER_EMAIL account, not a position/role string. Always stacked
+// AFTER requireEventAnalytics (still needs page-level access first).
+function requireBudgetApprover(req, res, next) {
+  if (!req.session || !req.session.staffId) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  if (!eventBudgetApproval.isApprover(req.session.staffEmail)) {
+    return res.status(403).json({ success: false, error: 'Not authorised to approve budgets' });
+  }
+  next();
+}
 
 const MAX_DESKS_PER_EVENT = 50;
 function genDeskPin() {
@@ -1692,6 +1705,10 @@ router.delete('/events/:id/reports/:reportId', requireEventReports, async (req, 
 // Quality from this specific dashboard).
 const { gatherSourceBreakdown, setSourceSpend } = require('../services/eventSourceBreakdown');
 const eventBudget = require('../services/eventBudget');
+const eventSponsors = require('../services/eventSponsors');
+const eventBudgetApproval = require('../services/eventBudgetApproval');
+const { buildBudgetApprovalPdf } = require('../services/budgetPdf');
+const { sendBudgetApprovalEmail } = require('../services/budgetApprovalEmail');
 
 // GET /events/:id/source-report — single-event breakdown + KPIs + Số trường.
 router.get('/events/:id/source-report', requireEventAnalytics, async (req, res) => {
@@ -1726,7 +1743,8 @@ router.get('/events/:id/budget', requireEventAnalytics, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
   try {
-    const data = await eventBudget.getBudget(id);
+    const canApprove = eventBudgetApproval.isApprover(req.session.staffEmail);
+    const data = await eventBudget.getBudget(id, canApprove);
     if (!data) return res.status(404).json({ success: false, error: 'Event not found' });
     res.json({ success: true, data });
   } catch (err) {
@@ -1741,7 +1759,8 @@ router.put('/events/:id/budget-totals', requireEventAnalytics, async (req, res) 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
   try {
-    const data = await eventBudget.setTotals(id, req.body || {});
+    const canApprove = eventBudgetApproval.isApprover(req.session.staffEmail);
+    const data = await eventBudget.setTotals(id, req.body || {}, canApprove);
     res.json({ success: true, data });
   } catch (err) {
     console.error('[event-console] set budget totals:', err);
@@ -1802,11 +1821,142 @@ router.post('/events/:id/budget-import', requireEventAnalytics, async (req, res)
     return res.status(400).json({ success: false, error: 'csvText is required' });
   }
   try {
-    const result = await eventBudget.importBudgetCsv(id, csvText);
+    const canApprove = eventBudgetApproval.isApprover(req.session.staffEmail);
+    const result = await eventBudget.importBudgetCsv(id, csvText, canApprove);
     res.json({ success: true, data: result.budget, summary: result.summary });
   } catch (err) {
     console.error('[event-console] budget import:', err);
     res.status(400).json({ success: false, error: err.message || 'Failed to import budget CSV' });
+  }
+});
+
+// PUT /events/:id/budget-approval-note — mom-only. Writes the same note to
+// up to 2 underlying items (a merged row's planned + actual ids).
+// Body: { itemIds: number[], note: string }.
+router.put('/events/:id/budget-approval-note', requireEventAnalytics, requireBudgetApprover, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  const itemIds = Array.isArray(req.body?.itemIds) ? req.body.itemIds.map(Number) : [];
+  try {
+    const rows = await eventBudgetApproval.saveApprovalNote(id, itemIds, req.body?.note, req.session.staffName);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('[event-console] save budget approval note:', err);
+    res.status(400).json({ success: false, error: err.message || 'Failed to save approval note' });
+  }
+});
+
+// POST /events/:id/budget-approve — mom-only. Stamps the approval, builds
+// the PDF, emails marketing + accounting. Approval succeeds even if the
+// email fails (email failure is reported back, not fatal).
+// Body: { budgetType: 'planned' | 'actual' }.
+router.post('/events/:id/budget-approve', requireEventAnalytics, requireBudgetApprover, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  const budgetType = req.body && req.body.budgetType;
+  if (!eventBudgetApproval.BUDGET_TYPES.has(budgetType)) {
+    return res.status(400).json({ success: false, error: "budgetType must be 'planned' or 'actual'" });
+  }
+  try {
+    const approval = await eventBudgetApproval.approveBudget(id, budgetType, req.session.staffName);
+
+    let emailResult = { sent: false, reason: 'pdf_build_failed' };
+    try {
+      const pdfBuffer = await buildBudgetApprovalPdf(approval);
+      emailResult = await sendBudgetApprovalEmail({
+        eventName: approval.event.name,
+        budgetType: approval.budgetType,
+        approvedBy: approval.approvedBy,
+        approvedAt: approval.approvedAt,
+        total: approval.total,
+        pdfBuffer,
+        pdfFilename: `ngan-sach-${budgetType}-${approval.event.id}.pdf`,
+      });
+    } catch (pdfErr) {
+      console.error('[event-console] budget approval PDF/email failed:', pdfErr);
+      emailResult = { sent: false, reason: 'pdf_or_email_error', detail: pdfErr.message };
+    }
+
+    const canApprove = true; // requireBudgetApprover already confirmed this
+    const data = await eventBudget.getBudget(id, canApprove);
+    res.json({ success: true, data, emailResult });
+  } catch (err) {
+    console.error('[event-console] approve budget:', err);
+    res.status(400).json({ success: false, error: err.message || 'Failed to approve budget' });
+  }
+});
+
+// ── School sponsors — per-institution breakdown behind Total Sponsorship ──
+// GET /events/:id/sponsors
+router.get('/events/:id/sponsors', requireEventAnalytics, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  try {
+    const data = await eventSponsors.getSponsors(id);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[event-console] get sponsors:', err);
+    res.status(500).json({ success: false, error: 'Failed to load sponsors' });
+  }
+});
+
+// POST /events/:id/sponsors — add one institution's contribution.
+router.post('/events/:id/sponsors', requireEventAnalytics, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  try {
+    const itemId = await eventSponsors.addItem(id, req.body || {});
+    res.status(201).json({ success: true, data: await eventSponsors.getSponsors(id), itemId });
+  } catch (err) {
+    console.error('[event-console] add sponsor:', err);
+    res.status(400).json({ success: false, error: err.message || 'Failed to add sponsor' });
+  }
+});
+
+// PUT /events/:id/sponsors/:itemId
+router.put('/events/:id/sponsors/:itemId', requireEventAnalytics, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const itemId = parseInt(req.params.itemId, 10);
+  if (isNaN(id) || isNaN(itemId)) return res.status(400).json({ success: false, error: 'Invalid id' });
+  try {
+    const ok = await eventSponsors.updateItem(id, itemId, req.body || {});
+    if (!ok) return res.status(404).json({ success: false, error: 'Sponsor row not found' });
+    res.json({ success: true, data: await eventSponsors.getSponsors(id) });
+  } catch (err) {
+    console.error('[event-console] update sponsor:', err);
+    res.status(400).json({ success: false, error: err.message || 'Failed to update sponsor' });
+  }
+});
+
+// DELETE /events/:id/sponsors/:itemId
+router.delete('/events/:id/sponsors/:itemId', requireEventAnalytics, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const itemId = parseInt(req.params.itemId, 10);
+  if (isNaN(id) || isNaN(itemId)) return res.status(400).json({ success: false, error: 'Invalid id' });
+  try {
+    const deleted = await eventSponsors.deleteItem(id, itemId);
+    res.json({ success: true, deleted, data: await eventSponsors.getSponsors(id) });
+  } catch (err) {
+    console.error('[event-console] delete sponsor:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete sponsor' });
+  }
+});
+
+// POST /events/:id/sponsors-import — parse the team's "school sponsor list"
+// spreadsheet tab (raw CSV text in the body) and replace the full list.
+router.post('/events/:id/sponsors-import', requireEventAnalytics, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid event id' });
+  const csvText = req.body && req.body.csvText;
+  if (!csvText || typeof csvText !== 'string') {
+    return res.status(400).json({ success: false, error: 'csvText is required' });
+  }
+  try {
+    const result = await eventSponsors.importSponsorsCsv(id, csvText);
+    res.json({ success: true, data: result.sponsors, count: result.count });
+  } catch (err) {
+    console.error('[event-console] sponsors import:', err);
+    res.status(400).json({ success: false, error: err.message || 'Failed to import sponsors CSV' });
   }
 });
 

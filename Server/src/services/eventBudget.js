@@ -53,12 +53,25 @@ function camelItem(row) {
     amount: Number(row.amount),
     note: row.note,
     budgetType: row.budget_type,
+    approvalNote: row.approval_note,
+    approvalNoteBy: row.approval_note_by,
+    approvalNoteAt: row.approval_note_at,
   };
 }
 
-async function getBudget(eventId) {
-  const [evRes, sumsRes, itemsRes] = await Promise.all([
-    pool.query(`SELECT total_sponsorship, khach_k_count FROM events WHERE id = $1`, [eventId]),
+// canApprove is a plain boolean computed by the route layer (via
+// eventBudgetApproval.isApprover(req.session.staffEmail)) — this service
+// stays decoupled from auth/session concerns, it just echoes the flag back
+// alongside the approval state so the frontend can gate the Duyệt UI.
+async function getBudget(eventId, canApprove = false) {
+  const [evRes, sumsRes, itemsRes, sponsorSumRes] = await Promise.all([
+    pool.query(
+      `SELECT total_sponsorship, khach_k_count,
+              budget_planned_approved_at, budget_planned_approved_by,
+              budget_actual_approved_at, budget_actual_approved_by
+         FROM events WHERE id = $1`,
+      [eventId]
+    ),
     pool.query(
       `SELECT
          SUM(amount) FILTER (WHERE budget_type = 'planned') AS planned_total,
@@ -67,27 +80,49 @@ async function getBudget(eventId) {
       [eventId]
     ),
     pool.query(
-      `SELECT id, category, line_item, unit, unit_price, quantity, amount, note, budget_type
+      `SELECT id, category, line_item, unit, unit_price, quantity, amount, note, budget_type,
+              approval_note, approval_note_by, approval_note_at
          FROM event_budget_items WHERE event_id = $1
         ORDER BY budget_type, category, id`,
       [eventId]
     ),
+    pool.query(
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(amount_vnd), 0) AS total
+         FROM event_institution_sponsors WHERE event_id = $1`,
+      [eventId]
+    ),
   ]);
   if (evRes.rowCount === 0) return null;
-  const { total_sponsorship, khach_k_count } = evRes.rows[0];
+  const ev = evRes.rows[0];
+  const { total_sponsorship, khach_k_count } = ev;
   const { planned_total, actual_total } = sumsRes.rows[0];
+  // Sponsorship is computed from the per-institution breakdown once it has
+  // any rows (can't drift out of sync, same fix as Total Cost above) —
+  // falling back to the old manually-typed events.total_sponsorship only for
+  // events that haven't had their breakdown entered/imported yet, so
+  // existing figures don't silently disappear mid-migration.
+  const hasSponsorBreakdown = sponsorSumRes.rows[0].n > 0;
+  const sponsorship = hasSponsorBreakdown ? Number(sponsorSumRes.rows[0].total) : total_sponsorship;
   return {
-    ...withDerived(planned_total, actual_total, total_sponsorship, khach_k_count),
+    ...withDerived(planned_total, actual_total, sponsorship, khach_k_count),
+    sponsorshipSource: hasSponsorBreakdown ? 'computed' : 'manual',
     items: itemsRes.rows.map(camelItem),
+    canApprove,
+    plannedApproval: ev.budget_planned_approved_at
+      ? { approvedAt: ev.budget_planned_approved_at, approvedBy: ev.budget_planned_approved_by }
+      : null,
+    actualApproval: ev.budget_actual_approved_at
+      ? { approvedAt: ev.budget_actual_approved_at, approvedBy: ev.budget_actual_approved_by }
+      : null,
   };
 }
 
-async function setTotals(eventId, { totalSponsorship, khachKCount }) {
+async function setTotals(eventId, { totalSponsorship, khachKCount }, canApprove = false) {
   await pool.query(
     `UPDATE events SET total_sponsorship = $2, khach_k_count = $3 WHERE id = $1`,
     [eventId, totalSponsorship ?? null, khachKCount ?? null]
   );
-  return getBudget(eventId);
+  return getBudget(eventId, canApprove);
 }
 
 async function addItem(eventId, item) {
@@ -134,7 +169,7 @@ async function deleteItem(eventId, itemId) {
 // column at all, so uploading it must not wipe out actuals entered since).
 // Sponsorship auto-fills from the file's own "Tổng tiền tài trợ" row when
 // present, per the agreed import behavior — still editable afterward.
-async function importBudgetCsv(eventId, csvText) {
+async function importBudgetCsv(eventId, csvText, canApprove = false) {
   const { plannedItems, actualItems, totalSponsorship, hasActualColumns } = parseBudgetCsv(csvText);
 
   const client = await pool.connect();
@@ -174,7 +209,7 @@ async function importBudgetCsv(eventId, csvText) {
   }
 
   return {
-    budget: await getBudget(eventId),
+    budget: await getBudget(eventId, canApprove),
     summary: {
       plannedCount: plannedItems.length,
       actualCount: hasActualColumns ? actualItems.length : null,
