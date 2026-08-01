@@ -93,6 +93,23 @@ async function getSalesMonthlyReport(monthLabel) {
     [monthDate, nextMonthDate, counselorNames]
   )).rows : [];
 
+  // Name/source lookup for every contracted lead this month — computed once
+  // here, up front, so both the per-counselor drill-down detail below AND
+  // Contract Resources further down can reuse it without a second query.
+  const contractedLeadIds = contractedRows.map((r) => r.lead_id);
+  const sourceRows = contractedLeadIds.length ? (await pool.query(
+    `SELECT l.lead_id, s.student_id, s.full_name, s.source, s.source_detail, s.lead_source,
+            solv.meta->>'mode' AS sol_mode, COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label
+       FROM leads l
+       JOIN students s ON s.student_id = l.person_id
+       LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
+      WHERE l.lead_id = ANY($1)`,
+    [contractedLeadIds]
+  )).rows : [];
+  const sourceInfoByLead = new Map(sourceRows.map((r) => [r.lead_id, {
+    studentId: r.student_id, fullName: r.full_name, sourceLabel: resolveContractSourceLabel(r),
+  }]));
+
   // "Total leads" is a CURRENT-value count (counselor = X today), not a full
   // historical reconstruction — matches how contractedBuckets()/monthlyTargets()
   // elsewhere in this codebase already scope by current assignment, not audit
@@ -134,6 +151,16 @@ async function getSalesMonthlyReport(monthLabel) {
     const override = overrideByStaffId.get(c.id);
     const target = override != null ? override : c.fallback_target;
     const leadCounts = leadCountByName.get(c.full_name) || { total: 0, new_this_month: 0 };
+    // Per-lead detail backing this row's drill-down cells (In system/Out
+    // system/case-type columns) — same "click a number, see the receipts"
+    // pattern as the Contracted KPI tile, scoped to just this counselor.
+    const contractedDetail = contracted.map((row) => {
+      const info = sourceInfoByLead.get(row.lead_id) || {};
+      return {
+        leadId: row.lead_id, studentId: info.studentId, fullName: info.fullName,
+        caseType: row.case_type, isOutOfSystem: row.is_out_of_system,
+      };
+    });
     return {
       staffId: c.id,
       fullName: c.full_name,
@@ -146,23 +173,11 @@ async function getSalesMonthlyReport(monthLabel) {
       newLeadsThisMonth: leadCounts.new_this_month,
       convertRate: leadCounts.total ? Math.round((contracted.length / leadCounts.total) * 1000) / 10 : null,
       contractedLeadIds: contracted.map((r) => r.lead_id),
+      contractedDetail,
     };
   });
 
   // ── Contract Resources ("Nguồn HĐ") — source of leads that Contracted this month ──
-  const contractedLeadIds = contractedRows.map((r) => r.lead_id);
-  const sourceRows = contractedLeadIds.length ? (await pool.query(
-    `SELECT l.lead_id, s.student_id, s.full_name, s.source, s.source_detail, s.lead_source,
-            solv.meta->>'mode' AS sol_mode, COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label
-       FROM leads l
-       JOIN students s ON s.student_id = l.person_id
-       LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
-      WHERE l.lead_id = ANY($1)`,
-    [contractedLeadIds]
-  )).rows : [];
-  const sourceInfoByLead = new Map(sourceRows.map((r) => [r.lead_id, {
-    studentId: r.student_id, fullName: r.full_name, sourceLabel: resolveContractSourceLabel(r),
-  }]));
   const sourceCounts = new Map();
   for (const row of contractedRows) {
     const label = sourceInfoByLead.get(row.lead_id)?.sourceLabel || '(Unknown / not recorded)';
@@ -188,17 +203,33 @@ async function getSalesMonthlyReport(monthLabel) {
 
   // ── Pre-sales stats (per presales staffer) ──
   const noteRows = presalesNames.length ? (await pool.query(
-    `SELECT author_name, student_id, contact_platform, content, created_at, call_answered
-       FROM student_notes
-      WHERE author_name = ANY($1) AND created_at >= $2 AND created_at < $3`,
+    `SELECT sn.id AS note_id, sn.author_name, sn.student_id, s.full_name,
+            sn.contact_platform, sn.content, sn.created_at, sn.call_answered
+       FROM student_notes sn
+       JOIN students s ON s.student_id = sn.student_id
+      WHERE sn.author_name = ANY($1) AND sn.created_at >= $2 AND sn.created_at < $3`,
     [presalesNames, startISO, endISO]
   )).rows : [];
   const callNotes = noteRows.filter(isCallNote);
   const callCountByName = new Map();
   const kbmCountByName = new Map();
+  // Per-note detail backing the "click a number, see the receipts" drill-down
+  // on Total calls / KBM in the Pre-sales table — same verification pattern
+  // as Contracted and Team Performance above.
+  const callDetailByName = new Map();
   for (const n of callNotes) {
     callCountByName.set(n.author_name, (callCountByName.get(n.author_name) || 0) + 1);
     if (n.call_answered === false) kbmCountByName.set(n.author_name, (kbmCountByName.get(n.author_name) || 0) + 1);
+    if (!callDetailByName.has(n.author_name)) callDetailByName.set(n.author_name, []);
+    callDetailByName.get(n.author_name).push({
+      noteId: n.note_id,
+      studentId: n.student_id,
+      fullName: n.full_name,
+      contactPlatform: n.contact_platform,
+      content: n.content,
+      createdAt: n.created_at,
+      callAnswered: n.call_answered,
+    });
   }
 
   const meetingRows = presalesNames.length ? (await pool.query(
@@ -258,6 +289,7 @@ async function getSalesMonthlyReport(monthLabel) {
       avgKbmPerHour: hours ? Math.round((kbmCount / hours) * 100) / 100 : null,
       meetingsCount: meetingCountByName.get(p.full_name) || 0,
       transferred: transfersByName.get(p.full_name) || [],
+      callDetail: callDetailByName.get(p.full_name) || [],
     };
   });
 

@@ -171,6 +171,72 @@ function ContractedDrilldownPanel({ leads, navigate, L }) {
   );
 }
 
+// Slices a counselor row's contractedDetail (leadId/studentId/fullName/
+// caseType/isOutOfSystem) down to whichever Team Performance cell was
+// clicked — In system / Out system (+ unclassified) / a specific case type.
+function filterContractedDetail(detail, cellKey) {
+  const rows = detail || [];
+  if (cellKey === 'inSystem') return rows.filter((d) => d.isOutOfSystem === false);
+  if (cellKey === 'outSystem') return rows.filter((d) => d.isOutOfSystem !== false); // true or null (unclassified)
+  if (cellKey?.startsWith('caseType:')) {
+    const type = cellKey.slice('caseType:'.length);
+    return rows.filter((d) => d.caseType === type);
+  }
+  return [];
+}
+
+// Slices a presales staffer's callDetail (every note counted toward Total
+// calls) down to whichever cell was clicked — the full list, or just the
+// KBM (unanswered) subset.
+function filterCallDetail(detail, cellKey) {
+  const rows = detail || [];
+  if (cellKey === 'total') return rows;
+  if (cellKey === 'kbm') return rows.filter((d) => d.callAnswered === false);
+  return [];
+}
+
+// "Click a number, see the receipts" for Total calls / KBM — every
+// underlying note, with enough context (date, lead, platform, content,
+// answered) for someone to judge for themselves whether each one legitimately
+// counts, click-through to the lead for full context.
+function CallDetailDrilldownPanel({ notes, navigate, L, language }) {
+  return (
+    <table className="leads-data-table" style={{ width: '100%' }}>
+      <thead><tr>
+        <th style={{ textAlign: 'left' }}>{L('Date', 'Ngày')}</th>
+        <th style={{ textAlign: 'left' }}>{L('Lead', 'Khách hàng')}</th>
+        <th style={{ textAlign: 'left' }}>{L('Platform', 'Kênh')}</th>
+        <th style={{ textAlign: 'left' }}>{L('Note', 'Ghi chú')}</th>
+        <th style={{ textAlign: 'left' }}>{L('Answered', 'Bắt máy')}</th>
+        <th style={{ width: '40px' }}></th>
+      </tr></thead>
+      <tbody>
+        {notes.map((n) => (
+          <tr key={n.noteId} style={{ cursor: 'pointer' }} onClick={() => navigate(`/leads/${n.studentId}`)}>
+            <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+              {new Date(n.createdAt).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </td>
+            <td style={{ fontWeight: 500 }}>{n.fullName || '—'}</td>
+            <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{n.contactPlatform || '—'}</td>
+            <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', maxWidth: '260px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {n.content || ''}
+            </td>
+            <td style={{ fontSize: '0.78rem' }}>
+              {n.callAnswered === true ? L('Yes', 'Có') : n.callAnswered === false ? L('No', 'Không') : '—'}
+            </td>
+            <td style={{ textAlign: 'center' }}><FiArrowRight size={13} style={{ color: 'var(--text-secondary)' }} /></td>
+          </tr>
+        ))}
+        {!notes.length && (
+          <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '0.75rem' }}>
+            {L('Nothing here', 'Không có dữ liệu')}
+          </td></tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
 // Plain-number inline-edit cell (EventReport.jsx's EditableNumber, but no
 // VND formatting — Giờ gọi is hours, not currency).
 function EditableHours({ value, onSave, placeholder }) {
@@ -213,6 +279,8 @@ export default function MonthlyReport() {
   const [expandedTransfers, setExpandedTransfers] = useState(new Set());
   const [expandedActivities, setExpandedActivities] = useState(new Set());
   const [contractedExpanded, setContractedExpanded] = useState(false);
+  const [expandedTeamCell, setExpandedTeamCell] = useState(null); // `${staffId}|inSystem` | `${staffId}|outSystem` | `${staffId}|caseType:<type>` | null
+  const [expandedCallCell, setExpandedCallCell] = useState(null); // `${staffId}|total` | `${staffId}|kbm` | null
   const [notes, setNotes] = useState('');
   const [notesSaving, setNotesSaving] = useState(false);
   const [notesMsg, setNotesMsg] = useState('');
@@ -223,7 +291,7 @@ export default function MonthlyReport() {
   }, [pushTrail, language]);
 
   const load = useCallback(async (m) => {
-    setLoading(true); setError(''); setExpandedTransfers(new Set()); setContractedExpanded(false);
+    setLoading(true); setError(''); setExpandedTransfers(new Set()); setContractedExpanded(false); setExpandedTeamCell(null); setExpandedCallCell(null);
     try {
       const [reportRes, notesRes] = await Promise.all([
         reportsAPI.monthlyReport(m),
@@ -377,22 +445,64 @@ export default function MonthlyReport() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(report.teamPerformance || []).map((r) => (
-                      <tr key={r.staffId}>
-                        <td>{r.fullName}</td>
-                        <td style={{ textAlign: 'right' }} title={r.isFallback ? L('Default target', 'Chỉ tiêu mặc định') : ''}>{r.target}{r.isFallback ? '*' : ''}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{r.contractedTotal}</td>
-                        <td style={{ textAlign: 'right' }}>{r.inSystem}</td>
-                        <td style={{ textAlign: 'right' }}>{r.outSystem}{r.unclassified ? ` (+${r.unclassified} ?)` : ''}</td>
-                        <td style={{ textAlign: 'right' }}>{r.target ? fmtPct(Math.round((r.contractedTotal / r.target) * 1000) / 10) : '—'}</td>
-                        {CASE_TYPES.map((t) => <td key={t} style={{ textAlign: 'right' }}>{r.byCaseType[t] || 0}</td>)}
-                        <td style={{ textAlign: 'right' }}>{r.totalLeads}</td>
-                        <td style={{ textAlign: 'right' }}>{r.newLeadsThisMonth}</td>
-                        <td style={{ textAlign: 'right' }}>{fmtPct(r.convertRate)}</td>
-                      </tr>
-                    ))}
+                    {(report.teamPerformance || []).map((r) => {
+                      const cellKey = expandedTeamCell?.startsWith(`${r.staffId}|`) ? expandedTeamCell.slice(String(r.staffId).length + 1) : null;
+                      const drilldownLeads = cellKey ? filterContractedDetail(r.contractedDetail, cellKey) : null;
+                      const toggleCell = (key, count) => {
+                        if (!count) return;
+                        setExpandedTeamCell((k) => (k === `${r.staffId}|${key}` ? null : `${r.staffId}|${key}`));
+                      };
+                      const clickableStyle = (count) => ({ textAlign: 'right', cursor: count ? 'pointer' : 'default', textDecoration: count ? 'underline dotted' : 'none' });
+                      return (
+                        <Fragment key={r.staffId}>
+                          <tr>
+                            <td>{r.fullName}</td>
+                            <td style={{ textAlign: 'right' }} title={r.isFallback ? L('Default target', 'Chỉ tiêu mặc định') : ''}>{r.target}{r.isFallback ? '*' : ''}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 600 }}>{r.contractedTotal}</td>
+                            <td style={clickableStyle(r.inSystem)} onClick={() => toggleCell('inSystem', r.inSystem)}>{r.inSystem}</td>
+                            <td style={clickableStyle(r.outSystem + r.unclassified)} onClick={() => toggleCell('outSystem', r.outSystem + r.unclassified)}>
+                              {r.outSystem}{r.unclassified ? ` (+${r.unclassified} ?)` : ''}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>{r.target ? fmtPct(Math.round((r.contractedTotal / r.target) * 1000) / 10) : '—'}</td>
+                            {CASE_TYPES.map((t) => (
+                              <td key={t} style={clickableStyle(r.byCaseType[t])} onClick={() => toggleCell(`caseType:${t}`, r.byCaseType[t])}>
+                                {r.byCaseType[t] || 0}
+                              </td>
+                            ))}
+                            <td style={{ textAlign: 'right' }}>{r.totalLeads}</td>
+                            <td style={{ textAlign: 'right' }}>{r.newLeadsThisMonth}</td>
+                            <td style={{ textAlign: 'right' }}>{fmtPct(r.convertRate)}</td>
+                          </tr>
+                          {drilldownLeads && (
+                            <tr>
+                              <td colSpan={13} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                                <table className="leads-data-table" style={{ width: '100%' }}>
+                                  <thead><tr>
+                                    <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
+                                    <th style={{ width: '40px' }}></th>
+                                  </tr></thead>
+                                  <tbody>
+                                    {drilldownLeads.map((l) => (
+                                      <tr key={l.leadId} style={{ cursor: 'pointer' }} onClick={() => navigate(`/leads/${l.studentId}`)}>
+                                        <td style={{ fontWeight: 500 }}>{l.fullName || '—'}</td>
+                                        <td style={{ textAlign: 'center' }}><FiArrowRight size={13} style={{ color: 'var(--text-secondary)' }} /></td>
+                                      </tr>
+                                    ))}
+                                    {!drilldownLeads.length && (
+                                      <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '0.75rem' }}>
+                                        {L('Nothing here', 'Không có dữ liệu')}
+                                      </td></tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                     {!(report.teamPerformance || []).length && (
-                      <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                      <tr><td colSpan={13} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         {L('No counselors found', 'Không tìm thấy tư vấn viên')}
                       </td></tr>
                     )}
@@ -490,55 +600,71 @@ export default function MonthlyReport() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(report.presalesReport || []).map((r) => (
-                      <Fragment key={r.staffId}>
-                        <tr>
-                          <td>{r.fullName}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            <EditableHours value={r.hours} onSave={(v) => handleSaveHours(r.staffId, v)} placeholder={L('— (click to enter)', '— (bấm để nhập)')} />
-                          </td>
-                          <td style={{ textAlign: 'right' }}>{r.totalCalls}</td>
-                          <td style={{ textAlign: 'right' }}>{r.kbmCount}</td>
-                          <td style={{ textAlign: 'right' }}>{r.avgKbmPerHour == null ? '—' : r.avgKbmPerHour}</td>
-                          <td style={{ textAlign: 'right' }}>{r.meetingsCount}</td>
-                          <td style={{ textAlign: 'right', cursor: r.transferred.length ? 'pointer' : 'default' }}
-                            onClick={() => r.transferred.length && toggleTransfers(r.staffId)}>
-                            {r.transferred.length ? (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                {expandedTransfers.has(r.staffId) ? <FiChevronDown size={12} /> : <FiChevronRight size={12} />}
-                                {r.transferred.length}
-                              </span>
-                            ) : 0}
-                          </td>
-                        </tr>
-                        {expandedTransfers.has(r.staffId) && r.transferred.length > 0 && (
-                          <tr key={`${r.staffId}-detail`}>
-                            <td colSpan={7} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
-                              <table className="leads-data-table" style={{ width: '100%' }}>
-                                <thead><tr>
-                                  <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
-                                  <th style={{ textAlign: 'left' }}>{L('Country', 'Quốc gia')}</th>
-                                  <th style={{ textAlign: 'left' }}>{L('Received by', 'Người nhận')}</th>
-                                  <th style={{ textAlign: 'left' }}>{L('Transferred', 'Ngày chuyển')}</th>
-                                  <th style={{ width: '40px' }}></th>
-                                </tr></thead>
-                                <tbody>
-                                  {r.transferred.map((t) => (
-                                    <tr key={t.leadId} style={{ cursor: 'pointer' }} onClick={() => navigate(`/leads/${t.studentId}`)}>
-                                      <td>{t.fullName}</td>
-                                      <td>{t.country || '—'}</td>
-                                      <td>{t.receivedBy || '—'}</td>
-                                      <td>{t.transferredAt ? new Date(t.transferredAt).toLocaleDateString('vi-VN') : '—'}</td>
-                                      <td style={{ textAlign: 'center' }}><FiArrowRight size={13} style={{ color: 'var(--text-secondary)' }} /></td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                    {(report.presalesReport || []).map((r) => {
+                      const callCellKey = expandedCallCell?.startsWith(`${r.staffId}|`) ? expandedCallCell.slice(String(r.staffId).length + 1) : null;
+                      const callDrilldownNotes = callCellKey ? filterCallDetail(r.callDetail, callCellKey) : null;
+                      const toggleCallCell = (key, count) => {
+                        if (!count) return;
+                        setExpandedCallCell((k) => (k === `${r.staffId}|${key}` ? null : `${r.staffId}|${key}`));
+                      };
+                      const clickableStyle = (count) => ({ textAlign: 'right', cursor: count ? 'pointer' : 'default', textDecoration: count ? 'underline dotted' : 'none' });
+                      return (
+                        <Fragment key={r.staffId}>
+                          <tr>
+                            <td>{r.fullName}</td>
+                            <td style={{ textAlign: 'right' }}>
+                              <EditableHours value={r.hours} onSave={(v) => handleSaveHours(r.staffId, v)} placeholder={L('— (click to enter)', '— (bấm để nhập)')} />
+                            </td>
+                            <td style={clickableStyle(r.totalCalls)} onClick={() => toggleCallCell('total', r.totalCalls)}>{r.totalCalls}</td>
+                            <td style={clickableStyle(r.kbmCount)} onClick={() => toggleCallCell('kbm', r.kbmCount)}>{r.kbmCount}</td>
+                            <td style={{ textAlign: 'right' }}>{r.avgKbmPerHour == null ? '—' : r.avgKbmPerHour}</td>
+                            <td style={{ textAlign: 'right' }}>{r.meetingsCount}</td>
+                            <td style={{ textAlign: 'right', cursor: r.transferred.length ? 'pointer' : 'default' }}
+                              onClick={() => r.transferred.length && toggleTransfers(r.staffId)}>
+                              {r.transferred.length ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  {expandedTransfers.has(r.staffId) ? <FiChevronDown size={12} /> : <FiChevronRight size={12} />}
+                                  {r.transferred.length}
+                                </span>
+                              ) : 0}
                             </td>
                           </tr>
-                        )}
-                      </Fragment>
-                    ))}
+                          {expandedTransfers.has(r.staffId) && r.transferred.length > 0 && (
+                            <tr key={`${r.staffId}-transfers`}>
+                              <td colSpan={7} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                                <table className="leads-data-table" style={{ width: '100%' }}>
+                                  <thead><tr>
+                                    <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
+                                    <th style={{ textAlign: 'left' }}>{L('Country', 'Quốc gia')}</th>
+                                    <th style={{ textAlign: 'left' }}>{L('Received by', 'Người nhận')}</th>
+                                    <th style={{ textAlign: 'left' }}>{L('Transferred', 'Ngày chuyển')}</th>
+                                    <th style={{ width: '40px' }}></th>
+                                  </tr></thead>
+                                  <tbody>
+                                    {r.transferred.map((t) => (
+                                      <tr key={t.leadId} style={{ cursor: 'pointer' }} onClick={() => navigate(`/leads/${t.studentId}`)}>
+                                        <td>{t.fullName}</td>
+                                        <td>{t.country || '—'}</td>
+                                        <td>{t.receivedBy || '—'}</td>
+                                        <td>{t.transferredAt ? new Date(t.transferredAt).toLocaleDateString('vi-VN') : '—'}</td>
+                                        <td style={{ textAlign: 'center' }}><FiArrowRight size={13} style={{ color: 'var(--text-secondary)' }} /></td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          )}
+                          {callDrilldownNotes && (
+                            <tr key={`${r.staffId}-calls`}>
+                              <td colSpan={7} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                                <CallDetailDrilldownPanel notes={callDrilldownNotes} navigate={navigate} L={L} language={language} />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                     {!(report.presalesReport || []).length && (
                       <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         {L('No pre-sales staff found', 'Không tìm thấy nhân viên pre-sales')}
