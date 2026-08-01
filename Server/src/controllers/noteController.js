@@ -34,7 +34,7 @@ async function getNotes(req, res, next) {
 async function addNote(req, res, next) {
   try {
     const { studentId } = req.params;
-    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation } = req.body;
+    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered } = req.body;
     const staffRole = req.session.staffRole;
     const staffName = req.session.staffName;
     const authorId  = req.session.staffId;
@@ -89,7 +89,7 @@ async function addNote(req, res, next) {
       }
     }
 
-    const note = await StudentNote.create({ studentId, noteType, content, authorId, authorName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation });
+    const note = await StudentNote.create({ studentId, noteType, content, authorId, authorName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered });
     res.status(201).json({ success: true, data: note });
   } catch (err) {
     next(err);
@@ -107,7 +107,7 @@ async function getLeadNotes(req, res, next) {
 async function addLeadNote(req, res, next) {
   try {
     const { leadId } = req.params;
-    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation } = req.body;
+    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered } = req.body;
     const staffRole = req.session.staffRole;
     const staffName = req.session.staffName;
     const authorId  = req.session.staffId;
@@ -131,7 +131,7 @@ async function addLeadNote(req, res, next) {
       if (!ok) return res.status(403).json({ success: false, error: 'You can only write notes on leads assigned to you.' });
     }
 
-    const note = await StudentNote.create({ studentId: lead.studentId, leadId, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation });
+    const note = await StudentNote.create({ studentId: lead.studentId, leadId, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered });
     res.status(201).json({ success: true, data: note });
   } catch (err) { next(err); }
 }
@@ -147,7 +147,7 @@ async function getStudentLevelNotes(req, res, next) {
 async function addStudentLevelNote(req, res, next) {
   try {
     const { studentId } = req.params;
-    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation } = req.body;
+    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation, callAnswered } = req.body;
     const staffRole = req.session.staffRole;
     const staffName = req.session.staffName;
     const authorId  = req.session.staffId;
@@ -169,7 +169,7 @@ async function addStudentLevelNote(req, res, next) {
     }
 
     // Student-level notes carry no topic for now.
-    const note = await StudentNote.create({ studentId, leadId: null, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic: null, meetingLocation });
+    const note = await StudentNote.create({ studentId, leadId: null, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic: null, meetingLocation, callAnswered });
     res.status(201).json({ success: true, data: note });
   } catch (err) { next(err); }
 }

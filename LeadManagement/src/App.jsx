@@ -49,6 +49,7 @@ import MarketingEvents from './pages/MarketingEvents';
 import ActivityReport from './pages/ActivityReport';
 import ClientFollowup from './pages/ClientFollowup';
 import WeeklyReport from './pages/WeeklyReport';
+import MonthlyReport from './pages/MonthlyReport';
 import EventReport from './pages/EventReport';
 import ReferralSources from './pages/ReferralSources';
 import ReferenceData from './pages/ReferenceData';
@@ -161,6 +162,7 @@ export default function App() {
               <Route path="/reports/activity" element={<ProtectedLayout><ActivityReport /></ProtectedLayout>} />
               <Route path="/client-followup" element={<ProtectedLayout><ClientFollowup /></ProtectedLayout>} />
               <Route path="/reports/weekly"   element={<ProtectedLayout><WeeklyReport /></ProtectedLayout>} />
+              <Route path="/reports/monthly"  element={<ProtectedLayout><MonthlyReport /></ProtectedLayout>} />
               <Route path="/reports/event"    element={<EventReportRoute><EventReport /></EventReportRoute>} />
               <Route path="/reference-data" element={<ProtectedLayout><ReferenceData /></ProtectedLayout>} />
               <Route path="/admin/cleanup"  element={<ProtectedLayout><DataCleanup /></ProtectedLayout>} />

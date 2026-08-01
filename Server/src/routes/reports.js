@@ -8,6 +8,7 @@ const express  = require('express');
 const router   = express.Router();
 const reportCtrl = require('../controllers/reportController');
 const permissionService = require('../services/permissionService');
+const monthlyReport = require('../services/monthlyReport');
 
 // ── Middleware: require login ────────────────────────────────
 function requireStaffAuth(req, res, next) {
@@ -102,6 +103,103 @@ router.delete(
   '/tracked-staff/:staffId',
   requireStaffAuth,
   reportCtrl.removeTrackedStaff
+);
+
+// ── Sales + Marketing Monthly Report ─────────────────────────
+// Same broad-audience gate as notes-activity (Activity Report) — wider
+// audience than Event Report's CEO/COO+Managers-only gate, since this report
+// is meant for the sales/presales/marketing teams generally.
+router.get(
+  '/monthly',
+  requireStaffAuth,
+  requirePermission('reports', 'view'),
+  async (req, res, next) => {
+    try {
+      const month = String(req.query.month || '');
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
+      }
+      const [sales, marketing] = await Promise.all([
+        monthlyReport.getSalesMonthlyReport(month),
+        monthlyReport.getMarketingMonthlyReport(month),
+      ]);
+      res.json({ success: true, data: { ...sales, activities: marketing.activities } });
+    } catch (err) { next(err); }
+  }
+);
+
+router.get(
+  '/call-hours',
+  requireStaffAuth,
+  requirePermission('reports', 'view'),
+  async (req, res, next) => {
+    try {
+      const month = String(req.query.month || '');
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
+      }
+      const data = await monthlyReport.getCallHours(month);
+      res.json({ success: true, data });
+    } catch (err) { next(err); }
+  }
+);
+
+router.put(
+  '/call-hours',
+  requireStaffAuth,
+  requirePermission('reports', 'view'),
+  async (req, res, next) => {
+    try {
+      const { staffId, month, hours } = req.body || {};
+      if (!staffId || !/^\d+$/.test(String(staffId))) {
+        return res.status(400).json({ success: false, error: 'staffId is required' });
+      }
+      if (!/^\d{4}-\d{2}$/.test(String(month || ''))) {
+        return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
+      }
+      const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+      const data = await monthlyReport.saveCallHours(staffId, month, hours, updatedBy);
+      res.json({ success: true, data });
+    } catch (err) {
+      if (err.message && err.message.includes('non-negative')) {
+        return res.status(400).json({ success: false, error: err.message });
+      }
+      next(err);
+    }
+  }
+);
+
+router.get(
+  '/monthly-notes',
+  requireStaffAuth,
+  requirePermission('reports', 'view'),
+  async (req, res, next) => {
+    try {
+      const month = String(req.query.month || '');
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
+      }
+      const data = await monthlyReport.getMonthlyNotes(month);
+      res.json({ success: true, data });
+    } catch (err) { next(err); }
+  }
+);
+
+router.put(
+  '/monthly-notes',
+  requireStaffAuth,
+  requirePermission('reports', 'view'),
+  async (req, res, next) => {
+    try {
+      const { month, content } = req.body || {};
+      if (!/^\d{4}-\d{2}$/.test(String(month || ''))) {
+        return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
+      }
+      const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+      const data = await monthlyReport.saveMonthlyNotes(month, content, updatedBy);
+      res.json({ success: true, data });
+    } catch (err) { next(err); }
+  }
 );
 
 module.exports = router;

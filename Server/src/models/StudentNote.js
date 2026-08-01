@@ -9,12 +9,15 @@ const pool = new Pool({
 });
 
 // leadId is optional: set for lead-level notes, NULL for student-level notes.
-async function create({ studentId, leadId, noteType, content, authorId, authorName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation }) {
+// callAnswered: null unless this note came from a Phone Call/Zalo contact-log
+// entry (Monthly Report's Số cuộc KBM tracking) — `??` not `||` since `false`
+// (didn't pick up) is a meaningful value, not an "unset" one.
+async function create({ studentId, leadId, noteType, content, authorId, authorName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered }) {
   const result = await pool.query(
     `INSERT INTO student_notes
        (student_id, lead_id, note_type, content, author_id, author_name,
-        follow_up_date, reminder_status, rescheduled_date, contact_platform, topic, meeting_location)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        follow_up_date, reminder_status, rescheduled_date, contact_platform, topic, meeting_location, call_answered)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [studentId, leadId || null, noteType, content, authorId, authorName,
      followUpDate || null,
@@ -22,7 +25,8 @@ async function create({ studentId, leadId, noteType, content, authorId, authorNa
      rescheduledDate || null,
      contactPlatform || null,
      topic || null,
-     meetingLocation || null]
+     meetingLocation || null,
+     callAnswered ?? null]
   );
   return objectToCamelCase(result.rows[0]);
 }

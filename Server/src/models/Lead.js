@@ -79,6 +79,8 @@ const COLUMNS = [
   { db: 'office',              js: 'office' },
   { db: 'distribution_status', js: 'distributionStatus' },
   { db: 'prev_counselor',      js: 'prevCounselor' },
+  { db: 'case_type',           js: 'caseType' },           // manual: Du học / Sum. camp / Du lịch / Visa
+  { db: 'is_out_of_system',    js: 'isOutOfSystem' },      // manual: contract logged in-system vs out-of-system
   { db: 'actual_close_date',   js: 'actualCloseDate' },   // trigger-managed (set on →Contracted)
   { db: 'cancellation_date',   js: 'cancellationDate' },  // trigger-managed (set on →Lost/Archived)
   { db: 'assigned_in',         js: 'assignedIn' },        // trigger-managed (this lead's counsellor set)

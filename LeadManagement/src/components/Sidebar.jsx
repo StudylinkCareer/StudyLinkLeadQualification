@@ -145,6 +145,15 @@ export default function Sidebar() {
           <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần (tĩnh)' : 'Weekly Report (static)'}
         </button>
 
+        {canViewReports && (
+          <button
+            className={`nav-item ${isActive('/reports/monthly') ? 'active' : ''}`}
+            onClick={() => navigate('/reports/monthly')}
+          >
+            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tháng' : 'Monthly Report'}
+          </button>
+        )}
+
         {canViewEventAnalytics(staff?.position) && (
           <button
             className={`nav-item ${isActive('/reports/event') ? 'active' : ''}`}

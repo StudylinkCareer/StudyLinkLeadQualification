@@ -283,7 +283,14 @@ export const eventConsoleAPI = {
   updateBudgetItem: (id, itemId, item)    => request('PUT',    `/api/event-console/events/${id}/budget-items/${itemId}`, item),
   deleteBudgetItem: (id, itemId)          => request('DELETE', `/api/event-console/events/${id}/budget-items/${itemId}`),
   importBudgetCsv:  (id, csvText)         => request('POST',   `/api/event-console/events/${id}/budget-import`, { csvText }),
+  saveBudgetApprovalNote: (id, itemIds, note) => request('PUT', `/api/event-console/events/${id}/budget-approval-note`, { itemIds, note }),
+  approveBudget:    (id, budgetType)      => request('POST',   `/api/event-console/events/${id}/budget-approve`, { budgetType }),
   setSourceSpend:   (id, sourceLabel, amount) => request('PUT', `/api/event-console/events/${id}/source-spend`, { sourceLabel, amount }),
+  getSponsors:      (id)                  => request('GET',    `/api/event-console/events/${id}/sponsors`),
+  addSponsor:       (id, item)            => request('POST',   `/api/event-console/events/${id}/sponsors`, item),
+  updateSponsor:    (id, itemId, item)    => request('PUT',    `/api/event-console/events/${id}/sponsors/${itemId}`, item),
+  deleteSponsor:    (id, itemId)          => request('DELETE', `/api/event-console/events/${id}/sponsors/${itemId}`),
+  importSponsorsCsv: (id, csvText)        => request('POST',   `/api/event-console/events/${id}/sponsors-import`, { csvText }),
 
 };
 
@@ -300,6 +307,9 @@ export const notesAPI = {
       followUpDate:    extra.followUpDate    || null,
       contactPlatform: extra.contactPlatform || null,
       meetingLocation: extra.meetingLocation || null,
+      // ?? not || — callAnswered can legitimately be `false` (didn't pick up),
+      // which || would wrongly collapse to null.
+      callAnswered:    extra.callAnswered ?? null,
     }),
 
   // Student-level notes (topic-less for now).
@@ -382,6 +392,13 @@ export const reportsAPI = {
   saveMonthlyTarget:  (staffId, month, target) => request('PUT',    '/api/reports/monthly-targets', { staffId, month, target }),
   addTrackedStaff:    (staffId)                => request('POST',   '/api/reports/tracked-staff', { staffId }),
   removeTrackedStaff: (staffId)                => request('DELETE', `/api/reports/tracked-staff/${staffId}`),
+
+  // ── Sales + Marketing Monthly Report ──
+  monthlyReport:  (month)                     => request('GET', `/api/reports/monthly?month=${month}`),
+  callHours:      (month)                     => request('GET', `/api/reports/call-hours?month=${month}`),
+  saveCallHours:  (staffId, month, hours)     => request('PUT', '/api/reports/call-hours', { staffId, month, hours }),
+  monthlyNotes:   (month)                     => request('GET', `/api/reports/monthly-notes?month=${month}`),
+  saveMonthlyNotes: (month, content)          => request('PUT', '/api/reports/monthly-notes', { month, content }),
 };
 
 // ── Column Config ─────────────────────────────────────────────

@@ -38,17 +38,21 @@ import { containsPhoneMention } from '../utils/phoneAliases';
 // ── NoteForm ─────────────────────────────────────────────────────────────────
 // Unified structured note form. All 5 fields mandatory.
 // onSubmit receives: { topic, summary, nextSteps, reason, followUpDate }
-function NoteForm({ onSubmit, saving, topicOptions, disabled }) {
+function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }) {
   const [topic,        setTopic]        = useState('');
   const [summary,      setSummary]      = useState('');
   const [nextSteps,    setNextSteps]    = useState('');
   const [reason,       setReason]       = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
+  // Số cuộc KBM ("Không Bắt Máy" = didn't pick up) tracking — only asked for
+  // call-like methods (Phone Call / Zalo). null until the staffer picks one,
+  // required before saving so the count is real rather than a guess.
+  const [callAnswered, setCallAnswered] = useState(null);
 
   const fld = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
   const inp = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
   const sel = { ...inp, resize:'none', cursor:'pointer' };
-  const isValid = topic && summary.trim() && nextSteps.trim() && reason.trim() && followUpDate;
+  const isValid = topic && summary.trim() && nextSteps.trim() && reason.trim() && followUpDate && (!showCallAnswered || callAnswered != null);
 
   function handleSubmit() {
     if (!topic)            { alert('Topic / Objective is required.'); return; }
@@ -56,7 +60,8 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled }) {
     if (!nextSteps.trim()) { alert('Next Steps is required.'); return; }
     if (!reason.trim())    { alert('Reason is required.'); return; }
     if (!followUpDate)     { alert('Follow-up Date is required.'); return; }
-    onSubmit({ topic, summary: summary.trim(), nextSteps: nextSteps.trim(), reason: reason.trim(), followUpDate });
+    if (showCallAnswered && callAnswered == null) { alert('Please indicate whether the call was answered.'); return; }
+    onSubmit({ topic, summary: summary.trim(), nextSteps: nextSteps.trim(), reason: reason.trim(), followUpDate, callAnswered });
   }
 
   return (
@@ -68,6 +73,27 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled }) {
           {(topicOptions||[]).map(o=><option key={o.code} value={o.code}>{o.labelEn||o.code}</option>)}
         </select>
       </div>
+      {showCallAnswered && (
+        <div>
+          <label style={fld}>Did they answer? <span style={{ color:'#dc2626' }}>*</span></label>
+          <div style={{ display:'flex', gap:'0.5rem' }}>
+            <button type="button" onClick={() => setCallAnswered(true)} disabled={disabled}
+              style={{ flex:1, padding:'0.5rem', borderRadius:'8px', cursor:disabled?'not-allowed':'pointer',
+                border: callAnswered===true ? '1px solid #16a34a' : '1px solid var(--border)',
+                background: callAnswered===true ? '#16a34a' : 'var(--bg-secondary)',
+                color: callAnswered===true ? '#fff' : 'var(--text-primary)', fontSize:'0.8125rem', fontWeight:600 }}>
+              Yes
+            </button>
+            <button type="button" onClick={() => setCallAnswered(false)} disabled={disabled}
+              style={{ flex:1, padding:'0.5rem', borderRadius:'8px', cursor:disabled?'not-allowed':'pointer',
+                border: callAnswered===false ? '1px solid #dc2626' : '1px solid var(--border)',
+                background: callAnswered===false ? '#dc2626' : 'var(--bg-secondary)',
+                color: callAnswered===false ? '#fff' : 'var(--text-primary)', fontSize:'0.8125rem', fontWeight:600 }}>
+              No (Không bắt máy)
+            </button>
+          </div>
+        </div>
+      )}
       <div>
         <label style={fld}>Summary <span style={{ color:'#dc2626' }}>*</span></label>
         <textarea rows={3} placeholder="What was discussed?" value={summary}
@@ -625,7 +651,8 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           <NoteForm
             topicOptions={topicOptions}
             saving={saving}
-            onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate }) => {
+            showCallAnswered={method === 'call' || method === 'zalo'}
+            onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate, callAnswered }) => {
               setSaving(true);
               const parts = [
                 icon + ' ' + label + ' — ' + studentName,
@@ -637,7 +664,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
                 '\nReason:\n' + reason,
                 '\nFollow-up Date: ' + followUpDate,
               ];
-              await onSave({ noteText: parts.join('\n'), topic, followUpDate, contactPlatform: label });
+              await onSave({ noteText: parts.join('\n'), topic, followUpDate, contactPlatform: label, callAnswered: callAnswered ?? null });
               setSaving(false);
             }}
           />
@@ -703,6 +730,8 @@ const LEAD_STATUSES = [
   'Cancelled',
 ];
 const CONFIDENCE_OPTS = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
+// For the Sales Monthly Report — manual, per-lead classification of a contract.
+const CASE_TYPE_OPTS = ['Du học','Sum. camp','Du lịch','Visa'];
 const NOTE_TYPES      = { counselor:'Counselor Note', presales:'PreSales Note', management:'Management Note' };
 const ENGLISH_LEVELS  = ['Beginner','IELTS 4-4.5','IELTS 5-5.5','IELTS 6-6.5','IELTS 7+'];
 const GPA_OPTIONS     = ['< 6.5','6.5-6.9','7-7.9','8-8.9','9+'];
@@ -1079,12 +1108,13 @@ export default function LeadDetail() {
     setContactModal({ method, openedAt: new Date().toISOString() });
   }
 
-  async function handleContactSave({ noteText, topic, followUpDate, contactPlatform }) {
+  async function handleContactSave({ noteText, topic, followUpDate, contactPlatform, callAnswered }) {
     try {
       const data = await notesAPI.addForLead(id, 'counselor', noteText, {
         topic,
         followUpDate,
         contactPlatform,
+        callAnswered: callAnswered ?? null,
         reminderStatus: followUpDate ? 'active' : null,
       });
       setNotes(n => [data.data, ...n]);
@@ -1275,6 +1305,8 @@ export default function LeadDetail() {
           destinationCountry: editData.destinationCountry,
           timeline:           editData.timeline,
           major:              editData.major,
+          caseType:           editData.caseType,
+          isOutOfSystem:      editData.isOutOfSystem,
         });
         const studentRes = await studentAPI.update(lead.studentId, {
           fullName:           editData.fullName,
@@ -1458,7 +1490,7 @@ export default function LeadDetail() {
         '\nReason:\n' + reason,
         '\nFollow-up Date: ' + followUpDate,
       ];
-      const data = await notesAPI.addForLead(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null });
+      const data = await notesAPI.addForLead(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null, callAnswered:null });
       setNotes(n=>[data.data,...n]);
     } catch(e) { alert(e.message); }
     finally { setAdding(false); }
@@ -1632,6 +1664,24 @@ export default function LeadDetail() {
               <Field label="Actual Close Date" value={formatShortDate(lead.actualCloseDate)}/>
               <Field label="Cancellation date" value={formatShortDate(lead.cancellationDate)}/>
             </div>
+            {/* Sales Monthly Report inputs — manual, per-lead, set once on a
+                contract. Kept on the lead (not report-only) so they have a
+                real source of truth other reports can reuse later. */}
+            {editMode ? (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem', marginTop:'0.75rem' }}>
+                <EditField label="Case type" name="caseType" value={d.caseType} onChange={updateEdit} options={CASE_TYPE_OPTS}/>
+                <div className="form-group" style={{ margin:0, display:'flex', alignItems:'center', gap:'0.5rem', paddingTop:'1.25rem' }}>
+                  <input type="checkbox" id="isOutOfSystem" checked={!!d.isOutOfSystem}
+                    onChange={e => updateEdit('isOutOfSystem', e.target.checked)} />
+                  <label htmlFor="isOutOfSystem" className="form-label" style={{ margin:0, cursor:'pointer' }}>Contract handled out of system</label>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem', marginTop:'0.75rem' }}>
+                <Field label="Case type" value={lead.caseType}/>
+                <Field label="Contract system" value={lead.isOutOfSystem == null ? '—' : (lead.isOutOfSystem ? 'Out of system' : 'In system')}/>
+              </div>
+            )}
           </div>
           )}
 
