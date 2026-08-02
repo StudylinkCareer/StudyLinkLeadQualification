@@ -103,7 +103,7 @@ function fmtVnd(n) {
 }
 
 const COLORS = { primary: '#2563EB', good: '#10B981', warn: '#F59E0B', danger: '#DC2626', neutral: '#94A3B8' };
-const CASE_TYPES = ['Du học', 'Sum. camp', 'Du lịch', 'Visa'];
+const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị thực Khác'];
 
 function fmtPct(n) {
   return n == null ? '—' : `${n}%`;
@@ -347,11 +347,66 @@ export default function MonthlyReport() {
   const totalCalls = (report?.presalesReport || []).reduce((s, r) => s + r.totalCalls, 0);
   const totalKbm = (report?.presalesReport || []).reduce((s, r) => s + r.kbmCount, 0);
 
+  // Totals rows for each table — company-wide %/Convert %/Avg KBM-hour are
+  // recomputed from the summed numerators/denominators (sum-of-rates would be
+  // mathematically wrong), not an average of each row's own percentage.
+  const teamTotals = useMemo(() => {
+    const rows = report?.teamPerformance || [];
+    const t = {
+      target: 0, contractedTotal: 0, inSystem: 0, outSystem: 0, unclassified: 0,
+      byCaseType: Object.fromEntries(CASE_TYPES.map((c) => [c, 0])),
+      totalLeads: 0, newLeadsThisMonth: 0,
+      calls: 0, callsKpi: 0, basicLetters: 0, finalLetters: 0,
+    };
+    for (const r of rows) {
+      t.target += r.target || 0;
+      t.contractedTotal += r.contractedTotal;
+      t.inSystem += r.inSystem;
+      t.outSystem += r.outSystem;
+      t.unclassified += r.unclassified;
+      for (const c of CASE_TYPES) t.byCaseType[c] += r.byCaseType[c] || 0;
+      t.totalLeads += r.totalLeads;
+      t.newLeadsThisMonth += r.newLeadsThisMonth;
+      t.calls += r.calls || 0;
+      t.callsKpi += r.callsKpi || 0;
+      t.basicLetters += r.basicLetters || 0;
+      t.finalLetters += r.finalLetters || 0;
+    }
+    t.pct = t.target ? Math.round((t.contractedTotal / t.target) * 1000) / 10 : null;
+    t.convertRate = t.totalLeads ? Math.round((t.contractedTotal / t.totalLeads) * 1000) / 10 : null;
+    t.pctCallsKpi = t.callsKpi ? Math.round((t.calls / t.callsKpi) * 1000) / 10 : null;
+    return t;
+  }, [report]);
+
+  const contractResourcesTotal = (report?.contractResources || []).reduce((s, r) => s + r.count, 0);
+
+  const presalesTotals = useMemo(() => {
+    const rows = report?.presalesReport || [];
+    const t = { hours: 0, hasHours: false, totalCalls: 0, kbmCount: 0, meetingsCount: 0, transferred: 0 };
+    for (const r of rows) {
+      if (r.hours != null) { t.hours += r.hours; t.hasHours = true; }
+      t.totalCalls += r.totalCalls;
+      t.kbmCount += r.kbmCount;
+      t.meetingsCount += r.meetingsCount;
+      t.transferred += r.transferred.length;
+    }
+    t.avgKbmPerHour = t.hasHours && t.hours ? Math.round((t.kbmCount / t.hours) * 100) / 100 : null;
+    return t;
+  }, [report]);
+
+  const activitiesTotals = useMemo(() => {
+    const rows = report?.activities || [];
+    const t = { leadCount: 0, totalCostPlanned: 0, hasCostPlanned: false, totalCostActual: 0, hasCostActual: false };
+    for (const a of rows) {
+      t.leadCount += a.leadCount;
+      if (a.totalCostPlanned != null) { t.totalCostPlanned += a.totalCostPlanned; t.hasCostPlanned = true; }
+      if (a.totalCostActual != null) { t.totalCostActual += a.totalCostActual; t.hasCostActual = true; }
+    }
+    return t;
+  }, [report]);
+
   const teamChartData = useMemo(() => (report?.teamPerformance || []).map((r) => ({
     name: r.fullName, target: r.target, inSystem: r.inSystem, outSystem: r.outSystem,
-  })), [report]);
-  const kpiChartData = useMemo(() => (report?.teamPerformance || []).map((r) => ({
-    name: r.fullName, pct: r.target ? Math.round((r.contractedTotal / r.target) * 1000) / 10 : 0,
   })), [report]);
   const contractResourcesPieData = useMemo(() => toPieData(
     report?.contractResources, 'count', (r) => r.sourceLabel, (r) => r.sourceLabel, L('Other', 'Khác')
@@ -437,11 +492,16 @@ export default function MonthlyReport() {
                       <th style={{ textAlign: 'right' }}>{L('Contracted', 'Đã ký HĐ')}</th>
                       <th style={{ textAlign: 'right' }}>{L('In system', 'Trong hệ thống')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Out system', 'Ngoài hệ thống')}</th>
-                      <th style={{ textAlign: 'right' }}>%</th>
+                      <th style={{ textAlign: 'right' }}>{L('% KPI', '% KPI')}</th>
                       {CASE_TYPES.map((t) => <th key={t} style={{ textAlign: 'right' }}>{t}</th>)}
                       <th style={{ textAlign: 'right' }}>{L('Total leads', 'Tổng leads')}</th>
                       <th style={{ textAlign: 'right' }}>{L('New this month', 'Mới tháng này')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Convert %', 'Tỉ lệ %')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('Calls', 'Cuộc gọi')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('Calls KPI', 'KPI cuộc gọi')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('% Calls KPI', '% KPI cuộc gọi')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('Basic Counseling Letter', 'Thư tư vấn sơ bộ')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('Final Counseling Letter', 'Thư tư vấn cuối')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -472,10 +532,15 @@ export default function MonthlyReport() {
                             <td style={{ textAlign: 'right' }}>{r.totalLeads}</td>
                             <td style={{ textAlign: 'right' }}>{r.newLeadsThisMonth}</td>
                             <td style={{ textAlign: 'right' }}>{fmtPct(r.convertRate)}</td>
+                            <td style={{ textAlign: 'right' }}>{r.calls}</td>
+                            <td style={{ textAlign: 'right' }}>{r.callsKpi}</td>
+                            <td style={{ textAlign: 'right' }}>{fmtPct(r.pctCallsKpi)}</td>
+                            <td style={{ textAlign: 'right' }}>{r.basicLetters}</td>
+                            <td style={{ textAlign: 'right' }}>{r.finalLetters}</td>
                           </tr>
                           {drilldownLeads && (
                             <tr>
-                              <td colSpan={13} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={18} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <table className="leads-data-table" style={{ width: '100%' }}>
                                   <thead><tr>
                                     <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
@@ -502,52 +567,57 @@ export default function MonthlyReport() {
                       );
                     })}
                     {!(report.teamPerformance || []).length && (
-                      <tr><td colSpan={13} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                      <tr><td colSpan={18} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         {L('No counselors found', 'Không tìm thấy tư vấn viên')}
                       </td></tr>
                     )}
                   </tbody>
+                  {(report.teamPerformance || []).length > 0 && (
+                    <tfoot>
+                      <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
+                        <td>{L('Total', 'Tổng cộng')}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.target}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.contractedTotal}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.inSystem}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.outSystem}{teamTotals.unclassified ? ` (+${teamTotals.unclassified} ?)` : ''}</td>
+                        <td style={{ textAlign: 'right' }}>{fmtPct(teamTotals.pct)}</td>
+                        {CASE_TYPES.map((t) => <td key={t} style={{ textAlign: 'right' }}>{teamTotals.byCaseType[t]}</td>)}
+                        <td style={{ textAlign: 'right' }}>{teamTotals.totalLeads}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.newLeadsThisMonth}</td>
+                        <td style={{ textAlign: 'right' }}>{fmtPct(teamTotals.convertRate)}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.calls}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.callsKpi}</td>
+                        <td style={{ textAlign: 'right' }}>{fmtPct(teamTotals.pctCallsKpi)}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.basicLetters}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.finalLetters}</td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
                 * {L('Target not set for this month — showing the staff-level default.', 'Chưa đặt chỉ tiêu cho tháng này — hiển thị chỉ tiêu mặc định.')}
+                {' '}{L('Total row: % KPI, Convert %, and % Calls KPI are company-wide (sum ÷ sum), not an average of each row.', 'Dòng tổng: % KPI, Tỉ lệ % và % KPI cuộc gọi tính theo toàn công ty (tổng ÷ tổng), không phải trung bình từng dòng.')}
+                {' '}{L('Calls KPI is auto-computed from the per-weekday counselor call targets (same ones Weekly Report uses), summed across every day actually in the month.', 'KPI cuộc gọi tự tính từ chỉ tiêu cuộc gọi theo ngày trong tuần của tư vấn viên (giống Báo cáo tuần), cộng dồn theo đúng số ngày trong tháng.')}
               </div>
 
               {teamChartData.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '1rem', marginTop: '1rem' }}>
-                  <div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', textAlign: 'center' }}>
-                      {L('Target vs Contracted', 'Chỉ tiêu vs Đã ký HĐ')}
-                    </div>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={teamChartData} barGap={2} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
-                        <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} allowDecimals={false} />
-                        <Tooltip />
-                        <Legend wrapperStyle={{ fontSize: '0.7rem' }} />
-                        <Bar dataKey="target" name={L('Target', 'Chỉ tiêu')} fill={CATEGORICAL[0]} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="inSystem" name={L('In system', 'Trong hệ thống')} fill={CATEGORICAL[1]} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="outSystem" name={L('Out system', 'Ngoài hệ thống')} fill={CATEGORICAL[2]} radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                <div style={{ marginTop: '1rem' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', textAlign: 'center' }}>
+                    {L('Target vs Contracted', 'Chỉ tiêu vs Đã ký HĐ')}
                   </div>
-                  <div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', textAlign: 'center' }}>
-                      {L('% of Target', '% Chỉ tiêu')}
-                    </div>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={kpiChartData} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
-                        <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} unit="%" />
-                        <Tooltip formatter={(v) => [`${v}%`, L('% of Target', '% Chỉ tiêu')]} />
-                        <Bar dataKey="pct" name={L('% of Target', '% Chỉ tiêu')} fill={COLORS.primary} radius={[4, 4, 0, 0]}>
-                          <LabelList dataKey="pct" position="top" formatter={(v) => `${v}%`} style={{ fontSize: 10, fill: 'var(--text-secondary)' }} />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={teamChartData} barGap={2} margin={{ top: 24, right: 8, left: 0, bottom: 48 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
+                      <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} allowDecimals={false} />
+                      <Tooltip />
+                      <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: '0.7rem', paddingBottom: '6px' }} />
+                      <Bar dataKey="target" name={L('Target', 'Chỉ tiêu')} fill={CATEGORICAL[0]} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="inSystem" name={L('In system', 'Trong hệ thống')} fill={CATEGORICAL[1]} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="outSystem" name={L('Out system', 'Ngoài hệ thống')} fill={CATEGORICAL[2]} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               )}
             </div>
@@ -575,6 +645,14 @@ export default function MonthlyReport() {
                       </td></tr>
                     )}
                   </tbody>
+                  {(report.contractResources || []).length > 0 && (
+                    <tfoot>
+                      <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
+                        <td>{L('Total', 'Tổng cộng')}</td>
+                        <td style={{ textAlign: 'right' }}>{contractResourcesTotal}</td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
               {(report.contractResources || []).length > 0 && (
@@ -591,7 +669,7 @@ export default function MonthlyReport() {
                   <thead>
                     <tr>
                       <th style={{ textAlign: 'left' }}>{L('Staff', 'Nhân viên')}</th>
-                      <th style={{ textAlign: 'right' }}>{L('Giờ gọi (manual)', 'Giờ gọi (thủ công)')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('Total Call Hour KPI', 'Giờ gọi (thủ công)')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Total calls', 'Tổng cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('KBM (unanswered)', 'Số cuộc KBM')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Avg KBM/hour', 'TB KBM/giờ')}</th>
@@ -671,6 +749,19 @@ export default function MonthlyReport() {
                       </td></tr>
                     )}
                   </tbody>
+                  {(report.presalesReport || []).length > 0 && (
+                    <tfoot>
+                      <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
+                        <td>{L('Total', 'Tổng cộng')}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.hasHours ? presalesTotals.hours : '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.totalCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.kbmCount}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.avgKbmPerHour == null ? '—' : presalesTotals.avgKbmPerHour}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.meetingsCount}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.transferred}</td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
 
@@ -681,12 +772,12 @@ export default function MonthlyReport() {
                       {L('Total calls vs KBM', 'Tổng cuộc gọi vs KBM')}
                     </div>
                     <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={presalesCountData} barGap={2} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
+                      <BarChart data={presalesCountData} barGap={2} margin={{ top: 24, right: 8, left: 0, bottom: 48 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                         <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
                         <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} allowDecimals={false} />
                         <Tooltip />
-                        <Legend wrapperStyle={{ fontSize: '0.7rem' }} />
+                        <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: '0.7rem', paddingBottom: '6px' }} />
                         <Bar dataKey="totalCalls" name={L('Total calls', 'Tổng cuộc gọi')} fill={COLORS.good} radius={[4, 4, 0, 0]} />
                         <Bar dataKey="kbmCount" name={L('KBM (unanswered)', 'Số cuộc KBM')} fill={COLORS.warn} radius={[4, 4, 0, 0]} />
                       </BarChart>
@@ -774,6 +865,16 @@ export default function MonthlyReport() {
                       </td></tr>
                     )}
                   </tbody>
+                  {(report.activities || []).length > 0 && (
+                    <tfoot>
+                      <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
+                        <td colSpan={2}>{L('Total', 'Tổng cộng')}</td>
+                        <td style={{ textAlign: 'right' }}>{activitiesTotals.leadCount}</td>
+                        <td style={{ textAlign: 'right' }}>{activitiesTotals.hasCostPlanned ? fmtVnd(activitiesTotals.totalCostPlanned) : '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{activitiesTotals.hasCostActual ? fmtVnd(activitiesTotals.totalCostActual) : '—'}</td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
 
@@ -799,14 +900,15 @@ export default function MonthlyReport() {
                     <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', textAlign: 'center' }}>
                       {L('Funnel by activity', 'Phễu theo hoạt động')}
                     </div>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={activitiesFunnelData} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={activitiesFunnelData} margin={{ top: 36, right: 8, left: 0, bottom: 48 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                         <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
                         <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} allowDecimals={false} />
                         <Tooltip formatter={(v, key) => [v, LEAD_STATUS_LABELS[language]?.[key] || (key === '__other__' ? L('Other', 'Khác') : key)]} />
                         <Legend
-                          wrapperStyle={{ fontSize: '0.68rem' }}
+                          verticalAlign="top" align="center"
+                          wrapperStyle={{ fontSize: '0.68rem', paddingBottom: '6px' }}
                           formatter={(key) => LEAD_STATUS_LABELS[language]?.[key] || (key === '__other__' ? L('Other', 'Khác') : key)}
                         />
                         {funnelStatusKeys.map((status, i) => (

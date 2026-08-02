@@ -731,7 +731,7 @@ const LEAD_STATUSES = [
 ];
 const CONFIDENCE_OPTS = ['Low (0-30%)','Medium (31-60%)','High (61-90%)','Committed (91-100%)'];
 // For the Sales Monthly Report — manual, per-lead classification of a contract.
-const CASE_TYPE_OPTS = ['Du học','Sum. camp','Du lịch','Visa'];
+const CASE_TYPE_OPTS = ['Du học','Du học hè','Thị thực Du lịch','Thị thực Khác'];
 const NOTE_TYPES      = { counselor:'Counselor Note', presales:'PreSales Note', management:'Management Note' };
 const ENGLISH_LEVELS  = ['Beginner','IELTS 4-4.5','IELTS 5-5.5','IELTS 6-6.5','IELTS 7+'];
 const GPA_OPTIONS     = ['< 6.5','6.5-6.9','7-7.9','8-8.9','9+'];
@@ -1669,17 +1669,25 @@ export default function LeadDetail() {
                 real source of truth other reports can reuse later. */}
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem', marginTop:'0.75rem' }}>
-                <EditField label="Case type" name="caseType" value={d.caseType} onChange={updateEdit} options={CASE_TYPE_OPTS}/>
-                <div className="form-group" style={{ margin:0, display:'flex', alignItems:'center', gap:'0.5rem', paddingTop:'1.25rem' }}>
-                  <input type="checkbox" id="isOutOfSystem" checked={!!d.isOutOfSystem}
-                    onChange={e => updateEdit('isOutOfSystem', e.target.checked)} />
-                  <label htmlFor="isOutOfSystem" className="form-label" style={{ margin:0, cursor:'pointer' }}>Contract handled out of system</label>
+                <EditField label="Service Type" name="caseType" value={d.caseType} onChange={updateEdit} options={CASE_TYPE_OPTS}/>
+                <div className="form-group" style={{ margin:0 }}>
+                  <label className="form-label">Institution Relationship</label>
+                  <select className="form-select"
+                    value={d.isOutOfSystem === true ? 'out' : d.isOutOfSystem === false ? 'in' : ''}
+                    onChange={e => {
+                      const v = e.target.value;
+                      updateEdit('isOutOfSystem', v === 'out' ? true : v === 'in' ? false : null);
+                    }}>
+                    <option value="">—</option>
+                    <option value="in">In system</option>
+                    <option value="out">Out of system</option>
+                  </select>
                 </div>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem', marginTop:'0.75rem' }}>
-                <Field label="Case type" value={lead.caseType}/>
-                <Field label="Contract system" value={lead.isOutOfSystem == null ? '—' : (lead.isOutOfSystem ? 'Out of system' : 'In system')}/>
+                <Field label="Service Type" value={lead.caseType}/>
+                <Field label="Institution Relationship" value={lead.isOutOfSystem == null ? '—' : (lead.isOutOfSystem ? 'Out of system' : 'In system')}/>
               </div>
             )}
           </div>

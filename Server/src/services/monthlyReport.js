@@ -42,7 +42,29 @@ function isCallNote(n) {
   return (n.contact_platform != null && n.contact_platform !== '') || containsPhoneMention(n.content);
 }
 
-const CASE_TYPES = ['Du học', 'Sum. camp', 'Du lịch', 'Visa'];
+// Per-person DAILY call targets for Counselors — copied verbatim from
+// reportController.js's CALL_TARGETS.Counselor (index 0=Mon … 6=Sun).
+// "Calls KPI" is this summed across every calendar day actually in the
+// given month (not a flat 30-day estimate — weekday mix and month length
+// both matter, e.g. a 31-day month with 5 Saturdays targets differently
+// than one with 4).
+const CALL_TARGETS_COUNSELOR = { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5, 5, 5, 5, 5, 2, 0] };
+
+function computeMonthlyCallsKpi(monthLabel) {
+  const m = /^(\d{4})-(\d{2})$/.exec(monthLabel || '');
+  if (!m) throw new Error('month must be YYYY-MM');
+  const y = Number(m[1]), mo0 = Number(m[2]) - 1;
+  const daysInMonth = new Date(Date.UTC(y, mo0 + 1, 0)).getUTCDate();
+  let total = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const jsDow = new Date(Date.UTC(y, mo0, d)).getUTCDay(); // 0=Sun..6=Sat
+    const idx = jsDow === 0 ? 6 : jsDow - 1; // -> 0=Mon..6=Sun, matching CALL_TARGETS_COUNSELOR
+    total += CALL_TARGETS_COUNSELOR.new[idx] + CALL_TARGETS_COUNSELOR.ongoing[idx];
+  }
+  return total;
+}
+
+const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị thực Khác'];
 
 async function getCounselorStaff() {
   const r = await pool.query(
@@ -64,6 +86,14 @@ async function getPresalesStaff() {
   return r.rows;
 }
 
+// Ex-client sources are per-person free text in source_detail (the specific
+// past client's name) — that would fragment Contract Resources into one
+// bucket per name instead of one meaningful "Ex-client" bucket, per mom's
+// request to collapse them.
+function isExClientSource(source) {
+  return /^ex[\s-]?client(s)?$/i.test((source || '').trim());
+}
+
 // Source label for a Contracted lead — adapted from eventSourceBreakdown.js's
 // resolveSourceLabel(), simplified since a contract isn't necessarily tied to
 // a specific event registration (lead_events row may not exist at all).
@@ -71,6 +101,7 @@ async function getPresalesStaff() {
 // leaking a literal event name, for the same reason as the Event Report fix.
 function resolveContractSourceLabel(row) {
   if (row.sol_mode === 'events') return row.sol_label || 'Event/Campaign';
+  if (isExClientSource(row.source)) return 'Ex-Client';
   const s = [row.source, row.source_detail].filter(Boolean).join(' - ');
   return s || '(Unknown / not recorded)';
 }
@@ -131,6 +162,26 @@ async function getSalesMonthlyReport(monthLabel) {
   )).rows : [];
   const overrideByStaffId = new Map(overrideRows.map((r) => [r.staff_id, r.target]));
 
+  // Calls + Basic/Final Counselling Letter counts, per counselor. Calls use
+  // the exact same detection rule as Pre-sales' Total calls (isCallNote),
+  // just scoped to counselor-authored notes instead. Letters are counted by
+  // topic — same two topic strings Weekly Report's lettersFor() already uses.
+  const counselorNoteRows = counselorNames.length ? (await pool.query(
+    `SELECT author_name, contact_platform, content, topic
+       FROM student_notes
+      WHERE author_name = ANY($1) AND created_at >= $2 AND created_at < $3`,
+    [counselorNames, startISO, endISO]
+  )).rows : [];
+  const callsByCounselor = new Map();
+  const basicLettersByCounselor = new Map();
+  const finalLettersByCounselor = new Map();
+  for (const n of counselorNoteRows) {
+    if (isCallNote(n)) callsByCounselor.set(n.author_name, (callsByCounselor.get(n.author_name) || 0) + 1);
+    if (n.topic === 'Basic Counselling Letter') basicLettersByCounselor.set(n.author_name, (basicLettersByCounselor.get(n.author_name) || 0) + 1);
+    if (n.topic === 'Final Counselling Letter') finalLettersByCounselor.set(n.author_name, (finalLettersByCounselor.get(n.author_name) || 0) + 1);
+  }
+  const callsKpi = computeMonthlyCallsKpi(monthLabel);
+
   const contractedByCounselor = new Map();
   for (const row of contractedRows) {
     if (!contractedByCounselor.has(row.counselor)) contractedByCounselor.set(row.counselor, []);
@@ -161,6 +212,7 @@ async function getSalesMonthlyReport(monthLabel) {
         caseType: row.case_type, isOutOfSystem: row.is_out_of_system,
       };
     });
+    const calls = callsByCounselor.get(c.full_name) || 0;
     return {
       staffId: c.id,
       fullName: c.full_name,
@@ -174,6 +226,11 @@ async function getSalesMonthlyReport(monthLabel) {
       convertRate: leadCounts.total ? Math.round((contracted.length / leadCounts.total) * 1000) / 10 : null,
       contractedLeadIds: contracted.map((r) => r.lead_id),
       contractedDetail,
+      calls,
+      callsKpi,
+      pctCallsKpi: callsKpi ? Math.round((calls / callsKpi) * 1000) / 10 : null,
+      basicLetters: basicLettersByCounselor.get(c.full_name) || 0,
+      finalLetters: finalLettersByCounselor.get(c.full_name) || 0,
     };
   });
 
