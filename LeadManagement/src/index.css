@@ -592,6 +592,19 @@ tr:hover td {
 .badge--admin     { background: #f3e8ff; color: #6b21a8; }
 .badge--counselor { background: #d1fae5; color: #065f46; }
 
+/* Hides a wide table's own native horizontal scrollbar when a synced sticky
+   scrollbar (StickyHScrollbar in EventReport.jsx) already provides it —
+   avoids showing two redundant scrollbars for the same content. Scrolling
+   still works via drag/trackpad/the sticky bar, just without the native
+   track+thumb rendered here. */
+.hide-native-hscroll {
+  scrollbar-width: none;       /* Firefox */
+  -ms-overflow-style: none;    /* old Edge/IE */
+}
+.hide-native-hscroll::-webkit-scrollbar {
+  display: none;               /* Chrome/Safari/new Edge */
+}
+
 /* ── Staff Management ── */
 .section-card {
   background: #fff;

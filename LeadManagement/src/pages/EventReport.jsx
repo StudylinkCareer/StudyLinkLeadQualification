@@ -20,7 +20,7 @@
 //   - "Contracted" is a single combined count (not split into during/after
 //     the event), matching how the source Excel reports count it.
 
-import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiDownload, FiUpload, FiPlus, FiTrash2, FiEdit2, FiArrowRight, FiRefreshCw, FiChevronDown, FiChevronRight, FiCheckCircle } from 'react-icons/fi';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -55,6 +55,28 @@ function fmtPct(n) {
 }
 function fmtInt(n) {
   return n == null ? '—' : n;
+}
+
+// No email service lets a webpage auto-attach a file to a draft via a link —
+// that's a hard security limitation, not a gap here. So Duyệt downloads the
+// PDF to the browser directly and separately opens a Gmail compose draft;
+// mom attaches the just-downloaded file herself before sending, giving her
+// full review/edit control over the email StudyLink actually sends.
+function downloadBase64Pdf(base64, filename) {
+  const byteChars = atob(base64);
+  const byteNumbers = new Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+  const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function buildGmailComposeUrl({ to, subject, body }) {
+  const params = new URLSearchParams({ view: 'cm', fs: '1', to: (to || []).join(','), su: subject, body });
+  return `https://mail.google.com/mail/?${params.toString()}`;
 }
 
 // Loose match key for pairing a Planned item with its Actual counterpart in
@@ -171,6 +193,65 @@ function KpiDrilldownPanel({ kpi, leads, schools, navigate, L }) {
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// A second, thin scrollbar synced to a wide table's own horizontal scroll,
+// pinned to the bottom of the viewport (via position:sticky) instead of the
+// bottom of the table — so it's reachable without scrolling all the way down
+// the page first. Stops sticking once its section scrolls out of view
+// entirely (sticky's normal behavior), which is the desired cutoff. Hidden
+// automatically when the table isn't actually wider than its container.
+function StickyHScrollbar({ targetRef }) {
+  const barRef = useRef(null);
+  const [scrollWidth, setScrollWidth] = useState(0);
+  const [visible, setVisible] = useState(false);
+  const syncingFrom = useRef(null); // 'bar' | 'table' | null — guards against feedback loop
+
+  useEffect(() => {
+    const table = targetRef.current;
+    if (!table) return;
+    function measure() {
+      setScrollWidth(table.scrollWidth);
+      setVisible(table.scrollWidth > table.clientWidth + 4);
+    }
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(table);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [targetRef]);
+
+  useEffect(() => {
+    const table = targetRef.current;
+    const bar = barRef.current;
+    if (!table || !bar) return;
+    function onTableScroll() {
+      if (syncingFrom.current === 'bar') { syncingFrom.current = null; return; }
+      syncingFrom.current = 'table';
+      bar.scrollLeft = table.scrollLeft;
+    }
+    function onBarScroll() {
+      if (syncingFrom.current === 'table') { syncingFrom.current = null; return; }
+      syncingFrom.current = 'bar';
+      table.scrollLeft = bar.scrollLeft;
+    }
+    table.addEventListener('scroll', onTableScroll);
+    bar.addEventListener('scroll', onBarScroll);
+    return () => { table.removeEventListener('scroll', onTableScroll); bar.removeEventListener('scroll', onBarScroll); };
+  }, [targetRef, visible]); // visible: the bar element doesn't exist in the DOM until visible flips true, so this must re-run once it actually mounts — otherwise barRef.current is null when the listener would've been attached, and it never retries.
+
+  if (!visible) return null;
+  return (
+    <div
+      ref={barRef}
+      style={{
+        position: 'sticky', bottom: 0, overflowX: 'auto', overflowY: 'hidden',
+        height: '16px', background: 'var(--bg-primary)', borderTop: '1px solid var(--border)', zIndex: 2,
+      }}
+    >
+      <div style={{ width: `${scrollWidth}px`, height: '1px' }} />
     </div>
   );
 }
@@ -558,6 +639,7 @@ export default function EventReport() {
   const [budget, setBudget] = useState(null);
   const [approvingType, setApprovingType] = useState(null);
   const [approveMsg, setApproveMsg] = useState('');
+  const [pendingGmailUrl, setPendingGmailUrl] = useState(null); // fallback link if the popup got blocked
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -571,6 +653,8 @@ export default function EventReport() {
   const [sortDir, setSortDir] = useState('desc');
   const [addingItem, setAddingItem] = useState(false);
   const [editingRowKey, setEditingRowKey] = useState(null); // merged sideBySideRows key, not a DB id
+  const [collapsedCategories, setCollapsedCategories] = useState(new Set());
+  const budgetTableScrollRef = useRef(null);
   const [expandedKpi, setExpandedKpi] = useState(null); // 'registered'|'confirmed'|'attended'|'schools'|'contracted'|null
   const [csvImporting, setCsvImporting] = useState(false);
   const [csvImportMsg, setCsvImportMsg] = useState('');
@@ -688,6 +772,33 @@ export default function EventReport() {
       (a.category || '').localeCompare(b.category) || a.lineItem.localeCompare(b.lineItem));
   }, [budget]);
 
+  // Groups the already-sorted sideBySideRows by category, with a Planned/
+  // Actual subtotal per group — backs the collapsible category header rows.
+  const budgetByCategory = useMemo(() => {
+    const groups = new Map();
+    for (const row of sideBySideRows) {
+      const cat = row.category || L('(Uncategorized)', '(Chưa phân loại)');
+      if (!groups.has(cat)) groups.set(cat, { category: cat, rows: [], plannedTotal: 0, actualTotal: 0 });
+      const g = groups.get(cat);
+      g.rows.push(row);
+      if (row.planned) g.plannedTotal += row.planned.amount;
+      if (row.actual) g.actualTotal += row.actual.amount;
+    }
+    return Array.from(groups.values());
+  }, [sideBySideRows, language]);
+
+  function toggleCategory(cat) {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+  }
+  const allCategoriesCollapsed = budgetByCategory.length > 0 && budgetByCategory.every((g) => collapsedCategories.has(g.category));
+  function toggleAllCategories() {
+    setCollapsedCategories(allCategoriesCollapsed ? new Set() : new Set(budgetByCategory.map((g) => g.category)));
+  }
+
   const maxRegistered = useMemo(
     () => Math.max(1, ...(report?.bySource || []).map((s) => s.registered)),
     [report]
@@ -793,17 +904,37 @@ export default function EventReport() {
   async function handleApproveBudget(budgetType) {
     setApprovingType(budgetType);
     setApproveMsg('');
+    setPendingGmailUrl(null);
     try {
       const res = await eventConsoleAPI.approveBudget(selectedEventId, budgetType);
       setBudget(res.data);
-      setApproveMsg(res.emailResult?.sent
-        ? L('Approved — email sent.', 'Đã duyệt — đã gửi email.')
-        : L(`Approved, but the email didn't send (${res.emailResult?.reason || 'unknown'}).`, `Đã duyệt, nhưng email chưa gửi được (${res.emailResult?.reason || 'không rõ'}).`));
+
+      if (res.pdf?.base64) downloadBase64Pdf(res.pdf.base64, res.pdf.filename);
+
+      const a = res.approval || {};
+      const typeLabel = budgetType === 'planned' ? L('Planned', 'Kế hoạch') : L('Actual', 'Thực tế');
+      const dateFmt = a.approvedAt ? new Date(a.approvedAt).toLocaleDateString('vi-VN') : '';
+      const subject = L(`StudyLink — ${typeLabel} budget approved: ${a.eventName || ''}`, `StudyLink — Ngân sách ${typeLabel} đã duyệt: ${a.eventName || ''}`);
+      const body = L(
+        `Budget ${typeLabel} for event "${a.eventName || ''}" has been approved.\n\nApproved by: ${a.approvedBy || ''}\nApproval date: ${dateFmt}\nTotal budget: ${fmtVnd(a.total)}\n\n(PDF downloaded to your computer — please attach it before sending this email.)`,
+        `Ngân sách ${typeLabel} của sự kiện "${a.eventName || ''}" đã được duyệt.\n\nDuyệt bởi: ${a.approvedBy || ''}\nNgày duyệt: ${dateFmt}\nTổng ngân sách: ${fmtVnd(a.total)}\n\n(Đã tải file PDF về máy — vui lòng đính kèm trước khi gửi email này.)`
+      );
+
+      let gmailUrl = null;
+      if (res.notifyEmails?.length) {
+        gmailUrl = buildGmailComposeUrl({ to: res.notifyEmails, subject, body });
+        const win = window.open(gmailUrl, '_blank', 'noopener');
+        if (!win) setPendingGmailUrl(gmailUrl); // popup blocked — offer a manual link instead
+      }
+
+      setApproveMsg(res.pdf
+        ? L('Approved — PDF downloaded, opening a Gmail draft. Attach the PDF before sending.', 'Đã duyệt — đã tải PDF, đang mở Gmail. Vui lòng đính kèm PDF trước khi gửi.')
+        : L('Approved, but the PDF failed to build.', 'Đã duyệt, nhưng tạo PDF thất bại.'));
     } catch (err) {
       setApproveMsg(err.message || L('Failed to approve budget', 'Duyệt ngân sách thất bại'));
     } finally {
       setApprovingType(null);
-      setTimeout(() => setApproveMsg(''), 6000);
+      setTimeout(() => { setApproveMsg(''); setPendingGmailUrl(null); }, 10000);
     }
   }
   async function handleSaveSpend(sourceLabel, amount) {
@@ -964,6 +1095,11 @@ export default function EventReport() {
                   <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="section-title">{L('Budget', 'Ngân sách')}</span>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {budgetByCategory.length > 0 && (
+                        <button className="btn btn--ghost btn--sm" onClick={toggleAllCategories}>
+                          {allCategoriesCollapsed ? L('Expand all', 'Mở rộng tất cả') : L('Collapse all', 'Thu gọn tất cả')}
+                        </button>
+                      )}
                       <CsvImportButton
                         eventId={selectedEventId}
                         inputId="budget-csv-input"
@@ -1010,6 +1146,11 @@ export default function EventReport() {
                         L={L} language={language}
                       />
                       {approveMsg && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{approveMsg}</span>}
+                      {pendingGmailUrl && (
+                        <a href={pendingGmailUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.75rem' }}>
+                          {L('Popup blocked — click to open Gmail', 'Popup bị chặn — bấm để mở Gmail')}
+                        </a>
+                      )}
                     </div>
                   )}
 
@@ -1058,7 +1199,7 @@ export default function EventReport() {
                   {/* ── One merged table — Planned and Actual as columns on the same
                       row, per mom's request (switching tabs to compare was too
                       annoying). Line Item column is kept narrow; rows may wrap. ── */}
-                  <div style={{ overflowX: 'auto' }}>
+                  <div ref={budgetTableScrollRef} className="hide-native-hscroll" style={{ overflowX: 'auto' }}>
                     <table className="leads-data-table" style={{ width: '100%' }}>
                       <thead>
                         <tr>
@@ -1083,40 +1224,55 @@ export default function EventReport() {
                         </tr>
                       </thead>
                       <tbody>
-                        {sideBySideRows.map((row) => (
-                          editingRowKey === row.key ? (
-                            <MergedBudgetItemForm
-                              key={row.key}
-                              initial={row}
-                              onSave={(data) => handleSaveMergedItem(row, data)}
-                              onCancel={() => setEditingRowKey(null)}
-                              L={L}
-                            />
-                          ) : (
-                            <tr key={row.key}>
-                              <td>{row.category}</td>
-                              <td style={{ maxWidth: '140px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.lineItem}</td>
-                              <td>{row.unit || '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{row.planned?.unitPrice != null ? fmtVnd(row.planned.unitPrice) : '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{row.planned?.quantity ?? '—'}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.planned ? fmtVnd(row.planned.amount) : '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{row.actual?.unitPrice != null ? fmtVnd(row.actual.unitPrice) : '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{row.actual?.quantity ?? '—'}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.actual ? fmtVnd(row.actual.amount) : '—'}</td>
-                              <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{row.planned?.note || row.actual?.note || ''}</td>
-                              <td>
-                                <ApprovalNoteCell row={row} canApprove={budget?.canApprove} onSave={(note) => handleSaveApprovalNote(row, note)} L={L} />
-                              </td>
-                              <td style={{ whiteSpace: 'nowrap' }}>
-                                <button className="btn btn--ghost btn--sm" title="Edit" onClick={() => setEditingRowKey(row.key)}>
-                                  <FiEdit2 size={13} />
-                                </button>
-                                <button className="btn btn--ghost btn--sm" title="Delete" onClick={() => handleDeleteMergedRow(row)}>
-                                  <FiTrash2 size={13} color={COLORS.danger} />
-                                </button>
+                        {budgetByCategory.map((g) => (
+                          <Fragment key={g.category}>
+                            <tr style={{ cursor: 'pointer', background: 'var(--bg-secondary)' }} onClick={() => toggleCategory(g.category)}>
+                              <td colSpan={12} style={{ fontWeight: 700 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  {collapsedCategories.has(g.category) ? <FiChevronRight size={13} /> : <FiChevronDown size={13} />}
+                                  {g.category}
+                                  <span style={{ fontWeight: 400, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                    ({g.rows.length}) · {L('Planned', 'Kế hoạch')}: {fmtVnd(g.plannedTotal)} · {L('Actual', 'Thực tế')}: {fmtVnd(g.actualTotal)}
+                                  </span>
+                                </span>
                               </td>
                             </tr>
-                          )
+                            {!collapsedCategories.has(g.category) && g.rows.map((row) => (
+                              editingRowKey === row.key ? (
+                                <MergedBudgetItemForm
+                                  key={row.key}
+                                  initial={row}
+                                  onSave={(data) => handleSaveMergedItem(row, data)}
+                                  onCancel={() => setEditingRowKey(null)}
+                                  L={L}
+                                />
+                              ) : (
+                                <tr key={row.key}>
+                                  <td>{row.category}</td>
+                                  <td style={{ maxWidth: '140px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.lineItem}</td>
+                                  <td>{row.unit || '—'}</td>
+                                  <td style={{ textAlign: 'right' }}>{row.planned?.unitPrice != null ? fmtVnd(row.planned.unitPrice) : '—'}</td>
+                                  <td style={{ textAlign: 'right' }}>{row.planned?.quantity ?? '—'}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.planned ? fmtVnd(row.planned.amount) : '—'}</td>
+                                  <td style={{ textAlign: 'right' }}>{row.actual?.unitPrice != null ? fmtVnd(row.actual.unitPrice) : '—'}</td>
+                                  <td style={{ textAlign: 'right' }}>{row.actual?.quantity ?? '—'}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.actual ? fmtVnd(row.actual.amount) : '—'}</td>
+                                  <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{row.planned?.note || row.actual?.note || ''}</td>
+                                  <td>
+                                    <ApprovalNoteCell row={row} canApprove={budget?.canApprove} onSave={(note) => handleSaveApprovalNote(row, note)} L={L} />
+                                  </td>
+                                  <td style={{ whiteSpace: 'nowrap' }}>
+                                    <button className="btn btn--ghost btn--sm" title="Edit" onClick={() => setEditingRowKey(row.key)}>
+                                      <FiEdit2 size={13} />
+                                    </button>
+                                    <button className="btn btn--ghost btn--sm" title="Delete" onClick={() => handleDeleteMergedRow(row)}>
+                                      <FiTrash2 size={13} color={COLORS.danger} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              )
+                            ))}
+                          </Fragment>
                         ))}
                         {addingItem && (
                           <MergedBudgetItemForm onSave={(data) => handleSaveMergedItem(null, data)} onCancel={() => setAddingItem(false)} L={L} />
@@ -1140,6 +1296,7 @@ export default function EventReport() {
                       )}
                     </table>
                   </div>
+                  <StickyHScrollbar targetRef={budgetTableScrollRef} />
                   {!addingItem && (
                     <button className="btn btn--secondary btn--sm" onClick={() => setAddingItem(true)} style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                       <FiPlus size={13} /> {L('Add line item', 'Thêm dòng')}

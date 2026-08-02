@@ -1708,7 +1708,19 @@ const eventBudget = require('../services/eventBudget');
 const eventSponsors = require('../services/eventSponsors');
 const eventBudgetApproval = require('../services/eventBudgetApproval');
 const { buildBudgetApprovalPdf } = require('../services/budgetPdf');
-const { sendBudgetApprovalEmail } = require('../services/budgetApprovalEmail');
+const { cfg: budgetApprovalEmailCfg } = require('../services/budgetApprovalEmail');
+
+// Filename-safe slug for the budget-approval PDF: strips diacritics (Windows/
+// some tools mishandle Unicode filenames) and anything that isn't
+// alphanumeric into hyphens.
+function slugifyFilename(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/đ/gi, 'd')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
 
 // GET /events/:id/source-report — single-event breakdown + KPIs + Số trường.
 router.get('/events/:id/source-report', requireEventAnalytics, async (req, res) => {
@@ -1847,8 +1859,11 @@ router.put('/events/:id/budget-approval-note', requireEventAnalytics, requireBud
 });
 
 // POST /events/:id/budget-approve — mom-only. Stamps the approval, builds
-// the PDF, emails marketing + accounting. Approval succeeds even if the
-// email fails (email failure is reported back, not fatal).
+// the PDF, and returns it (base64) for the browser to download — no email is
+// sent server-side. Mom reviews/edits in a Gmail compose draft the frontend
+// opens, attaching the just-downloaded PDF herself before sending; no
+// service is ever allowed to auto-attach a file to someone's email draft via
+// a link, so this manual-attach step is unavoidable, not an oversight.
 // Body: { budgetType: 'planned' | 'actual' }.
 router.post('/events/:id/budget-approve', requireEventAnalytics, requireBudgetApprover, async (req, res) => {
   const id = parseInt(req.params.id, 10);
@@ -1860,26 +1875,25 @@ router.post('/events/:id/budget-approve', requireEventAnalytics, requireBudgetAp
   try {
     const approval = await eventBudgetApproval.approveBudget(id, budgetType, req.session.staffName);
 
-    let emailResult = { sent: false, reason: 'pdf_build_failed' };
+    let pdf = null;
     try {
       const pdfBuffer = await buildBudgetApprovalPdf(approval);
-      emailResult = await sendBudgetApprovalEmail({
-        eventName: approval.event.name,
-        budgetType: approval.budgetType,
-        approvedBy: approval.approvedBy,
-        approvedAt: approval.approvedAt,
-        total: approval.total,
-        pdfBuffer,
-        pdfFilename: `ngan-sach-${budgetType}-${approval.event.id}.pdf`,
-      });
+      const approvedDate = new Date(approval.approvedAt).toISOString().slice(0, 10); // YYYY-MM-DD
+      const eventSlug = slugifyFilename(approval.event.name) || `event-${approval.event.id}`;
+      pdf = { base64: pdfBuffer.toString('base64'), filename: `${eventSlug}-${budgetType}-${approvedDate}.pdf` };
     } catch (pdfErr) {
-      console.error('[event-console] budget approval PDF/email failed:', pdfErr);
-      emailResult = { sent: false, reason: 'pdf_or_email_error', detail: pdfErr.message };
+      console.error('[event-console] budget approval PDF build failed:', pdfErr);
     }
 
     const canApprove = true; // requireBudgetApprover already confirmed this
     const data = await eventBudget.getBudget(id, canApprove);
-    res.json({ success: true, data, emailResult });
+    res.json({
+      success: true,
+      data,
+      pdf,
+      notifyEmails: budgetApprovalEmailCfg().recipients,
+      approval: { eventName: approval.event.name, budgetType: approval.budgetType, approvedBy: approval.approvedBy, approvedAt: approval.approvedAt, total: approval.total },
+    });
   } catch (err) {
     console.error('[event-console] approve budget:', err);
     res.status(400).json({ success: false, error: err.message || 'Failed to approve budget' });
