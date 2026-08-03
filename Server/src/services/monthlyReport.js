@@ -6,7 +6,7 @@
 // service file rather than further growing reportController.js.
 // ─────────────────────────────────────────────────────────────────────
 const { Pool } = require('pg');
-const { containsPhoneMention } = require('./phoneAliases');
+const { containsPhoneMention, containsUnansweredMention } = require('./phoneAliases');
 const eventBudget = require('./eventBudget');
 
 const pool = new Pool({
@@ -40,6 +40,24 @@ function monthBounds(monthLabel) {
 // a call. Reused verbatim so the two reports' call counts reconcile.
 function isCallNote(n) {
   return (n.contact_platform != null && n.contact_platform !== '') || containsPhoneMention(n.content);
+}
+
+// KBM (Không Bắt Máy / unanswered) classification for a call note. The
+// explicit call_answered toggle always wins when it's set — a keyword can
+// never override an explicit "Yes" — and only falls back to scanning the
+// note text when the toggle was never used at all (call_answered IS NULL):
+// old notes from before the toggle existed, or notes logged through the
+// generic "New Note" flow rather than a contact-method button. Because this
+// runs at report-generation time rather than mutating stored data, it
+// automatically improves BOTH past months (no destructive backfill needed)
+// and future months (a fallback for whenever staff skip the toggle) — same
+// function, no schema change, nothing to undo if the keyword list changes.
+// Returns 'toggle' | 'keyword' | null (not KBM) — callers that only need a
+// boolean can check the return value truthily.
+function classifyKbm(n) {
+  if (n.call_answered === false) return 'toggle';
+  if (n.call_answered === true) return null;
+  return containsUnansweredMention(n.content) ? 'keyword' : null;
 }
 
 // Per-person DAILY call targets for Counselors — copied verbatim from
@@ -276,7 +294,8 @@ async function getSalesMonthlyReport(monthLabel) {
   const callDetailByName = new Map();
   for (const n of callNotes) {
     callCountByName.set(n.author_name, (callCountByName.get(n.author_name) || 0) + 1);
-    if (n.call_answered === false) kbmCountByName.set(n.author_name, (kbmCountByName.get(n.author_name) || 0) + 1);
+    const kbmSource = classifyKbm(n); // 'toggle' | 'keyword' | null
+    if (kbmSource) kbmCountByName.set(n.author_name, (kbmCountByName.get(n.author_name) || 0) + 1);
     if (!callDetailByName.has(n.author_name)) callDetailByName.set(n.author_name, []);
     callDetailByName.get(n.author_name).push({
       noteId: n.note_id,
@@ -286,6 +305,7 @@ async function getSalesMonthlyReport(monthLabel) {
       content: n.content,
       createdAt: n.created_at,
       callAnswered: n.call_answered,
+      kbmSource, // lets the drill-down show WHY a note counts as KBM — explicit toggle vs inferred from keyword
     });
   }
 

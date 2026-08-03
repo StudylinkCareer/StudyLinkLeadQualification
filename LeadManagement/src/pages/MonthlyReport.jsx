@@ -222,7 +222,9 @@ function CallDetailDrilldownPanel({ notes, navigate, L, language }) {
               {n.content || ''}
             </td>
             <td style={{ fontSize: '0.78rem' }}>
-              {n.callAnswered === true ? L('Yes', 'Có') : n.callAnswered === false ? L('No', 'Không') : '—'}
+              {n.kbmSource === 'toggle' ? L('No', 'Không')
+                : n.kbmSource === 'keyword' ? L('No (keyword)', 'Không (từ khóa)')
+                : n.callAnswered === true ? L('Yes', 'Có') : '—'}
             </td>
             <td style={{ textAlign: 'center' }}><FiArrowRight size={13} style={{ color: 'var(--text-secondary)' }} /></td>
           </tr>
@@ -809,8 +811,8 @@ export default function MonthlyReport() {
 
               <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
                 {L(
-                  'KBM = "Không Bắt Máy" (didn\'t pick up), tracked since the answered/not-answered toggle shipped — no historical backfill. Transferred = handoffs logged through the normal lead-edit flow only.',
-                  'KBM = "Không Bắt Máy", chỉ tính từ khi có nút xác nhận — không có dữ liệu trước đó. Khách chuyển chỉ tính các trường hợp ghi nhận qua luồng chỉnh sửa lead thông thường.'
+                  'KBM = "Không Bắt Máy" (didn\'t pick up). Counted from the answered/not-answered toggle where it was used; falls back to scanning the note text for unanswered-call phrasing when the toggle wasn\'t used at all (shown as "No (keyword)") — an explicit "Yes" always wins over any keyword match. Transferred = handoffs logged through the normal lead-edit flow only.',
+                  'KBM = "Không Bắt Máy". Tính theo nút xác nhận nếu có dùng; nếu không dùng nút, hệ thống dò từ khóa trong ghi chú (hiển thị "Không (từ khóa)") — nếu đã xác nhận "Có" thì luôn ưu tiên, không bị từ khóa ghi đè. Khách chuyển chỉ tính các trường hợp ghi nhận qua luồng chỉnh sửa lead thông thường.'
                 )}
               </div>
             </div>
