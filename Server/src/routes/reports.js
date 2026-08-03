@@ -105,6 +105,29 @@ router.delete(
   reportCtrl.removeTrackedStaff
 );
 
+// ── Call Targets tracker (Staff Targets page, second grid) ───
+// Same gating as Monthly Targets above.
+router.get(
+  '/call-targets',
+  requireStaffAuth,
+  reportCtrl.callTargets
+);
+router.put(
+  '/call-targets',
+  requireStaffAuth,
+  reportCtrl.saveCallTarget
+);
+router.post(
+  '/call-target-staff',
+  requireStaffAuth,
+  reportCtrl.addCallTargetTrackedStaff
+);
+router.delete(
+  '/call-target-staff/:staffId',
+  requireStaffAuth,
+  reportCtrl.removeCallTargetTrackedStaff
+);
+
 // ── Sales + Marketing Monthly Report ─────────────────────────
 // Same broad-audience gate as notes-activity (Activity Report) — wider
 // audience than Event Report's CEO/COO+Managers-only gate, since this report

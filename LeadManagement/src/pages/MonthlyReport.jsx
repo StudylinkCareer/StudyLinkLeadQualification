@@ -3,7 +3,7 @@
 // PURPOSE
 //   Sales + Marketing Monthly Report (Report -> Monthly Report). Automates
 //   what's derivable from existing data (Team Performance/Convert Rate,
-//   Contract Resources, Pre-sales call/meeting/handoff stats, Marketing
+//   Contract Sources, Pre-sales call/meeting/handoff stats, Marketing
 //   per-activity leads/funnel/cost) and cleanly surfaces the few things that
 //   must stay manual (Giờ gọi) rather than pretending they're automated.
 //
@@ -384,15 +384,17 @@ export default function MonthlyReport() {
 
   const presalesTotals = useMemo(() => {
     const rows = report?.presalesReport || [];
-    const t = { hours: 0, hasHours: false, totalCalls: 0, kbmCount: 0, meetingsCount: 0, transferred: 0 };
+    const t = { hours: 0, hasHours: false, totalCalls: 0, kbmCount: 0, meetingsCount: 0, transferred: 0, callsKpi: 0 };
     for (const r of rows) {
       if (r.hours != null) { t.hours += r.hours; t.hasHours = true; }
       t.totalCalls += r.totalCalls;
       t.kbmCount += r.kbmCount;
       t.meetingsCount += r.meetingsCount;
       t.transferred += r.transferred.length;
+      t.callsKpi += r.callsKpi || 0;
     }
     t.avgKbmPerHour = t.hasHours && t.hours ? Math.round((t.kbmCount / t.hours) * 100) / 100 : null;
+    t.pctCallsKpi = t.callsKpi ? Math.round((t.totalCalls / t.callsKpi) * 1000) / 10 : null;
     return t;
   }, [report]);
 
@@ -476,7 +478,7 @@ export default function MonthlyReport() {
               />
               <StatCard label={L('Total calls', 'Tổng cuộc gọi')} value={fmtNum(totalCalls)} color={COLORS.good} />
               <StatCard label={L('Unanswered (KBM)', 'Số cuộc KBM')} value={fmtNum(totalKbm)} color={COLORS.warn} />
-              <StatCard label={L('Contract Resources', 'Nguồn HĐ')} value={fmtNum((report.contractResources || []).length)} sub={L('distinct sources', 'nguồn khác nhau')} color={COLORS.neutral} />
+              <StatCard label={L('Contract Sources', 'Nguồn HĐ')} value={fmtNum((report.contractResources || []).length)} sub={L('distinct sources', 'nguồn khác nhau')} color={COLORS.neutral} />
             </div>
             {contractedExpanded && (
               <ContractedDrilldownPanel leads={report.contractedLeads || []} navigate={navigate} L={L} />
@@ -624,9 +626,9 @@ export default function MonthlyReport() {
               )}
             </div>
 
-            {/* ── Contract Resources ── */}
+            {/* ── Contract Sources ── */}
             <div className="section-card">
-              <div className="section-header"><span className="section-title">{L('Contract Resources (Nguồn HĐ)', 'Nguồn hợp đồng')}</span></div>
+              <div className="section-header"><span className="section-title">{L('Contract Sources (Nguồn HĐ)', 'Nguồn hợp đồng')}</span></div>
               <div style={{ display: 'grid', gridTemplateColumns: (report.contractResources || []).length ? '1fr 320px' : '1fr', gap: '1rem', alignItems: 'start' }}>
               <div style={{ overflowX: 'auto' }}>
                 <table className="leads-data-table" style={{ width: '100%' }}>
@@ -673,6 +675,8 @@ export default function MonthlyReport() {
                       <th style={{ textAlign: 'left' }}>{L('Staff', 'Nhân viên')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Total Call Hour KPI', 'Giờ gọi (thủ công)')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Total calls', 'Tổng cuộc gọi')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('Calls KPI', 'KPI cuộc gọi')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('% Calls KPI', '% KPI cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('KBM (unanswered)', 'Số cuộc KBM')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Avg KBM/hour', 'TB KBM/giờ')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Meetings', 'Cuộc hẹn')}</th>
@@ -696,6 +700,8 @@ export default function MonthlyReport() {
                               <EditableHours value={r.hours} onSave={(v) => handleSaveHours(r.staffId, v)} placeholder={L('— (click to enter)', '— (bấm để nhập)')} />
                             </td>
                             <td style={clickableStyle(r.totalCalls)} onClick={() => toggleCallCell('total', r.totalCalls)}>{r.totalCalls}</td>
+                            <td style={{ textAlign: 'right' }}>{r.callsKpi}</td>
+                            <td style={{ textAlign: 'right' }}>{fmtPct(r.pctCallsKpi)}</td>
                             <td style={clickableStyle(r.kbmCount)} onClick={() => toggleCallCell('kbm', r.kbmCount)}>{r.kbmCount}</td>
                             <td style={{ textAlign: 'right' }}>{r.avgKbmPerHour == null ? '—' : r.avgKbmPerHour}</td>
                             <td style={{ textAlign: 'right' }}>{r.meetingsCount}</td>
@@ -711,7 +717,7 @@ export default function MonthlyReport() {
                           </tr>
                           {expandedTransfers.has(r.staffId) && r.transferred.length > 0 && (
                             <tr key={`${r.staffId}-transfers`}>
-                              <td colSpan={7} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={9} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <table className="leads-data-table" style={{ width: '100%' }}>
                                   <thead><tr>
                                     <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
@@ -737,7 +743,7 @@ export default function MonthlyReport() {
                           )}
                           {callDrilldownNotes && (
                             <tr key={`${r.staffId}-calls`}>
-                              <td colSpan={7} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={9} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <CallDetailDrilldownPanel notes={callDrilldownNotes} navigate={navigate} L={L} language={language} />
                               </td>
                             </tr>
@@ -746,7 +752,7 @@ export default function MonthlyReport() {
                       );
                     })}
                     {!(report.presalesReport || []).length && (
-                      <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         {L('No pre-sales staff found', 'Không tìm thấy nhân viên pre-sales')}
                       </td></tr>
                     )}
@@ -757,6 +763,8 @@ export default function MonthlyReport() {
                         <td>{L('Total', 'Tổng cộng')}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.hasHours ? presalesTotals.hours : '—'}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.totalCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.callsKpi}</td>
+                        <td style={{ textAlign: 'right' }}>{fmtPct(presalesTotals.pctCallsKpi)}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.kbmCount}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.avgKbmPerHour == null ? '—' : presalesTotals.avgKbmPerHour}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.meetingsCount}</td>

@@ -167,9 +167,22 @@ async function setTarget(id, target, setterName) {
   );
   return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
 }
-// Add setTarget to module.exports
+
+// Default/base Call Target — mirrors setTarget exactly, for the Call
+// Targets grid's Default row (Staff Targets page).
+async function setCallTarget(id, target, setterName) {
+  const result = await pool.query(
+    `UPDATE staff
+     SET call_target = $1, call_target_set_by = $2, call_target_set_at = NOW()
+     WHERE id = $3
+     RETURNING id, full_name, email, position, role, is_active,
+               view_threshold, call_target, call_target_set_by, call_target_set_at, created_at`,
+    [target, setterName, id]
+  );
+  return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
+}
 
 module.exports = {
   findAll, findById, findByEmail, findActiveByRole, findAllActive,
-  create, update, updatePassword, verifyPassword, deactivate, setTarget,
+  create, update, updatePassword, verifyPassword, deactivate, setTarget, setCallTarget,
 };

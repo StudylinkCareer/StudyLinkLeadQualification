@@ -144,6 +144,7 @@ router.post('/maintenance/close-reminders', requireStaffAuth, requirePermission(
 router.put('/phase/:studentId', requireStaffAuth, requirePermission('leads', 'assign'),  staffCtrl.changePhase);
 router.put('/assignment/:studentId', requireStaffAuth, requirePermission('leads', 'assign'), staffCtrl.setAssignment);
 router.put('/:id/target',    requireStaffAuth, requireTargetManager, staffCtrl.setTarget);
+router.put('/:id/call-target', requireStaffAuth, requireTargetManager, staffCtrl.setCallTarget);
 router.put('/:id/password',  requireStaffAuth, requirePermission('staff', 'manage'),     staffCtrl.resetPassword);
 router.put('/:id/deactivate',requireStaffAuth, requirePermission('staff', 'delete'),     staffCtrl.deactivateStaff);
 router.put('/:id',           requireStaffAuth, requirePermission('staff', 'manage'),     staffCtrl.updateStaff);

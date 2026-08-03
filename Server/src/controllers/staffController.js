@@ -400,6 +400,19 @@ async function setTarget(req, res, next) {
   } catch (err) { next(err); }
 }
 
+async function setCallTarget(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { target } = req.body;
+    if (target === undefined || isNaN(target)) {
+      return res.status(400).json({ success: false, error: 'Target must be a number' });
+    }
+    const staff = await Staff.setCallTarget(id, Number(target), req.session.staffName);
+    if (!staff) return res.status(404).json({ success: false, error: 'Staff member not found' });
+    res.json({ success: true, data: staff });
+  } catch (err) { next(err); }
+}
+
 // ── Student Assignments ───────────────────────────────────────
 async function assignStaff(req, res, next) {
   try {
@@ -1694,7 +1707,7 @@ module.exports = {
   assignStaff, massAssign, massMovePhase, changePhase, setAssignment, listStaleReminders, closeReminders, searchStudents, searchLeads, getStudent, updateStudent,
   getColumnConfig, saveColumnConfig,
   calculateRisk, calculateOceanStudent,
-  setTarget, deleteStudents, exportExcel,
+  setTarget, setCallTarget, deleteStudents, exportExcel,
   previewDeleteStudents, getOrphans, purgeOrphans,
   getPermissions,
 };

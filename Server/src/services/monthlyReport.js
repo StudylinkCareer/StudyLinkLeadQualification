@@ -60,33 +60,11 @@ function classifyKbm(n) {
   return containsUnansweredMention(n.content) ? 'keyword' : null;
 }
 
-// Per-person DAILY call targets for Counselors — copied verbatim from
-// reportController.js's CALL_TARGETS.Counselor (index 0=Mon … 6=Sun).
-// "Calls KPI" is this summed across every calendar day actually in the
-// given month (not a flat 30-day estimate — weekday mix and month length
-// both matter, e.g. a 31-day month with 5 Saturdays targets differently
-// than one with 4).
-const CALL_TARGETS_COUNSELOR = { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5, 5, 5, 5, 5, 2, 0] };
-
-function computeMonthlyCallsKpi(monthLabel) {
-  const m = /^(\d{4})-(\d{2})$/.exec(monthLabel || '');
-  if (!m) throw new Error('month must be YYYY-MM');
-  const y = Number(m[1]), mo0 = Number(m[2]) - 1;
-  const daysInMonth = new Date(Date.UTC(y, mo0 + 1, 0)).getUTCDate();
-  let total = 0;
-  for (let d = 1; d <= daysInMonth; d++) {
-    const jsDow = new Date(Date.UTC(y, mo0, d)).getUTCDay(); // 0=Sun..6=Sat
-    const idx = jsDow === 0 ? 6 : jsDow - 1; // -> 0=Mon..6=Sun, matching CALL_TARGETS_COUNSELOR
-    total += CALL_TARGETS_COUNSELOR.new[idx] + CALL_TARGETS_COUNSELOR.ongoing[idx];
-  }
-  return total;
-}
-
 const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị thực Khác'];
 
 async function getCounselorStaff() {
   const r = await pool.query(
-    `SELECT id, full_name, COALESCE(target, 0) AS fallback_target
+    `SELECT id, full_name, COALESCE(target, 0) AS fallback_target, COALESCE(call_target, 0) AS fallback_call_target
        FROM staff
       WHERE position ILIKE '%counsel%' AND is_active = true
         AND COALESCE(staff_type, 'permanent') <> 'event'`
@@ -96,12 +74,26 @@ async function getCounselorStaff() {
 
 async function getPresalesStaff() {
   const r = await pool.query(
-    `SELECT id, full_name
+    `SELECT id, full_name, COALESCE(call_target, 0) AS fallback_call_target
        FROM staff
       WHERE position ILIKE '%pre%sale%' AND is_active = true
         AND COALESCE(staff_type, 'permanent') <> 'event'`
   );
   return r.rows;
+}
+
+// Call Target override lookup for a set of staff ids, for the given month —
+// mirrors overrideByStaffId's Contract-Target pattern below exactly, just
+// against call_targets/staff.call_target (Staff Targets page, second grid)
+// instead of monthly_targets/staff.target. Fully replaces the old per-
+// weekday formula — no fallback to it; an unconfigured staffer just shows 0.
+async function getCallTargetOverrides(staffIds, monthDate) {
+  if (!staffIds.length) return new Map();
+  const rows = (await pool.query(
+    `SELECT staff_id, target FROM call_targets WHERE staff_id = ANY($1) AND month = $2`,
+    [staffIds, monthDate]
+  )).rows;
+  return new Map(rows.map((r) => [r.staff_id, r.target]));
 }
 
 // Ex-client sources are per-person free text in source_detail (the specific
@@ -179,6 +171,7 @@ async function getSalesMonthlyReport(monthLabel) {
     [staffIds, monthDate]
   )).rows : [];
   const overrideByStaffId = new Map(overrideRows.map((r) => [r.staff_id, r.target]));
+  const callTargetOverrideByStaffId = await getCallTargetOverrides(staffIds, monthDate);
 
   // Calls + Basic/Final Counselling Letter counts, per counselor. Calls use
   // the exact same detection rule as Pre-sales' Total calls (isCallNote),
@@ -198,7 +191,6 @@ async function getSalesMonthlyReport(monthLabel) {
     if (n.topic === 'Basic Counselling Letter') basicLettersByCounselor.set(n.author_name, (basicLettersByCounselor.get(n.author_name) || 0) + 1);
     if (n.topic === 'Final Counselling Letter') finalLettersByCounselor.set(n.author_name, (finalLettersByCounselor.get(n.author_name) || 0) + 1);
   }
-  const callsKpi = computeMonthlyCallsKpi(monthLabel);
 
   const contractedByCounselor = new Map();
   for (const row of contractedRows) {
@@ -231,6 +223,8 @@ async function getSalesMonthlyReport(monthLabel) {
       };
     });
     const calls = callsByCounselor.get(c.full_name) || 0;
+    const callTargetOverride = callTargetOverrideByStaffId.get(c.id);
+    const callsKpi = callTargetOverride != null ? callTargetOverride : c.fallback_call_target;
     return {
       staffId: c.id,
       fullName: c.full_name,
@@ -353,20 +347,26 @@ async function getSalesMonthlyReport(monthLabel) {
     [presalesIds, monthDate]
   )).rows : [];
   const hoursByStaffId = new Map(hoursRows.map((r) => [r.staff_id, Number(r.hours)]));
+  const presalesCallTargetOverrideByStaffId = await getCallTargetOverrides(presalesIds, monthDate);
 
   const presalesReport = presales.map((p) => {
     const kbmCount = kbmCountByName.get(p.full_name) || 0;
     const hours = hoursByStaffId.has(p.id) ? hoursByStaffId.get(p.id) : null;
+    const totalCalls = callCountByName.get(p.full_name) || 0;
+    const callTargetOverride = presalesCallTargetOverrideByStaffId.get(p.id);
+    const callsKpi = callTargetOverride != null ? callTargetOverride : p.fallback_call_target;
     return {
       staffId: p.id,
       fullName: p.full_name,
       hours,
-      totalCalls: callCountByName.get(p.full_name) || 0,
+      totalCalls,
       kbmCount,
       avgKbmPerHour: hours ? Math.round((kbmCount / hours) * 100) / 100 : null,
       meetingsCount: meetingCountByName.get(p.full_name) || 0,
       transferred: transfersByName.get(p.full_name) || [],
       callDetail: callDetailByName.get(p.full_name) || [],
+      callsKpi,
+      pctCallsKpi: callsKpi ? Math.round((totalCalls / callsKpi) * 1000) / 10 : null,
     };
   });
 

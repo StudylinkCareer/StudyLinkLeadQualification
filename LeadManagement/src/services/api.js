@@ -109,6 +109,7 @@ export const staffAPI = {
   setAssignment:   (studentId, data)          => request('PUT',  `/api/staff/assignment/${studentId}`, data),
   massAssign:      (studentIds, field, value) => request('PUT',  '/api/staff/mass-assign', { studentIds, field, value }),
   setTarget:       (id, target)               => request('PUT',  `/api/staff/${id}/target`, { target }),
+  setCallTarget:   (id, target)               => request('PUT',  `/api/staff/${id}/call-target`, { target }),
 };
 
 // ── Layout variants ───────────────────────────────────────────
@@ -392,6 +393,10 @@ export const reportsAPI = {
   saveMonthlyTarget:  (staffId, month, target) => request('PUT',    '/api/reports/monthly-targets', { staffId, month, target }),
   addTrackedStaff:    (staffId)                => request('POST',   '/api/reports/tracked-staff', { staffId }),
   removeTrackedStaff: (staffId)                => request('DELETE', `/api/reports/tracked-staff/${staffId}`),
+  callTargets:            ()                       => request('GET',    '/api/reports/call-targets'),
+  saveCallTarget:         (staffId, month, target) => request('PUT',    '/api/reports/call-targets', { staffId, month, target }),
+  addCallTargetStaff:     (staffId)                => request('POST',   '/api/reports/call-target-staff', { staffId }),
+  removeCallTargetStaff:  (staffId)                => request('DELETE', `/api/reports/call-target-staff/${staffId}`),
 
   // ── Sales + Marketing Monthly Report ──
   monthlyReport:  (month)                     => request('GET', `/api/reports/monthly?month=${month}`),
