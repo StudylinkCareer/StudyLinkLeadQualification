@@ -321,6 +321,8 @@ export const notesAPI = {
       followUpDate:    extra.followUpDate    || null,
       contactPlatform: extra.contactPlatform || null,
       meetingLocation: extra.meetingLocation || null,
+      // ?? not || — callAnswered can legitimately be `false` (didn't pick up).
+      callAnswered:    extra.callAnswered ?? null,
     }),
 
   // extra = { topic, followUpDate, reminderStatus, rescheduledDate, contactPlatform }

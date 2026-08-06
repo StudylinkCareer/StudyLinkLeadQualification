@@ -1135,13 +1135,24 @@ export default function LeadDetail() {
 
   async function handleContactSave({ noteText, topic, followUpDate, contactPlatform, callAnswered }) {
     try {
-      const data = await notesAPI.addForLead(id, 'counselor', noteText, {
-        topic,
-        followUpDate,
-        contactPlatform,
-        callAnswered: callAnswered ?? null,
-        reminderStatus: followUpDate ? 'active' : null,
-      });
+      // On the Sales/Student view, `id` is the student_id (e.g. "20260420-207"),
+      // not a numeric lead_id — addForLead's /api/notes/lead/:leadId expects an
+      // integer and errors on that string. Use the student-level note endpoint
+      // there instead (this is how Family Contacts' Mother/Father call icons
+      // reach this same modal from the Student page).
+      const data = isStudentView
+        ? await notesAPI.addStudentLevel(id, 'counselor', noteText, {
+            followUpDate,
+            contactPlatform,
+            callAnswered: callAnswered ?? null,
+          })
+        : await notesAPI.addForLead(id, 'counselor', noteText, {
+            topic,
+            followUpDate,
+            contactPlatform,
+            callAnswered: callAnswered ?? null,
+            reminderStatus: followUpDate ? 'active' : null,
+          });
       setNotes(n => [data.data, ...n]);
     } catch(e) { alert('Failed to save note: ' + e.message); }
     setContactModal(null);
