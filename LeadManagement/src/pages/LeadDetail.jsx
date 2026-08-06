@@ -1104,8 +1104,33 @@ export default function LeadDetail() {
   // ── Contact log modal ──────────────────────────────────────────────────────
   const [contactModal, setContactModal] = useState(null);
 
-  function openContactModal(method) {
-    setContactModal({ method, openedAt: new Date().toISOString() });
+  // `override` lets the same modal be reused for a parent's own number
+  // (Family Contacts' Mother/Father) instead of the student's — pass
+  // { name, email, phone } and those replace the student's own values.
+  function openContactModal(method, override) {
+    setContactModal({ method, openedAt: new Date().toISOString(), override });
+  }
+
+  // Same call/sms/zalo/whatsapp launcher row used under the lead's own phone,
+  // reused for Family Contacts' Mother/Father numbers via the `override` arg.
+  function renderQuickContactIcons(phone, override) {
+    if (!phone) return null;
+    return (
+      <div style={{ display:'flex', gap:'0.35rem', flexWrap:'wrap', marginTop:'0.25rem' }}>
+        {[
+          { key:'call',     label:'Call',     color:'#16a34a', icon:'📞' },
+          { key:'sms',      label:'SMS',      color:'#2563eb', icon:'💬' },
+          { key:'zalo',     label:'Zalo',     color:'#0068ff', icon:'Z'  },
+          { key:'whatsapp', label:'WhatsApp', color:'#25d366', icon:'W'  },
+        ].map(({key, label, color, icon}) => (
+          <a key={key} href="#" title={label}
+             onClick={e => { e.preventDefault(); openContactModal(key, override); }}
+             style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'28px', height:'28px', borderRadius:'6px', background:color, color:'#fff', fontSize: icon.length > 1 ? '0.6rem' : '0.875rem', fontWeight:700, textDecoration:'none', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.15)' }}>
+            {icon}
+          </a>
+        ))}
+      </div>
+    );
   }
 
   async function handleContactSave({ noteText, topic, followUpDate, contactPlatform, callAnswered }) {
@@ -1310,6 +1335,8 @@ export default function LeadDetail() {
         });
         const studentRes = await studentAPI.update(lead.studentId, {
           fullName:           editData.fullName,
+          email:              editData.email,
+          phone:              editData.phone,
           leadSource:         editData.leadSource,
           interaction:        editData.interaction,
           budget:             editData.budget,
@@ -2183,7 +2210,10 @@ export default function LeadDetail() {
                   <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
                     <Field label="Name"           value={lead.motherFullName}/>
                     <Field label="Email"          value={lead.motherEmail}/>
-                    <Field label="Phone"          value={lead.motherPhone}/>
+                    <div>
+                      <Field label="Phone" value={lead.motherPhone}/>
+                      {renderQuickContactIcons(lead.motherPhone, { name: lead.motherFullName || 'Mother', phone: lead.motherPhone })}
+                    </div>
                     <Field label="Contact Medium" value={lead.motherContactMedium}/>
                     <Field label="Contact Detail" value={lead.motherContactDetail}/>
                   </div>
@@ -2203,7 +2233,10 @@ export default function LeadDetail() {
                   <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
                     <Field label="Name"           value={lead.fatherFullName}/>
                     <Field label="Email"          value={lead.fatherEmail}/>
-                    <Field label="Phone"          value={lead.fatherPhone}/>
+                    <div>
+                      <Field label="Phone" value={lead.fatherPhone}/>
+                      {renderQuickContactIcons(lead.fatherPhone, { name: lead.fatherFullName || 'Father', phone: lead.fatherPhone })}
+                    </div>
                     <Field label="Contact Medium" value={lead.fatherContactMedium}/>
                     <Field label="Contact Detail" value={lead.fatherContactDetail}/>
                   </div>
@@ -2568,10 +2601,10 @@ export default function LeadDetail() {
       <ContactLogModal
         topicOptions={topicOptions}
         method={contactModal.method}
-        studentName={lead?.fullName || 'Student'}
-        studentEmail={lead?._raw_email || lead?.email || ''}
-        studentPhone={lead?._raw_phone || lead?.phone || ''}
-        connectWithUs={lead?._raw_connectWithUs || lead?.connectWithUs || ''}
+        studentName={contactModal.override?.name  || lead?.fullName || 'Student'}
+        studentEmail={contactModal.override?.email || lead?._raw_email || lead?.email || ''}
+        studentPhone={contactModal.override?.phone || lead?._raw_phone || lead?.phone || ''}
+        connectWithUs={contactModal.override ? '' : (lead?._raw_connectWithUs || lead?.connectWithUs || '')}
         staffName={staff?.fullName || 'Counselor'}
         timestamp={contactModal.openedAt}
         documents={[]}
