@@ -20,7 +20,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiChevronDown, FiChevronRight, FiArrowRight } from 'react-icons/fi';
+import { FiChevronDown, FiChevronRight, FiArrowRight, FiRefreshCw } from 'react-icons/fi';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
@@ -461,6 +461,14 @@ export default function MonthlyReport() {
         <span className="page-title">{L('Monthly Report', 'Báo cáo tháng')}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <input type="month" className="form-input" value={month} onChange={(e) => setMonth(e.target.value)} />
+          {/* Numbers only refresh on load/month-change — staff who leave this
+              tab open while making calls elsewhere were seeing stale totals
+              and assuming the count wasn't working. Explicit refresh so
+              there's an obvious way to pull the latest without an F5. */}
+          <button type="button" className="btn btn--secondary btn--sm" onClick={() => load(month)} disabled={loading}
+                  title={L('Refresh', 'Làm mới')}>
+            <FiRefreshCw size={14} /> {L('Refresh', 'Làm mới')}
+          </button>
         </div>
       </div>
 

@@ -1135,18 +1135,28 @@ export default function LeadDetail() {
 
   async function handleContactSave({ noteText, topic, followUpDate, contactPlatform, callAnswered }) {
     try {
+      // The note type had been hardcoded to 'counselor' here regardless of
+      // who's actually logged in — fine for Counselors, but the backend
+      // correctly rejects it for Pre-sales staff ("You do not have
+      // permission to write this note type"), so every call they logged
+      // through this modal silently failed to save. Derive the type from
+      // the same permission the classic Notes form already checks per
+      // button (write_counselor / write_presales / write_management).
+      const contactNoteType = canDo('notes', 'write_counselor') ? 'counselor'
+        : canDo('notes', 'write_presales') ? 'presales'
+        : 'management';
       // On the Sales/Student view, `id` is the student_id (e.g. "20260420-207"),
       // not a numeric lead_id — addForLead's /api/notes/lead/:leadId expects an
       // integer and errors on that string. Use the student-level note endpoint
       // there instead (this is how Family Contacts' Mother/Father call icons
       // reach this same modal from the Student page).
       const data = isStudentView
-        ? await notesAPI.addStudentLevel(id, 'counselor', noteText, {
+        ? await notesAPI.addStudentLevel(id, contactNoteType, noteText, {
             followUpDate,
             contactPlatform,
             callAnswered: callAnswered ?? null,
           })
-        : await notesAPI.addForLead(id, 'counselor', noteText, {
+        : await notesAPI.addForLead(id, contactNoteType, noteText, {
             topic,
             followUpDate,
             contactPlatform,
