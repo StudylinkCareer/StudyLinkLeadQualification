@@ -25,7 +25,10 @@ const { Pool } = require('pg');
 const APPLY = process.argv.includes('--apply');
 
 // Roles that keep whatever reports.* access they currently have.
-const EXEMPT_ROLES = ['CEO', 'COO', 'Director', 'Manager', 'Admin'];
+// 'Manager, Technical Support' was swept into the first run of this script
+// (only the literal 'Manager' role was exempted) and had to be restored —
+// it's IT's own role, same reasoning as the Admin exemption.
+const EXEMPT_ROLES = ['CEO', 'COO', 'Director', 'Manager', 'Admin', 'Manager, Technical Support'];
 
 async function main() {
   if (!process.env.DATABASE_URL) { console.error('DATABASE_URL not set'); process.exit(1); }
