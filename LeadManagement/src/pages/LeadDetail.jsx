@@ -651,7 +651,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           <NoteForm
             topicOptions={topicOptions}
             saving={saving}
-            showCallAnswered={method === 'call' || method === 'zalo'}
+            showCallAnswered={method === 'call' || method === 'zalo' || method === 'whatsapp'}
             onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate, callAnswered }) => {
               setSaving(true);
               const parts = [
