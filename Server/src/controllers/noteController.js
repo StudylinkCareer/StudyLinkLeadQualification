@@ -13,6 +13,7 @@ const { Pool } = require('pg');
 const StudentNote = require('../models/StudentNote');
 const permissionService = require('../services/permissionService');
 const { objectToCamelCase } = require('../utils/caseConvert');
+const uncontactableTransfer = require('../services/uncontactableTransfer');
 
 // Same connection pattern used elsewhere in the codebase — local pool,
 // SSL only in production.
@@ -132,7 +133,17 @@ async function addLeadNote(req, res, next) {
     }
 
     const note = await StudentNote.create({ studentId: lead.studentId, leadId, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered });
-    res.status(201).json({ success: true, data: note });
+
+    // Uncontactable → Pre-sales auto-transfer (confirmed 2026-08): checked
+    // "as soon as" a counselor note lands, since that's the only note type
+    // that can ever belong to a lead's assigned counselor. Never throws —
+    // a failure here must never break the note save that triggered it.
+    let transferResult;
+    if (noteType === 'counselor') {
+      transferResult = await uncontactableTransfer.checkAndTransfer(Number(leadId));
+    }
+
+    res.status(201).json({ success: true, data: note, uncontactableTransfer: transferResult });
   } catch (err) { next(err); }
 }
 

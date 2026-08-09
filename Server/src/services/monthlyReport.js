@@ -6,7 +6,7 @@
 // service file rather than further growing reportController.js.
 // ─────────────────────────────────────────────────────────────────────
 const { Pool } = require('pg');
-const { containsPhoneMention, containsUnansweredMention } = require('./phoneAliases');
+const { classifyCalls, isCallNote } = require('./callClassification');
 const eventBudget = require('./eventBudget');
 
 const pool = new Pool({
@@ -35,30 +35,9 @@ function monthBounds(monthLabel) {
   };
 }
 
-// Same heuristic reportController.js's Weekly Report already uses for "is
-// this note a call": a contact_platform was set, or the free text mentions
-// a call. Reused verbatim so the two reports' call counts reconcile.
-function isCallNote(n) {
-  return (n.contact_platform != null && n.contact_platform !== '') || containsPhoneMention(n.content);
-}
-
-// KBM (Không Bắt Máy / unanswered) classification for a call note. The
-// explicit call_answered toggle always wins when it's set — a keyword can
-// never override an explicit "Yes" — and only falls back to scanning the
-// note text when the toggle was never used at all (call_answered IS NULL):
-// old notes from before the toggle existed, or notes logged through the
-// generic "New Note" flow rather than a contact-method button. Because this
-// runs at report-generation time rather than mutating stored data, it
-// automatically improves BOTH past months (no destructive backfill needed)
-// and future months (a fallback for whenever staff skip the toggle) — same
-// function, no schema change, nothing to undo if the keyword list changes.
-// Returns 'toggle' | 'keyword' | null (not KBM) — callers that only need a
-// boolean can check the return value truthily.
-function classifyKbm(n) {
-  if (n.call_answered === false) return 'toggle';
-  if (n.call_answered === true) return null;
-  return containsUnansweredMention(n.content) ? 'keyword' : null;
-}
+// isCallNote / classifyKbm now live in callClassification.js (unified
+// New/Ongoing/KBM rule shared with Weekly Report and the Call Targets
+// "actual" figure — confirmed 2026-08). Imported above.
 
 const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị thực Khác'];
 
@@ -174,20 +153,33 @@ async function getSalesMonthlyReport(monthLabel) {
   const callTargetOverrideByStaffId = await getCallTargetOverrides(staffIds, monthDate);
 
   // Calls + Basic/Final Counselling Letter counts, per counselor. Calls use
-  // the exact same detection rule as Pre-sales' Total calls (isCallNote),
-  // just scoped to counselor-authored notes instead. Letters are counted by
-  // topic — same two topic strings Weekly Report's lettersFor() already uses.
+  // the unified New/Ongoing/KBM classification (confirmed 2026-08) — same
+  // rule Weekly Report and the Call Targets "actual" figure use, so all
+  // three agree. History (any author, before this month) is needed so a
+  // lead first reached last month doesn't get wrongly counted as "New".
+  // Letters are counted by topic — same two topic strings Weekly Report's
+  // lettersFor() already uses.
   const counselorNoteRows = counselorNames.length ? (await pool.query(
-    `SELECT author_name, contact_platform, content, topic
+    `SELECT author_name, student_id, contact_platform, content, topic, created_at, call_answered
        FROM student_notes
       WHERE author_name = ANY($1) AND created_at >= $2 AND created_at < $3`,
     [counselorNames, startISO, endISO]
   )).rows : [];
-  const callsByCounselor = new Map();
+  const counselorCallStudentIds = [...new Set(counselorNoteRows.filter(isCallNote).map((n) => n.student_id))];
+  const counselorHistRows = counselorCallStudentIds.length ? (await pool.query(
+    `SELECT student_id, contact_platform, content, created_at, call_answered
+       FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
+    [counselorCallStudentIds, startISO]
+  )).rows : [];
+  const counselorClassified = classifyCalls(counselorNoteRows, counselorHistRows);
+  const newByCounselor = new Map(), ongoingByCounselor = new Map(), kbmByCounselor = new Map();
+  for (const it of counselorClassified.newItems)     newByCounselor.set(it.note.author_name, (newByCounselor.get(it.note.author_name) || 0) + 1);
+  for (const it of counselorClassified.ongoingItems) ongoingByCounselor.set(it.note.author_name, (ongoingByCounselor.get(it.note.author_name) || 0) + 1);
+  for (const it of counselorClassified.kbmItems)     kbmByCounselor.set(it.note.author_name, (kbmByCounselor.get(it.note.author_name) || 0) + 1);
+
   const basicLettersByCounselor = new Map();
   const finalLettersByCounselor = new Map();
   for (const n of counselorNoteRows) {
-    if (isCallNote(n)) callsByCounselor.set(n.author_name, (callsByCounselor.get(n.author_name) || 0) + 1);
     if (n.topic === 'Basic Counselling Letter') basicLettersByCounselor.set(n.author_name, (basicLettersByCounselor.get(n.author_name) || 0) + 1);
     if (n.topic === 'Final Counselling Letter') finalLettersByCounselor.set(n.author_name, (finalLettersByCounselor.get(n.author_name) || 0) + 1);
   }
@@ -222,7 +214,10 @@ async function getSalesMonthlyReport(monthLabel) {
         caseType: row.case_type, isOutOfSystem: row.is_out_of_system,
       };
     });
-    const calls = callsByCounselor.get(c.full_name) || 0;
+    const newCalls = newByCounselor.get(c.full_name) || 0;
+    const ongoingCalls = ongoingByCounselor.get(c.full_name) || 0;
+    const kbmCalls = kbmByCounselor.get(c.full_name) || 0;
+    const calls = newCalls + ongoingCalls;   // Total = New + Ongoing; KBM already excluded, not subtracted again
     const callTargetOverride = callTargetOverrideByStaffId.get(c.id);
     const callsKpi = callTargetOverride != null ? callTargetOverride : c.fallback_call_target;
     return {
@@ -239,6 +234,9 @@ async function getSalesMonthlyReport(monthLabel) {
       contractedLeadIds: contracted.map((r) => r.lead_id),
       contractedDetail,
       calls,
+      newCalls,
+      ongoingCalls,
+      kbmCalls,
       callsKpi,
       pctCallsKpi: callsKpi ? Math.round((calls / callsKpi) * 1000) / 10 : null,
       basicLetters: basicLettersByCounselor.get(c.full_name) || 0,
@@ -271,6 +269,9 @@ async function getSalesMonthlyReport(monthLabel) {
   });
 
   // ── Pre-sales stats (per presales staffer) ──
+  // Same unified New/Ongoing/KBM classification as the counselor section
+  // above (confirmed 2026-08) — history spans ANY author (not just
+  // Pre-sales), before this month, matching Weekly Report's scope.
   const noteRows = presalesNames.length ? (await pool.query(
     `SELECT sn.id AS note_id, sn.author_name, sn.student_id, s.full_name,
             sn.contact_platform, sn.content, sn.created_at, sn.call_answered
@@ -279,18 +280,29 @@ async function getSalesMonthlyReport(monthLabel) {
       WHERE sn.author_name = ANY($1) AND sn.created_at >= $2 AND sn.created_at < $3`,
     [presalesNames, startISO, endISO]
   )).rows : [];
-  const callNotes = noteRows.filter(isCallNote);
-  const callCountByName = new Map();
-  const kbmCountByName = new Map();
+  const presalesCallStudentIds = [...new Set(noteRows.filter(isCallNote).map((n) => n.student_id))];
+  const presalesHistRows = presalesCallStudentIds.length ? (await pool.query(
+    `SELECT student_id, contact_platform, content, created_at, call_answered
+       FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
+    [presalesCallStudentIds, startISO]
+  )).rows : [];
+  const presalesClassified = classifyCalls(noteRows, presalesHistRows);
+  const newByPresales = new Map(), ongoingByPresales = new Map(), kbmCountByName = new Map();
+  for (const it of presalesClassified.newItems)     newByPresales.set(it.note.author_name, (newByPresales.get(it.note.author_name) || 0) + 1);
+  for (const it of presalesClassified.ongoingItems) ongoingByPresales.set(it.note.author_name, (ongoingByPresales.get(it.note.author_name) || 0) + 1);
+  for (const it of presalesClassified.kbmItems)     kbmCountByName.set(it.note.author_name, (kbmCountByName.get(it.note.author_name) || 0) + 1);
+
   // Per-note detail backing the "click a number, see the receipts" drill-down
-  // on Total calls / KBM in the Pre-sales table — same verification pattern
-  // as Contracted and Team Performance above.
+  // on Total calls / KBM in the Pre-sales table — every call attempt (new,
+  // ongoing, or KBM), tagged with which bucket it landed in and why.
+  const bucketByNoteId = new Map();
+  for (const it of presalesClassified.newItems)     bucketByNoteId.set(it.note.note_id, { bucket: 'new' });
+  for (const it of presalesClassified.ongoingItems) bucketByNoteId.set(it.note.note_id, { bucket: 'ongoing' });
+  for (const it of presalesClassified.kbmItems)     bucketByNoteId.set(it.note.note_id, { bucket: 'kbm', kbmSource: it.kbmSource });
   const callDetailByName = new Map();
-  for (const n of callNotes) {
-    callCountByName.set(n.author_name, (callCountByName.get(n.author_name) || 0) + 1);
-    const kbmSource = classifyKbm(n); // 'toggle' | 'keyword' | null
-    if (kbmSource) kbmCountByName.set(n.author_name, (kbmCountByName.get(n.author_name) || 0) + 1);
+  for (const n of noteRows.filter(isCallNote)) {
     if (!callDetailByName.has(n.author_name)) callDetailByName.set(n.author_name, []);
+    const meta = bucketByNoteId.get(n.note_id) || {};
     callDetailByName.get(n.author_name).push({
       noteId: n.note_id,
       studentId: n.student_id,
@@ -299,7 +311,8 @@ async function getSalesMonthlyReport(monthLabel) {
       content: n.content,
       createdAt: n.created_at,
       callAnswered: n.call_answered,
-      kbmSource, // lets the drill-down show WHY a note counts as KBM — explicit toggle vs inferred from keyword
+      bucket: meta.bucket || null,       // 'new' | 'ongoing' | 'kbm'
+      kbmSource: meta.kbmSource || null, // 'toggle' | 'keyword' | null — why a KBM note counts as KBM
     });
   }
 
@@ -352,7 +365,9 @@ async function getSalesMonthlyReport(monthLabel) {
   const presalesReport = presales.map((p) => {
     const kbmCount = kbmCountByName.get(p.full_name) || 0;
     const hours = hoursByStaffId.has(p.id) ? hoursByStaffId.get(p.id) : null;
-    const totalCalls = callCountByName.get(p.full_name) || 0;
+    const newCalls = newByPresales.get(p.full_name) || 0;
+    const ongoingCalls = ongoingByPresales.get(p.full_name) || 0;
+    const totalCalls = newCalls + ongoingCalls;   // Total = New + Ongoing; KBM already excluded, not subtracted again
     const callTargetOverride = presalesCallTargetOverrideByStaffId.get(p.id);
     const callsKpi = callTargetOverride != null ? callTargetOverride : p.fallback_call_target;
     return {
@@ -360,6 +375,8 @@ async function getSalesMonthlyReport(monthLabel) {
       fullName: p.full_name,
       hours,
       totalCalls,
+      newCalls,
+      ongoingCalls,
       kbmCount,
       avgKbmPerHour: hours ? Math.round((kbmCount / hours) * 100) / 100 : null,
       meetingsCount: meetingCountByName.get(p.full_name) || 0,

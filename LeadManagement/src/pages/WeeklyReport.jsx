@@ -321,6 +321,7 @@ function WeeklyReportInner() {
   const callsSection = { title: L('Calls', 'Cuộc gọi'), color: '#8b5cf6', subtitle: L('prior week only', 'chỉ tuần trước'), metrics: [
     { key: 'call_new', label: L('New clients', 'Khách mới'),       value: g => g.calls?.totals?.newLeads, leads: g => g.calls?.newLeadItems, cols: [name] },
     { key: 'call_fu',  label: L('Follow-up', 'Theo dõi'),          value: g => g.calls?.totals?.ongoing,  leads: g => g.calls?.ongoingItems, cols: [name] },
+    { key: 'call_kbm', label: L('KBM (unanswered)', 'Không bắt máy'), value: g => g.calls?.totals?.kbm, color: '#F59E0B' },
     { key: 'call_mtg', label: L('Meetings scheduled', 'Cuộc gặp'), value: g => g.meetings?.count,         leads: g => g.meetings?.items,     cols: [name, { key: 'topic', label: L('Type', 'Loại') }, { key: 'meetingLocation', label: L('Location', 'Địa điểm') }] },
   ] };
   const ALL_SECTIONS = [contractedSection, lettersSection, leadsSection, callsSection];

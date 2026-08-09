@@ -39,6 +39,7 @@ const permissionService    = require('../services/permissionService');
 const { canManageTargets } = require('../utils/authProfiles');
 const { containsPhoneMention } = require('../services/phoneAliases');
 const { objectToCamelCase }    = require('../utils/caseConvert');
+const { classifyCalls, isCallNote } = require('../services/callClassification');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -582,49 +583,43 @@ async function computeGroup(names, ctx, opts = {}) {
     closing: { count: closing.length, leads: closing },
   };
 
-  // -- Calls (prior week). RECONCILED with the Activity Report: a note is a call
-  //    if it was logged with a contact platform OR its text mentions a call
-  //    ("call"/"goi"/... via phoneAliases). New-client vs follow-up is decided by
-  //    whether the student had any earlier qualifying call (any author, any time). --
-  const isCall = n => (n.contact_platform != null && n.contact_platform !== '')
-                      || containsPhoneMention(n.content);
-
+  // -- Calls (this week). Unified New/Ongoing/KBM classification (confirmed
+  //    2026-08) — see callClassification.js for the full rule. KBM notes are
+  //    excluded BEFORE New/Ongoing classification (a KBM'd attempt never
+  //    counts as anyone's first contact); New = first non-KBM contact EVER
+  //    (checked against full history, not just this week); Ongoing = later
+  //    non-KBM contacts, deduped by (lead, VN day, khung giờ time-slot) —
+  //    repeat touches to the same lead in the same slot count once, a
+  //    different slot counts as a separate genuine touch. Same rule Monthly
+  //    Report and the Call Targets "actual" figure use, so all three agree. --
   const weekNoteRows = (await pool.query(
-    `SELECT sn.student_id, sn.contact_platform, sn.content, sn.created_at, s.full_name
+    `SELECT sn.student_id, sn.contact_platform, sn.content, sn.created_at, sn.call_answered, s.full_name
        FROM student_notes sn JOIN students s ON s.student_id = sn.student_id
       WHERE sn.author_name = ANY($1) AND sn.created_at >= $2 AND sn.created_at < $3`,
     [names, ws, we])).rows;
-  const weekCalls = weekNoteRows.filter(isCall);
 
-  const callStudentIds = [...new Set(weekCalls.map(c => c.student_id))];
+  const callStudentIds = [...new Set(weekNoteRows.filter(isCallNote).map(c => c.student_id))];
   const histRows = callStudentIds.length ? (await pool.query(
-    `SELECT student_id, contact_platform, content, created_at
+    `SELECT student_id, contact_platform, content, created_at, call_answered
        FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
     [callStudentIds, we])).rows : [];
-  const firstMs = {};
-  for (const h of histRows) {
-    if (!isCall(h)) continue;
-    const t = new Date(h.created_at).getTime();
-    if (firstMs[h.student_id] == null || t < firstMs[h.student_id]) firstMs[h.student_id] = t;
-  }
+
+  const classified = classifyCalls(weekNoteRows, histRows);
 
   const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const daily = dayNames.map(d => ({ day: d, newLeads: new Set(), ongoing: new Set() }));
+  const dayIndexOf = (ms) => Math.max(0, Math.min(6, Math.floor((ms - ctx.weekStartMs) / (24 * 60 * 60 * 1000))));
+  const daily = dayNames.map(d => ({ day: d, newLeads: 0, ongoing: 0 }));
   const modeDaily = dayNames.map(d => ({ day: d, byMode: {} }));   // mode x day matrix
   const platforms = {};
-  const newMap = new Map();      // student_id -> full_name (first-ever call lands this week)
-  const ongoingMap = new Map();
-  for (const c of weekCalls) {
-    const isFirst = new Date(c.created_at).getTime() === firstMs[c.student_id];
-    const i = Math.floor((new Date(c.created_at).getTime() - ctx.weekStartMs) / (24 * 60 * 60 * 1000));
-    const b = daily[Math.max(0, Math.min(6, i))];
-    (isFirst ? b.newLeads : b.ongoing).add(c.student_id);
-    const p = c.contact_platform ? normalizeMode(c.contact_platform) : 'Phone call';
-    platforms[p] = platforms[p] || { platform: p, newCount: 0, ongoing: 0 };
-    if (isFirst) platforms[p].newCount++; else platforms[p].ongoing++;
-    const md = modeDaily[Math.max(0, Math.min(6, i))].byMode;
-    md[p] = (md[p] || 0) + 1;
-    (isFirst ? newMap : ongoingMap).set(c.student_id, c.full_name);
+  for (const [bucketKey, items] of [['newCount', classified.newItems], ['ongoing', classified.ongoingItems]]) {
+    for (const item of items) {
+      const i = dayIndexOf(new Date(item.note.created_at).getTime());
+      if (bucketKey === 'newCount') daily[i].newLeads++; else daily[i].ongoing++;
+      const p = item.note.contact_platform ? normalizeMode(item.note.contact_platform) : 'Phone call';
+      platforms[p] = platforms[p] || { platform: p, newCount: 0, ongoing: 0 };
+      platforms[p][bucketKey]++;
+      modeDaily[i].byMode[p] = (modeDaily[i].byMode[p] || 0) + 1;
+    }
   }
   const headcount = Math.max(0, names.length);
   // Role-aware, day-of-week-aware targets: sum each role's per-day target across
@@ -634,13 +629,18 @@ async function computeGroup(names, ctx, opts = {}) {
   const pSet = ctx.presalesSet   || new Set();
   const nC = names.filter(n => cSet.has(n)).length;
   const nP = names.filter(n => pSet.has(n)).length;
-  const dailyCalls = daily.map((d, i) => ({ day: d.day, newLeads: d.newLeads.size, ongoing: d.ongoing.size,
+  const dailyCalls = daily.map((d, i) => ({ day: d.day, newLeads: d.newLeads, ongoing: d.ongoing,
     targetNew:     nC * CALL_TARGETS.Counselor.new[i]     + nP * CALL_TARGETS['Pre-Sales'].new[i],
     targetOngoing: nC * CALL_TARGETS.Counselor.ongoing[i] + nP * CALL_TARGETS['Pre-Sales'].ongoing[i] }));
-  const newLeadItems = [...newMap].map(([studentId, fullName]) => ({ studentId, fullName }));
-  const ongoingItems = [...ongoingMap].filter(([id]) => !newMap.has(id))
-                                      .map(([studentId, fullName]) => ({ studentId, fullName }));
-  const callTotals = { newLeads: newLeadItems.length, ongoing: ongoingItems.length };
+  const newLeadItems = classified.newItems.map(it => ({ studentId: it.studentId, fullName: it.fullName }));
+  // NOT deduped by lead — a lead can legitimately appear more than once
+  // (once per distinct khung giờ touched), and the count here must match
+  // callTotals.ongoing exactly so the drill-down list and the headline
+  // number never disagree.
+  const ongoingItems = classified.ongoingItems.map(it => ({
+    studentId: it.studentId, fullName: it.fullName, dayKey: it.dayKey, slot: it.slot,
+  }));
+  const callTotals = { newLeads: newLeadItems.length, ongoing: ongoingItems.length, kbm: classified.kbmCount };
 
   const lettersFor = async (topic) => {
     const week = cc((await pool.query(
@@ -1194,22 +1194,41 @@ async function callTargets(req, res, next) {
     const overrideMap = new Map();
     for (const o of overrides) overrideMap.set(`${o.staff_id}|${o.label}`, o.target);
 
+    // Actual = New + Ongoing (KBM excluded) — the same unified New/Ongoing/
+    // KBM rule Weekly Report and Monthly Report use (confirmed 2026-08), so
+    // this grid's numbers agree with Monthly Report's Calls KPI. Computed
+    // per staffer, per month, with a running history cursor so e.g. March's
+    // classification correctly knows about a lead first contacted in
+    // January (not "New" again) as well as anything from before this year.
     const noteRows = names.length ? (await pool.query(
-      `SELECT author_name, created_at, contact_platform, content
+      `SELECT author_name, student_id, created_at, contact_platform, content, call_answered
          FROM student_notes
         WHERE author_name = ANY($1) AND created_at >= $2`,
       [names, yearStartISO]
     )).rows : [];
-    const actualMap = new Map(); // name -> { label -> count }
-    for (const n of noteRows) {
-      const isCall = (n.contact_platform != null && n.contact_platform !== '') || containsPhoneMention(n.content);
-      if (!isCall) continue;
-      const t  = new Date(n.created_at).getTime();
-      const mo = months.find(x => t >= x.startMs && t < x.endMs);
-      if (!mo) continue;
-      if (!actualMap.has(n.author_name)) actualMap.set(n.author_name, {});
-      const byMonth = actualMap.get(n.author_name);
-      byMonth[mo.label] = (byMonth[mo.label] || 0) + 1;
+    const histRows = names.length ? (await pool.query(
+      `SELECT author_name, student_id, created_at, contact_platform, content, call_answered
+         FROM student_notes
+        WHERE author_name = ANY($1) AND created_at < $2`,
+      [names, yearStartISO]
+    )).rows : [];
+    const notesByStaff = new Map();
+    for (const n of noteRows) { if (!notesByStaff.has(n.author_name)) notesByStaff.set(n.author_name, []); notesByStaff.get(n.author_name).push(n); }
+    const histByStaff = new Map();
+    for (const n of histRows) { if (!histByStaff.has(n.author_name)) histByStaff.set(n.author_name, []); histByStaff.get(n.author_name).push(n); }
+
+    const actualMap = new Map(); // name -> { label -> {actual, kbm} }
+    for (const name of names) {
+      const ownNotes = notesByStaff.get(name) || [];
+      const ownHist  = histByStaff.get(name) || [];
+      const byMonth = {};
+      for (const mo of months) {
+        const periodNotes  = ownNotes.filter(n => { const t = new Date(n.created_at).getTime(); return t >= mo.startMs && t < mo.endMs; });
+        const historyNotes = [...ownHist, ...ownNotes.filter(n => new Date(n.created_at).getTime() < mo.startMs)];
+        const c = classifyCalls(periodNotes, historyNotes);
+        byMonth[mo.label] = { actual: c.newCount + c.ongoingCount, kbm: c.kbmCount };
+      }
+      actualMap.set(name, byMonth);
     }
 
     const rows = tracked.map(tr => {
@@ -1217,7 +1236,7 @@ async function callTargets(req, res, next) {
       let ytdActual = 0, ytdTarget = 0;
       const byMonth = actualMap.get(tr.full_name) || {};
       for (const mo of months) {
-        const actual     = byMonth[mo.label] || 0;
+        const actual     = (byMonth[mo.label] || {}).actual || 0;
         const ov         = overrideMap.get(`${tr.staff_id}|${mo.label}`);
         const isFallback = ov === undefined;
         const target     = isFallback ? tr.fallback_target : ov;
@@ -1322,6 +1341,67 @@ async function removeCallTargetTrackedStaff(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Uncontactable → Pre-sales auto-transfer roster ────────────────────────
+// The round-robin pool (see uncontactableTransfer.js). `received` is how
+// many transfers each person has gotten so far — shown so it's visible the
+// distribution is actually staying even, not just trusted blindly.
+async function listUncontactableRoster(req, res, next) {
+  try {
+    if (!(await canAccessTargets(req))) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const rows = (await pool.query(`
+      SELECT t.staff_id, t.sort_order, s.full_name,
+             (SELECT COUNT(*) FROM uncontactable_transfers WHERE to_presales_staff_id = t.staff_id)::int AS received
+        FROM uncontactable_transfer_presales_staff t
+        JOIN staff s ON s.id = t.staff_id
+       WHERE s.is_active = true
+       ORDER BY t.sort_order, s.full_name
+    `)).rows;
+    res.json({ success: true, data: rows.map((r) => ({ staffId: r.staff_id, fullName: r.full_name, sortOrder: r.sort_order, received: r.received })) });
+  } catch (err) { next(err); }
+}
+
+async function addUncontactableRosterStaff(req, res, next) {
+  try {
+    if (!(await canAccessTargets(req))) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const { staffId } = req.body || {};
+    if (!staffId || !/^\d+$/.test(String(staffId))) {
+      return res.status(400).json({ success: false, error: 'staffId is required' });
+    }
+    const exists = await pool.query(`SELECT id, full_name FROM staff WHERE id = $1`, [staffId]);
+    if (exists.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Staff member not found' });
+    }
+    const addedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+    await pool.query(
+      `INSERT INTO uncontactable_transfer_presales_staff (staff_id, sort_order, added_by)
+            VALUES ($1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM uncontactable_transfer_presales_staff), $2)
+       ON CONFLICT (staff_id) DO NOTHING`,
+      [staffId, addedBy]
+    );
+    res.json({ success: true, data: { staffId: Number(staffId), fullName: exists.rows[0].full_name } });
+  } catch (err) { next(err); }
+}
+
+async function removeUncontactableRosterStaff(req, res, next) {
+  try {
+    if (!(await canAccessTargets(req))) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const staffId = req.params.staffId;
+    if (!staffId || !/^\d+$/.test(String(staffId))) {
+      return res.status(400).json({ success: false, error: 'staffId is required' });
+    }
+    // uncontactable_transfers history is intentionally preserved (audit trail
+    // + keeps the "received" count meaningful if this person is re-added later).
+    await pool.query(`DELETE FROM uncontactable_transfer_presales_staff WHERE staff_id = $1`, [staffId]);
+    res.json({ success: true, data: { staffId: Number(staffId), removed: true } });
+  } catch (err) { next(err); }
+}
+
 // Regenerate one week's snapshot on demand (admin "re-publish").
 async function regenerateWeeklySnapshot(req, res, next) {
   try {
@@ -1359,6 +1439,7 @@ module.exports = {
   notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation,
   monthlyTargets, saveMonthlyTarget, addTrackedStaff, removeTrackedStaff,
   callTargets, saveCallTarget, addCallTargetTrackedStaff, removeCallTargetTrackedStaff,
+  listUncontactableRoster, addUncontactableRosterStaff, removeUncontactableRosterStaff,
   // Frozen Weekly Report: scheduler + manual re-publish + note freezing.
   generateWeeklySnapshot, vnWeekStart, regenerateWeeklySnapshot, lockRecommendationsBefore,
 };

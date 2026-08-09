@@ -399,6 +399,9 @@ export const reportsAPI = {
   saveCallTarget:         (staffId, month, target) => request('PUT',    '/api/reports/call-targets', { staffId, month, target }),
   addCallTargetStaff:     (staffId)                => request('POST',   '/api/reports/call-target-staff', { staffId }),
   removeCallTargetStaff:  (staffId)                => request('DELETE', `/api/reports/call-target-staff/${staffId}`),
+  uncontactableRoster:       ()        => request('GET',    '/api/reports/uncontactable-roster'),
+  addUncontactableStaff:     (staffId) => request('POST',   '/api/reports/uncontactable-roster', { staffId }),
+  removeUncontactableStaff:  (staffId) => request('DELETE', `/api/reports/uncontactable-roster/${staffId}`),
 
   // ── Sales + Marketing Monthly Report ──
   monthlyReport:  (month)                     => request('GET', `/api/reports/monthly?month=${month}`),

@@ -190,8 +190,13 @@ function filterContractedDetail(detail, cellKey) {
 // KBM (unanswered) subset.
 function filterCallDetail(detail, cellKey) {
   const rows = detail || [];
-  if (cellKey === 'total') return rows;
-  if (cellKey === 'kbm') return rows.filter((d) => d.callAnswered === false);
+  if (cellKey === 'total') return rows.filter((d) => d.bucket === 'new' || d.bucket === 'ongoing');
+  if (cellKey === 'new') return rows.filter((d) => d.bucket === 'new');
+  if (cellKey === 'ongoing') return rows.filter((d) => d.bucket === 'ongoing');
+  // Uses the classified bucket (toggle OR keyword), not just the explicit
+  // callAnswered===false toggle — so the drill-down list matches the KBM
+  // count exactly, including keyword-inferred KBM notes.
+  if (cellKey === 'kbm') return rows.filter((d) => d.bucket === 'kbm');
   return [];
 }
 
@@ -358,7 +363,7 @@ export default function MonthlyReport() {
       target: 0, contractedTotal: 0, inSystem: 0, outSystem: 0, unclassified: 0,
       byCaseType: Object.fromEntries(CASE_TYPES.map((c) => [c, 0])),
       totalLeads: 0, newLeadsThisMonth: 0,
-      calls: 0, callsKpi: 0, basicLetters: 0, finalLetters: 0,
+      calls: 0, newCalls: 0, ongoingCalls: 0, kbmCalls: 0, callsKpi: 0, basicLetters: 0, finalLetters: 0,
     };
     for (const r of rows) {
       t.target += r.target || 0;
@@ -370,6 +375,9 @@ export default function MonthlyReport() {
       t.totalLeads += r.totalLeads;
       t.newLeadsThisMonth += r.newLeadsThisMonth;
       t.calls += r.calls || 0;
+      t.newCalls += r.newCalls || 0;
+      t.ongoingCalls += r.ongoingCalls || 0;
+      t.kbmCalls += r.kbmCalls || 0;
       t.callsKpi += r.callsKpi || 0;
       t.basicLetters += r.basicLetters || 0;
       t.finalLetters += r.finalLetters || 0;
@@ -384,10 +392,12 @@ export default function MonthlyReport() {
 
   const presalesTotals = useMemo(() => {
     const rows = report?.presalesReport || [];
-    const t = { hours: 0, hasHours: false, totalCalls: 0, kbmCount: 0, meetingsCount: 0, transferred: 0, callsKpi: 0 };
+    const t = { hours: 0, hasHours: false, totalCalls: 0, newCalls: 0, ongoingCalls: 0, kbmCount: 0, meetingsCount: 0, transferred: 0, callsKpi: 0 };
     for (const r of rows) {
       if (r.hours != null) { t.hours += r.hours; t.hasHours = true; }
       t.totalCalls += r.totalCalls;
+      t.newCalls += r.newCalls || 0;
+      t.ongoingCalls += r.ongoingCalls || 0;
       t.kbmCount += r.kbmCount;
       t.meetingsCount += r.meetingsCount;
       t.transferred += r.transferred.length;
@@ -509,6 +519,9 @@ export default function MonthlyReport() {
                       <th style={{ textAlign: 'right' }}>{L('Total leads', 'Tổng leads')}</th>
                       <th style={{ textAlign: 'right' }}>{L('New this month', 'Mới tháng này')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Convert %', 'Tỉ lệ %')}</th>
+                      <th style={{ textAlign: 'right' }} title={L('First-ever successful contact', 'Lần đầu liên hệ thành công')}>{L('New', 'Mới')}</th>
+                      <th style={{ textAlign: 'right' }} title={L('Follow-up successful contacts', 'Liên hệ lại thành công')}>{L('Ongoing', 'Tiếp tục')}</th>
+                      <th style={{ textAlign: 'right' }} title={L('Không bắt máy', 'Không bắt máy')}>{L('KBM', 'KBM')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Calls', 'Cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Calls KPI', 'KPI cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('% Calls KPI', '% KPI cuộc gọi')}</th>
@@ -544,6 +557,9 @@ export default function MonthlyReport() {
                             <td style={{ textAlign: 'right' }}>{r.totalLeads}</td>
                             <td style={{ textAlign: 'right' }}>{r.newLeadsThisMonth}</td>
                             <td style={{ textAlign: 'right' }}>{fmtPct(r.convertRate)}</td>
+                            <td style={{ textAlign: 'right' }}>{r.newCalls}</td>
+                            <td style={{ textAlign: 'right' }}>{r.ongoingCalls}</td>
+                            <td style={{ textAlign: 'right' }}>{r.kbmCalls}</td>
                             <td style={{ textAlign: 'right' }}>{r.calls}</td>
                             <td style={{ textAlign: 'right' }}>{r.callsKpi}</td>
                             <td style={{ textAlign: 'right' }}>{fmtPct(r.pctCallsKpi)}</td>
@@ -552,7 +568,7 @@ export default function MonthlyReport() {
                           </tr>
                           {drilldownLeads && (
                             <tr>
-                              <td colSpan={18} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={21} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <table className="leads-data-table" style={{ width: '100%' }}>
                                   <thead><tr>
                                     <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
@@ -579,7 +595,7 @@ export default function MonthlyReport() {
                       );
                     })}
                     {!(report.teamPerformance || []).length && (
-                      <tr><td colSpan={18} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                      <tr><td colSpan={21} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         {L('No counselors found', 'Không tìm thấy tư vấn viên')}
                       </td></tr>
                     )}
@@ -597,6 +613,9 @@ export default function MonthlyReport() {
                         <td style={{ textAlign: 'right' }}>{teamTotals.totalLeads}</td>
                         <td style={{ textAlign: 'right' }}>{teamTotals.newLeadsThisMonth}</td>
                         <td style={{ textAlign: 'right' }}>{fmtPct(teamTotals.convertRate)}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.newCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.ongoingCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.kbmCalls}</td>
                         <td style={{ textAlign: 'right' }}>{teamTotals.calls}</td>
                         <td style={{ textAlign: 'right' }}>{teamTotals.callsKpi}</td>
                         <td style={{ textAlign: 'right' }}>{fmtPct(teamTotals.pctCallsKpi)}</td>
@@ -682,6 +701,8 @@ export default function MonthlyReport() {
                     <tr>
                       <th style={{ textAlign: 'left' }}>{L('Staff', 'Nhân viên')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Total Call Hour KPI', 'Giờ gọi (thủ công)')}</th>
+                      <th style={{ textAlign: 'right' }} title={L('First-ever successful contact', 'Lần đầu liên hệ thành công')}>{L('New', 'Mới')}</th>
+                      <th style={{ textAlign: 'right' }} title={L('Follow-up successful contacts', 'Liên hệ lại thành công')}>{L('Ongoing', 'Tiếp tục')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Total calls', 'Tổng cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Calls KPI', 'KPI cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('% Calls KPI', '% KPI cuộc gọi')}</th>
@@ -707,6 +728,8 @@ export default function MonthlyReport() {
                             <td style={{ textAlign: 'right' }}>
                               <EditableHours value={r.hours} onSave={(v) => handleSaveHours(r.staffId, v)} placeholder={L('— (click to enter)', '— (bấm để nhập)')} />
                             </td>
+                            <td style={clickableStyle(r.newCalls)} onClick={() => toggleCallCell('new', r.newCalls)}>{r.newCalls}</td>
+                            <td style={clickableStyle(r.ongoingCalls)} onClick={() => toggleCallCell('ongoing', r.ongoingCalls)}>{r.ongoingCalls}</td>
                             <td style={clickableStyle(r.totalCalls)} onClick={() => toggleCallCell('total', r.totalCalls)}>{r.totalCalls}</td>
                             <td style={{ textAlign: 'right' }}>{r.callsKpi}</td>
                             <td style={{ textAlign: 'right' }}>{fmtPct(r.pctCallsKpi)}</td>
@@ -725,7 +748,7 @@ export default function MonthlyReport() {
                           </tr>
                           {expandedTransfers.has(r.staffId) && r.transferred.length > 0 && (
                             <tr key={`${r.staffId}-transfers`}>
-                              <td colSpan={9} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={11} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <table className="leads-data-table" style={{ width: '100%' }}>
                                   <thead><tr>
                                     <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
@@ -751,7 +774,7 @@ export default function MonthlyReport() {
                           )}
                           {callDrilldownNotes && (
                             <tr key={`${r.staffId}-calls`}>
-                              <td colSpan={9} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={11} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <CallDetailDrilldownPanel notes={callDrilldownNotes} navigate={navigate} L={L} language={language} />
                               </td>
                             </tr>
@@ -760,7 +783,7 @@ export default function MonthlyReport() {
                       );
                     })}
                     {!(report.presalesReport || []).length && (
-                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                      <tr><td colSpan={11} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         {L('No pre-sales staff found', 'Không tìm thấy nhân viên pre-sales')}
                       </td></tr>
                     )}
@@ -770,6 +793,8 @@ export default function MonthlyReport() {
                       <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
                         <td>{L('Total', 'Tổng cộng')}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.hasHours ? presalesTotals.hours : '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.newCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{presalesTotals.ongoingCalls}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.totalCalls}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.callsKpi}</td>
                         <td style={{ textAlign: 'right' }}>{fmtPct(presalesTotals.pctCallsKpi)}</td>

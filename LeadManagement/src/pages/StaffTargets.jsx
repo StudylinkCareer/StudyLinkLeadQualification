@@ -216,6 +216,100 @@ function TargetsGrid({ title, subtitle, defaultLabel, defaultTitle, api, roster,
   );
 }
 
+// Uncontactable → Pre-sales auto-transfer roster — a flat list (no monthly
+// dimension, unlike the two grids above): whoever's here is in the
+// round-robin pool that automatically receives a lead once its counselor
+// has logged 3 KBM calls across the 3 khung giờ time-slots. "Received"
+// shows how many transfers each person has gotten so far, so it's visible
+// the round-robin is actually staying even rather than just trusted blindly.
+function UncontactableRosterList({ roster, L }) {
+  const [rows, setRows]     = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addId, setAddId]     = useState('');
+
+  function reload() {
+    setLoading(true);
+    reportsAPI.uncontactableRoster()
+      .then(r => setRows(r?.data || []))
+      .catch(() => setRows(null))
+      .finally(() => setLoading(false));
+  }
+  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function addStaff() {
+    if (!addId) return;
+    reportsAPI.addUncontactableStaff(Number(addId))
+      .then(() => { setAddId(''); setShowAdd(false); reload(); })
+      .catch(() => {});
+  }
+  function removeStaff(staffId) {
+    reportsAPI.removeUncontactableStaff(staffId).then(() => reload()).catch(() => {});
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+        <div>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{L('Uncontactable → Pre-sales', 'Uncontactable → Pre-sales')}</h1>
+          <div style={sub}>
+            {L(
+              'Round-robin pool that automatically receives a lead once its counselor has logged 3 unanswered (KBM) calls covering all 3 time-slots. Status flips to New for them.',
+              'Danh sách xoay vòng tự động nhận lead khi tư vấn viên đã gọi 3 cuộc không bắt máy (KBM), mỗi cuộc rơi vào 1 trong 3 khung giờ. Trạng thái tự chuyển thành Mới cho họ.'
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {showAdd ? (
+            <>
+              <select value={addId} onChange={e => setAddId(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }}>
+                <option value="">{L('— Select staff —', '— Chọn nhân viên —')}</option>
+                {roster
+                  .filter(s => !(rows || []).some(r => r.staffId === s.id))
+                  .map(s => <option key={s.id} value={s.id}>{s.fullName}{s.position ? ` (${s.position})` : ''}</option>)}
+              </select>
+              <button className="btn" onClick={addStaff} disabled={!addId}>{L('Add', 'Thêm')}</button>
+              <button className="btn" onClick={() => { setShowAdd(false); setAddId(''); }}>{L('Cancel', 'Hủy')}</button>
+            </>
+          ) : (
+            <button className="btn" onClick={() => setShowAdd(true)}>+ {L('Add staff', 'Thêm nhân viên')}</button>
+          )}
+        </div>
+      </div>
+
+      <div style={card}>
+        {loading && !rows && <div style={sub}>{L('Loading…', 'Đang tải…')}</div>}
+        {rows && rows.length === 0 && (
+          <div style={sub}>{L('No one in the pool yet — use Add staff.', 'Chưa có ai trong danh sách — dùng Thêm nhân viên.')}</div>
+        )}
+        {rows && rows.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', maxWidth: 480 }}>
+            <thead>
+              <tr>
+                <th style={th}>{L('Staff', 'Nhân viên')}</th>
+                <th style={{ ...th, textAlign: 'right' }}>{L('Received', 'Đã nhận')}</th>
+                <th style={{ ...th, width: 40 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.staffId}>
+                  <td style={td}>{r.fullName}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{r.received}</td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    <span onClick={() => removeStaff(r.staffId)} title={L('Remove', 'Xóa')}
+                      style={{ cursor: 'pointer', color: 'var(--text-secondary,#9ca3af)' }}>×</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function StaffTargets() {
   const { staff }    = useAuth();
   const { language } = useLanguage();
@@ -274,6 +368,10 @@ export default function StaffTargets() {
           roster={roster}
           L={L}
         />
+      </div>
+
+      <div style={{ marginTop: '2rem' }}>
+        <UncontactableRosterList roster={roster} L={L} />
       </div>
     </div>
   );

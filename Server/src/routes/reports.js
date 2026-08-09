@@ -128,6 +128,24 @@ router.delete(
   reportCtrl.removeCallTargetTrackedStaff
 );
 
+// ── Uncontactable → Pre-sales auto-transfer roster ────────────────────
+// Same gating as Call/Monthly Targets above.
+router.get(
+  '/uncontactable-roster',
+  requireStaffAuth,
+  reportCtrl.listUncontactableRoster
+);
+router.post(
+  '/uncontactable-roster',
+  requireStaffAuth,
+  reportCtrl.addUncontactableRosterStaff
+);
+router.delete(
+  '/uncontactable-roster/:staffId',
+  requireStaffAuth,
+  reportCtrl.removeUncontactableRosterStaff
+);
+
 // ── Sales + Marketing Monthly Report ─────────────────────────
 // Same broad-audience gate as notes-activity (Activity Report) — wider
 // audience than Event Report's CEO/COO+Managers-only gate, since this report
