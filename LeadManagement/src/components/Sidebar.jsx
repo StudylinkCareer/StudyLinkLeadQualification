@@ -42,7 +42,7 @@ export default function Sidebar() {
   //   • Marketing/Refdata → isManagerOrAdmin (marketingEvents/referenceData routes)
   //   • Deep Cleanse   → isAdminProfile (cleanup.js requireAdmin) — gated on its page
   const canMaintenance        = canDo('maintenance', 'use');
-  const canStaffTargets       = canManageTargets(staff?.position);   // Exec / Quality / Tech Support
+  const canStaffTargets       = canManageTargets(staff?.position);   // CEO / COO / HR Manager / Tech Manager
   const showAdminSection      = canManageStaff || canManageDistribution || canDeleteLeads || canMaintenance || canStaffTargets;
 
   async function handleLogout() {
@@ -127,6 +127,8 @@ export default function Sidebar() {
           <FiCheckSquare size={16} /> {language === 'vi' ? 'Điểm danh sự kiện' : 'Event Check-in'}
         </button>
 
+        <span className="nav-section">{t('sidebar.section.report', language)}</span>
+
         {canViewReports && (
           <button
             className={`nav-item ${isActive('/reports/activity') ? 'active' : ''}`}
@@ -135,8 +137,6 @@ export default function Sidebar() {
             <FiPhoneCall size={16} /> {language === 'vi' ? 'Báo cáo hoạt động' : 'Activity Report'}
           </button>
         )}
-
-        <span className="nav-section">{t('sidebar.section.report', language)}</span>
 
         <button
           className={`nav-item ${isActive('/reports/weekly') ? 'active' : ''}`}

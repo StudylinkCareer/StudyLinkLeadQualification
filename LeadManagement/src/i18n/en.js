@@ -7,7 +7,7 @@
 const en = {
   // ── Sidebar ─────────────────────────────────────────────────
   'sidebar.productName':       'StudyLink',
-  'sidebar.productSubtitle':   'Lead Management',
+  'sidebar.productSubtitle':   'Index Management',
   'sidebar.section.main':      'Main',
   'sidebar.section.report':    'Report',
   'sidebar.section.admin':     'Admin',

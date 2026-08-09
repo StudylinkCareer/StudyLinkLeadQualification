@@ -18,7 +18,7 @@
 const vi = {
   // ── Sidebar ─────────────────────────────────────────────────
   'sidebar.productName':       'StudyLink',
-  'sidebar.productSubtitle':   'Quản lý khách hàng tiềm năng',
+  'sidebar.productSubtitle':   'Quản lý Index',
   'sidebar.section.main':      'Chính',
   'sidebar.section.report':    'Báo cáo',
   'sidebar.section.admin':     'Quản trị',

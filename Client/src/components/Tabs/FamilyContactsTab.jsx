@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import TextInput from '../Form/TextInput';
 import PhoneInput from '../Form/PhoneInput';
 import { CONTACT_MEDIUMS, PHONE_MEDIUMS, EMAIL_MEDIUMS, DUAL_MEDIUMS } from '../../utils/formFields';
@@ -7,10 +6,6 @@ import { t } from '../../i18n';
 
 export default function FamilyContactsTab({ formData, updateField, saving, lastSaved, familyErrors = {} }) {
   const { language } = useLanguage();
-
-  const [dualMode, setDualMode] = useState({});
-  const getDualMode = (pfx) => dualMode[pfx] || 'email';
-  const setContactDualMode = (pfx, mode) => setDualMode((prev) => ({ ...prev, [pfx]: mode }));
 
   const renderContactDetail = (pfx, medium, ccField, detailField) => {
     if (!medium) {
@@ -50,51 +45,18 @@ export default function FamilyContactsTab({ formData, updateField, saving, lastS
     }
 
     if (DUAL_MEDIUMS.includes(medium)) {
-      const mode = getDualMode(pfx);
+      // Facebook/Instagram — ask for the profile LINK, not a username: a
+      // link is unambiguous and lets staff open it directly, where a typed
+      // username/profile name can be misspelled or belong to someone else.
+      if (formData[ccField] !== 'N/A') updateField(ccField, 'N/A');
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1 }}>
-          <div style={{ display: 'flex', gap: '0.25rem' }}>
-            <button
-              type="button"
-              className={`btn btn--sm ${mode === 'email' ? 'btn--primary' : 'btn--secondary'}`}
-              onClick={() => {
-                setContactDualMode(pfx, 'email');
-                updateField(ccField, 'N/A');
-                updateField(detailField, '');
-              }}
-            >
-              ✉ Email
-            </button>
-            <button
-              type="button"
-              className={`btn btn--sm ${mode === 'phone' ? 'btn--primary' : 'btn--secondary'}`}
-              onClick={() => {
-                setContactDualMode(pfx, 'phone');
-                updateField(ccField, '+84');
-                updateField(detailField, '0');
-              }}
-            >
-              📱 Phone
-            </button>
-          </div>
-          {mode === 'email' ? (
-            <input
-              className="form-input contact-detail-input"
-              type="email"
-              value={formData[detailField] || ''}
-              onChange={(e) => updateField(detailField, e.target.value)}
-              placeholder={`${medium} email`}
-            />
-          ) : (
-            <PhoneInput
-              countryCodeName={ccField}
-              numberName={detailField}
-              countryCodeValue={formData[ccField] || '+84'}
-              numberValue={formData[detailField] || '0'}
-              onChange={updateField}
-            />
-          )}
-        </div>
+        <input
+          className="form-input contact-detail-input"
+          type="url"
+          value={formData[detailField] || ''}
+          onChange={(e) => updateField(detailField, e.target.value)}
+          placeholder={`${medium} profile link`}
+        />
       );
     }
 
@@ -113,17 +75,10 @@ export default function FamilyContactsTab({ formData, updateField, saving, lastS
 
   const handleMediumChange = (pfx, ccField, detailField, newMedium) => {
     updateField(`${pfx}ContactMedium`, newMedium);
-    if (PHONE_MEDIUMS.includes(newMedium) && !DUAL_MEDIUMS.includes(newMedium)) {
-      updateField(ccField, '+84');
-      updateField(detailField, '0');
-    } else if (DUAL_MEDIUMS.includes(newMedium)) {
-      const mode = getDualMode(pfx);
-      updateField(ccField, mode === 'phone' ? '+84' : 'N/A');
-      updateField(detailField, mode === 'phone' ? '0' : '');
-    } else {
-      updateField(ccField, 'N/A');
-      updateField(detailField, '');
-    }
+    // Only Facebook/Instagram remain, both link-based — no phone-number
+    // branch needed any more.
+    updateField(ccField, 'N/A');
+    updateField(detailField, '');
   };
 
   return (

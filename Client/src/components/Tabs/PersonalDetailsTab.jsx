@@ -34,12 +34,6 @@ export default function PersonalDetailsTab({
   const [scanningFamily, setScanningFamily] = useState(false);
   const [selectedParent, setSelectedParent] = useState('mother');
 
-  const [dualMode, setDualMode] = useState({});
-  const getDualMode = (slot) => dualMode[slot] || 'email';
-  const setSlotDualMode = (slot, mode) => setDualMode((prev) => ({ ...prev, [slot]: mode }));
-
-  const [familyDualMode, setFamilyDualMode] = useState({});
-
   // Marketing-events list for the Campaign/Event dropdown.
   // Used when formData.referralSource is empty — populated cases display read-only.
   // Same source as Home: /api/marketing-events/public (filtered to non-hidden,
@@ -53,9 +47,6 @@ export default function PersonalDetailsTab({
       .catch(e => console.warn('marketing-events fetch failed:', e));
     return () => { cancelled = true; };
   }, []);
-  const getFamilyDualMode = (pfx) => familyDualMode[pfx] || 'email';
-  const setFamilyContactDualMode = (pfx, mode) => setFamilyDualMode((prev) => ({ ...prev, [pfx]: mode }));
-
   // ── Contact slots ──
   const activeContacts = [];
   for (let i = 1; i <= MAX_CONTACTS; i++) {
@@ -124,51 +115,18 @@ export default function PersonalDetailsTab({
     }
 
     if (DUAL_MEDIUMS.includes(medium)) {
-      const mode = getDualMode(slot);
+      // Facebook/Instagram — ask for the profile LINK, not a username: a
+      // link is unambiguous and lets staff open it directly, where a typed
+      // username/profile name can be misspelled or belong to someone else.
+      if (formData[`phoneCountryCode${slot}`] !== 'N/A') updateField(`phoneCountryCode${slot}`, 'N/A');
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1 }}>
-          <div style={{ display: 'flex', gap: '0.25rem' }}>
-            <button
-              type="button"
-              className={`btn btn--sm ${mode === 'email' ? 'btn--primary' : 'btn--secondary'}`}
-              onClick={() => {
-                setSlotDualMode(slot, 'email');
-                updateField(`phoneCountryCode${slot}`, 'N/A');
-                updateField(`contactDetail${slot}`, '');
-              }}
-            >
-              ✉ Email
-            </button>
-            <button
-              type="button"
-              className={`btn btn--sm ${mode === 'phone' ? 'btn--primary' : 'btn--secondary'}`}
-              onClick={() => {
-                setSlotDualMode(slot, 'phone');
-                updateField(`phoneCountryCode${slot}`, '+84');
-                updateField(`contactDetail${slot}`, '0');
-              }}
-            >
-              📱 Phone
-            </button>
-          </div>
-          {mode === 'email' ? (
-            <input
-              className="form-input contact-detail-input"
-              type="email"
-              value={formData[`contactDetail${slot}`] || ''}
-              onChange={(e) => updateField(`contactDetail${slot}`, e.target.value)}
-              placeholder={`${medium} email`}
-            />
-          ) : (
-            <PhoneInput
-              countryCodeName={`phoneCountryCode${slot}`}
-              numberName={`contactDetail${slot}`}
-              countryCodeValue={formData[`phoneCountryCode${slot}`] || '+84'}
-              numberValue={formData[`contactDetail${slot}`] || '0'}
-              onChange={updateField}
-            />
-          )}
-        </div>
+        <input
+          className="form-input contact-detail-input"
+          type="url"
+          value={formData[`contactDetail${slot}`] || ''}
+          onChange={(e) => updateField(`contactDetail${slot}`, e.target.value)}
+          placeholder={`${medium} profile link`}
+        />
       );
     }
 
@@ -223,51 +181,16 @@ export default function PersonalDetailsTab({
     }
 
     if (DUAL_MEDIUMS.includes(medium)) {
-      const mode = getFamilyDualMode(pfx);
+      // Facebook/Instagram — ask for the profile LINK, not a username.
+      if (formData[ccField] !== 'N/A') updateField(ccField, 'N/A');
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1 }}>
-          <div style={{ display: 'flex', gap: '0.25rem' }}>
-            <button
-              type="button"
-              className={`btn btn--sm ${mode === 'email' ? 'btn--primary' : 'btn--secondary'}`}
-              onClick={() => {
-                setFamilyContactDualMode(pfx, 'email');
-                updateField(ccField, 'N/A');
-                updateField(detailField, '');
-              }}
-            >
-              ✉ Email
-            </button>
-            <button
-              type="button"
-              className={`btn btn--sm ${mode === 'phone' ? 'btn--primary' : 'btn--secondary'}`}
-              onClick={() => {
-                setFamilyContactDualMode(pfx, 'phone');
-                updateField(ccField, '+84');
-                updateField(detailField, '0');
-              }}
-            >
-              📱 Phone
-            </button>
-          </div>
-          {mode === 'email' ? (
-            <input
-              className="form-input contact-detail-input"
-              type="email"
-              value={formData[detailField] || ''}
-              onChange={(e) => updateField(detailField, e.target.value)}
-              placeholder={`${medium} email`}
-            />
-          ) : (
-            <PhoneInput
-              countryCodeName={ccField}
-              numberName={detailField}
-              countryCodeValue={formData[ccField] || '+84'}
-              numberValue={formData[detailField] || '0'}
-              onChange={updateField}
-            />
-          )}
-        </div>
+        <input
+          className="form-input contact-detail-input"
+          type="url"
+          value={formData[detailField] || ''}
+          onChange={(e) => updateField(detailField, e.target.value)}
+          placeholder={`${medium} profile link`}
+        />
       );
     }
 
@@ -381,22 +304,10 @@ export default function PersonalDetailsTab({
                         handleRemoveContact(slot);
                       } else {
                         updateField(`contactMedium${slot}`, newMedium);
-                        if (PHONE_MEDIUMS.includes(newMedium) && !DUAL_MEDIUMS.includes(newMedium)) {
-                          updateField(`phoneCountryCode${slot}`, '+84');
-                          updateField(`contactDetail${slot}`, '0');
-                        } else if (DUAL_MEDIUMS.includes(newMedium)) {
-                          const mode = getDualMode(slot);
-                          if (mode === 'phone') {
-                            updateField(`phoneCountryCode${slot}`, '+84');
-                            updateField(`contactDetail${slot}`, '0');
-                          } else {
-                            updateField(`phoneCountryCode${slot}`, 'N/A');
-                            updateField(`contactDetail${slot}`, '');
-                          }
-                        } else {
-                          updateField(`phoneCountryCode${slot}`, 'N/A');
-                          updateField(`contactDetail${slot}`, '');
-                        }
+                        // Only Facebook/Instagram remain, both link-based — no
+                        // phone-number branch needed any more.
+                        updateField(`phoneCountryCode${slot}`, 'N/A');
+                        updateField(`contactDetail${slot}`, '');
                       }
                     }}
                   >
@@ -600,17 +511,10 @@ export default function PersonalDetailsTab({
               onChange={(e) => {
                 const newMedium = e.target.value;
                 updateField(familyFields.contactMedium, newMedium);
-                if (PHONE_MEDIUMS.includes(newMedium) && !DUAL_MEDIUMS.includes(newMedium)) {
-                  updateField(familyFields.contactCC, '+84');
-                  updateField(familyFields.contactDetail, '0');
-                } else if (DUAL_MEDIUMS.includes(newMedium)) {
-                  const mode = getFamilyDualMode(pfx);
-                  updateField(familyFields.contactCC, mode === 'phone' ? '+84' : 'N/A');
-                  updateField(familyFields.contactDetail, mode === 'phone' ? '0' : '');
-                } else {
-                  updateField(familyFields.contactCC, 'N/A');
-                  updateField(familyFields.contactDetail, '');
-                }
+                // Only Facebook/Instagram remain, both link-based — no
+                // phone-number branch needed any more.
+                updateField(familyFields.contactCC, 'N/A');
+                updateField(familyFields.contactDetail, '');
               }}
             >
               <option value="">{t('selectMedium', language)}</option>

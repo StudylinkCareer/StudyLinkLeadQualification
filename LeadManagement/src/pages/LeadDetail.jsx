@@ -746,7 +746,10 @@ const STUDY_PLAN_OPTS = ['Study Abroad','English Summer Camp','Study in Vietnam'
 const TIMELINE_OPTS   = ['Next 6 months','6-12 months','12-24 months','24-36 months','36+ months'];
 const INTERACTION_OPTS= ['Only left contact','Queries','Fill lead form partly','Fill lead form fully','Call in-Walk in'];
 const LEAD_SOURCE_OPTS= ['Databases','FB-Zalo-GG-TikTok ads','School outreach','Subagent referrals','Ex-client'];
-const CONTACT_MEDIUM_OPTS = ['Phone','Zalo','Facebook','Messenger','WhatsApp','Email','Instagram','Threads','TikTok','Line','Telegram','Viber','YouTube','Skype'];
+// Trimmed to just Facebook + Instagram (2026-08) — matches the Client app's
+// CONTACT_MEDIUMS; the rest were redundant with the phone number already
+// captured separately, or just unused.
+const CONTACT_MEDIUM_OPTS = ['Facebook', 'Instagram'];
 
 const LIKERT_LABELS = ['','Strongly Disagree','Disagree','Neutral','Agree','Strongly Agree'];
 
@@ -1118,10 +1121,11 @@ export default function LeadDetail() {
     return (
       <div style={{ display:'flex', gap:'0.35rem', flexWrap:'wrap', marginTop:'0.25rem' }}>
         {[
-          { key:'call',     label:'Call',     color:'#16a34a', icon:'📞' },
-          { key:'sms',      label:'SMS',      color:'#2563eb', icon:'💬' },
-          { key:'zalo',     label:'Zalo',     color:'#0068ff', icon:'Z'  },
-          { key:'whatsapp', label:'WhatsApp', color:'#25d366', icon:'W'  },
+          { key:'call',      label:'Call',      color:'#16a34a', icon:'📞' },
+          { key:'sms',       label:'SMS',       color:'#2563eb', icon:'💬' },
+          { key:'zalo',      label:'Zalo',      color:'#0068ff', icon:'Z'  },
+          { key:'whatsapp',  label:'WhatsApp',  color:'#25d366', icon:'W'  },
+          { key:'messenger', label:'Messenger', color:'#0084ff', icon:'M'  },
         ].map(({key, label, color, icon}) => (
           <a key={key} href="#" title={label}
              onClick={e => { e.preventDefault(); openContactModal(key, override); }}

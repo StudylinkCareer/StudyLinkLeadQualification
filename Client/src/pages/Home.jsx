@@ -11,7 +11,7 @@ import { authAPI } from '../services/api';
 import HeadshotCapture from '../components/Camera/HeadshotCapture';
 import DuplicateModal from '../components/DuplicateModal';
 import { parseQrContent, isFacebookUrl } from '../utils/qrCodeParser';
-import { CONTACT_MEDIUMS, EMAIL_MEDIUMS, VIETNAM_PROVINCES, COUNTRY_CODES, STUDY_PLANS } from '../utils/formFields';
+import { CONTACT_MEDIUMS, VIETNAM_PROVINCES, COUNTRY_CODES, STUDY_PLANS } from '../utils/formFields';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import LanguageSelector from '../components/LanguageSelector';
@@ -40,7 +40,7 @@ function Home() {
   const [counsellor, setCounsellor]             = useState('');
   const [sourceOptions, setSourceOptions]       = useState({ sourceOfLead: [], source: {}, b2bType: [], b2bParty: {} });
   const [counsellorOptions, setCounsellorOptions] = useState([]);
-  const [preferredSocial, setPreferredSocial] = useState('Zalo');
+  const [preferredSocial, setPreferredSocial] = useState('Facebook');
   const [connectWithYou, setConnectWithYou] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
@@ -320,7 +320,9 @@ function Home() {
   };
 
   const isFbUrl = pendingQrScan && isFacebookUrl(pendingQrScan.detail);
-  const pickerMediums = isFbUrl ? CONTACT_MEDIUMS.filter((m) => m !== 'Messenger') : CONTACT_MEDIUMS;
+  // No longer needs to filter out Messenger — CONTACT_MEDIUMS is just
+  // Facebook/Instagram now, so there's nothing to exclude.
+  const pickerMediums = CONTACT_MEDIUMS;
 
   return (
     <div className="home-page">

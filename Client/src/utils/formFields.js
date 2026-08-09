@@ -4,10 +4,17 @@
 
 import { t } from '../i18n';
 
-export const CONTACT_MEDIUMS = ['Phone', 'Zalo', 'Facebook', 'Messenger', 'WhatsApp', 'Email', 'Instagram', 'Threads', 'TikTok', 'Line', 'Telegram', 'Viber', 'YouTube', 'Skype'];
-export const PHONE_MEDIUMS = ['Phone', 'WhatsApp', 'Zalo', 'Viber', 'Telegram', 'Line'];
-export const EMAIL_MEDIUMS = ['Email', 'Facebook', 'Instagram', 'Threads', 'TikTok', 'YouTube', 'Skype'];
-export const DUAL_MEDIUMS = ['Facebook', 'Instagram', 'Threads'];
+// Trimmed to just Facebook + Instagram (2026-08) — Zalo/Viber/WhatsApp/etc.
+// are redundant with the phone number already captured elsewhere, and
+// TikTok/YouTube/Threads/Line/Telegram/Skype weren't worth asking for.
+// Both remaining platforms ask for a profile LINK (not a username), so
+// PHONE_MEDIUMS/EMAIL_MEDIUMS are now empty and DUAL_MEDIUMS is the only
+// branch consumers still need — kept as separate exports for compatibility
+// with existing renderDetailInput-style branching in the Tabs components.
+export const CONTACT_MEDIUMS = ['Facebook', 'Instagram'];
+export const PHONE_MEDIUMS = [];
+export const EMAIL_MEDIUMS = [];
+export const DUAL_MEDIUMS = ['Facebook', 'Instagram'];
 
 export const COUNTRY_CODES = [
   { code: '+84', country: 'Vietnam' },

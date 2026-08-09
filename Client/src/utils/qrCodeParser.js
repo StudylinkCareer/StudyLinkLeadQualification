@@ -2,23 +2,19 @@ import QRCode from 'qrcode';
 
 // QR content parser — detects social media platform from URL patterns
 
+// Trimmed to match CONTACT_MEDIUMS (Facebook + Instagram only, 2026-08) — a
+// scanned QR for a platform we no longer offer as a medium option would
+// otherwise set a medium value with no matching dropdown option.
 const PLATFORM_PATTERNS = [
-  { medium: 'Messenger', patterns: [/m\.me\//i, /messenger\.com/i, /facebook\.com\/messages/i] },
   { medium: 'Facebook', patterns: [/facebook\.com/i, /fb\.com/i] },
-  { medium: 'Zalo', patterns: [/zalo\.me/i, /zaloapp\.com/i, /chat\.zalo\.me/i] },
-  { medium: 'WhatsApp', patterns: [/wa\.me/i, /whatsapp\.com/i] },
-  { medium: 'Threads', patterns: [/threads\.net/i] },
   { medium: 'Instagram', patterns: [/instagram\.com/i, /instagr\.am/i] },
-  { medium: 'Line', patterns: [/line\.me/i] },
-  { medium: 'Telegram', patterns: [/t\.me\//i, /telegram\.me/i] },
-  { medium: 'Viber', patterns: [/viber\.com/i] },
 ];
 
 const PHONE_PATTERN = /^(?:tel:|(?:\+?\d[\d\s\-()]{6,}))$/;
 
 /**
  * Parse QR code content and detect the social media platform.
- * m.me URLs → Messenger; facebook.com/fb.com → Facebook (also auto-fills facebookProfile).
+ * facebook.com/fb.com → Facebook (also auto-fills facebookProfile); instagram.com → Instagram.
  * @param {string} text — decoded QR string
  * @returns {{ medium: string|null, detail: string }}
  */
