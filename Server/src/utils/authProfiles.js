@@ -22,16 +22,12 @@ const MANAGER_PROFILES = new Set([
   'Manager', 'Senior Counselor',
 ]);
 
-// Who may manage staff targets (the "Staff Targets" admin page): Executive
-// level (CEO/COO), Quality (Data Quality) and Tech Support. Kept separate from
-// the admin/manager tiers because it's a deliberately narrow, business-defined
-// access list. Mirror in LeadManagement/src/utils/roleProfiles.js.
+// Who may manage staff targets (the "Staff Targets" admin page): CEO, COO,
+// HR Manager, Tech Manager only (explicit list from the business, 2026-08) —
+// narrower than it used to be (previously also Data Quality + Staff
+// Technical Support). Mirror in LeadManagement/src/utils/roleProfiles.js.
 const TARGETS_PROFILES = new Set([
-  'CEO', 'COO',                                              // Executive
-  'Staff, Data Quality',                                     // Quality
-  'Staff, Technical Support', 'Manager, Technical Support',  // Tech Support
-  // legacy
-  'Quality', 'Tech Support',
+  'CEO', 'COO', 'Manager, HR', 'Manager, Technical Support',
 ]);
 
 // Who may see/manage Event reports (Event Check-in → Reports tab): Executives

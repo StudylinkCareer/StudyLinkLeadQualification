@@ -959,11 +959,21 @@ async function isManagerScope(req) {
   return scope === 'all';
 }
 
-// Who may view/manage the Staff Targets tracker: manager-scope (so the Weekly
-// Report grid keeps working for managers) PLUS the dedicated Staff Targets
-// group — Executive level, Quality and Tech Support (see authProfiles).
+// Who may view/manage Monthly Targets: manager-scope (so the Weekly Report
+// grid keeps working for any manager) PLUS the dedicated Staff Targets group
+// (see authProfiles) — this endpoint is shared by both surfaces.
 async function canAccessTargets(req) {
   return (await isManagerScope(req)) || canManageTargets(req.session.staffRole);
+}
+
+// Who may use the Staff Targets PAGE's page-only features (Call Targets grid,
+// Uncontactable→Pre-sales roster) — deliberately WITHOUT the manager-scope
+// fallback above, since these have no other consumer (unlike Monthly
+// Targets, nothing else needs a broader manager carve-out for them). Exactly
+// the business-defined TARGETS_PROFILES list — CEO/COO/HR Manager/Tech
+// Manager (2026-08).
+function canAccessStaffTargetsPageOnly(req) {
+  return canManageTargets(req.session.staffRole);
 }
 
 // Months from Jan 2026 to the current month, in Vietnam local time (UTC+7).
@@ -1170,7 +1180,7 @@ async function removeTrackedStaff(req, res, next) {
 // in monthlyTargets above).
 async function callTargets(req, res, next) {
   try {
-    if (!(await canAccessTargets(req))) {
+    if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised to view call targets' });
     }
 
@@ -1263,7 +1273,7 @@ async function callTargets(req, res, next) {
 
 async function saveCallTarget(req, res, next) {
   try {
-    if (!(await canAccessTargets(req))) {
+    if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised to edit call targets' });
     }
     const { staffId, month, target } = req.body || {};
@@ -1304,7 +1314,7 @@ async function saveCallTarget(req, res, next) {
 
 async function addCallTargetTrackedStaff(req, res, next) {
   try {
-    if (!(await canAccessTargets(req))) {
+    if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
     const { staffId } = req.body || {};
@@ -1328,7 +1338,7 @@ async function addCallTargetTrackedStaff(req, res, next) {
 
 async function removeCallTargetTrackedStaff(req, res, next) {
   try {
-    if (!(await canAccessTargets(req))) {
+    if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
     const staffId = req.params.staffId;
@@ -1347,7 +1357,7 @@ async function removeCallTargetTrackedStaff(req, res, next) {
 // distribution is actually staying even, not just trusted blindly.
 async function listUncontactableRoster(req, res, next) {
   try {
-    if (!(await canAccessTargets(req))) {
+    if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
     const rows = (await pool.query(`
@@ -1364,7 +1374,7 @@ async function listUncontactableRoster(req, res, next) {
 
 async function addUncontactableRosterStaff(req, res, next) {
   try {
-    if (!(await canAccessTargets(req))) {
+    if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
     const { staffId } = req.body || {};
@@ -1388,7 +1398,7 @@ async function addUncontactableRosterStaff(req, res, next) {
 
 async function removeUncontactableRosterStaff(req, res, next) {
   try {
-    if (!(await canAccessTargets(req))) {
+    if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
     const staffId = req.params.staffId;

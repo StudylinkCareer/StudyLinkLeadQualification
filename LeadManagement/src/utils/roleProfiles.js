@@ -27,14 +27,12 @@ export const MANAGER_PROFILES = new Set([
   'Manager', 'Senior Counselor',
 ]);
 
-// Who may open the "Staff Targets" admin page: Executive (CEO/COO), Quality
-// (Data Quality) and Tech Support. Mirror of authProfiles.canManageTargets.
+// Who may open the "Staff Targets" admin page: CEO, COO, HR Manager, Tech
+// Manager only (explicit list from the business, 2026-08) — narrower than it
+// used to be (previously also Data Quality + Staff Technical Support).
+// Mirror of authProfiles.canManageTargets.
 export const TARGETS_PROFILES = new Set([
-  'CEO', 'COO',                                              // Executive
-  'Staff, Data Quality',                                     // Quality
-  'Staff, Technical Support', 'Manager, Technical Support',  // Tech Support
-  // legacy
-  'Quality', 'Tech Support',
+  'CEO', 'COO', 'Manager, HR', 'Manager, Technical Support',
 ]);
 
 // Event reports (Event Check-in → Reports tab): Executives, Managers/Leads, Data
