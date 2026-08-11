@@ -46,9 +46,14 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-// Bucket assignment for a single note — used everywhere downstream.
-function bucketFor(noteContent) {
-  return containsPhoneMention(noteContent) ? 'phone' : 'other';
+// Bucket assignment for a single note — used everywhere downstream. Same
+// combined rule as isCallNote elsewhere (contact_platform set OR the text
+// mentions a call) — this used to check the text only, which undercounted
+// notes logged via clicking a Call/Zalo/WhatsApp icon whose content didn't
+// happen to contain a call-keyword.
+function bucketFor(note) {
+  const hasPlatform = note.contactPlatform != null && note.contactPlatform !== '';
+  return (hasPlatform || containsPhoneMention(note.content)) ? 'phone' : 'other';
 }
 
 // Best-effort identification of the "responsible staff" for a lead.
@@ -130,6 +135,7 @@ async function notesActivity(req, res, next) {
         n.student_id,
         n.note_type,
         n.content,
+        n.contact_platform,
         n.author_id,
         n.author_name,
         n.created_at,
@@ -182,7 +188,7 @@ async function notesActivity(req, res, next) {
     // ── Classify each note ───────────────────────────────────
     const classified = rows.map(r => ({
       ...r,
-      bucket: bucketFor(r.content),
+      bucket: bucketFor(r),
       primaryStaff: primaryStaffOf(r),
     }));
 

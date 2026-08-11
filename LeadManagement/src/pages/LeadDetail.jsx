@@ -2369,9 +2369,14 @@ export default function LeadDetail() {
                 // A note matches when it satisfies ALL active filters. Keyword
                 // searches content + author + topic; institution and other
                 // mentions live in the content.
+                // Same combined rule as isCallNote on the backend (contact_platform
+                // set OR the text mentions a call) — this used to check the text
+                // only, which hid notes logged via clicking a Call/Zalo/WhatsApp
+                // icon whose content didn't happen to contain a call-keyword.
+                const isCallNote = (n) => (n.contactPlatform != null && n.contactPlatform !== '') || containsPhoneMention(n.content);
                 const noteMatches = (n) => {
                   if (noteTypeFilter!=='all' && n.noteType!==noteTypeFilter) return false;
-                  if (notePhoneOnly && !containsPhoneMention(n.content)) return false;
+                  if (notePhoneOnly && !isCallNote(n)) return false;
                   if (q) {
                     const hay = `${n.content||''} ${n.authorName||''} ${n.topic||''}`.toLowerCase();
                     if (!hay.includes(q)) return false;
