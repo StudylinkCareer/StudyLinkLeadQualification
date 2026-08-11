@@ -22,10 +22,26 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { reportsAPI, staffAPI } from '../services/api';
 
-function mondayOf(d) { const x = new Date(d); const o = (x.getDay() + 6) % 7; x.setDate(x.getDate() - o); x.setHours(0, 0, 0, 0); return x; }
-function lastCompletedMonday() { return new Date(mondayOf(new Date()).getTime() - 7 * 864e5); }
-function iso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
-function fmt(d) { return new Date(d).toLocaleDateString(); }
+// weekStart is always a plain 'YYYY-MM-DD' calendar-date string (a VN
+// calendar date, not a specific instant) — every helper here is deliberately
+// pure UTC arithmetic. new Date('YYYY-MM-DD') parses as UTC midnight, but
+// the old versions of these helpers mixed that with LOCAL getters
+// (getDate/getFullYear/toLocaleDateString) — for any viewer whose browser
+// timezone sits behind UTC (e.g. the US), UTC midnight falls on the
+// PREVIOUS calendar day locally, so every week-shift drifted (+6/-8 instead
+// of a clean +7/-7) and displayed dates could be off by a day too. Doing
+// everything in UTC (anchored to VN "today" for the initial default) makes
+// the result identical for every viewer regardless of their own clock.
+function parseYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
+function toYmd(d) { return d.toISOString().slice(0, 10); }
+function vnTodayYmd() {
+  const vn = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  return `${vn.getUTCFullYear()}-${String(vn.getUTCMonth() + 1).padStart(2, '0')}-${String(vn.getUTCDate()).padStart(2, '0')}`;
+}
+function mondayOf(ymd) { const x = parseYmd(ymd); const o = (x.getUTCDay() + 6) % 7; x.setUTCDate(x.getUTCDate() - o); return x; }
+function lastCompletedMonday() { return new Date(mondayOf(vnTodayYmd()).getTime() - 7 * 864e5); }
+function iso(d) { return toYmd(d); }
+function fmt(ymd) { const d = parseYmd(ymd); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`; }
 
 const card  = { background: 'var(--bg-primary,#fff)', border: '1px solid var(--border,#e5e7eb)', borderRadius: 8, padding: '1rem 1.25rem', marginBottom: '1rem' };
 const sub   = { fontSize: '0.8rem', color: 'var(--text-secondary,#6b7280)' };
@@ -286,8 +302,8 @@ function WeeklyReportInner() {
                 state: { weekStart, mode, selected } });
   }, [pushTrail, weekStart, mode, selected, language]);
 
-  const shiftWeek = (delta) => { const x = new Date(weekStart); x.setDate(x.getDate() + delta * 7); setWeekStart(iso(x)); setDrill(null); };
-  const weekEndLabel = useMemo(() => { const x = new Date(weekStart); x.setDate(x.getDate() + 6); return fmt(x); }, [weekStart]);
+  const shiftWeek = (delta) => { const x = parseYmd(weekStart); x.setUTCDate(x.getUTCDate() + delta * 7); setWeekStart(toYmd(x)); setDrill(null); };
+  const weekEndLabel = useMemo(() => { const x = parseYmd(weekStart); x.setUTCDate(x.getUTCDate() + 6); return fmt(toYmd(x)); }, [weekStart]);
 
   const groups = data?.groups || [];
   const totalsGroup = { label: '__totals__', contracted: data?.contractedTotals || {} };
