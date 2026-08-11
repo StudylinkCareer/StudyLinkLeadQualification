@@ -652,7 +652,15 @@ export default function Leads() {
   // Counselor Note so there is an automatic record of the call attempt.
   function handleCallClick(lead) {
     const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-    notesAPI.add(lead.studentId, 'counselor', `📞 Called student — ${now}`)
+    // noteType was hardcoded to 'counselor' regardless of who's logged in —
+    // fine for Counselors, but the backend correctly rejects it for
+    // Pre-sales staff (no write_counselor permission), so this auto-note
+    // silently failed to save for them (swallowed by the .catch below with
+    // no visible error) — the call attempt never got recorded anywhere.
+    const noteType = canDo('notes', 'write_counselor') ? 'counselor'
+      : canDo('notes', 'write_presales') ? 'presales'
+      : 'management';
+    notesAPI.add(lead.studentId, noteType, `📞 Called student — ${now}`)
       .catch(err => console.warn('Auto call note failed:', err));
   }
 

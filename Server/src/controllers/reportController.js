@@ -602,7 +602,7 @@ async function computeGroup(names, ctx, opts = {}) {
   const histRows = callStudentIds.length ? (await pool.query(
     `SELECT student_id, contact_platform, content, created_at, call_answered
        FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
-    [callStudentIds, we])).rows : [];
+    [callStudentIds, ws])).rows : [];
 
   const classified = classifyCalls(weekNoteRows, histRows);
 
