@@ -4,8 +4,12 @@
 //   Sales + Marketing Monthly Report (Report -> Monthly Report). Automates
 //   what's derivable from existing data (Team Performance/Convert Rate,
 //   Contract Sources, Pre-sales call/meeting/handoff stats, Marketing
-//   per-activity leads/funnel/cost) and cleanly surfaces the few things that
-//   must stay manual (Giờ gọi) rather than pretending they're automated.
+//   per-activity leads/funnel/cost).
+//
+// REMOVED (2026-08): "Total Call Hour KPI" (manual hours entry) and its
+// derived "Avg KBM/hour" rate — hours worked isn't a tracked focus area.
+// Backend (call_hours table, getCallHours/saveCallHours) is left intact,
+// just unused here, so this is easy to bring back if that changes.
 //
 // WHAT'S NOT SHOWN / CAVEATS
 //   - Khách chuyển (presales->sales handoffs) only catches handoffs done
@@ -244,35 +248,6 @@ function CallDetailDrilldownPanel({ notes, navigate, L, language }) {
   );
 }
 
-// Plain-number inline-edit cell (EventReport.jsx's EditableNumber, but no
-// VND formatting — Giờ gọi is hours, not currency).
-function EditableHours({ value, onSave, placeholder }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value ?? '');
-  useEffect(() => { setDraft(value ?? ''); }, [value]);
-
-  if (!editing) {
-    return (
-      <span onClick={() => setEditing(true)} title="Click to edit"
-        style={{ cursor: 'pointer', borderBottom: '1px dashed var(--border)' }}>
-        {value == null ? (placeholder || '— (click to enter)') : value}
-      </span>
-    );
-  }
-  return (
-    <input
-      autoFocus type="number" className="form-input" value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => { setEditing(false); onSave(draft === '' ? null : Number(draft)); }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') { setEditing(false); onSave(draft === '' ? null : Number(draft)); }
-        if (e.key === 'Escape') { setEditing(false); setDraft(value ?? ''); }
-      }}
-      style={{ width: '90px' }}
-    />
-  );
-}
-
 export default function MonthlyReport() {
   const navigate = useNavigate();
   const { language } = useLanguage();
@@ -314,11 +289,6 @@ export default function MonthlyReport() {
   }, []);
 
   useEffect(() => { if (month) load(month); }, [month, load]);
-
-  async function handleSaveHours(staffId, hours) {
-    await reportsAPI.saveCallHours(staffId, month, hours);
-    load(month);
-  }
 
   async function handleSaveNotes() {
     setNotesSaving(true);
@@ -392,9 +362,8 @@ export default function MonthlyReport() {
 
   const presalesTotals = useMemo(() => {
     const rows = report?.presalesReport || [];
-    const t = { hours: 0, hasHours: false, totalCalls: 0, newCalls: 0, ongoingCalls: 0, kbmCount: 0, meetingsCount: 0, transferred: 0, callsKpi: 0 };
+    const t = { totalCalls: 0, newCalls: 0, ongoingCalls: 0, kbmCount: 0, meetingsCount: 0, transferred: 0, callsKpi: 0 };
     for (const r of rows) {
-      if (r.hours != null) { t.hours += r.hours; t.hasHours = true; }
       t.totalCalls += r.totalCalls;
       t.newCalls += r.newCalls || 0;
       t.ongoingCalls += r.ongoingCalls || 0;
@@ -403,7 +372,6 @@ export default function MonthlyReport() {
       t.transferred += r.transferred.length;
       t.callsKpi += r.callsKpi || 0;
     }
-    t.avgKbmPerHour = t.hasHours && t.hours ? Math.round((t.kbmCount / t.hours) * 100) / 100 : null;
     t.pctCallsKpi = t.callsKpi ? Math.round((t.totalCalls / t.callsKpi) * 1000) / 10 : null;
     return t;
   }, [report]);
@@ -426,14 +394,10 @@ export default function MonthlyReport() {
     report?.contractResources, 'count', (r) => r.sourceLabel, (r) => r.sourceLabel, L('Other', 'Khác')
   ), [report, language]);
 
-  // Pre-sales: raw counts (Total calls vs KBM) side by side with the derived
-  // rate (Avg KBM/hour) — same two-chart pattern as Team Performance above.
+  // Pre-sales: raw counts (Total calls vs KBM).
   const presalesCountData = useMemo(() => (report?.presalesReport || []).map((r) => ({
     name: r.fullName, totalCalls: r.totalCalls, kbmCount: r.kbmCount,
   })), [report]);
-  const presalesRateData = useMemo(() => (report?.presalesReport || [])
-    .filter((r) => r.avgKbmPerHour != null)
-    .map((r) => ({ name: r.fullName, rate: r.avgKbmPerHour })), [report]);
 
   // Marketing: leads-per-activity magnitude, plus a stacked funnel-by-activity
   // breakdown. Statuses are ordered per LEAD_STATUSES (fixed order, never
@@ -700,14 +664,12 @@ export default function MonthlyReport() {
                   <thead>
                     <tr>
                       <th style={{ textAlign: 'left' }}>{L('Staff', 'Nhân viên')}</th>
-                      <th style={{ textAlign: 'right' }}>{L('Total Call Hour KPI', 'Giờ gọi (thủ công)')}</th>
                       <th style={{ textAlign: 'right' }} title={L('First-ever successful contact', 'Lần đầu liên hệ thành công')}>{L('New', 'Mới')}</th>
                       <th style={{ textAlign: 'right' }} title={L('Follow-up successful contacts', 'Liên hệ lại thành công')}>{L('Ongoing', 'Tiếp tục')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Total calls', 'Tổng cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Calls KPI', 'KPI cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('% Calls KPI', '% KPI cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('KBM (unanswered)', 'Số cuộc KBM')}</th>
-                      <th style={{ textAlign: 'right' }}>{L('Avg KBM/hour', 'TB KBM/giờ')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Meetings', 'Cuộc hẹn')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Transferred to Sales', 'Khách chuyển')}</th>
                     </tr>
@@ -725,16 +687,12 @@ export default function MonthlyReport() {
                         <Fragment key={r.staffId}>
                           <tr>
                             <td>{r.fullName}</td>
-                            <td style={{ textAlign: 'right' }}>
-                              <EditableHours value={r.hours} onSave={(v) => handleSaveHours(r.staffId, v)} placeholder={L('— (click to enter)', '— (bấm để nhập)')} />
-                            </td>
                             <td style={clickableStyle(r.newCalls)} onClick={() => toggleCallCell('new', r.newCalls)}>{r.newCalls}</td>
                             <td style={clickableStyle(r.ongoingCalls)} onClick={() => toggleCallCell('ongoing', r.ongoingCalls)}>{r.ongoingCalls}</td>
                             <td style={clickableStyle(r.totalCalls)} onClick={() => toggleCallCell('total', r.totalCalls)}>{r.totalCalls}</td>
                             <td style={{ textAlign: 'right' }}>{r.callsKpi}</td>
                             <td style={{ textAlign: 'right' }}>{fmtPct(r.pctCallsKpi)}</td>
                             <td style={clickableStyle(r.kbmCount)} onClick={() => toggleCallCell('kbm', r.kbmCount)}>{r.kbmCount}</td>
-                            <td style={{ textAlign: 'right' }}>{r.avgKbmPerHour == null ? '—' : r.avgKbmPerHour}</td>
                             <td style={{ textAlign: 'right' }}>{r.meetingsCount}</td>
                             <td style={{ textAlign: 'right', cursor: r.transferred.length ? 'pointer' : 'default' }}
                               onClick={() => r.transferred.length && toggleTransfers(r.staffId)}>
@@ -748,7 +706,7 @@ export default function MonthlyReport() {
                           </tr>
                           {expandedTransfers.has(r.staffId) && r.transferred.length > 0 && (
                             <tr key={`${r.staffId}-transfers`}>
-                              <td colSpan={11} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={9} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <table className="leads-data-table" style={{ width: '100%' }}>
                                   <thead><tr>
                                     <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
@@ -774,7 +732,7 @@ export default function MonthlyReport() {
                           )}
                           {callDrilldownNotes && (
                             <tr key={`${r.staffId}-calls`}>
-                              <td colSpan={11} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={9} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <CallDetailDrilldownPanel notes={callDrilldownNotes} navigate={navigate} L={L} language={language} />
                               </td>
                             </tr>
@@ -783,7 +741,7 @@ export default function MonthlyReport() {
                       );
                     })}
                     {!(report.presalesReport || []).length && (
-                      <tr><td colSpan={11} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         {L('No pre-sales staff found', 'Không tìm thấy nhân viên pre-sales')}
                       </td></tr>
                     )}
@@ -792,14 +750,12 @@ export default function MonthlyReport() {
                     <tfoot>
                       <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
                         <td>{L('Total', 'Tổng cộng')}</td>
-                        <td style={{ textAlign: 'right' }}>{presalesTotals.hasHours ? presalesTotals.hours : '—'}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.newCalls}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.ongoingCalls}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.totalCalls}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.callsKpi}</td>
                         <td style={{ textAlign: 'right' }}>{fmtPct(presalesTotals.pctCallsKpi)}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.kbmCount}</td>
-                        <td style={{ textAlign: 'right' }}>{presalesTotals.avgKbmPerHour == null ? '—' : presalesTotals.avgKbmPerHour}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.meetingsCount}</td>
                         <td style={{ textAlign: 'right' }}>{presalesTotals.transferred}</td>
                       </tr>
@@ -809,44 +765,21 @@ export default function MonthlyReport() {
               </div>
 
               {presalesCountData.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '1rem', marginTop: '1rem' }}>
-                  <div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', textAlign: 'center' }}>
-                      {L('Total calls vs KBM', 'Tổng cuộc gọi vs KBM')}
-                    </div>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={presalesCountData} barGap={2} margin={{ top: 24, right: 8, left: 0, bottom: 48 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
-                        <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} allowDecimals={false} />
-                        <Tooltip />
-                        <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: '0.7rem', paddingBottom: '6px' }} />
-                        <Bar dataKey="totalCalls" name={L('Total calls', 'Tổng cuộc gọi')} fill={COLORS.good} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="kbmCount" name={L('KBM (unanswered)', 'Số cuộc KBM')} fill={COLORS.warn} radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                <div style={{ marginTop: '1rem', maxWidth: 560 }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', textAlign: 'center' }}>
+                    {L('Total calls vs KBM', 'Tổng cuộc gọi vs KBM')}
                   </div>
-                  <div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', textAlign: 'center' }}>
-                      {L('Avg KBM/hour', 'TB KBM/giờ')}
-                    </div>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={presalesRateData} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
-                        <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                        <Tooltip />
-                        <Bar dataKey="rate" name={L('Avg KBM/hour', 'TB KBM/giờ')} fill={COLORS.warn} radius={[4, 4, 0, 0]}>
-                          <LabelList dataKey="rate" position="top" style={{ fontSize: 10, fill: 'var(--text-secondary)' }} />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                    {presalesRateData.length < presalesCountData.length && (
-                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '0.25rem' }}>
-                        {L('Staff with no Giờ gọi entered are omitted here (no rate to show).', 'Nhân viên chưa nhập Giờ gọi không hiển thị ở đây.')}
-                      </div>
-                    )}
-                  </div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={presalesCountData} barGap={2} margin={{ top: 24, right: 8, left: 0, bottom: 48 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
+                      <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} allowDecimals={false} />
+                      <Tooltip />
+                      <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: '0.7rem', paddingBottom: '6px' }} />
+                      <Bar dataKey="totalCalls" name={L('Total calls', 'Tổng cuộc gọi')} fill={COLORS.good} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="kbmCount" name={L('KBM (unanswered)', 'Số cuộc KBM')} fill={COLORS.warn} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               )}
 
