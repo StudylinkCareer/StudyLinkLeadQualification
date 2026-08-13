@@ -32,12 +32,15 @@ import { NavCollapseProvider, useNavCollapse } from './contexts/NavCollapseConte
 import { PermissionsProvider, usePermissions } from './contexts/PermissionsContext';
 import { LookupProvider } from './contexts/LookupContext';
 import { NavTrailProvider } from './contexts/NavTrailContext';
+import { NoteDraftsProvider } from './contexts/NoteDraftsContext';
 import Sidebar from './components/Sidebar';
 import MobilePageNav from './components/MobilePageNav';
 import TrailBreadcrumb from './components/TrailBreadcrumb';
 import SessionExpiredModal from './components/SessionExpiredModal';
 import DevBadge from './components/DevBadge';
+import PendingDraftsBanner from './components/PendingDraftsBanner';
 import Login from './pages/Login';
+import PendingDrafts from './pages/PendingDrafts';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
 import LeadsList from './pages/LeadsList';
@@ -96,16 +99,19 @@ function SidebarBackdrop() {
 function ConsoleShell({ children }) {
   const { collapsed } = useNavCollapse();
   return (
-    <div className={`app-layout ${collapsed ? 'nav-collapsed' : ''}`}>
-      <Sidebar />
-      <SidebarBackdrop />
-      <FloatingExpandButton />
-      <MobilePageNav />
-      <main className="main-content">
-        <TrailBreadcrumb />
-        {children}
-      </main>
-    </div>
+    <NoteDraftsProvider>
+      <div className={`app-layout ${collapsed ? 'nav-collapsed' : ''}`}>
+        <Sidebar />
+        <SidebarBackdrop />
+        <FloatingExpandButton />
+        <MobilePageNav />
+        <main className="main-content">
+          <TrailBreadcrumb />
+          <PendingDraftsBanner />
+          {children}
+        </main>
+      </div>
+    </NoteDraftsProvider>
   );
 }
 
@@ -155,6 +161,7 @@ export default function App() {
               <Route path="/students/:id"     element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
               <Route path="/lead/:id"         element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
               <Route path="/staff"            element={<ProtectedLayout><Staff /></ProtectedLayout>} />
+              <Route path="/notes/drafts"     element={<ProtectedLayout><PendingDrafts /></ProtectedLayout>} />
               <Route path="/distribution"     element={<ProtectedLayout><LeadDistribution /></ProtectedLayout>} />
               <Route path="/events"           element={<ProtectedLayout><Suspense fallback={<div style={{ padding:24, color:'#6b7280' }}>Loading…</div>}><EventConsole /></Suspense></ProtectedLayout>} />
               <Route path="/settings/columns" element={<ProtectedLayout><ColumnLayoutSettings /></ProtectedLayout>} />

@@ -143,6 +143,52 @@ async function listCommunications(staffScope, since, until) {
 }
 
 
+// Edit a note's content (confirmed 2026-08): author-only, 48-hour window,
+// full audit trail — the previous content is archived to
+// student_note_edits before being overwritten, never discarded. Returns
+// null (no rows touched) when the caller isn't the author or the window
+// has passed, so the controller can tell "not found" apart from
+// "not allowed" without a second query.
+async function editContent(id, staffId, newContent) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query(
+      `SELECT id, content, author_id, created_at FROM student_notes WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
+    const note = cur.rows[0];
+    if (!note || note.author_id !== staffId) { await client.query('ROLLBACK'); return { error: 'not_found_or_not_author' }; }
+    const ageMs = Date.now() - new Date(note.created_at).getTime();
+    if (ageMs > 48 * 60 * 60 * 1000) { await client.query('ROLLBACK'); return { error: 'edit_window_expired' }; }
+
+    await client.query(
+      `INSERT INTO student_note_edits (note_id, previous_content, edited_by) VALUES ($1, $2, $3)`,
+      [id, note.content, staffId]
+    );
+    const upd = await client.query(
+      `UPDATE student_notes SET content = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [newContent, id]
+    );
+    await client.query('COMMIT');
+    return { data: objectToCamelCase(upd.rows[0]) };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function getEditHistory(noteId) {
+  const result = await pool.query(
+    `SELECT id, previous_content, edited_by, edited_at FROM student_note_edits
+      WHERE note_id = $1 ORDER BY edited_at ASC`,
+    [noteId]
+  );
+  return result.rows.map(objectToCamelCase);
+}
+
 async function appendNote(id, addendumText, followUpDate) {
   // Append addendum text to existing content. Optionally update follow_up_date
   // and reset reminder_status to 'active' when a new follow-up date is given.
@@ -158,4 +204,4 @@ async function appendNote(id, addendumText, followUpDate) {
   );
   return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
 }
-module.exports = { create, listByStudent, listByStudentAndType, listByLead, listStudentLevel, deleteNote, updateReminderStatus, listReminders, listCommunications, appendNote };
+module.exports = { create, listByStudent, listByStudentAndType, listByLead, listStudentLevel, deleteNote, updateReminderStatus, listReminders, listCommunications, appendNote, editContent, getEditHistory };

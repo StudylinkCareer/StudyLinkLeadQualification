@@ -311,6 +311,9 @@ export const notesAPI = {
       // ?? not || — callAnswered can legitimately be `false` (didn't pick up),
       // which || would wrongly collapse to null.
       callAnswered:    extra.callAnswered ?? null,
+      // Set when this note completes a pending draft (cross-device note
+      // drafts, confirmed 2026-08) — the backend marks the draft resolved.
+      draftId:         extra.draftId || null,
     }),
 
   // Student-level notes (topic-less for now).
@@ -323,6 +326,7 @@ export const notesAPI = {
       meetingLocation: extra.meetingLocation || null,
       // ?? not || — callAnswered can legitimately be `false` (didn't pick up).
       callAnswered:    extra.callAnswered ?? null,
+      draftId:         extra.draftId || null,
     }),
 
   // extra = { topic, followUpDate, reminderStatus, rescheduledDate, contactPlatform }
@@ -338,13 +342,28 @@ export const notesAPI = {
       meetingLocation: extra.meetingLocation || null,
     }),
 
-  delete:            (id)             => request('DELETE', `/api/notes/${id}`),
   // Append a new addendum block to an existing note (existing content immutable).
   append:            (id, text, followUpDate) =>
     request('PATCH', `/api/notes/${id}/append`, { text, followUpDate }),
   getReminders:      ()             => request('GET',    '/api/notes/reminders'),
   getCommunications: ()             => request('GET',    '/api/notes/communications'),
   updateReminder:    (id, data)     => request('PATCH',  `/api/notes/${id}/reminder`, data),
+  // Edit a note's own content — author-only, 48-hour window, full audit
+  // trail (confirmed 2026-08). Replaces delete as the correction mechanism.
+  edit:              (id, content)  => request('PATCH',  `/api/notes/${id}/edit`, { content }),
+  getEditHistory:    (id)           => request('GET',    `/api/notes/${id}/edits`),
+};
+
+// ── Note drafts (cross-device, confirmed 2026-08) ────────────────
+// A draft is created the moment a staffer clicks the platform action button
+// (Make phone call / Open Zalo / etc.) — that's now the "lock" moment; the
+// note form itself isn't fillable before that. Stays pending until resumed
+// (from any device) or manually discarded — no auto-expiry.
+export const noteDraftsAPI = {
+  create:   (data)      => request('POST',   '/api/note-drafts', data),
+  listMine: ()           => request('GET',    '/api/note-drafts'),
+  get:      (id)         => request('GET',    `/api/note-drafts/${id}`),
+  discard:  (id)         => request('DELETE', `/api/note-drafts/${id}`),
 };
 
 // ── Documents ─────────────────────────────────────────────────

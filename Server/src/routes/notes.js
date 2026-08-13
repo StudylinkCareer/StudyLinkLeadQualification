@@ -21,7 +21,13 @@ router.get ('/student-level/:studentId', requireStaffAuth, noteCtrl.getStudentLe
 router.post('/student-level/:studentId', requireStaffAuth, noteCtrl.addStudentLevelNote);
 router.get('/:studentId',        requireStaffAuth, noteCtrl.getNotes);
 router.post('/:studentId',      requireStaffAuth, noteCtrl.addNote);
-router.delete('/:id',           requireStaffAuth, noteCtrl.deleteNote);
+// Deleting notes is disabled entirely (2026-08) -- notes are meant to be a
+// permanent record. deleteNote() is kept in the controller/model for
+// reference but no longer reachable via any route.
+// Editing replaces it as the correction mechanism -- author-only, 48-hour
+// window, full audit trail (see StudentNote.editContent).
+router.patch('/:id/edit',        requireStaffAuth, noteCtrl.editNote);
+router.get('/:id/edits',         requireStaffAuth, noteCtrl.getNoteEditHistory);
 router.patch('/:id/reminder',    requireStaffAuth, noteCtrl.updateReminder);
 router.patch('/:id/append',      requireStaffAuth, noteCtrl.appendToNote);
 

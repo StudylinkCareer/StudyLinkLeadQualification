@@ -14,6 +14,7 @@ const StudentNote = require('../models/StudentNote');
 const permissionService = require('../services/permissionService');
 const { objectToCamelCase } = require('../utils/caseConvert');
 const uncontactableTransfer = require('../services/uncontactableTransfer');
+const NoteDraft = require('../models/NoteDraft');
 
 // Same connection pattern used elsewhere in the codebase — local pool,
 // SSL only in production.
@@ -108,7 +109,7 @@ async function getLeadNotes(req, res, next) {
 async function addLeadNote(req, res, next) {
   try {
     const { leadId } = req.params;
-    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered } = req.body;
+    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered, draftId } = req.body;
     const staffRole = req.session.staffRole;
     const staffName = req.session.staffName;
     const authorId  = req.session.staffId;
@@ -134,6 +135,14 @@ async function addLeadNote(req, res, next) {
 
     const note = await StudentNote.create({ studentId: lead.studentId, leadId, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered });
 
+    // Resuming a draft (confirmed 2026-08, cross-device note drafts) — mark
+    // it completed and link it to the note that was actually saved. Never
+    // blocks the response either way: the note itself already saved fine
+    // above regardless of what happens to the draft bookkeeping.
+    if (draftId) {
+      await NoteDraft.complete(draftId, authorId, note.id).catch((e) => console.warn('[noteDrafts] complete failed:', e.message));
+    }
+
     // Uncontactable → Pre-sales auto-transfer (confirmed 2026-08): checked
     // "as soon as" a counselor note lands, since that's the only note type
     // that can ever belong to a lead's assigned counselor. Never throws —
@@ -158,7 +167,7 @@ async function getStudentLevelNotes(req, res, next) {
 async function addStudentLevelNote(req, res, next) {
   try {
     const { studentId } = req.params;
-    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation, callAnswered } = req.body;
+    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation, callAnswered, draftId } = req.body;
     const staffRole = req.session.staffRole;
     const staffName = req.session.staffName;
     const authorId  = req.session.staffId;
@@ -181,10 +190,17 @@ async function addStudentLevelNote(req, res, next) {
 
     // Student-level notes carry no topic for now.
     const note = await StudentNote.create({ studentId, leadId: null, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic: null, meetingLocation, callAnswered });
+
+    if (draftId) {
+      await NoteDraft.complete(draftId, authorId, note.id).catch((e) => console.warn('[noteDrafts] complete failed:', e.message));
+    }
+
     res.status(201).json({ success: true, data: note });
   } catch (err) { next(err); }
 }
 
+// Deleting is disabled entirely (2026-08, see routes/notes.js) — kept here
+// only as a reference for what the old delete used to do; not reachable.
 async function deleteNote(req, res, next) {
   try {
     const { id } = req.params;
@@ -197,6 +213,36 @@ async function deleteNote(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+// Edit a note's content — author-only, 48-hour window, full audit trail
+// (confirmed 2026-08). This REPLACES delete as the correction mechanism:
+// a mistake gets fixed in place with a visible history, rather than erased.
+async function editNote(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { content } = req.body || {};
+    if (!content || !String(content).trim()) {
+      return res.status(400).json({ success: false, error: 'Content is required' });
+    }
+    const staffId = req.session.staffId;
+    const result = await StudentNote.editContent(id, staffId, content);
+    if (result.error === 'not_found_or_not_author') {
+      return res.status(404).json({ success: false, error: 'Note not found or you are not its author' });
+    }
+    if (result.error === 'edit_window_expired') {
+      return res.status(403).json({ success: false, error: 'This note is more than 48 hours old and can no longer be edited.' });
+    }
+    res.json({ success: true, data: result.data });
+  } catch (err) { next(err); }
+}
+
+async function getNoteEditHistory(req, res, next) {
+  try {
+    const { id } = req.params;
+    const history = await StudentNote.getEditHistory(id);
+    res.json({ success: true, data: history });
+  } catch (err) { next(err); }
 }
 
 
@@ -293,4 +339,4 @@ async function appendToNote(req, res, next) {
     next(err);
   }
 }
-module.exports = { getNotes, addNote, getLeadNotes, addLeadNote, getStudentLevelNotes, addStudentLevelNote, deleteNote, updateReminder, getReminders, getCommunications, appendToNote };
+module.exports = { getNotes, addNote, getLeadNotes, addLeadNote, getStudentLevelNotes, addStudentLevelNote, deleteNote, editNote, getNoteEditHistory, updateReminder, getReminders, getCommunications, appendToNote };

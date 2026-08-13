@@ -14,10 +14,11 @@ import { isManagerOrAdmin, canManageTargets, canViewEventAnalytics } from '../ut
 import { useNavCollapse } from '../contexts/NavCollapseContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
+import { useNoteDrafts } from '../contexts/NoteDraftsContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus, FiTarget, FiBarChart2,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus, FiTarget, FiBarChart2, FiClock,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -26,6 +27,7 @@ export default function Sidebar() {
   const { toggle }           = useNavCollapse();
   const { language }         = useLanguage();
   const { clear: clearTrail } = useNavTrail();
+  const { count: pendingDraftCount } = useNoteDrafts();
   const navigate             = useNavigate();
   const location             = useLocation();
 
@@ -109,6 +111,21 @@ export default function Sidebar() {
           onClick={() => navigate('/client-followup')}
         >
           <FiBell size={16} /> {language === 'vi' ? 'Theo dõi Sales' : 'Sales Followup'}
+        </button>
+
+        <button
+          className={`nav-item ${isActive('/notes/drafts') ? 'active' : ''}`}
+          onClick={() => navigate('/notes/drafts')}
+          style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}
+        >
+          <span style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+            <FiClock size={16} /> {language === 'vi' ? 'Ghi chú đang chờ' : 'Pending Notes'}
+          </span>
+          {pendingDraftCount > 0 && (
+            <span style={{ background:'#f59e0b', color:'#fff', borderRadius:'999px', minWidth:'18px', height:'18px', padding:'0 5px', fontSize:'0.6875rem', fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center' }}>
+              {pendingDraftCount}
+            </span>
+          )}
         </button>
 
         {isManagerOrAdmin(staff?.position) && (

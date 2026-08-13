@@ -22,7 +22,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { studentAPI, leadAPI, staffAPI, notesAPI, auditAPI, leadEventsAPI } from '../services/api';
+import { studentAPI, leadAPI, staffAPI, notesAPI, noteDraftsAPI, auditAPI, leadEventsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { isManagerOrAdmin } from '../utils/roleProfiles';
 import { useLookup } from '../contexts/LookupContext';
@@ -31,7 +31,7 @@ import { useNavTrail } from '../contexts/NavTrailContext';
 import Watermark from '../components/Watermark';
 import TrailBackButton from '../components/TrailBackButton';
 import LeadEventsSection from '../components/LeadEventsSection';
-import { FiArrowLeft, FiPlus, FiSend, FiTrash2, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid, FiPhone } from 'react-icons/fi';
+import { FiArrowLeft, FiPlus, FiSend, FiEdit2, FiX, FiSave, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiGrid, FiPhone } from 'react-icons/fi';
 import { getArchetype, GROUP_COLORS } from '../utils/oceanArchetypes';
 import { containsPhoneMention } from '../utils/phoneAliases';
 
@@ -128,7 +128,7 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }
 
 // ── NoteCard ─────────────────────────────────────────────────────────────────
 // isLatest=true shows reminder controls + append panel.
-function NoteCard({ note, staff, canAppend, onDelete, onAppend, onUpdateReminder, isLatest }) {
+function NoteCard({ note, staff, canAppend, onAppend, onUpdateReminder, onEdit, isLatest }) {
   const [appendOpen,     setAppendOpen]     = useState(false);
   const [appSaving,      setAppSaving]      = useState(false);
   const [appSummary,     setAppSummary]     = useState('');
@@ -138,6 +138,44 @@ function NoteCard({ note, staff, canAppend, onDelete, onAppend, onUpdateReminder
   const [reschedOpen,    setReschedOpen]    = useState(false);
   const [newDate,        setNewDate]        = useState('');
   const [reminderSaving, setReminderSaving] = useState(false);
+  const [editOpen,       setEditOpen]       = useState(false);
+  const [editText,       setEditText]       = useState(note.content);
+  const [editSaving,     setEditSaving]     = useState(false);
+  const [histOpen,       setHistOpen]       = useState(false);
+  const [histLoading,    setHistLoading]    = useState(false);
+  const [editHistory,    setEditHistory]    = useState(null);
+
+  // Author-only, 48h window — mirrors the backend's own check in
+  // StudentNote.editContent (server is the real gate; this just avoids
+  // showing a button that would 403).
+  const EDIT_WINDOW_MS = 48 * 60 * 60 * 1000;
+  const isAuthor  = !!staff?.id && note.authorId === staff.id;
+  const withinWindow = (Date.now() - new Date(note.createdAt).getTime()) < EDIT_WINDOW_MS;
+  const canEdit   = isAuthor && withinWindow && !!onEdit;
+  const wasEdited = !!note.updatedAt;
+
+  async function handleEditSave() {
+    if (!editText.trim()) { alert('Note content cannot be empty.'); return; }
+    setEditSaving(true);
+    try {
+      await onEdit(note.id, editText.trim());
+      setEditOpen(false);
+      setEditHistory(null); // stale now — reload next time history is opened
+    } catch(e) { alert(e.message); }
+    finally { setEditSaving(false); }
+  }
+
+  async function toggleHistory() {
+    if (histOpen) { setHistOpen(false); return; }
+    setHistOpen(true);
+    if (editHistory) return;
+    setHistLoading(true);
+    try {
+      const res = await notesAPI.getEditHistory(note.id);
+      setEditHistory(res.data || []);
+    } catch(e) { alert(e.message); setHistOpen(false); }
+    finally { setHistLoading(false); }
+  }
 
   const fld = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
   const inp = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.5rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-primary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
@@ -206,15 +244,58 @@ function NoteCard({ note, staff, canAppend, onDelete, onAppend, onUpdateReminder
           )}
         </div>
         <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+          {wasEdited && (
+            <button onClick={toggleHistory}
+              style={{ background:'none', border:'none', cursor:'pointer', fontSize:'0.75rem', color:'var(--text-secondary)', fontStyle:'italic', textDecoration:'underline', padding:0 }}>
+              (edited{histOpen ? ' — hide' : ' — view history'})
+            </button>
+          )}
           <span style={{ fontSize:'0.75rem', color:'var(--text-secondary)', fontFamily:'DM Mono' }}>{formatDate(note.createdAt)}</span>
-          {note.authorId===staff?.id && (
-            <button className="btn btn--ghost btn--icon btn--sm" onClick={()=>onDelete(note.id)} style={{ color:'var(--danger)' }}>
-              <FiTrash2 size={13}/>
+          {/* Deleting notes is disabled (2026-08) — notes are a permanent record.
+              Editing takes its place: author-only, 48h window, full audit trail. */}
+          {canEdit && !editOpen && (
+            <button onClick={()=>{ setEditText(note.content); setEditOpen(true); }}
+              style={{ background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', color:'var(--primary)' }}
+              title="Edit this note (author only, within 48h)">
+              <FiEdit2 size={13}/>
             </button>
           )}
         </div>
       </div>
-      <div style={{ padding:'0.75rem 0.875rem', fontSize:'0.9375rem', whiteSpace:'pre-wrap' }}>{note.content}</div>
+      {histOpen && (
+        <div style={{ padding:'0.625rem 0.875rem', background:'var(--bg-secondary)', borderBottom:'1px solid var(--border)', fontSize:'0.8125rem' }}>
+          {histLoading ? 'Loading history…' : (editHistory && editHistory.length > 0 ? (
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.625rem' }}>
+              {editHistory.map(h => (
+                <div key={h.id} style={{ borderLeft:'2px solid var(--border)', paddingLeft:'0.625rem' }}>
+                  <div style={{ color:'var(--text-secondary)', fontSize:'0.75rem', marginBottom:'0.25rem' }}>
+                    Previous version — edited {formatDate(h.editedAt)}
+                  </div>
+                  <div style={{ whiteSpace:'pre-wrap', opacity:0.8 }}>{h.previousContent}</div>
+                </div>
+              ))}
+            </div>
+          ) : 'No prior versions found.')}
+        </div>
+      )}
+      {editOpen ? (
+        <div style={{ padding:'0.75rem 0.875rem', display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+          <textarea rows={6} value={editText} onChange={e=>setEditText(e.target.value)}
+            style={{ width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.5rem 0.625rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.9375rem', background:'var(--bg-primary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 }}/>
+          <div style={{ display:'flex', gap:'0.5rem' }}>
+            <button className="btn btn--primary" onClick={handleEditSave} disabled={editSaving}
+              style={{ display:'flex', alignItems:'center', gap:'0.4rem' }}>
+              <FiSave size={13}/>{editSaving?'Saving...':'Save Edit'}
+            </button>
+            <button onClick={()=>{ setEditOpen(false); setEditText(note.content); }}
+              style={{ padding:'0.4rem 0.875rem', borderRadius:'8px', border:'1px solid var(--border)', background:'transparent', fontSize:'0.8125rem', cursor:'pointer' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding:'0.75rem 0.875rem', fontSize:'0.9375rem', whiteSpace:'pre-wrap' }}>{note.content}</div>
+      )}
       {isLatest && hasReminder && (reminderStatus==='active'||reminderStatus==='rescheduled') && (
         <div style={{ padding:'0 0.875rem 0.75rem', display:'flex', gap:'0.5rem', flexWrap:'wrap' }}>
           {!reschedOpen ? (
@@ -286,7 +367,7 @@ function NoteCard({ note, staff, canAppend, onDelete, onAppend, onUpdateReminder
 }
 
 // ── NoteThread ────────────────────────────────────────────────────────────────
-function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpdateReminder, matchFn }) {
+function NoteThread({ topic, notes, staff, canAppend, onAppend, onUpdateReminder, onEdit, matchFn }) {
   const [expanded, setExpanded] = useState(false);
   const sorted     = [...notes].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
   const latest     = sorted[sorted.length-1];
@@ -333,7 +414,7 @@ function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpda
         [...matches].reverse().map((note, i)=>(
           <div key={note.id} style={{ borderTop: i>0 ? '1px solid var(--border)' : undefined }}>
             <NoteCard note={note} staff={staff} canAppend={false}
-              onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={false}/>
+              onAppend={onAppend} onUpdateReminder={onUpdateReminder} onEdit={onEdit} isLatest={false}/>
           </div>
         ))
       ) : (
@@ -341,11 +422,11 @@ function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpda
         // reverse-chronological order.
         <>
           <NoteCard note={latest} staff={staff} canAppend={canAppend}
-            onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={true}/>
+            onAppend={onAppend} onUpdateReminder={onUpdateReminder} onEdit={onEdit} isLatest={true}/>
           {expanded && [...history].reverse().map(note=>(
             <div key={note.id} style={{ borderTop:'1px solid var(--border)', opacity:0.75 }}>
               <NoteCard note={note} staff={staff} canAppend={false}
-                onDelete={onDelete} onAppend={onAppend} onUpdateReminder={onUpdateReminder} isLatest={false}/>
+                onAppend={onAppend} onUpdateReminder={onUpdateReminder} onEdit={onEdit} isLatest={false}/>
             </div>
           ))}
         </>
@@ -358,11 +439,12 @@ function NoteThread({ topic, notes, staff, canAppend, onDelete, onAppend, onUpda
 // Two-step flow: Step 1 copies the name, Step 2 opens Messenger.
 // Kept as a separate component so useState works cleanly without
 // browser clipboard/popup security conflicts.
-function MessengerSearch({ studentName, actionBtnStyle, onContacted }) {
+function MessengerSearch({ studentName, actionBtnStyle, onContacted, locking }) {
   const [searchName, setSearchName] = useState(studentName || '');
   const [copied, setCopied]         = useState(false);
 
   function handleCopy() {
+    if (locking || copied) return;
     const el = document.createElement('textarea');
     el.value = searchName;
     el.style.position = 'fixed';
@@ -388,9 +470,9 @@ function MessengerSearch({ studentName, actionBtnStyle, onContacted }) {
           onChange={e => { setSearchName(e.target.value); setCopied(false); }}
           style={{ flex:1, padding:'0.5rem 0.75rem', borderRadius:'6px', border:'1px solid var(--border)', fontSize:'0.9375rem', fontWeight:600, color:'var(--text-primary)', background:'var(--bg-primary)', fontFamily:'inherit' }}
         />
-        <button onClick={handleCopy}
-          style={{ padding:'0.5rem 0.875rem', borderRadius:'6px', border:'none', background: copied ? '#16a34a' : 'var(--primary)', color:'#fff', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, whiteSpace:'nowrap', transition:'background 0.2s' }}>
-          {copied ? '✓ Copied!' : 'Copy Name'}
+        <button onClick={handleCopy} disabled={locking}
+          style={{ padding:'0.5rem 0.875rem', borderRadius:'6px', border:'none', background: copied ? '#16a34a' : 'var(--primary)', color:'#fff', cursor: locking ? 'default' : 'pointer', opacity: locking ? 0.6 : 1, fontSize:'0.8125rem', fontWeight:600, whiteSpace:'nowrap', transition:'background 0.2s' }}>
+          {locking ? 'Starting…' : copied ? '✓ Copied!' : 'Copy Name'}
         </button>
       </div>
       <a href="https://www.messenger.com/" target="_blank" rel="noreferrer"
@@ -424,11 +506,23 @@ function toIntlPhone(phone) {
   return d.startsWith('0') ? '84' + d.slice(1) : d;
 }
 
-function ContactLogModal({ method, studentName, studentEmail, studentPhone, connectWithUs, staffName, timestamp, documents, onSave, onCancel, topicOptions }) {
+function ContactLogModal({ method, studentId, leadId, noteType, studentName, studentEmail, studentPhone, connectWithUs, staffName, timestamp, documents, onSave, onCancel, topicOptions, initialDraftId }) {
   const [saving, setSaving] = useState(false);
-  // Once the counsellor opens a communication medium (clicks an action button),
-  // the note becomes mandatory — they cannot cancel or close until saved.
-  const [contacted,    setContacted]    = useState(false);
+  // Once the counsellor clicks the platform action button (Make phone call /
+  // Open Zalo / etc.), the note becomes mandatory — they cannot cancel or
+  // close until saved. That click is ALSO now the "lock" moment for the
+  // cross-device draft system (confirmed 2026-08): it persists a
+  // note_drafts row server-side (not just this browser's memory), so a
+  // staffer can dial from mobile and finish the note from any device —
+  // recoverable via the pending-notes banner/badge even if this tab is
+  // closed. The note form itself isn't fillable until draftId is set.
+  // `initialDraftId` — set when this modal was opened by RESUMING an
+  // already-locked draft (from the Pending Notes page/banner, possibly
+  // started on another device entirely) — skips the lock step, since it
+  // already happened wherever the draft was created.
+  const [contacted, setContacted] = useState(!!initialDraftId);
+  const [draftId,   setDraftId]   = useState(initialDraftId || null);
+  const [locking,   setLocking]   = useState(false);
 
   // Block browser close/refresh/navigation while note is mandatory
   useEffect(() => {
@@ -481,12 +575,51 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
     ? (connectWithUs.startsWith('http') ? connectWithUs : 'https://m.me/' + connectWithUs)
     : 'https://www.messenger.com/';
 
-  function openLink(url) {
-    if (!url) return;
-    setContacted(true);
-    const isDevice = url.startsWith('tel:') || url.startsWith('sms:');
-    if (isDevice) window.location.href = url;
-    else window.open(url, '_blank');
+  // Shared by every action-button handler below: creates the persisted
+  // draft, warning (not blocking — multiple drafts are allowed, just
+  // discouraged) if the staffer already has other pending drafts sitting
+  // unfinished. Returns the new draft's id, or null if the user backed out
+  // or creation failed.
+  async function createDraft() {
+    try {
+      const pending = await noteDraftsAPI.listMine().catch(() => ({ data: [] }));
+      const others = (pending.data || []).filter(d => d.id !== draftId);
+      if (others.length > 0) {
+        const proceed = window.confirm(
+          `You already have ${others.length} pending note${others.length > 1 ? 's' : ''} not yet filled in. ` +
+          `Starting another is allowed but not recommended — finish those first if you can.\n\nStart this one anyway?`
+        );
+        if (!proceed) return null;
+      }
+      const res = await noteDraftsAPI.create({
+        studentId, leadId: leadId || null, method, noteType,
+        contactName: studentName, contactPhone: studentPhone, contactEmail: studentEmail,
+      });
+      setDraftId(res.data.id);
+      setContacted(true);
+      return res.data.id;
+    } catch (e) {
+      alert('Could not start this note: ' + e.message + '\n\nPlease try again.');
+      return null;
+    }
+  }
+
+  // The one place that both locks the note (creates the persisted draft)
+  // AND performs the actual platform action — every action button below
+  // routes through this instead of a plain href navigation, so the draft
+  // always exists BEFORE the device dials/opens, never after.
+  async function lockAndOpen(url) {
+    if (!url || locking || contacted) return;
+    setLocking(true);
+    try {
+      const id = await createDraft();
+      if (!id) return;
+      const isDevice = url.startsWith('tel:') || url.startsWith('sms:');
+      if (isDevice) window.location.href = url;
+      else window.open(url, '_blank');
+    } finally {
+      setLocking(false);
+    }
   }
 
   // handleSave replaced by NoteForm onSubmit inline
@@ -527,10 +660,10 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open email composer</div>
               <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', marginBottom:'0.75rem' }}>
-                <a href={outlookUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0072c6')}>
+                <a href="#" onClick={e => { e.preventDefault(); lockAndOpen(outlookUrl); }} style={{ ...actionBtnStyle('#0072c6'), opacity: locking ? 0.6 : 1 }}>
                   ✉ Outlook
                 </a>
-                <a href={gmailUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#ea4335')}>
+                <a href="#" onClick={e => { e.preventDefault(); lockAndOpen(gmailUrl); }} style={{ ...actionBtnStyle('#ea4335'), opacity: locking ? 0.6 : 1 }}>
                   ✉ Gmail
                 </a>
               </div>
@@ -562,9 +695,9 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           {method === 'call' && studentPhone && (
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Make phone call</div>
-              <a href={'tel:' + studentPhone}
-                 onClick={() => setContacted(true)}
-                 style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1rem', borderRadius:'8px', background:'#16a34a', color:'#fff', fontSize:'0.8125rem', fontWeight:600, textDecoration:'none' }}>
+              <a href="#"
+                 onClick={e => { e.preventDefault(); lockAndOpen('tel:' + studentPhone); }}
+                 style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1rem', borderRadius:'8px', background:'#16a34a', color:'#fff', fontSize:'0.8125rem', fontWeight:600, textDecoration:'none', opacity: locking ? 0.6 : 1 }}>
                 📞 Call {studentPhone}
               </a>
               <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem' }}>
@@ -577,7 +710,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           {isSMS && (
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Send text message</div>
-              <a href={smsUrl} onClick={() => setContacted(true)} style={actionBtnStyle('#2563eb')}>
+              <a href="#" onClick={e => { e.preventDefault(); lockAndOpen(smsUrl); }} style={{ ...actionBtnStyle('#2563eb'), opacity: locking ? 0.6 : 1 }}>
                 💬 Open SMS — {studentPhone}
               </a>
               <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
@@ -590,7 +723,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           {isWhatsApp && (
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open WhatsApp</div>
-              <a href={whatsappUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#25d366')}>
+              <a href="#" onClick={e => { e.preventDefault(); lockAndOpen(whatsappUrl); }} style={{ ...actionBtnStyle('#25d366'), opacity: locking ? 0.6 : 1 }}>
                 W Open WhatsApp — {studentPhone}
               </a>
               <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
@@ -603,7 +736,7 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
           {isZalo && (
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open Zalo</div>
-              <a href={zaloUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0068ff')}>
+              <a href="#" onClick={e => { e.preventDefault(); lockAndOpen(zaloUrl); }} style={{ ...actionBtnStyle('#0068ff'), opacity: locking ? 0.6 : 1 }}>
                 Z Open Zalo — {studentPhone}
               </a>
               <div style={{ fontSize:'0.75rem', color:'var(--text-secondary)', marginTop:'0.625rem', lineHeight:1.5 }}>
@@ -617,14 +750,26 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
             <div style={{ background:'var(--bg-secondary)', borderRadius:'10px', padding:'1rem' }}>
               <div style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.75rem' }}>Open Messenger</div>
               {connectWithUs ? (
-                <a href={messengerUrl} target="_blank" rel="noreferrer" onClick={() => setContacted(true)} style={actionBtnStyle('#0084ff')}>
+                <a href="#" onClick={e => { e.preventDefault(); lockAndOpen(messengerUrl); }} style={{ ...actionBtnStyle('#0084ff'), opacity: locking ? 0.6 : 1 }}>
                   M Open Messenger — {connectWithUs}
                 </a>
               ) : (
                 <>
-                  {/* Step 1: Copy name. Step 2: Open Messenger. Two separate actions
-                      because browsers block clipboard writes inside window.open calls. */}
-                  <MessengerSearch studentName={studentName} actionBtnStyle={actionBtnStyle} onContacted={() => setContacted(true)}/>
+                  {/* Step 1: Copy name (this is the lock moment here — Step 2
+                      "Open Messenger" is just a plain external link, nothing
+                      left for us to gate once they've copied). Two separate
+                      actions because browsers block clipboard writes inside
+                      window.open calls. */}
+                  <MessengerSearch studentName={studentName} actionBtnStyle={actionBtnStyle} locking={locking}
+                    onContacted={async () => {
+                      if (locking || contacted) return;
+                      setLocking(true);
+                      try {
+                        await createDraft();
+                      } finally {
+                        setLocking(false);
+                      }
+                    }}/>
                 </>
               )}
             </div>
@@ -647,27 +792,36 @@ function ContactLogModal({ method, studentName, studentEmail, studentPhone, conn
             </div>
           )}
 
-          {/* ── Unified NoteForm ── */}
-          <NoteForm
-            topicOptions={topicOptions}
-            saving={saving}
-            showCallAnswered={method === 'call' || method === 'zalo' || method === 'whatsapp'}
-            onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate, callAnswered }) => {
-              setSaving(true);
-              const parts = [
-                icon + ' ' + label + ' — ' + studentName,
-                'By: ' + staffName + '  |  ' + displayTime,
-                'Topic: ' + topic,
-                '',
-                'Summary:\n' + summary,
-                '\nNext Steps:\n' + nextSteps,
-                '\nReason:\n' + reason,
-                '\nFollow-up Date: ' + followUpDate,
-              ];
-              await onSave({ noteText: parts.join('\n'), topic, followUpDate, contactPlatform: label, callAnswered: callAnswered ?? null });
-              setSaving(false);
-            }}
-          />
+          {/* ── Unified NoteForm — locked until the platform action above has
+              been taken (contacted && draftId). Filling this in without
+              clicking that action first is no longer possible: there's
+              nothing to fill in until a draft exists to attach it to. ── */}
+          {contacted && draftId ? (
+            <NoteForm
+              topicOptions={topicOptions}
+              saving={saving}
+              showCallAnswered={method === 'call' || method === 'zalo' || method === 'whatsapp'}
+              onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate, callAnswered }) => {
+                setSaving(true);
+                const parts = [
+                  icon + ' ' + label + ' — ' + studentName,
+                  'By: ' + staffName + '  |  ' + displayTime,
+                  'Topic: ' + topic,
+                  '',
+                  'Summary:\n' + summary,
+                  '\nNext Steps:\n' + nextSteps,
+                  '\nReason:\n' + reason,
+                  '\nFollow-up Date: ' + followUpDate,
+                ];
+                await onSave({ noteText: parts.join('\n'), topic, followUpDate, contactPlatform: label, callAnswered: callAnswered ?? null, draftId });
+                setSaving(false);
+              }}
+            />
+          ) : (
+            <div style={{ textAlign:'center', padding:'1rem', color:'var(--text-secondary)', fontSize:'0.8125rem' }}>
+              {locking ? 'Starting…' : `Use the button above to ${isEmail ? 'open your email composer' : 'make contact'} first — the note unlocks once that's started.`}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -1110,9 +1264,44 @@ export default function LeadDetail() {
   // `override` lets the same modal be reused for a parent's own number
   // (Family Contacts' Mother/Father) instead of the student's — pass
   // { name, email, phone } and those replace the student's own values.
-  function openContactModal(method, override) {
-    setContactModal({ method, openedAt: new Date().toISOString(), override });
+  // `resumeDraftId`, when set, opens the modal already locked — used when
+  // resuming a draft that was created (and locked) on another device/tab;
+  // see the resume effect below.
+  function openContactModal(method, override, resumeDraftId) {
+    setContactModal({ method, openedAt: new Date().toISOString(), override, resumeDraftId });
   }
+
+  // ── Resume a cross-device draft ──────────────────────────────────────────
+  // Pending Notes' "Resume" button links here as ?resumeDraft=<id>. Once the
+  // student/lead has loaded, fetch that draft and reopen the modal already
+  // locked (contacted=true, draftId set) — skips the platform-action click
+  // since it already happened wherever the draft was created.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const resumeId = params.get('resumeDraft');
+    if (!resumeId || !lead?.studentId) return;
+    (async () => {
+      try {
+        const res = await noteDraftsAPI.get(resumeId);
+        const draft = res.data;
+        if (draft.studentId !== lead.studentId) {
+          alert('This pending note belongs to a different student record.');
+          return;
+        }
+        openContactModal(draft.method, {
+          name: draft.contactName || undefined,
+          phone: draft.contactPhone || undefined,
+          email: draft.contactEmail || undefined,
+        }, draft.id);
+      } catch (e) {
+        alert('Could not load that pending note: ' + e.message);
+      } finally {
+        // Strip the query param so a refresh/back doesn't try to resume again.
+        navigate(location.pathname, { replace: true });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead?.studentId, location.search]);
 
   // Same call/sms/zalo/whatsapp launcher row used under the lead's own phone,
   // reused for Family Contacts' Mother/Father numbers via the `override` arg.
@@ -1137,7 +1326,7 @@ export default function LeadDetail() {
     );
   }
 
-  async function handleContactSave({ noteText, topic, followUpDate, contactPlatform, callAnswered }) {
+  async function handleContactSave({ noteText, topic, followUpDate, contactPlatform, callAnswered, draftId }) {
     try {
       // The note type had been hardcoded to 'counselor' here regardless of
       // who's actually logged in — fine for Counselors, but the backend
@@ -1159,6 +1348,7 @@ export default function LeadDetail() {
             followUpDate,
             contactPlatform,
             callAnswered: callAnswered ?? null,
+            draftId,
           })
         : await notesAPI.addForLead(id, contactNoteType, noteText, {
             topic,
@@ -1166,6 +1356,7 @@ export default function LeadDetail() {
             contactPlatform,
             callAnswered: callAnswered ?? null,
             reminderStatus: followUpDate ? 'active' : null,
+            draftId,
           });
       setNotes(n => [data.data, ...n]);
     } catch(e) { alert('Failed to save note: ' + e.message); }
@@ -1194,7 +1385,7 @@ export default function LeadDetail() {
         }
         const [stu, nt, st, al, regs, sleads] = await Promise.all([
           studentAPI.get(sid),
-          isStudentView ? Promise.resolve({ data: [] }) : notesAPI.listForLead(id),
+          isStudentView ? notesAPI.listStudentLevel(id) : notesAPI.listForLead(id),
           staffAPI.listActive(),
           auditAPI.getForStudent(sid),
           leadEventsAPI.list(sid).catch(() => ({ data: [] })),
@@ -1374,6 +1565,8 @@ export default function LeadDetail() {
           studyPlanGap:       editData.studyPlanGap,
           ultimateObjective:  editData.ultimateObjective,
           schoolAttended:     editData.schoolAttended,
+          yearOfBirth:        editData.yearOfBirth,
+          residency:          editData.residency,
           ward:               editData.ward,
           source:             editData.source,
           sourceDetail:       editData.sourceDetail,
@@ -1542,18 +1735,16 @@ export default function LeadDetail() {
         '\nReason:\n' + reason,
         '\nFollow-up Date: ' + followUpDate,
       ];
-      const data = await notesAPI.addForLead(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null, callAnswered:null });
+      // Same split handleContactSave uses — on the Student page, `id` is the
+      // student_id, not a numeric lead_id, so this has to go through the
+      // student-level notes endpoint instead (which also means no structured
+      // `topic` there, same as the Contact Log Modal's parent-call icons).
+      const data = isStudentView
+        ? await notesAPI.addStudentLevel(id, noteType, parts.join('\n'), { followUpDate, contactPlatform:null, callAnswered:null })
+        : await notesAPI.addForLead(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null, callAnswered:null });
       setNotes(n=>[data.data,...n]);
     } catch(e) { alert(e.message); }
     finally { setAdding(false); }
-  }
-
-  async function deleteNote(noteId) {
-    if (!confirm('Delete this note?')) return;
-    try {
-      await notesAPI.delete(noteId);
-      setNotes(n=>n.filter(x=>x.id!==noteId));
-    } catch(e) { alert(e.message); }
   }
 
   if (loading) return <div className="loading-center">Loading...</div>;
@@ -2271,8 +2462,10 @@ export default function LeadDetail() {
           </div>
           </>)}
 
-          {/* Notes — Lead-level only; hidden on the Sales-record (student) view */}
-          {!isStudentView && (
+          {/* Notes — shown on both views. On the Student page this loads/adds
+              student-level notes (no topic, no lead_id) instead of lead notes —
+              same split handleContactSave already uses for the Contact Log
+              Modal's parent-call icons, which is what made this visible at all. */}
           <div className="section-card">
             <div className="section-header"><span className="section-title">Notes</span></div>
             <div style={{ marginBottom:'1.25rem' }}>
@@ -2407,7 +2600,6 @@ export default function LeadDetail() {
                     matchFn={anyFilter ? noteMatches : undefined}
                     staff={staff}
                     canAppend={canDo('notes','write_counselor')}
-                    onDelete={deleteNote}
                     onAppend={async (noteId,appendText,appendFollowUpDate)=>{
                       try {
                         const data = await notesAPI.append(noteId,appendText,appendFollowUpDate);
@@ -2420,12 +2612,15 @@ export default function LeadDetail() {
                         setNotes(n=>n.map(x=>x.id===noteId?{...x,...data.data}:x));
                       } catch(e){ alert(e.message); }
                     }}
+                    onEdit={async (noteId,newContent)=>{
+                      const data = await notesAPI.edit(noteId,newContent);
+                      setNotes(n=>n.map(x=>x.id===noteId?{...x,...data.data}:x));
+                    }}
                   />
                 ));
               })()}
             </div>
           </div>
-          )}
 
           {isStudentView && (
           <div className="section-card">
@@ -2631,6 +2826,9 @@ export default function LeadDetail() {
       <ContactLogModal
         topicOptions={topicOptions}
         method={contactModal.method}
+        studentId={lead?.studentId}
+        leadId={lead?.leadId}
+        noteType={canDo('notes', 'write_counselor') ? 'counselor' : canDo('notes', 'write_presales') ? 'presales' : 'management'}
         studentName={contactModal.override?.name  || lead?.fullName || 'Student'}
         studentEmail={contactModal.override?.email || lead?._raw_email || lead?.email || ''}
         studentPhone={contactModal.override?.phone || lead?._raw_phone || lead?.phone || ''}
@@ -2638,6 +2836,7 @@ export default function LeadDetail() {
         staffName={staff?.fullName || 'Counselor'}
         timestamp={contactModal.openedAt}
         documents={[]}
+        initialDraftId={contactModal.resumeDraftId}
         onSave={handleContactSave}
         onCancel={handleContactCancel}
       />
