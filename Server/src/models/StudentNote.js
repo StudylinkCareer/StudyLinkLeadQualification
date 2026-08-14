@@ -81,10 +81,18 @@ async function deleteNote(id, authorId) {
 
 
 async function updateReminderStatus(id, { reminderStatus, rescheduledDate }) {
+  // "Close reminder" only ever sends { reminderStatus:'closed' } — no
+  // rescheduledDate. That used to fall through as undefined -> null and
+  // wipe out any date a prior "Reschedule" had set, so a note that was
+  // rescheduled then closed silently lost its rescheduled date and the
+  // badge fell back to the ORIGINAL follow_up_date instead of the last
+  // known one. Only overwrite rescheduled_date when this call is itself
+  // the one setting it (reminderStatus === 'rescheduled'); otherwise
+  // leave the column untouched.
   const result = await pool.query(
     `UPDATE student_notes
-     SET reminder_status  = $1,
-         rescheduled_date = $2
+     SET reminder_status  = $1::varchar,
+         rescheduled_date = CASE WHEN $1::varchar = 'rescheduled' THEN $2::date ELSE rescheduled_date END
      WHERE id = $3
      RETURNING *`,
     [reminderStatus, rescheduledDate || null, id]
