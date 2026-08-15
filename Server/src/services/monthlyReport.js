@@ -153,10 +153,12 @@ async function getSalesMonthlyReport(monthLabel) {
   const callTargetOverrideByStaffId = await getCallTargetOverrides(staffIds, monthDate);
 
   // Calls + Basic/Final Counselling Letter counts, per counselor. Calls use
-  // the unified New/Ongoing/KBM classification (confirmed 2026-08) — same
-  // rule Weekly Report and the Call Targets "actual" figure use, so all
-  // three agree. History (any author, before this month) is needed so a
-  // lead first reached last month doesn't get wrongly counted as "New".
+  // the unified New/Ongoing/KBM classification (confirmed 2026-08, New
+  // scoped per staff member as of 2026-08) — same rule Weekly Report and
+  // the Call Targets "actual" figure use, so all three agree. History (any
+  // author, before this month) is needed so classifyCalls can tell whether
+  // THIS counselor already reached this lead before this month — a lead
+  // first reached by someone else (e.g. Presales) is still New to them.
   // Letters are counted by topic — same two topic strings Weekly Report's
   // lettersFor() already uses.
   const counselorNoteRows = counselorNames.length ? (await pool.query(
@@ -167,7 +169,7 @@ async function getSalesMonthlyReport(monthLabel) {
   )).rows : [];
   const counselorCallStudentIds = [...new Set(counselorNoteRows.filter(isCallNote).map((n) => n.student_id))];
   const counselorHistRows = counselorCallStudentIds.length ? (await pool.query(
-    `SELECT student_id, contact_platform, content, created_at, call_answered
+    `SELECT student_id, author_name, contact_platform, content, created_at, call_answered
        FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
     [counselorCallStudentIds, startISO]
   )).rows : [];
@@ -270,8 +272,10 @@ async function getSalesMonthlyReport(monthLabel) {
 
   // ── Pre-sales stats (per presales staffer) ──
   // Same unified New/Ongoing/KBM classification as the counselor section
-  // above (confirmed 2026-08) — history spans ANY author (not just
-  // Pre-sales), before this month, matching Weekly Report's scope.
+  // above (confirmed 2026-08, New scoped per staff member as of 2026-08)
+  // — history spans ANY author (not just Pre-sales), before this month,
+  // matching Weekly Report's scope; classifyCalls itself narrows it down
+  // to each staffer's own prior contact with a lead.
   const noteRows = presalesNames.length ? (await pool.query(
     `SELECT sn.id AS note_id, sn.author_name, sn.student_id, s.full_name,
             sn.contact_platform, sn.content, sn.created_at, sn.call_answered
@@ -282,7 +286,7 @@ async function getSalesMonthlyReport(monthLabel) {
   )).rows : [];
   const presalesCallStudentIds = [...new Set(noteRows.filter(isCallNote).map((n) => n.student_id))];
   const presalesHistRows = presalesCallStudentIds.length ? (await pool.query(
-    `SELECT student_id, contact_platform, content, created_at, call_answered
+    `SELECT student_id, author_name, contact_platform, content, created_at, call_answered
        FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
     [presalesCallStudentIds, startISO]
   )).rows : [];

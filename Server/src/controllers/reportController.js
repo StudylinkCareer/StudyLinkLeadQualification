@@ -593,20 +593,24 @@ async function computeGroup(names, ctx, opts = {}) {
   //    2026-08) — see callClassification.js for the full rule. KBM notes are
   //    excluded BEFORE New/Ongoing classification (a KBM'd attempt never
   //    counts as anyone's first contact); New = first non-KBM contact EVER
-  //    (checked against full history, not just this week); Ongoing = later
-  //    non-KBM contacts, deduped by (lead, VN day, khung giờ time-slot) —
-  //    repeat touches to the same lead in the same slot count once, a
-  //    different slot counts as a separate genuine touch. Same rule Monthly
-  //    Report and the Call Targets "actual" figure use, so all three agree. --
+  //    (checked against that STAFF MEMBER's full history, not just this
+  //    week — a lead already worked by someone else, e.g. Presales before
+  //    a hand-off, is still New to whoever it's handed to); Ongoing =
+  //    later non-KBM contacts by the same staffer, deduped by (lead, VN
+  //    day, khung giờ time-slot) — repeat touches to the same lead in the
+  //    same slot by the same person count once, a different slot (or the
+  //    same slot by a different staffer) counts as a separate genuine
+  //    touch. Same rule Monthly Report and the Call Targets "actual"
+  //    figure use, so all three agree. --
   const weekNoteRows = (await pool.query(
-    `SELECT sn.student_id, sn.contact_platform, sn.content, sn.created_at, sn.call_answered, s.full_name
+    `SELECT sn.student_id, sn.author_name, sn.contact_platform, sn.content, sn.created_at, sn.call_answered, s.full_name
        FROM student_notes sn JOIN students s ON s.student_id = sn.student_id
       WHERE sn.author_name = ANY($1) AND sn.created_at >= $2 AND sn.created_at < $3`,
     [names, ws, we])).rows;
 
   const callStudentIds = [...new Set(weekNoteRows.filter(isCallNote).map(c => c.student_id))];
   const histRows = callStudentIds.length ? (await pool.query(
-    `SELECT student_id, contact_platform, content, created_at, call_answered
+    `SELECT student_id, author_name, contact_platform, content, created_at, call_answered
        FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
     [callStudentIds, ws])).rows : [];
 
