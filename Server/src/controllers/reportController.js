@@ -1371,14 +1371,99 @@ async function listUncontactableRoster(req, res, next) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
     const rows = (await pool.query(`
-      SELECT t.staff_id, t.sort_order, s.full_name,
+      SELECT t.staff_id, t.sort_order, t.slot_mode, s.full_name,
              (SELECT COUNT(*) FROM uncontactable_transfers WHERE to_presales_staff_id = t.staff_id)::int AS received
         FROM uncontactable_transfer_presales_staff t
         JOIN staff s ON s.id = t.staff_id
        WHERE s.is_active = true
        ORDER BY t.sort_order, s.full_name
     `)).rows;
-    res.json({ success: true, data: rows.map((r) => ({ staffId: r.staff_id, fullName: r.full_name, sortOrder: r.sort_order, received: r.received })) });
+    res.json({ success: true, data: rows.map((r) => ({ staffId: r.staff_id, fullName: r.full_name, sortOrder: r.sort_order, slotMode: r.slot_mode, received: r.received })) });
+  } catch (err) { next(err); }
+}
+
+async function setUncontactableSlotMode(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const staffId = req.params.staffId;
+    const { slotMode } = req.body || {};
+    if (!['standard', 'evening_gap'].includes(slotMode)) {
+      return res.status(400).json({ success: false, error: "slotMode must be 'standard' or 'evening_gap'" });
+    }
+    const upd = await pool.query(
+      `UPDATE uncontactable_transfer_presales_staff SET slot_mode = $1 WHERE staff_id = $2 RETURNING staff_id`,
+      [slotMode, staffId]
+    );
+    if (upd.rowCount === 0) return res.status(404).json({ success: false, error: 'Not on the roster' });
+    res.json({ success: true, data: { staffId: Number(staffId), slotMode } });
+  } catch (err) { next(err); }
+}
+
+// ── Pre-sales working-hours grid ──────────────────────────────────────────
+// Backs the weighted round-robin (see uncontactableTransfer.js pickNextPresales)
+// — hours/day x days/month per roster member per month, editable by whoever
+// can manage Staff Targets (e.g. cô Như / HR) whenever a person's schedule
+// or the roster itself changes. Same months list as the other grids
+// (buildTargetMonths) for one consistent "2026 →" table shape across the page.
+async function presalesWorkingHours(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const { months } = buildTargetMonths();
+    const roster = (await pool.query(`
+      SELECT t.staff_id, t.sort_order, t.slot_mode, s.full_name
+        FROM uncontactable_transfer_presales_staff t
+        JOIN staff s ON s.id = t.staff_id
+       WHERE s.is_active = true
+       ORDER BY t.sort_order, s.full_name
+    `)).rows;
+    const staffIds = roster.map((r) => r.staff_id);
+    const hourRows = staffIds.length ? (await pool.query(
+      `SELECT staff_id, to_char(month, 'YYYY-MM') AS label, hours_per_day, days_per_month
+         FROM presales_working_hours WHERE staff_id = ANY($1)`,
+      [staffIds]
+    )).rows : [];
+    const hoursMap = new Map(); // `${staffId}|${label}` -> {hoursPerDay, daysPerMonth}
+    for (const h of hourRows) {
+      hoursMap.set(`${h.staff_id}|${h.label}`, { hoursPerDay: Number(h.hours_per_day), daysPerMonth: Number(h.days_per_month) });
+    }
+    const rows = roster.map((r) => {
+      const cells = {};
+      for (const mo of months) {
+        cells[mo.label] = hoursMap.get(`${r.staff_id}|${mo.label}`) || { hoursPerDay: 0, daysPerMonth: 0 };
+      }
+      return { staffId: r.staff_id, fullName: r.full_name, slotMode: r.slot_mode, cells };
+    });
+    res.json({ success: true, data: { months, rows } });
+  } catch (err) { next(err); }
+}
+
+async function savePresalesWorkingHours(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const { staffId, month, hoursPerDay, daysPerMonth } = req.body || {};
+    if (!staffId || !/^\d{4}-\d{2}$/.test(month || '')) {
+      return res.status(400).json({ success: false, error: 'staffId and month (YYYY-MM) are required' });
+    }
+    const h = Number(hoursPerDay), d = Number(daysPerMonth);
+    if (!Number.isFinite(h) || h < 0 || !Number.isFinite(d) || d < 0) {
+      return res.status(400).json({ success: false, error: 'hoursPerDay and daysPerMonth must be non-negative numbers' });
+    }
+    const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+    await pool.query(
+      `INSERT INTO presales_working_hours (staff_id, month, hours_per_day, days_per_month, updated_by)
+       VALUES ($1, ($2 || '-01')::date, $3, $4, $5)
+       ON CONFLICT (staff_id, month)
+         DO UPDATE SET hours_per_day = EXCLUDED.hours_per_day, days_per_month = EXCLUDED.days_per_month,
+                        updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [staffId, month, h, d, updatedBy]
+    );
+    res.json({ success: true, data: { staffId: Number(staffId), month, hoursPerDay: h, daysPerMonth: d } });
   } catch (err) { next(err); }
 }
 
@@ -1459,7 +1544,8 @@ module.exports = {
   notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation,
   monthlyTargets, saveMonthlyTarget, addTrackedStaff, removeTrackedStaff,
   callTargets, saveCallTarget, addCallTargetTrackedStaff, removeCallTargetTrackedStaff,
-  listUncontactableRoster, addUncontactableRosterStaff, removeUncontactableRosterStaff,
+  listUncontactableRoster, addUncontactableRosterStaff, removeUncontactableRosterStaff, setUncontactableSlotMode,
+  presalesWorkingHours, savePresalesWorkingHours,
   // Frozen Weekly Report: scheduler + manual re-publish + note freezing.
   generateWeeklySnapshot, vnWeekStart, regenerateWeeklySnapshot, lockRecommendationsBefore,
 };

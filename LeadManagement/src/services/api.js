@@ -421,6 +421,10 @@ export const reportsAPI = {
   uncontactableRoster:       ()        => request('GET',    '/api/reports/uncontactable-roster'),
   addUncontactableStaff:     (staffId) => request('POST',   '/api/reports/uncontactable-roster', { staffId }),
   removeUncontactableStaff:  (staffId) => request('DELETE', `/api/reports/uncontactable-roster/${staffId}`),
+  setUncontactableSlotMode:  (staffId, slotMode) => request('PATCH', `/api/reports/uncontactable-roster/${staffId}/slot-mode`, { slotMode }),
+  presalesWorkingHours:      ()        => request('GET', '/api/reports/presales-working-hours'),
+  savePresalesWorkingHours:  (staffId, month, hoursPerDay, daysPerMonth) =>
+    request('PUT', '/api/reports/presales-working-hours', { staffId, month, hoursPerDay, daysPerMonth }),
 
   // ── Sales + Marketing Monthly Report ──
   monthlyReport:  (month)                     => request('GET', `/api/reports/monthly?month=${month}`),

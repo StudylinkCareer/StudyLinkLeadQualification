@@ -246,6 +246,9 @@ function UncontactableRosterList({ roster, L }) {
   function removeStaff(staffId) {
     reportsAPI.removeUncontactableStaff(staffId).then(() => reload()).catch(() => {});
   }
+  function changeSlotMode(staffId, slotMode) {
+    reportsAPI.setUncontactableSlotMode(staffId, slotMode).then(() => reload()).catch(() => {});
+  }
 
   return (
     <div>
@@ -283,10 +286,11 @@ function UncontactableRosterList({ roster, L }) {
           <div style={sub}>{L('No one in the pool yet — use Add staff.', 'Chưa có ai trong danh sách — dùng Thêm nhân viên.')}</div>
         )}
         {rows && rows.length > 0 && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', maxWidth: 480 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', maxWidth: 640 }}>
             <thead>
               <tr>
                 <th style={th}>{L('Staff', 'Nhân viên')}</th>
+                <th style={th}>{L('Khung giờ rule', 'Quy tắc khung giờ')}</th>
                 <th style={{ ...th, textAlign: 'right' }}>{L('Received', 'Đã nhận')}</th>
                 <th style={{ ...th, width: 40 }}></th>
               </tr>
@@ -295,6 +299,17 @@ function UncontactableRosterList({ roster, L }) {
               {rows.map(r => (
                 <tr key={r.staffId}>
                   <td style={td}>{r.fullName}</td>
+                  <td style={td}>
+                    <select value={r.slotMode || 'standard'} onChange={e => changeSlotMode(r.staffId, e.target.value)}
+                      style={{ padding: '0.25rem', fontSize: '0.8rem' }}
+                      title={L(
+                        'Standard = the fixed AM/PM/outside-hours slots. Evening gap = 3 evening calls, each ≥1h apart.',
+                        'Tiêu chuẩn = 3 khung giờ AM/PM/ngoài giờ cố định. Buổi tối = 3 cuộc gọi buổi tối, mỗi cuộc cách nhau ≥1 tiếng.'
+                      )}>
+                      <option value="standard">{L('Standard (AM/PM/outside hours)', 'Tiêu chuẩn (AM/PM/ngoài giờ)')}</option>
+                      <option value="evening_gap">{L('Evening telesales (≥1h apart)', 'Telesales buổi tối (cách ≥1h)')}</option>
+                    </select>
+                  </td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{r.received}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     <span onClick={() => removeStaff(r.staffId)} title={L('Remove', 'Xóa')}
@@ -304,6 +319,125 @@ function UncontactableRosterList({ roster, L }) {
               ))}
             </tbody>
           </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Pre-sales working hours — backs the weighted Uncontactable round-robin
+// (confirmed 2026-08): whoever's furthest behind their fair share (received
+// ÷ hours/day × days/month, THIS month) gets the next hand-off, instead of
+// just "fewest received". Same roster as UncontactableRosterList above —
+// add/remove staff there, edit their hours here. Each cell holds TWO
+// numbers (hours/day, days/month) rather than the single-value TargetsGrid
+// pattern, so it's its own small grid rather than a TargetsGrid instance.
+function PresalesHoursGrid({ L }) {
+  const [data, setData]         = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [editCell, setEditCell] = useState(null); // { staffId, month }
+  const [editHours, setEditHours] = useState('');
+  const [editDays,  setEditDays]  = useState('');
+  const skipBlurRef = useRef(false);
+
+  function reload() {
+    setLoading(true);
+    reportsAPI.presalesWorkingHours()
+      .then(r => setData(r?.data || null))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }
+  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function save(staffId, month) {
+    const h = Number(editHours) || 0, d = Number(editDays) || 0;
+    reportsAPI.savePresalesWorkingHours(staffId, month, h, d)
+      .then(() => { setEditCell(null); reload(); })
+      .catch(() => setEditCell(null));
+  }
+
+  const rows = data?.rows || [];
+  const months = data?.months || [];
+  const monthlyHours = (c) => Math.round((c.hoursPerDay || 0) * (c.daysPerMonth || 0) * 10) / 10;
+  const totalForMonth = (label) => rows.reduce((s, r) => s + monthlyHours(r.cells[label] || { hoursPerDay: 0, daysPerMonth: 0 }), 0);
+
+  return (
+    <div>
+      <div style={{ marginBottom: '1rem' }}>
+        <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{L('Pre-sales Working Hours', 'Giờ làm việc Pre-sales')}</h1>
+        <div style={sub}>
+          {L(
+            'Hours/day and calling days/month per person, editable whenever staff or their schedule changes. Drives the weighted round-robin above — someone working more hours receives proportionally more transfers.',
+            'Số giờ/ngày và số ngày gọi/tháng của từng người, cập nhật khi đổi nhân viên hoặc đổi giờ làm. Quyết định tỉ lệ xoay vòng có trọng số ở trên — người làm nhiều giờ hơn sẽ nhận nhiều lead chuyển hơn theo tỉ lệ.'
+          )}
+        </div>
+      </div>
+
+      <div style={card}>
+        {loading && !data && <div style={sub}>{L('Loading…', 'Đang tải…')}</div>}
+        {data && rows.length === 0 && (
+          <div style={sub}>{L('No one on the Uncontactable roster yet — add staff above first.', 'Chưa có ai trong danh sách Uncontactable — thêm nhân viên ở trên trước.')}</div>
+        )}
+        {data && rows.length > 0 && (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>2026</th>
+                  {rows.map(r => (
+                    <th key={r.staffId} style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap' }}>{r.fullName}</th>
+                  ))}
+                  <th style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap', color: 'var(--primary,#2563eb)' }}>{L('Total h/mo', 'Tổng h/tháng')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {months.map(mo => (
+                  <tr key={mo.label}>
+                    <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{mo.label}</td>
+                    {rows.map(r => {
+                      const c = r.cells[mo.label] || { hoursPerDay: 0, daysPerMonth: 0 };
+                      const editing = editCell && editCell.staffId === r.staffId && editCell.month === mo.label;
+                      return (
+                        <td key={r.staffId} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {editing ? (
+                            <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+                              <input type="number" min="0" step="0.5" value={editHours} autoFocus
+                                onChange={e => setEditHours(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.staffId, mo.label); }
+                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
+                                }}
+                                title={L('Hours/day', 'Giờ/ngày')}
+                                style={{ width: 36, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
+                              <span style={{ color: 'var(--text-secondary,#9ca3af)' }}>×</span>
+                              <input type="number" min="0" step="1" value={editDays}
+                                onChange={e => setEditDays(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.staffId, mo.label); }
+                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
+                                }}
+                                onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } save(r.staffId, mo.label); }}
+                                title={L('Days/month', 'Ngày/tháng')}
+                                style={{ width: 34, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
+                            </span>
+                          ) : (
+                            <span onClick={() => { setEditCell({ staffId: r.staffId, month: mo.label }); setEditHours(String(c.hoursPerDay || 0)); setEditDays(String(c.daysPerMonth || 0)); }}
+                              title={L('Click to edit hours/day × days/month', 'Nhấn để sửa giờ/ngày × ngày/tháng')}
+                              style={{ cursor: 'pointer', fontWeight: 600, fontStyle: (c.hoursPerDay || c.daysPerMonth) ? 'normal' : 'italic', color: (c.hoursPerDay || c.daysPerMonth) ? 'inherit' : 'var(--text-secondary,#9ca3af)' }}>
+                              {(c.hoursPerDay || c.daysPerMonth) ? `${c.hoursPerDay}h × ${c.daysPerMonth}d` : L('not set', 'chưa đặt')}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, background: 'var(--bg-secondary,#f8fafc)' }}>
+                      {Math.round(totalForMonth(mo.label) * 10) / 10}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
@@ -372,6 +506,10 @@ export default function StaffTargets() {
 
       <div style={{ marginTop: '2rem' }}>
         <UncontactableRosterList roster={roster} L={L} />
+      </div>
+
+      <div style={{ marginTop: '2rem' }}>
+        <PresalesHoursGrid L={L} />
       </div>
     </div>
   );

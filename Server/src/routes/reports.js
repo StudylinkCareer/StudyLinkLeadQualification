@@ -145,6 +145,23 @@ router.delete(
   requireStaffAuth,
   reportCtrl.removeUncontactableRosterStaff
 );
+router.patch(
+  '/uncontactable-roster/:staffId/slot-mode',
+  requireStaffAuth,
+  reportCtrl.setUncontactableSlotMode
+);
+
+// ── Pre-sales working hours (backs the weighted Uncontactable round-robin) ──
+router.get(
+  '/presales-working-hours',
+  requireStaffAuth,
+  reportCtrl.presalesWorkingHours
+);
+router.put(
+  '/presales-working-hours',
+  requireStaffAuth,
+  reportCtrl.savePresalesWorkingHours
+);
 
 // ── Sales + Marketing Monthly Report ─────────────────────────
 // Same broad-audience gate as notes-activity (Activity Report) — wider

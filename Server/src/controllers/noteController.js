@@ -143,13 +143,16 @@ async function addLeadNote(req, res, next) {
       await NoteDraft.complete(draftId, authorId, note.id).catch((e) => console.warn('[noteDrafts] complete failed:', e.message));
     }
 
-    // Uncontactable → Pre-sales auto-transfer (confirmed 2026-08): checked
-    // "as soon as" a counselor note lands, since that's the only note type
-    // that can ever belong to a lead's assigned counselor. Never throws —
-    // a failure here must never break the note save that triggered it.
+    // Uncontactable auto-transfer chain (confirmed 2026-08): checked "as
+    // soon as" a qualifying note lands — counselor notes drive the
+    // Sales→Presales #1 hop, presales notes drive the internal
+    // Presales #1→#2→Pool hops. Never throws — a failure here must never
+    // break the note save that triggered it.
     let transferResult;
     if (noteType === 'counselor') {
       transferResult = await uncontactableTransfer.checkAndTransfer(Number(leadId));
+    } else if (noteType === 'presales') {
+      transferResult = await uncontactableTransfer.checkAndTransferPresales(Number(leadId));
     }
 
     res.status(201).json({ success: true, data: note, uncontactableTransfer: transferResult });

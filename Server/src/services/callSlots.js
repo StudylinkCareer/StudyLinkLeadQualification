@@ -44,4 +44,43 @@ function slotOf(dateOrMs) {
   return 3;
 }
 
-module.exports = { slotOf, vnDateKey, vnParts };
+// ── Evening telesales "3 different khung giờ" rule ──────────────────────────
+// Some Pre-sales staff (confirmed 2026-08: Phan Bùi Giang Thanh, Trần Thị
+// Huyền Trang) only call in the evening, every day — the fixed 3-slot system
+// above doesn't apply to them (they're always in "slot 3"). Their 3 distinct
+// khung giờ are instead any 3 evening call times that are each at least 60
+// minutes apart from one another (e.g. 18:30 / 19:40 / 21:00 qualifies;
+// 18:30 / 19:00 / 21:00 doesn't — the first pair is only 30 min apart).
+// Evening window: 17:00-23:00 VN time — not given an exact bound, flagged
+// for confirmation once this is in use.
+const EVENING_START_MIN = 17 * 60;
+const EVENING_END_MIN   = 23 * 60;
+const MIN_GAP_MS = 60 * 60 * 1000;
+
+function isEvening(dateOrMs) {
+  const { hm } = vnParts(dateOrMs);
+  return hm >= EVENING_START_MIN && hm < EVENING_END_MIN;
+}
+
+// Given call timestamps (Date/ms/string), true if at least 3 of them fall in
+// the evening window and can be chosen such that each is >=60min from the
+// next (classic greedy interval pick: sort ascending, keep one whenever it's
+// far enough past the last one kept — maximises how many qualify).
+function hasThreeGappedEveningCalls(timestamps) {
+  const eveningMs = timestamps
+    .filter(isEvening)
+    .map((t) => (t instanceof Date ? t.getTime() : new Date(t).getTime()))
+    .sort((a, b) => a - b);
+  let kept = 0;
+  let lastKeptMs = -Infinity;
+  for (const ms of eveningMs) {
+    if (ms - lastKeptMs >= MIN_GAP_MS) {
+      kept += 1;
+      lastKeptMs = ms;
+      if (kept >= 3) return true;
+    }
+  }
+  return false;
+}
+
+module.exports = { slotOf, vnDateKey, vnParts, isEvening, hasThreeGappedEveningCalls };
