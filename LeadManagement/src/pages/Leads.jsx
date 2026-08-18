@@ -10,15 +10,15 @@
 //   - Bulk-select column, action bar, delete button, print button all
 //     gated on permissions from usePermissions().
 // CHANGES (phone + masking):
-//   - Added notesAPI import.
 //   - maskField() helper: respects fieldList() RBAC value 'view_masked'.
 //     Counselors see full data for their OWN assigned leads; masked partial
 //     values (e.g. "09****12") for leads assigned to others.
-//   - handleCallClick(): fires a background notesAPI.add() counselor note
-//     when a phone number is clicked, so every call attempt is recorded.
-//   - renderCellInner now has explicit 'email' and 'phone' cases:
-//     email shows masked text when applicable;
-//     phone renders as a tel: hyperlink (unmasked only) with auto-note on click.
+//   - renderCellInner's 'email'/'phone' cases both show plain (masked where
+//     applicable) text — phone is deliberately NOT a click-to-call link
+//     (confirmed 2026-08): it used to auto-log a bare, contentless "Called
+//     student" note on click, counting as a call with no real information.
+//     Calls are only logged from inside the lead now (the locked
+//     ContactLogModal flow), so nothing on this list can quietly bypass it.
 // CHANGES (search always uses raw data):
 //   - The global search filter now always runs against the raw lead data,
 //     never masked values. Counselors can search by full phone/email even
@@ -42,7 +42,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { studentAPI, leadAPI, staffAPI, columnConfigAPI, variantsAPI, notesAPI } from '../services/api';
+import { studentAPI, leadAPI, staffAPI, columnConfigAPI, variantsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { isAdminProfile, isManagerOrAdmin } from '../utils/roleProfiles';
 import { useLookup } from '../contexts/LookupContext';
@@ -645,23 +645,6 @@ export default function Leads() {
       return s.slice(0, 3) + '****' + s.slice(-2);
     }
     return String(value).slice(0, 3) + '...';
-  }
-
-  // ── Click-to-call handler ─────────────────────────────────────
-  // Opens the device dialler via the tel: link and silently logs a
-  // Counselor Note so there is an automatic record of the call attempt.
-  function handleCallClick(lead) {
-    const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-    // noteType was hardcoded to 'counselor' regardless of who's logged in —
-    // fine for Counselors, but the backend correctly rejects it for
-    // Pre-sales staff (no write_counselor permission), so this auto-note
-    // silently failed to save for them (swallowed by the .catch below with
-    // no visible error) — the call attempt never got recorded anywhere.
-    const noteType = canDo('notes', 'write_counselor') ? 'counselor'
-      : canDo('notes', 'write_presales') ? 'presales'
-      : 'management';
-    notesAPI.add(lead.studentId, noteType, `📞 Called student — ${now}`)
-      .catch(err => console.warn('Auto call note failed:', err));
   }
 
   // Toast for "Access not authorised" feedback when a Counselor clicks an
@@ -1646,21 +1629,18 @@ export default function Leads() {
         return <span>{display}</span>;
       }
 
-      // ── Phone — mask if needed, or render as a click-to-call link ──
+      // ── Phone — mask if needed, plain text (no click-to-call here) ──
+      // Deliberately NOT a tel: link (confirmed 2026-08) — it used to
+      // silently log a bare "Called student" note with no summary/topic/
+      // platform on click, which counted as a call in the stats while
+      // carrying no real information. Calls are only meant to be logged
+      // from inside the lead (the locked ContactLogModal flow), so staff
+      // are pointed there instead of a shortcut that undermines it.
       case 'phone': {
         const display = maskField('phone', v, lead);
         if (!display) return <MissingValue/>;
         const isMasked = String(display).includes('*') || String(display).includes('...');
-        if (isMasked) return <span style={{ color:'var(--text-secondary)', fontStyle:'italic' }}>{display}</span>;
-        return (
-          <a
-            href={`tel:${v}`}
-            style={{ color:'var(--primary)', textDecoration:'none', fontWeight:500 }}
-            title={`Call ${display}`}
-            onClick={e => { e.stopPropagation(); handleCallClick(lead); }}>
-            {display}
-          </a>
-        );
+        return <span style={{ color: isMasked ? 'var(--text-secondary)' : 'inherit', fontStyle: isMasked ? 'italic' : 'normal' }}>{display}</span>;
       }
 
       default: {
