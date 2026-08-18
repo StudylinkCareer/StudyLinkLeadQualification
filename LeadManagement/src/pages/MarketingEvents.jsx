@@ -7,6 +7,12 @@
 //   - Add (top form) · Edit (pencil modal) · Delete (trash, soft)
 //   The dedicated counsellor feeds the event QR (R2b) and pre-tags single-
 //   counsellor events on the LQ form.
+//
+// "Active" column (confirmed 2026-08): a real, reversible on/off switch —
+// distinct from "Hide" (single-day override, re-appears the next day, meant
+// for "hide today's flyer") and Delete (one-way from this UI). Only renders
+// for whoever the server says canToggleActive (Ngô Quốc Hoàng, by session
+// email) — everyone else's table looks unchanged.
 // ─────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react';
@@ -30,6 +36,11 @@ export default function MarketingEvents() {
   const [events, setEvents]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
+  // Persistent Active/Inactive toggle (confirmed 2026-08) — only true for
+  // Ngô Quốc Hoàng (server-computed from session email; not derivable
+  // client-side, so we just render/hide based on what the API told us).
+  const [canToggleActive, setCanToggleActive] = useState(false);
+  const [togglingActiveId, setTogglingActiveId] = useState(null);
 
   // ── Event Type list (flat, marketing-editable) ──
   const [eventTypes, setEventTypes] = useState([]);     // [{ code, labelEn, labelVi }]
@@ -198,7 +209,7 @@ export default function MarketingEvents() {
       const r = await fetch('/api/marketing-events', { credentials: 'include' });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'Load failed');
-      setEvents(j.data || []); setError('');
+      setEvents(j.data || []); setCanToggleActive(!!j.canToggleActive); setError('');
     } catch (e) {
       setError(e.message || 'Failed to load events');
     } finally { setLoading(false); }
@@ -315,6 +326,27 @@ export default function MarketingEvents() {
     } finally { setTogglingId(null); }
   }
 
+  // Persistent Active/Inactive switch (confirmed 2026-08) — the real,
+  // reversible on/off control, as opposed to Hide's single-day override.
+  // Server 403s anyone but the one authorised email; the UI only renders
+  // this at all when canToggleActive came back true, so a non-owner never
+  // sees a control they can't use.
+  async function handleToggleActive(ev) {
+    setTogglingActiveId(ev.id);
+    try {
+      const r = await fetch(`/api/marketing-events/${ev.id}/active`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !ev.isActive }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'Toggle failed');
+      await load();
+    } catch (err) {
+      setError(err.message || 'Failed to toggle active state');
+    } finally { setTogglingActiveId(null); }
+  }
+
   const inputStyle = { width: '100%', padding: '8px 10px', borderRadius: 4, border: '1px solid var(--border)' };
   const lbl        = { display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 };
   const today = todayISO();
@@ -416,6 +448,9 @@ export default function MarketingEvents() {
               <th style={{ padding: '8px 4px', width: 110 }}>{language === 'vi' ? 'Bắt đầu' : 'Start'}</th>
               <th style={{ padding: '8px 4px', width: 110 }}>{language === 'vi' ? 'Kết thúc' : 'End'}</th>
               <th style={{ padding: '8px 4px', width: 110, textAlign: 'center' }}>{language === 'vi' ? 'Ẩn' : 'Hide'}</th>
+              {canToggleActive && (
+                <th style={{ padding: '8px 4px', width: 110, textAlign: 'center' }}>{language === 'vi' ? 'Kích hoạt' : 'Active'}</th>
+              )}
               <th style={{ padding: '8px 4px', width: 80 }}></th>
             </tr>
           </thead>
@@ -425,9 +460,10 @@ export default function MarketingEvents() {
               const hideOverrideToday = ev.manualHideDate === today;
               const overridden = showOverrideToday || hideOverrideToday;
               const saving = togglingId === ev.id;
+              const savingActive = togglingActiveId === ev.id;
               const subLabel = [ev.labelEn, ev.labelVi].filter(Boolean).join(' · ');
               return (
-                <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)', opacity: ev.isActive === false ? 0.5 : 1 }}>
                   <td style={{ padding: '10px 4px', color: 'var(--text-secondary)' }}>{idx + 1}</td>
                   <td style={{ padding: '10px 4px' }}>
                     <span style={{ fontSize: '0.74rem', padding: '2px 7px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>{ev.eventType}</span>
@@ -455,6 +491,21 @@ export default function MarketingEvents() {
                     </label>
                     {overridden && <div style={{ fontSize: '0.7rem', color: '#2563eb', marginTop: 2 }}>{language === 'vi' ? 'hôm nay' : 'today only'}</div>}
                   </td>
+                  {canToggleActive && (
+                    <td style={{ padding: '10px 4px', textAlign: 'center' }}>
+                      <label
+                        title={
+                          savingActive ? (language === 'vi' ? 'Đang lưu…' : 'Saving…')
+                          : ev.isActive
+                            ? (language === 'vi' ? 'Đang hoạt động vĩnh viễn. Bấm để tắt hẳn.' : 'Permanently active. Click to turn off for good.')
+                            : (language === 'vi' ? 'Đã tắt vĩnh viễn. Bấm để bật lại.' : 'Permanently off. Click to turn back on.')
+                        }
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: savingActive ? 'wait' : 'pointer' }}>
+                        <input type="checkbox" checked={!!ev.isActive} disabled={savingActive} onChange={() => handleToggleActive(ev)}
+                               style={{ width: 18, height: 18, cursor: savingActive ? 'wait' : 'pointer' }} />
+                      </label>
+                    </td>
+                  )}
                   <td style={{ padding: '10px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button onClick={() => openQr(ev)} title="QR"
                             style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-secondary)', padding: '2px 7px', marginRight: 6, fontSize: '0.72rem', fontWeight: 700 }}>

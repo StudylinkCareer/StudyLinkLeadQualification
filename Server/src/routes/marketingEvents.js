@@ -50,6 +50,25 @@ function requireMarketingRole(req, res, next) {
   next();
 }
 
+// ── Persistent Active/Inactive toggle — Ngô Quốc Hoàng only (confirmed 2026-08) ──
+// The existing "Ẩn" (Hide) control is a SINGLE-DAY override (see computeHidden
+// above) — fine for "hide today's flyer", wrong for permanently turning off an
+// evergreen channel-tracking entry (Digital MKT, Facebook MKT, ...), which
+// re-appears every day since it has no end_date. This is a real, reversible
+// on/off switch instead, scoped to one specific person by email (not a role —
+// per-individual, same pattern as the Budget Approval design) rather than the
+// broader requireMarketingRole pool, since this is his own cleanup task.
+// Env-driven so a future account change needs no redeploy.
+function isEventsToggleAdmin(email) {
+  const allowed = (process.env.MARKETING_EVENTS_TOGGLE_EMAIL || 'marketing@studylink.org').toLowerCase();
+  return !!email && email.toLowerCase() === allowed;
+}
+function requireEventsToggleAdmin(req, res, next) {
+  if (!req.session?.staffId) return res.status(401).json({ success: false, error: 'Not authenticated' });
+  if (!isEventsToggleAdmin(req.session.staffEmail)) return res.status(403).json({ success: false, error: 'Not authorised' });
+  next();
+}
+
 // ── Date helpers ─────────────────────────────────────────────
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function addDays(dateStr, n) {
@@ -190,12 +209,20 @@ router.get('/public', async (req, res) => {
 
 
 // ── List (authenticated, admin UI) ──────────────────────────
+// Includes INACTIVE events too (unlike /public) so the toggle admin can see
+// and flip them back on — a plain WHERE is_active=true would make a turned-
+// off entry disappear from the list with no way back short of re-adding it
+// under the exact same name/type.
 router.get('/', requireMarketingRole, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT ${COLS} FROM events WHERE is_active = true
-        ORDER BY start_date DESC NULLS LAST, name ASC`);
-    res.json({ success: true, data: r.rows.map(shapeRow) });
+      `SELECT ${COLS} FROM events
+        ORDER BY is_active DESC, start_date DESC NULLS LAST, name ASC`);
+    res.json({
+      success: true,
+      data: r.rows.map(shapeRow),
+      canToggleActive: isEventsToggleAdmin(req.session.staffEmail),
+    });
   } catch (err) {
     console.error('[events] list failed:', err);
     res.status(500).json({ success: false, error: 'Failed to load events' });
@@ -296,6 +323,28 @@ router.put('/:id', requireMarketingRole, async (req, res) => {
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ success: false, error: 'That event already exists under this type' });
     console.error('[events] update failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to update event' });
+  }
+});
+
+
+// ── Persistent Active/Inactive toggle (Ngô Quốc Hoàng only) ─────────────
+// Directly and reversibly sets is_active, unlike Delete (one-way soft-
+// delete from this UI's perspective — no reactivate button today) and Hide
+// (a same-day-only override that reappears tomorrow). Body: { isActive }.
+router.patch('/:id/active', requireEventsToggleAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id' });
+  if (typeof req.body.isActive !== 'boolean') {
+    return res.status(400).json({ success: false, error: 'isActive (boolean) is required' });
+  }
+  try {
+    const upd = await pool.query(
+      `UPDATE events SET is_active=$2 WHERE id=$1 RETURNING ${COLS}`, [id, req.body.isActive]);
+    if (upd.rowCount === 0) return res.status(404).json({ success: false, error: 'Event not found' });
+    res.json({ success: true, data: shapeRow(upd.rows[0]) });
+  } catch (err) {
+    console.error('[events] active toggle failed:', err);
     res.status(500).json({ success: false, error: 'Failed to update event' });
   }
 });
