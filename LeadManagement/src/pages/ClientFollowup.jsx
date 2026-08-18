@@ -919,9 +919,16 @@ export default function ClientFollowup() {
     return comms.filter(c => c.authorName === selectedStaff);
   }, [comms, selectedStaff]);
 
+  // Filtered by CURRENT ownership (counselor/presales/seniorCounselor), not
+  // who originally wrote the note (confirmed 2026-08) — a note's author
+  // never changes, but the lead can be reassigned since; picking a staffer
+  // here should mean "leads on their desk right now", not "notes they once
+  // wrote". Student-level reminders (no lead_id, so no owner fields at all)
+  // fall out of the picked view entirely once a name is selected — there's
+  // no lead to check ownership against.
   const filteredReminders = useMemo(() => {
     if (!selectedStaff) return reminders;
-    return reminders.filter(r => r.authorName === selectedStaff);
+    return reminders.filter(r => r.counselor === selectedStaff || r.presales === selectedStaff || r.seniorCounselor === selectedStaff);
   }, [reminders, selectedStaff]);
 
   const TABS = [

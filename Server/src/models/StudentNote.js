@@ -103,17 +103,35 @@ async function updateReminderStatus(id, { reminderStatus, rescheduledDate }) {
 // Returns all notes that have a follow_up_date (i.e. reminders).
 // Excludes 'closed'. Uses rescheduled_date as the effective date when set.
 // staffScope: { staffName, hasAllScope } — restricts to owned leads when !hasAllScope.
+//
+// Also excludes leads in a terminal status (Lost/Archived/Cancelled/
+// Contracted) — confirmed 2026-08. A note's author never changes once
+// written, but the LEAD it's attached to can be reassigned or lost
+// afterward; a reminder that's still "theirs" by authorship but no longer
+// by current ownership (or dead) used to keep showing up here, then 403'd
+// the moment they tried to open it. Contracted is included too — a won
+// lead's leftover follow-up reminder is just as done as a lost one's, same
+// terminal set staffController.js's OPEN definition already uses. A
+// database trigger (addReminderAutoCloseTrigger.js) now closes reminders
+// the moment their lead reaches one of these statuses going forward, so
+// this clause mainly matters for the historical backlog that predates it
+// (or a status changed by something outside the normal update path).
+// 'Not contactable' is deliberately NOT excluded — it's still legitimately
+// being worked (see orderPhase.js's ACTIVE_STATUSES), not a dead end.
+// Lead-less (student-level) reminders have no lead_status to check and are
+// left alone.
 async function listReminders(staffScope) {
   const { staffName, hasAllScope } = staffScope;
   let query = `
     SELECT sn.*, s.full_name AS student_name, s.student_id AS student_unique_id,
            l.counselor, l.presales, l.senior_counselor,
-           l.close_date, l.confidence
+           l.close_date, l.confidence, l.lead_status
     FROM student_notes sn
     JOIN students s ON s.student_id = sn.student_id
     LEFT JOIN leads l ON l.lead_id = sn.lead_id
     WHERE sn.follow_up_date IS NOT NULL
       AND sn.reminder_status <> 'closed'
+      AND (l.lead_status IS NULL OR l.lead_status NOT IN ('Lost', 'Archived', 'Cancelled', 'Contracted'))
   `;
   const params = [];
   if (!hasAllScope) {
