@@ -38,8 +38,15 @@ const TIER_PRIORITY = { Diamond: 5, Sapphire: 4, Ruby: 3, Agate: 2, Quartz: 1 };
 const tierRank = (t) => TIER_PRIORITY[(t || '').trim()] || 0;
 
 // What counts as a counsellor's current "active" workload. Tunable in one place.
-// Default: leads still marked status='Active' (deactivated/closed leads flip status).
-const ACTIVE_STATUS_SQL = `COALESCE(status,'Active') = 'Active'`;
+// Was COALESCE(status,'Active') = 'Active' — leads.status turns out to be
+// vestigial (every row is either 'Active' or NULL, nothing ever sets it to
+// anything else), so that condition matched EVERY lead regardless of real
+// outcome — a counsellor's Lost/Archived/Cancelled leads counted toward
+// their "active" load forever, inflating it and starving them of new
+// assignments relative to peers with fewer historical losses. Fixed
+// 2026-08 to check the real status field instead, matching the OPEN
+// definition already used consistently elsewhere (staffController.js).
+const ACTIVE_STATUS_SQL = `lead_status NOT IN ('Contracted','Lost','Archived','Cancelled')`;
 
 // ── Eligible counsellors currently covering an office ───────────────
 async function getEligibleCounsellors(client, office) {
