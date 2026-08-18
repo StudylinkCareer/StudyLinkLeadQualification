@@ -39,7 +39,7 @@ function vnTodayYmd() {
   return `${vn.getUTCFullYear()}-${String(vn.getUTCMonth() + 1).padStart(2, '0')}-${String(vn.getUTCDate()).padStart(2, '0')}`;
 }
 function mondayOf(ymd) { const x = parseYmd(ymd); const o = (x.getUTCDay() + 6) % 7; x.setUTCDate(x.getUTCDate() - o); return x; }
-function lastCompletedMonday() { return new Date(mondayOf(vnTodayYmd()).getTime() - 7 * 864e5); }
+function currentMonday() { return mondayOf(vnTodayYmd()); }
 function iso(d) { return toYmd(d); }
 function fmt(ymd) { const d = parseYmd(ymd); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`; }
 
@@ -237,7 +237,7 @@ function WeeklyReportInner() {
   const L = (en, vi) => (language === 'vi' ? vi : en);
 
   const init = location.state || {};
-  const [weekStart, setWeekStart] = useState(() => init.weekStart || iso(lastCompletedMonday()));
+  const [weekStart, setWeekStart] = useState(() => init.weekStart || iso(currentMonday()));
   const [mode, setMode]           = useState(() => init.mode || 'all');
   const [selected, setSelected]   = useState(() => Array.isArray(init.selected) ? init.selected : []);
   const [data, setData]       = useState(null);
@@ -337,7 +337,7 @@ function WeeklyReportInner() {
   const callsSection = { title: L('Calls', 'Cuộc gọi'), color: '#8b5cf6', subtitle: L('prior week only', 'chỉ tuần trước'), metrics: [
     { key: 'call_new', label: L('New clients', 'Khách mới'),       value: g => g.calls?.totals?.newLeads, leads: g => g.calls?.newLeadItems, cols: [name] },
     { key: 'call_fu',  label: L('Follow-up', 'Theo dõi'),          value: g => g.calls?.totals?.ongoing,  leads: g => g.calls?.ongoingItems, cols: [name] },
-    { key: 'call_kbm', label: L('KBM (unanswered)', 'Không bắt máy'), value: g => g.calls?.totals?.kbm, color: '#F59E0B' },
+    { key: 'call_kbm', label: L('KBM (unanswered)', 'Không bắt máy'), value: g => g.calls?.totals?.kbm, leads: g => g.calls?.kbmItems, cols: [name], color: '#F59E0B' },
     { key: 'call_mtg', label: L('Meetings scheduled', 'Cuộc gặp'), value: g => g.meetings?.count,         leads: g => g.meetings?.items,     cols: [name, { key: 'topic', label: L('Type', 'Loại') }, { key: 'meetingLocation', label: L('Location', 'Địa điểm') }] },
   ] };
   const ALL_SECTIONS = [contractedSection, lettersSection, leadsSection, callsSection];

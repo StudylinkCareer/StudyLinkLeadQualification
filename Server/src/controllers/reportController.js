@@ -659,7 +659,12 @@ async function computeGroup(names, ctx, opts = {}) {
   const ongoingItems = classified.ongoingItems.map(it => ({
     studentId: it.studentId, fullName: it.fullName, dayKey: it.dayKey, slot: it.slot,
   }));
-  const callTotals = { newLeads: newLeadItems.length, ongoing: ongoingItems.length, kbm: classified.kbmCount };
+  // NOT deduped either — same reasoning as ongoingItems above, so the KBM
+  // drill-down list length matches callTotals.kbm exactly (a lead KBM'd
+  // 3 times this week appears 3 times, since each is a real unanswered
+  // attempt, not one that got silently absorbed into the headline count).
+  const kbmItems = classified.kbmItems.map(it => ({ studentId: it.studentId, fullName: it.fullName }));
+  const callTotals = { newLeads: newLeadItems.length, ongoing: ongoingItems.length, kbm: kbmItems.length };
 
   const lettersFor = async (topic) => {
     const week = cc((await pool.query(
@@ -706,7 +711,7 @@ async function computeGroup(names, ctx, opts = {}) {
     leadsInProgress: { count: leadsInProgress.length, leads: leadsInProgress },
     leadsFlow,
     calls: { byPlatform: Object.values(platforms), daily: dailyCalls, modeByDay: modeDaily,
-             totals: callTotals, newLeadItems, ongoingItems, headcount },
+             totals: callTotals, newLeadItems, ongoingItems, kbmItems, headcount },
     basicLetters, finalLetters,
     meetings:  { count: meetings.length,  items: meetings },
     contracts: { count: contracts.length, items: contracts },
