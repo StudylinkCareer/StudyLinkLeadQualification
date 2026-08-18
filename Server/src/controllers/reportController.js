@@ -335,11 +335,17 @@ async function notesActivity(req, res, next) {
   }
 }
 
-// ── Contracted pipeline metrics (period counts from audit_log) ───────────────
+// ── Contracted pipeline metrics ───────────────────────────────────────────────
 // GET /api/reports/contracted-stats
-// Counts leads that transitioned INTO 'Contracted' within each period, plus the
-// lead ids for drill-down. Periods are computed in Vietnam local time (UTC+7).
-// Scope: 'all' sees every lead; 'own' is limited to the caller's assignments.
+// Counts leads whose REAL signing date (leads.actual_close_date) falls within
+// each period, plus the lead ids for drill-down. Periods are computed in
+// Vietnam local time (UTC+7). Scope: 'all' sees every lead; 'own' is limited
+// to the caller's assignments. Revised 2026-08 to match Monthly Targets /
+// Monthly Report's definition — previously bucketed by the audit_log
+// leadStatus->'Contracted' transition timestamp instead, which meant a
+// contract signed long ago but only entered/corrected into the system this
+// week counted as "Contracted this week" here while the other two reports
+// (already actual_close_date-based) disagreed.
 async function contractedStats(req, res, next) {
   try {
     const role = req.session.staffRole;
@@ -380,15 +386,11 @@ async function contractedStats(req, res, next) {
     const scopeSql = periodScope.sql;
 
     const { rows } = await pool.query(
-      `SELECT DISTINCT ON (a.lead_id) a.lead_id, a.student_id, a.changed_at
-         FROM audit_log a
-         JOIN leads l ON l.lead_id = a.lead_id
-        WHERE a.field_name = 'leadStatus'
-          AND a.new_value  = 'Contracted'
-          AND l.lead_status = 'Contracted'   -- only leads STILL contracted today
-          AND a.changed_at >= $1
-          ${scopeSql}
-        ORDER BY a.lead_id, a.changed_at DESC`,
+      `SELECT l.lead_id, l.person_id AS student_id, l.actual_close_date AS close_date
+         FROM leads l
+        WHERE l.lead_status = 'Contracted'   -- only leads STILL contracted today
+          AND l.actual_close_date >= $1
+          ${scopeSql}`,
       params
     );
 
@@ -401,7 +403,7 @@ async function contractedStats(req, res, next) {
       yearToDate:    { count: 0, ids: [] },
     };
     for (const r of rows) {
-      const t = new Date(r.changed_at).getTime();
+      const t = new Date(r.close_date).getTime();
       if (t >= thisWeekMon.getTime()   && t <= nowMs)               { b.thisWeek.count++;      b.thisWeek.ids.push(r.lead_id); }
       if (t >= lastWeekStart.getTime() && t < lastWeekEnd.getTime()) { b.lastWeek.count++;      b.lastWeek.ids.push(r.lead_id); }
       if (t >= monthStart.getTime()    && t <= nowMs)               { b.monthToDate.count++;   b.monthToDate.ids.push(r.lead_id); }
@@ -449,24 +451,31 @@ function normalizeMode(platform) {
 // Contracted buckets (last week / MTD / QTD / YTD + reversed YTD), still-Contracted
 // only, with names for drill-down. names = array → scope to those staff;
 // names = null → company-wide total (used for the page-header KPIs).
+//
+// Bucketed by leads.actual_close_date — the REAL contract signing date —
+// not by when staff happened to flip the status field in the app (revised
+// 2026-08). Previously this joined audit_log for the leadStatus->'Contracted'
+// change event instead, which meant a contract signed months/years ago but
+// only entered/corrected into the system this week showed up as "Contracted
+// this week" here, while Monthly Report (already actual_close_date-based)
+// disagreed. Both reports now share one definition. The "reversed" bucket
+// below stays audit-log-based on purpose — it's inherently about the EVENT
+// of a Contracted marking later being undone, not a signing date.
 async function contractedBuckets(ctx, names) {
   const filt    = names ? `AND (l.counselor = ANY($2) OR l.presales = ANY($2))` : '';
   const ctrPar  = names ? [ctx.earliestISO, names] : [ctx.earliestISO];
   const ctr = (await pool.query(
-    `SELECT DISTINCT ON (a.lead_id) a.lead_id, l.person_id AS student_id, a.changed_at, s.full_name, l.destination_country
-       FROM audit_log a
-       JOIN leads l    ON l.lead_id    = a.lead_id
+    `SELECT l.lead_id, l.person_id AS student_id, l.actual_close_date AS close_date, s.full_name, l.destination_country
+       FROM leads l
        JOIN students s ON s.student_id = l.person_id
-      WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted'
-        AND l.lead_status = 'Contracted'
-        AND a.changed_at >= $1 ${filt}
-      ORDER BY a.lead_id, a.changed_at DESC`, ctrPar)).rows;
+      WHERE l.lead_status = 'Contracted'
+        AND l.actual_close_date >= $1 ${filt}`, ctrPar)).rows;
   const mkBucket = () => ({ count: 0, ids: [], items: [] });
   const out = { lastWeek: mkBucket(), monthToDate: mkBucket(), quarterToDate: mkBucket(), yearToDate: mkBucket() };
   const push = (bk, r) => { bk.count++; bk.ids.push(r.lead_id);
     bk.items.push({ leadId: r.lead_id, studentId: r.student_id, fullName: r.full_name, country: r.destination_country }); };
   for (const r of ctr) {
-    const t = new Date(r.changed_at).getTime();
+    const t = new Date(r.close_date).getTime();
     if (t >= ctx.lwStartMs && t < ctx.lwEndMs)     push(out.lastWeek, r);
     if (t >= ctx.monthStartMs   && t <= ctx.nowMs) push(out.monthToDate, r);
     if (t >= ctx.quarterStartMs && t <= ctx.nowMs) push(out.quarterToDate, r);
@@ -675,14 +684,18 @@ async function computeGroup(names, ctx, opts = {}) {
         AND sn.topic IN ('First Meeting','Second Meeting','Office Visit')
         AND sn.created_at >= $2 AND sn.created_at < $3`, [names, ws, we])).rows);
 
+  // Bucketed by actual_close_date (real signing date), not the audit-log
+  // status-change event — same 2026-08 revision as contractedBuckets below.
+  // Deliberately NOT filtered to lead_status='Contracted' (matches the prior
+  // behavior): this is "signings that happened this week", not "still-
+  // Contracted leads whose signing fell in this week" — a lead reversed
+  // after signing still counts as a signing that week.
   const contracts = cc((await pool.query(
-    `SELECT DISTINCT a.lead_id, l.person_id AS student_id, s.full_name, l.destination_country
-       FROM audit_log a
-       JOIN leads l    ON l.lead_id    = a.lead_id
+    `SELECT l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country
+       FROM leads l
        JOIN students s ON s.student_id = l.person_id
-      WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted'
-        AND (l.counselor = ANY($1) OR l.presales = ANY($1))
-        AND a.changed_at >= $2 AND a.changed_at < $3`, [names, ws, we])).rows);
+      WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
+        AND l.actual_close_date >= $2 AND l.actual_close_date < $3`, [names, ws, we])).rows);
 
   const contracted = await contractedBuckets(ctx, opts.companyWideContracted ? null : names);
 
