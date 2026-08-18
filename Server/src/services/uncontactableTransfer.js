@@ -38,6 +38,12 @@
 // branch): students.order_phase = 'Pool' + an order_assignments row for
 // position 'Quality' -> her name. That's the same mechanism that already
 // puts any order with no counselor into "her pool" today.
+//
+// Every hop also syncs the Student/Sales-level record (order_phase,
+// counselor, presales, order_assignments) — confirmed 2026-08. Previously
+// only the LEAD row was updated, so the Sales page kept showing
+// "Counselling" + the old counselor's name until someone noticed and
+// fixed it by hand; see syncStudentForPresalesHandoff below.
 // ─────────────────────────────────────────────────────────────────────
 const { Pool } = require('pg');
 const { isCallNote, classifyKbm } = require('./callClassification');
@@ -130,6 +136,44 @@ function coversAllSlots(kbmNotes) {
   return qualifiesForSlotMode(kbmNotes, 'standard');
 }
 
+// Keeps the Student/Sales-level record in step with an automated hand-off
+// (confirmed 2026-08). Previously only the LEAD row was updated, so the
+// Sales page kept showing "Counselling" + the old counselor's name until
+// someone noticed and fixed it by hand via the phase mover — this
+// automates exactly that manual fix, using the same underlying writes
+// changePhase/setAssignment already use (order_phase, OrderAssignment,
+// and the mirrored students column) so it behaves identically to a human
+// doing it.
+//
+// Guarded: only applies when this lead is the student's SOLE active
+// (non-terminal) lead. A student with a second active lead under a
+// different counselor is a case this feature was never designed to
+// arbitrate (checked 2026-08: currently 0 students have this) — rather
+// than guess, it's logged to phase_transfer_exceptions for manual review,
+// the same table mass-assign/upload already use for this purpose.
+async function syncStudentForPresalesHandoff(client, studentId, leadId, presalesName) {
+  const active = await client.query(
+    `SELECT lead_id, counselor FROM leads
+      WHERE person_id = $1 AND lead_status NOT IN ('Contracted', 'Lost', 'Archived', 'Cancelled')`,
+    [studentId]
+  );
+  const conflicting = active.rows.find((r) => r.lead_id !== leadId && (r.counselor || '').trim());
+  if (conflicting) {
+    await OrderAssignment.logTransferException(client, {
+      studentId, leadId, fromPhase: 'Counselling', toPhase: 'Presales',
+      owner: presalesName, source: 'uncontactable_transfer',
+      reason: `Student has another active lead (#${conflicting.lead_id}) under a different counselor — student-level sync skipped`,
+    });
+    return { synced: false };
+  }
+  await client.query(
+    `UPDATE students SET order_phase = 'Presales', counselor = '', presales = $1, updated_at = NOW() WHERE student_id = $2`,
+    [presalesName, studentId]
+  );
+  await OrderAssignment.setForOrder(client, studentId, 'PreSales', presalesName);
+  return { synced: true };
+}
+
 async function getOwnKbmNotes(leadId, authorName) {
   const r = await pool.query(
     `SELECT id, content, contact_platform, call_answered, created_at
@@ -167,23 +211,36 @@ async function checkAndTransfer(leadId) {
     const nextPresales = await pickNextPresales();
     if (!nextPresales) return { transferred: false, reason: 'no_presales_roster' };
 
-    // Guarded by lead_status in the WHERE clause: if two notes race each
-    // other into this function concurrently, only the first UPDATE actually
-    // changes anything (the second sees lead_status already flipped to
-    // 'New' and affects 0 rows) — prevents a double-transfer.
-    const updateRes = await pool.query(
-      `UPDATE leads SET counselor = '', presales = $2, lead_status = 'New', updated_at = NOW()
-        WHERE lead_id = $1 AND lead_status = 'Not contactable'
-        RETURNING lead_id`,
-      [leadId, nextPresales.full_name]
-    );
-    if (updateRes.rowCount === 0) return { transferred: false, reason: 'already_transferred' };
-
-    await logTransfer({
-      leadId, studentId: lead.student_id, transferType: 'sales_to_presales',
-      fromCounselor: counselor, toStaffId: nextPresales.staff_id, toName: nextPresales.full_name,
-      kbmNotes,
-    });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Guarded by lead_status in the WHERE clause: if two notes race each
+      // other into this function concurrently, only the first UPDATE
+      // actually changes anything (the second sees lead_status already
+      // flipped to 'New' and affects 0 rows) — prevents a double-transfer.
+      const updateRes = await client.query(
+        `UPDATE leads SET counselor = '', presales = $2, lead_status = 'New', updated_at = NOW()
+          WHERE lead_id = $1 AND lead_status = 'Not contactable'
+          RETURNING lead_id`,
+        [leadId, nextPresales.full_name]
+      );
+      if (updateRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { transferred: false, reason: 'already_transferred' };
+      }
+      await syncStudentForPresalesHandoff(client, lead.student_id, leadId, nextPresales.full_name);
+      await logTransfer({
+        db: client, leadId, studentId: lead.student_id, transferType: 'sales_to_presales',
+        fromCounselor: counselor, toStaffId: nextPresales.staff_id, toName: nextPresales.full_name,
+        kbmNotes,
+      });
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
 
     return { transferred: true, leadId, studentId: lead.student_id, from: counselor, to: nextPresales.full_name };
   } catch (err) {
@@ -232,19 +289,32 @@ async function checkAndTransferPresales(leadId) {
       const next = await pickNextPresales(fromStaffId);
       if (!next) return { transferred: false, reason: 'no_presales_roster' };
 
-      const updateRes = await pool.query(
-        `UPDATE leads SET presales = $2, lead_status = 'New', updated_at = NOW()
-          WHERE lead_id = $1 AND lead_status = 'New' AND presales = $3
-          RETURNING lead_id`,
-        [leadId, next.full_name, presales]
-      );
-      if (updateRes.rowCount === 0) return { transferred: false, reason: 'already_transferred' };
-
-      await logTransfer({
-        leadId, studentId: lead.student_id, transferType: 'presales_to_presales',
-        fromPresalesStaffId: fromStaffId, fromPresalesName: presales,
-        toStaffId: next.staff_id, toName: next.full_name, kbmNotes,
-      });
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const updateRes = await client.query(
+          `UPDATE leads SET presales = $2, lead_status = 'New', updated_at = NOW()
+            WHERE lead_id = $1 AND lead_status = 'New' AND presales = $3
+            RETURNING lead_id`,
+          [leadId, next.full_name, presales]
+        );
+        if (updateRes.rowCount === 0) {
+          await client.query('ROLLBACK');
+          return { transferred: false, reason: 'already_transferred' };
+        }
+        await syncStudentForPresalesHandoff(client, lead.student_id, leadId, next.full_name);
+        await logTransfer({
+          db: client, leadId, studentId: lead.student_id, transferType: 'presales_to_presales',
+          fromPresalesStaffId: fromStaffId, fromPresalesName: presales,
+          toStaffId: next.staff_id, toName: next.full_name, kbmNotes,
+        });
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
 
       return { transferred: true, hop: 'presales_to_presales', leadId, studentId: lead.student_id, from: presales, to: next.full_name };
     }

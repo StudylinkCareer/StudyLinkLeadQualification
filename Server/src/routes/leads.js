@@ -27,5 +27,10 @@ router.get ('/student/:studentId', requireStaffAuth, leadCtrl.listForStudent);
 router.post('/student/:studentId', requireStaffAuth, leadCtrl.create);
 router.get ('/:leadId',            requireStaffAuth, leadCtrl.getOne);
 router.put ('/:leadId',            requireStaffAuth, leadCtrl.update);
+// Deferred Uncontactable-transfer trigger (confirmed 2026-08) — the
+// frontend calls this on leaving a lead page instead of the transfer
+// firing synchronously on note save. See leadController.getOne's comment
+// for the self-healing fallback.
+router.post('/:leadId/check-transfer', requireStaffAuth, leadCtrl.checkTransfer);
 
 module.exports = router;

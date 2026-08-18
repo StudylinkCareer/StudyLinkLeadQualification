@@ -10,6 +10,18 @@
 
 const Lead = require('../models/Lead');
 const { logChanges } = require('./auditController');
+const uncontactableTransfer = require('../services/uncontactableTransfer');
+
+// Runs both hop-checks unconditionally — each is already a safe no-op
+// (checked internally against lead_status/counselor/presales) when it
+// doesn't apply, so there's no need to know which one is relevant here.
+// Never throws (checkAndTransfer/checkAndTransferPresales already catch
+// everything internally and return a result object either way).
+async function runTransferCheck(leadId) {
+  const sales    = await uncontactableTransfer.checkAndTransfer(leadId);
+  const presales = await uncontactableTransfer.checkAndTransferPresales(leadId);
+  return sales.transferred ? sales : presales;
+}
 
 // Terminal statuses: a lead in any of these is locked (display-only). Only an
 // Admin/Director/Manager may edit it ("re-open it for belated changes"). Used by
@@ -38,11 +50,34 @@ async function listForStudent(req, res, next) {
 }
 
 // GET /api/leads/:leadId — one lead.
+//
+// Self-healing fallback for the deferred Uncontactable transfer (confirmed
+// 2026-08): the normal trigger is POST /:leadId/check-transfer, fired when
+// a counselor/presales staffer leaves the lead page. If that call never
+// fires for some reason (closed tab, network blip), a qualifying lead
+// would otherwise sit stuck forever — so any fresh GET of the lead also
+// opportunistically runs the check first. By the time anyone loads this
+// page fresh, a resulting ownership change is expected, not a surprise
+// mid-interaction, so there's nothing jarring about it happening here.
 async function getOne(req, res, next) {
   try {
+    await uncontactableTransfer.checkAndTransfer(req.params.leadId).catch(() => {});
+    await uncontactableTransfer.checkAndTransferPresales(req.params.leadId).catch(() => {});
     const lead = await Lead.findById(req.params.leadId);
     if (!lead) return res.status(404).json({ success: false, error: 'Lead not found' });
     res.json({ success: true, data: lead });
+  } catch (err) { next(err); }
+}
+
+// POST /api/leads/:leadId/check-transfer — the deferred trigger itself.
+// Called by the frontend when a staffer navigates away from a lead page.
+// Safe to call unconditionally/repeatedly/by anyone authenticated — both
+// underlying checks re-derive everything from the lead's own current
+// state and never throw.
+async function checkTransfer(req, res, next) {
+  try {
+    const result = await runTransferCheck(req.params.leadId);
+    res.json({ success: true, data: result });
   } catch (err) { next(err); }
 }
 
@@ -86,4 +121,4 @@ async function update(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { listAll, listForStudent, getOne, create, update };
+module.exports = { listAll, listForStudent, getOne, create, update, checkTransfer };

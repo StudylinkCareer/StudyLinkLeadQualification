@@ -1454,7 +1454,18 @@ export default function LeadDetail() {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      // Deferred Uncontactable-transfer trigger (confirmed 2026-08): fires
+      // when leaving THIS lead page (unmount, or the id/view changes to a
+      // different lead) rather than on note save — so a counselor's 3rd
+      // qualifying KBM note doesn't immediately lock them out of the page
+      // they're still looking at. Lead-scoped only; the numeric `id` isn't
+      // a lead id on the student view. Fire-and-forget: never blocks
+      // navigation, and there's a self-healing fallback on the lead's own
+      // GET if this never lands (tab closed, network blip, etc.).
+      if (!isStudentView && id) leadAPI.checkTransfer(id).catch(() => {});
+    };
   }, [id, isStudentView]);
 
   // Push a trail entry once the lead has loaded. push() de-dupes by path,

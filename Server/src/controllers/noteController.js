@@ -13,7 +13,6 @@ const { Pool } = require('pg');
 const StudentNote = require('../models/StudentNote');
 const permissionService = require('../services/permissionService');
 const { objectToCamelCase } = require('../utils/caseConvert');
-const uncontactableTransfer = require('../services/uncontactableTransfer');
 const NoteDraft = require('../models/NoteDraft');
 
 // Same connection pattern used elsewhere in the codebase — local pool,
@@ -143,19 +142,19 @@ async function addLeadNote(req, res, next) {
       await NoteDraft.complete(draftId, authorId, note.id).catch((e) => console.warn('[noteDrafts] complete failed:', e.message));
     }
 
-    // Uncontactable auto-transfer chain (confirmed 2026-08): checked "as
-    // soon as" a qualifying note lands — counselor notes drive the
-    // Sales→Presales #1 hop, presales notes drive the internal
-    // Presales #1→#2→Pool hops. Never throws — a failure here must never
-    // break the note save that triggered it.
-    let transferResult;
-    if (noteType === 'counselor') {
-      transferResult = await uncontactableTransfer.checkAndTransfer(Number(leadId));
-    } else if (noteType === 'presales') {
-      transferResult = await uncontactableTransfer.checkAndTransferPresales(Number(leadId));
-    }
+    // Uncontactable auto-transfer chain (confirmed 2026-08) — deliberately
+    // NOT checked here anymore. It used to fire synchronously on the exact
+    // note save that completes the 3rd qualifying KBM slot, which meant
+    // the counselor's own next lead-page visit (often seconds later) hit
+    // an immediate "Access denied" the moment leads.counselor flipped away
+    // from them — confusing, and easy to mistake for the note failing to
+    // save (it hadn't; it saved fine above). The transfer now fires when
+    // they actually leave the lead (POST /api/leads/:id/check-transfer,
+    // called on unmount by the frontend) instead, with a self-healing
+    // fallback on the lead's own GET so a qualifying lead can never get
+    // permanently stuck even if that call never fires (tab closed, etc.).
 
-    res.status(201).json({ success: true, data: note, uncontactableTransfer: transferResult });
+    res.status(201).json({ success: true, data: note });
   } catch (err) { next(err); }
 }
 

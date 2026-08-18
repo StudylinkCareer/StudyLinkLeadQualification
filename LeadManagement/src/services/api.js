@@ -187,6 +187,9 @@ export const leadAPI = {
   get:            (leadId)       => request('GET',  `/api/leads/${leadId}`),
   create:         (studentId, d) => request('POST', `/api/leads/student/${encodeURIComponent(studentId)}`, d || {}),
   update:         (leadId, d)    => request('PUT',  `/api/leads/${leadId}`, d || {}),
+  // Deferred Uncontactable-transfer trigger (confirmed 2026-08) — call when
+  // leaving a lead page, not on note save. Fire-and-forget from the caller.
+  checkTransfer:  (leadId)       => request('POST', `/api/leads/${leadId}/check-transfer`),
 };
 
 // ── Counsellor AI Agent (weekly Top-10 + feedback) ────────────
