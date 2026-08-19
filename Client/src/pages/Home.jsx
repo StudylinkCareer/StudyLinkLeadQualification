@@ -167,12 +167,21 @@ function Home() {
     sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
   });
 
+  // Registration never shows the OTP screen (2026-08) — it still "requests"
+  // and "verifies" a bypassed code under the hood (server accepts any
+  // 6-digit code when the call carries no `purpose`, same as before), which
+  // is what establishes the server-side session that /api/students/* needs
+  // (requireAuth). That round-trip now happens silently here instead of
+  // being visible as a flash on /verify. Real OTP entry is still required
+  // for returning users on the separate /login page (purpose: 'login').
   const sendOtpAndNavigate = async (mode, extraState = {}) => {
     setLoadingMessage(t('sendingOtp', language));
     try {
       await authAPI.requestOTP(email);
+      const result = await authAPI.verifyOTP(email, '000000');
+      login(result.email, null, result.isCounselor);
       const phone = `${phoneCountryCode} ${phoneNumber}`;
-      navigate('/verify', { state: { email, phone, fullName, mode, ...getExtraFields(), ...extraState } });
+      navigate('/dashboard', { state: { email, phone, fullName, mode, ...getExtraFields(), ...extraState }, replace: true });
     } catch (err) {
       setError(err.message || t('otpFailed', language));
     }
