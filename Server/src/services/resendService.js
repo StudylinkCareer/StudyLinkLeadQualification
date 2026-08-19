@@ -88,6 +88,68 @@ function buildFollowupHtml({ name, customerCode, eventName, eventDate, surveyUrl
 </body></html>`;
 }
 
+// Login OTP email (confirmed 2026-08) — reuses the exact same Resend call
+// shape as sendFollowupEmail below, just a much simpler body (a 6-digit
+// code, not a full HTML card). Same "dormant until configured, never
+// throws" convention. Called only from the new /login flow — registration
+// keeps its own separate bypass and never reaches this function.
+function buildOtpHtml(otp) {
+  return `<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/></head>
+<body style="margin:0;background:#eef1f6;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f6;padding:24px 12px;">
+<tr><td align="center">
+  <table role="presentation" width="420" cellpadding="0" cellspacing="0" style="max-width:420px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;">
+    <tr><td style="padding:26px 30px 6px;">
+      <div style="font-size:22px;font-weight:800;color:#111827;">StudyLink</div>
+    </td></tr>
+    <tr><td style="padding:18px 30px 6px;font-size:14.5px;line-height:1.6;color:#374151;">
+      Mã xác thực đăng nhập của bạn là:
+    </td></tr>
+    <tr><td style="padding:6px 30px 18px;">
+      <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#c8102e;">${esc(otp)}</div>
+    </td></tr>
+    <tr><td style="padding:0 30px 28px;font-size:12.5px;color:#9ca3af;line-height:1.5;">
+      Mã có hiệu lực trong 10 phút. Nếu bạn không yêu cầu mã này, hãy bỏ qua email này.
+    </td></tr>
+  </table>
+</td></tr></table>
+</body></html>`;
+}
+
+async function sendOtpEmail(to, otp) {
+  const c = cfg();
+  if (!c.apiKey) {
+    return { sent: false, reason: 'resend_not_configured', detail: 'RESEND_API_KEY is not set; OTP email was not sent.' };
+  }
+  const recipient = String(to || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    return { sent: false, reason: 'bad_email', detail: `Unusable email: ${to}` };
+  }
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${c.apiKey}` },
+      body: JSON.stringify({
+        from: c.from,
+        to: [recipient],
+        subject: `${otp} là mã xác thực StudyLink của bạn`,
+        html: buildOtpHtml(otp),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data && data.id) {
+      return { sent: true, id: data.id, to: recipient };
+    }
+    const detail = (data && (data.message || (data.error && data.error.message))) || `Resend HTTP ${res.status}`;
+    return { sent: false, reason: 'resend_api_error', detail, raw: data };
+  } catch (err) {
+    return { sent: false, reason: 'network_error', detail: err.message };
+  }
+}
+
 // Send the follow-up email via Resend. Returns { sent, reason?, detail?, id? }.
 // Never throws — returns a structured result like the Zalo sender.
 async function sendFollowupEmail(to, { name = '', customerCode = '', eventName = '', eventDate = '', surveyUrl } = {}) {
@@ -130,4 +192,4 @@ async function sendFollowupEmail(to, { name = '', customerCode = '', eventName =
   }
 }
 
-module.exports = { sendFollowupEmail, isConfigured, cfg };
+module.exports = { sendFollowupEmail, sendOtpEmail, isConfigured, cfg };

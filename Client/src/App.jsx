@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext';
 import { LookupProvider } from './contexts/LookupContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
+import Login from './pages/Login';
 import OTPVerification from './pages/OTPVerification';
 import Dashboard from './pages/Dashboard';
 import DeskPage from './pages/DeskPage';
@@ -16,6 +17,7 @@ function App() {
         <div className="app">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
             <Route path="/desk" element={<DeskPage />} />
             <Route path="/badge/:token" element={<BadgePage />} />
             <Route path="/profile" element={<ProfilePage />} />

@@ -1,7 +1,7 @@
 // client/src/pages/Dashboard.jsx.
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FiUser, FiBook, FiBarChart2, FiUsers, FiClipboard, FiSave, FiX, FiArrowLeft, FiFileText, FiTarget, FiLogOut } from 'react-icons/fi';
+import { FiUser, FiBook, FiBarChart2, FiUsers, FiClipboard, FiSave, FiX, FiFileText, FiTarget, FiLogOut } from 'react-icons/fi';
 import { useAuth } from '../hooks/useAuth';
 import { studentAPI } from '../services/api';
 import { useFormState } from '../hooks/useFormState';
@@ -17,7 +17,6 @@ import CareerFitTab from '../components/Tabs/CareerFitTab';
 import FamilyContactsTab from '../components/Tabs/FamilyContactsTab';
 import CounselorFeedbackTab from '../components/Tabs/CounselorFeedbackTab';
 import DocumentsTab from '../components/Tabs/DocumentsTab';
-import StudentSearch from '../components/Search/StudentSearch';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
 import LanguageSelector from '../components/LanguageSelector';
@@ -196,9 +195,9 @@ export default function Dashboard() {
     studentData || {}
   );
 
-  const [counselorSearchMode, setCounselorSearchMode] = useState(
-    (isCounselor || mode === 'counselor') && !studentId
-  );
+  // counselorSearchMode removed 2026-08 — staff use LeadManagement for
+  // lookups now; isCounselor can never be true again (see authController.js),
+  // so this branch was permanently dead. See fancy-waddling-pizza.md plan.
 
   const tabs = TAB_KEYS
     .filter((t) => !t.counselorOnly || isCounselor)
@@ -211,9 +210,8 @@ export default function Dashboard() {
     }));
 
   useEffect(() => {
-    if (counselorSearchMode) { setLoading(false); return; }
     loadStudent();
-  }, [email, studentId, counselorSearchMode]);
+  }, [email, studentId]);
 
   const deactivationDone = useRef(false);
   useEffect(() => {
@@ -371,7 +369,6 @@ export default function Dashboard() {
           if (err.status !== 404) throw err;
         }
       }
-      if (isCounselor) { setCounselorSearchMode(true); return; }
       if ((mode === 'create' || !studentId) && !registeredRef.current) {
         registeredRef.current = true;
         try {
@@ -438,27 +435,6 @@ export default function Dashboard() {
     navigate('/');
   }, [dirty, pendingHeadshot, pendingQrImage, additionalQrImages, handleSave, navigate]);
 
-  const handleSelectStudent = async (selectedId) => {
-    setCounselorSearchMode(false);
-    setStudentId(selectedId);
-    loadingRef.current = false;
-    setLoading(true);
-    try {
-      const res = await studentAPI.getById(selectedId);
-      setStudentData(cleanTempData(res.data));
-    } catch (err) {
-      setError(err.message || t('loadFailed', language));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBackToSearch = () => {
-    setStudentData(null);
-    setCounselorSearchMode(true);
-    setActiveTab('personal');
-  };
-
   const handleCancel = () => { discard(); navigate('/'); };
 
   const { complete: mandatoryComplete, missing: mandatoryMissing, errorFields: personalErrors } = checkMandatoryFields(formData);
@@ -475,14 +451,6 @@ export default function Dashboard() {
     ['assessment', 'career', 'counselor', 'documents'].forEach(tab => {
       disabledTabs[tab] = `Complete required fields: ${familyMissing.join(', ')}`;
     });
-  }
-
-  if (counselorSearchMode) {
-    return (
-      <AppLayout tabs={tabs} activeTab={activeTab} onTabChange={handleTabChange} disabledTabs={disabledTabs}>
-        <StudentSearch onSelect={handleSelectStudent} />
-      </AppLayout>
-    );
   }
 
   if (loading) {
@@ -553,11 +521,6 @@ export default function Dashboard() {
             <button className="btn btn--outline btn--sm" onClick={handleClose} disabled={saving}>
               {t('close', language)}
             </button>
-            {isCounselor && (
-              <button className="btn btn--secondary btn--sm" onClick={handleBackToSearch} disabled={saving}>
-                <FiArrowLeft /> {t('back', language)}
-              </button>
-            )}
             <button className="btn btn--secondary btn--sm" onClick={handleCancel} disabled={saving}>
               {t('cancel', language)}
             </button>

@@ -30,7 +30,17 @@ export default function OTPVerification() {
     yearOfBirth, placeOfResidence, studyPlan,
     preferredSocial, connectWithYou,
     sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
+    // ── New (2026-08): the /login flow ──
+    // Login.jsx sends `identifier` (whatever the user typed — email or
+    // phone) + `channel` + `purpose: 'login'`. Registration's existing
+    // call sites never send these, so `purpose` is undefined for them.
+    identifier, channel, purpose,
   } = location.state || {};
+
+  const isLoginPurpose = purpose === 'login';
+  // The value this screen actually verifies against: the login identifier
+  // for the new flow, the registration email for every existing call site.
+  const target = isLoginPurpose ? identifier : email;
 
   const [code,           setCode]           = useState('');
   const [error,          setError]          = useState('');
@@ -43,31 +53,33 @@ export default function OTPVerification() {
   const inputRef  = useRef(null);
   const abortRef  = useRef(null);   // AbortController for WebOTP
 
-  // ── Redirect if no email in state ───────────────────────────────────────────
+  // ── Redirect if nothing to verify ────────────────────────────────────────────
   useEffect(() => {
-    if (!email) {
+    if (!target) {
       navigate('/', { replace: true });
       return;
     }
     inputRef.current?.focus();
-  }, [email, navigate]);
+  }, [target, navigate]);
 
-  // ── OTP BYPASS: auto-fill + auto-submit (no manual code entry needed) ────────
-  // While email-OTP verification is bypassed on the server, users should not
-  // have to fetch a real code. We pre-fill a placeholder and submit it after a
-  // short delay, so the screen is still briefly visible but hands-free.
+  // ── OTP BYPASS: auto-fill + auto-submit (registration only) ──────────────────
+  // While email-OTP verification is bypassed on the server FOR REGISTRATION,
+  // users should not have to fetch a real code. We pre-fill a placeholder and
+  // submit it after a short delay, so the screen is still briefly visible but
+  // hands-free. This must NEVER fire for the new /login flow (purpose ===
+  // 'login') — that path sends a real OTP and requires a real code.
   //   • To make it require a manual tap instead: delete the setTimeout line
   //     (leave setCode) so the field is pre-filled and the user clicks Verify.
   //   • To turn this off completely: delete this whole effect.
   const BYPASS_CODE = '000000';
   const AUTO_SUBMIT_DELAY_MS = 1200;
   useEffect(() => {
-    if (!email) return;
+    if (!target || isLoginPurpose) return;
     setCode(BYPASS_CODE);
     const timer = setTimeout(() => handleVerify(BYPASS_CODE), AUTO_SUBMIT_DELAY_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email]);
+  }, [target, isLoginPurpose]);
 
   // ── Resend countdown ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -111,16 +123,20 @@ export default function OTPVerification() {
 
     setLoading(true);
     try {
-      const result = await authAPI.verifyOTP(email, codeToUse, fullName, phone);
+      const result = isLoginPurpose
+        ? await authAPI.verifyOTP(target, codeToUse, { identifier: target, purpose: 'login' })
+        : await authAPI.verifyOTP(email, codeToUse);
       login(result.email, null, result.isCounselor);
       navigate('/dashboard', {
-        state: {
-          email, phone, fullName, mode,
-          selectedRecordId, recordsToDeactivate, existingStudentId,
-          yearOfBirth, placeOfResidence, studyPlan,
-          preferredSocial, connectWithYou,
-          sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
-        },
+        state: isLoginPurpose
+          ? { email: channel === 'email' ? target : '', phone: channel === 'phone' ? target : '', mode, selectedRecordId }
+          : {
+              email, phone, fullName, mode,
+              selectedRecordId, recordsToDeactivate, existingStudentId,
+              yearOfBirth, placeOfResidence, studyPlan,
+              preferredSocial, connectWithYou,
+              sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
+            },
         replace: true,
       });
     } catch (err) {
@@ -145,7 +161,11 @@ export default function OTPVerification() {
     setError('');
     setOtpToast(null);
     try {
-      await authAPI.requestOTP(email);
+      if (isLoginPurpose) {
+        await authAPI.requestOTP(target, { identifier: target, channel, purpose: 'login' });
+      } else {
+        await authAPI.requestOTP(email);
+      }
       setResendTimer(60);
       // Re-register WebOTP listener after resend
       if ('OTPCredential' in window) {
@@ -220,7 +240,7 @@ export default function OTPVerification() {
       <div className="home-card">
         <div className="home-logo">
           <h1>{t('verifyEmail', language)}</h1>
-          <p>{t('otpPrompt', language)} <strong>{email}</strong></p>
+          <p>{t('otpPrompt', language)} <strong>{target}</strong></p>
         </div>
 
         <div className="home-form">

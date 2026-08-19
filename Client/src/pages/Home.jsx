@@ -4,7 +4,7 @@
 //   - Event/School field removed from the form
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { FiCamera } from 'react-icons/fi';
 import { useAuth } from '../hooks/useAuth';
 import { authAPI } from '../services/api';
@@ -359,6 +359,12 @@ function Home() {
 
         <div className="home-tagline">
           <span className="home-tagline-text">{t('homePrizeTitle', language)}</span>
+        </div>
+
+        <div style={{ textAlign: 'center', margin: '0.25rem 0 0.75rem' }}>
+          <Link to="/login">
+            {language === 'vi' ? 'Đã đăng ký? Đăng nhập' : 'Already registered? Log in'}
+          </Link>
         </div>
 
         <div className="home-form">

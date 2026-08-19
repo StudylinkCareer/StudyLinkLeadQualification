@@ -37,11 +37,17 @@ const api = {
 
 export const authAPI = {
   checkLogin: (email, phone) => api.post('/auth/check-login', { email, phone }),
-  requestOTP: (email) => api.post('/auth/request-otp', { email }),
-  verifyOTP: (email, code) => api.post('/auth/verify-otp', { email, code }),
+  // requestOTP/verifyOTP take an optional 3rd `extra` object — only the new
+  // /login page ever passes { identifier, channel, purpose: 'login' } here.
+  // Registration's existing call sites (just `email`) are unchanged.
+  requestOTP: (email, extra = {}) => api.post('/auth/request-otp', { email, ...extra }),
+  verifyOTP: (email, code, extra = {}) => api.post('/auth/verify-otp', { email, code, ...extra }),
   checkSession: () => api.get('/auth/session'),
   logout: () => api.post('/auth/logout'),
   qrLogin: (data) => api.post('/auth/qr-login', data),
+  // ── New (2026-08): separate Login flow, phone/email + real OTP ──
+  loginLookup: (identifier, channel) => api.post('/auth/login-lookup', { identifier, channel }),
+  otpChannels: () => api.get('/auth/otp-channels'),
 };
 
 export const studentAPI = {
