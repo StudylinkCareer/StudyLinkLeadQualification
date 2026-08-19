@@ -163,6 +163,7 @@ async function requestOTP(req, res, next) {
             ? 'Phone login is not available yet. Please use email instead.'
             : 'Could not send the verification email. Please try again shortly.',
           reason: sendResult.reason,
+          detail: sendResult.detail, // TEMP (2026-08): surfaced for live diagnosis, remove once resend_api_error is root-caused
         });
       }
       return res.json({ success: true, message: `OTP sent via ${channel}` });
