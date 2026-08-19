@@ -41,6 +41,7 @@ import DevBadge from './components/DevBadge';
 import PendingDraftsBanner from './components/PendingDraftsBanner';
 import Login from './pages/Login';
 import PendingDrafts from './pages/PendingDrafts';
+import NoteDraftsDashboard from './pages/NoteDraftsDashboard';
 import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
 import LeadsList from './pages/LeadsList';
@@ -162,6 +163,7 @@ export default function App() {
               <Route path="/lead/:id"         element={<ProtectedLayout><LeadDetail /></ProtectedLayout>} />
               <Route path="/staff"            element={<ProtectedLayout><Staff /></ProtectedLayout>} />
               <Route path="/notes/drafts"     element={<ProtectedLayout><PendingDrafts /></ProtectedLayout>} />
+              <Route path="/admin/note-drafts" element={<ProtectedLayout><NoteDraftsDashboard /></ProtectedLayout>} />
               <Route path="/distribution"     element={<ProtectedLayout><LeadDistribution /></ProtectedLayout>} />
               <Route path="/events"           element={<ProtectedLayout><Suspense fallback={<div style={{ padding:24, color:'#6b7280' }}>Loading…</div>}><EventConsole /></Suspense></ProtectedLayout>} />
               <Route path="/settings/columns" element={<ProtectedLayout><ColumnLayoutSettings /></ProtectedLayout>} />

@@ -45,7 +45,8 @@ export default function Sidebar() {
   //   • Deep Cleanse   → isAdminProfile (cleanup.js requireAdmin) — gated on its page
   const canMaintenance        = canDo('maintenance', 'use');
   const canStaffTargets       = canManageTargets(staff?.position);   // CEO / COO / HR Manager / Tech Manager
-  const showAdminSection      = canManageStaff || canManageDistribution || canDeleteLeads || canMaintenance || canStaffTargets;
+  const canViewDraftsDashboard = canDo('note_drafts_dashboard', 'view');   // CEO / Manager, Technical Support
+  const showAdminSection      = canManageStaff || canManageDistribution || canDeleteLeads || canMaintenance || canStaffTargets || canViewDraftsDashboard;
 
   async function handleLogout() {
     await logout();
@@ -238,6 +239,14 @@ export default function Sidebar() {
                 onClick={() => navigate('/admin/staff-targets')}
               >
                 <FiTarget size={16} /> {language === 'vi' ? 'Chỉ tiêu nhân viên' : 'Staff Targets'}
+              </button>
+            )}
+            {canViewDraftsDashboard && (
+              <button
+                className={`nav-item ${isActive('/admin/note-drafts') ? 'active' : ''}`}
+                onClick={() => navigate('/admin/note-drafts')}
+              >
+                <FiClock size={16} /> {language === 'vi' ? 'Ghi chú đang chờ (tất cả)' : 'Pending Notes (all)'}
               </button>
             )}
           </>

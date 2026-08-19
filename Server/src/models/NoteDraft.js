@@ -79,4 +79,57 @@ async function complete(id, staffId, noteId) {
   return result.rows[0] || null;
 }
 
-module.exports = { create, listPending, countPending, getById, discard, complete };
+// ── Admin dashboard (CEO + Huy Anh, confirmed 2026-08) ──────────────────
+// Every draft, any staffer, any status — with the student's name and, for
+// completed ones, the actual note content that was eventually written
+// (joined via completed_note_id) so the dashboard can show it inline.
+async function listAllForAdmin() {
+  const result = await pool.query(`
+    SELECT d.*, s.full_name AS student_full_name,
+           sn.content AS completed_note_content, sn.created_at AS completed_note_created_at
+      FROM note_drafts d
+      JOIN students s ON s.student_id = d.student_id
+      LEFT JOIN student_notes sn ON sn.id = d.completed_note_id
+     ORDER BY d.created_at DESC
+  `);
+  return result.rows.map(objectToCamelCase);
+}
+
+// Macro stats for the same dashboard — counts, completion rate, average
+// time-to-complete, per-staff and per-day breakdowns. One query per metric
+// rather than one giant query, since each shapes differently and this
+// endpoint isn't called often enough to matter.
+async function getAdminStats() {
+  const byStatus = await pool.query(`SELECT status, COUNT(*)::int AS count FROM note_drafts GROUP BY status`);
+  const avgCompletion = await pool.query(`
+    SELECT AVG(EXTRACT(EPOCH FROM (completed_at - created_at)))::float AS avg_seconds
+      FROM note_drafts WHERE status = 'completed'
+  `);
+  const byStaff = await pool.query(`
+    SELECT staff_id, staff_name,
+           COUNT(*) FILTER (WHERE status = 'pending')::int   AS pending,
+           COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+           COUNT(*) FILTER (WHERE status = 'discarded')::int AS discarded,
+           COUNT(*)::int AS total
+      FROM note_drafts
+     GROUP BY staff_id, staff_name
+     ORDER BY total DESC
+  `);
+  const byDay = await pool.query(`
+    SELECT (created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS day, COUNT(*)::int AS c
+      FROM note_drafts GROUP BY 1 ORDER BY 1
+  `);
+  const byMethod = await pool.query(`SELECT method, COUNT(*)::int AS count FROM note_drafts GROUP BY method ORDER BY count DESC`);
+  return {
+    byStatus: byStatus.rows.map(objectToCamelCase),
+    avgCompletionSeconds: avgCompletion.rows[0].avg_seconds,
+    byStaff: byStaff.rows.map(objectToCamelCase),
+    byDay: byDay.rows.map(r => ({ day: r.day.toISOString().slice(0, 10), count: r.c })),
+    byMethod: byMethod.rows.map(objectToCamelCase),
+  };
+}
+
+module.exports = {
+  create, listPending, countPending, getById, discard, complete,
+  listAllForAdmin, getAdminStats,
+};

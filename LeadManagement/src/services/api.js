@@ -367,6 +367,9 @@ export const noteDraftsAPI = {
   listMine: ()           => request('GET',    '/api/note-drafts'),
   get:      (id)         => request('GET',    `/api/note-drafts/${id}`),
   discard:  (id)         => request('DELETE', `/api/note-drafts/${id}`),
+  // Admin dashboard (confirmed 2026-08) — CEO + Manager, Technical Support only.
+  listAllForAdmin: () => request('GET', '/api/note-drafts/admin/all'),
+  getAdminStats:   () => request('GET', '/api/note-drafts/admin/stats'),
 };
 
 // ── Documents ─────────────────────────────────────────────────

@@ -2,6 +2,20 @@
 // Cross-device note drafts — see models/NoteDraft.js for the full rationale.
 
 const NoteDraft = require('../models/NoteDraft');
+const permissionService = require('../services/permissionService');
+
+// Admin dashboard (confirmed 2026-08): CEO + Manager, Technical Support
+// only (Huy Anh, for testing/build — same position already used for the
+// Maintenance/Stale Reminders gate) — deliberately narrower than the
+// general admin tier, since per-staff completion/discard stats are a bit
+// HR-adjacent. Table-driven (resource 'note_drafts_dashboard') rather than
+// a hardcoded role list, so it can be widened later without a code change.
+async function requireDraftsAdmin(req, res, next) {
+  if (!req.session?.staffId) return res.status(401).json({ success: false, error: 'Not authenticated' });
+  const scope = await permissionService.getResourceScope(req.session.staffRole, 'note_drafts_dashboard', 'view');
+  if (!scope || scope === 'none') return res.status(403).json({ success: false, error: 'Not authorised' });
+  next();
+}
 
 const ALLOWED_NOTE_TYPES = ['counselor', 'presales', 'management'];
 const ALLOWED_METHODS = ['call', 'sms', 'zalo', 'whatsapp', 'messenger', 'email'];
@@ -47,4 +61,21 @@ async function discardDraft(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { createDraft, listPendingDrafts, getDraft, discardDraft };
+async function listAllDraftsForAdmin(req, res, next) {
+  try {
+    const drafts = await NoteDraft.listAllForAdmin();
+    res.json({ success: true, data: drafts });
+  } catch (err) { next(err); }
+}
+
+async function getDraftStatsForAdmin(req, res, next) {
+  try {
+    const stats = await NoteDraft.getAdminStats();
+    res.json({ success: true, data: stats });
+  } catch (err) { next(err); }
+}
+
+module.exports = {
+  createDraft, listPendingDrafts, getDraft, discardDraft,
+  requireDraftsAdmin, listAllDraftsForAdmin, getDraftStatsForAdmin,
+};
