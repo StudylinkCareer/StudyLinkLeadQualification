@@ -128,6 +128,20 @@ router.delete(
   reportCtrl.removeCallTargetTrackedStaff
 );
 
+// ── Call Day Targets (Staff Targets page, "Daily Call Quotas" grid) ──
+// Per-role, per-weekday New/Ongoing quotas — drives Weekly Report's "Calls
+// by day" table. Same gating as Call/Monthly Targets above.
+router.get(
+  '/call-day-targets',
+  requireStaffAuth,
+  reportCtrl.callDayTargets
+);
+router.put(
+  '/call-day-targets',
+  requireStaffAuth,
+  reportCtrl.saveCallDayTarget
+);
+
 // ── Uncontactable → Pre-sales auto-transfer roster ────────────────────
 // Same gating as Call/Monthly Targets above.
 router.get(

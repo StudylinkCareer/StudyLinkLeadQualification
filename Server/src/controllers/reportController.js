@@ -495,12 +495,34 @@ async function contractedBuckets(ctx, names) {
 }
 
 // Per-person DAILY call targets by role (index 0=Mon … 6=Sun; Sunday = 0).
-//   Counsellors: Mon–Fri 10 new / 5 ongoing, Sat 5 / 2.
-//   Pre-Sales:   Mon–Fri 15 new / 10 ongoing, Sat 7 / 5.
+// Fallback only, used if call_day_targets somehow has no row for a
+// (role, day) pair — the DB (editable from Staff Targets) is the real
+// source now; see loadDayTargets() below. Values match the migration seed.
 const CALL_TARGETS = {
   Counselor:   { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5,  5,  5,  5,  5,  2, 0] },
   'Pre-Sales': { new: [15, 15, 15, 15, 15, 7, 0], ongoing: [10, 10, 10, 10, 10, 5, 0] },
 };
+
+// Loads the editable per-role, per-weekday call quotas (Staff Targets page)
+// into the same shape CALL_TARGETS has, so computeGroup's lookup doesn't
+// need to change beyond reading ctx.dayTargets instead of the constant.
+// Called once per report build (generateWeeklySnapshot / weeklyReport's live
+// path) and stashed on ctx, same pattern as ctx.counsellorSet/presalesSet.
+async function loadDayTargets() {
+  const rows = (await pool.query(
+    `SELECT role, day_of_week, new_target, ongoing_target FROM call_day_targets`
+  )).rows;
+  const out = {
+    Counselor:   { new: [...CALL_TARGETS.Counselor.new],   ongoing: [...CALL_TARGETS.Counselor.ongoing] },
+    'Pre-Sales': { new: [...CALL_TARGETS['Pre-Sales'].new], ongoing: [...CALL_TARGETS['Pre-Sales'].ongoing] },
+  };
+  for (const r of rows) {
+    if (!out[r.role]) continue;
+    out[r.role].new[r.day_of_week]     = r.new_target;
+    out[r.role].ongoing[r.day_of_week] = r.ongoing_target;
+  }
+  return out;
+}
 
 // Reconstructs a group's ACTIVE book as at instant `tISO` (point-in-time), from
 // the audit log: each lead's counselor / presales / status = its last logged
@@ -648,9 +670,10 @@ async function computeGroup(names, ctx, opts = {}) {
   const pSet = ctx.presalesSet   || new Set();
   const nC = names.filter(n => cSet.has(n)).length;
   const nP = names.filter(n => pSet.has(n)).length;
+  const dt = ctx.dayTargets || CALL_TARGETS;   // ctx.dayTargets set by loadDayTargets() at build time
   const dailyCalls = daily.map((d, i) => ({ day: d.day, newLeads: d.newLeads, ongoing: d.ongoing,
-    targetNew:     nC * CALL_TARGETS.Counselor.new[i]     + nP * CALL_TARGETS['Pre-Sales'].new[i],
-    targetOngoing: nC * CALL_TARGETS.Counselor.ongoing[i] + nP * CALL_TARGETS['Pre-Sales'].ongoing[i] }));
+    targetNew:     nC * dt.Counselor.new[i]     + nP * dt['Pre-Sales'].new[i],
+    targetOngoing: nC * dt.Counselor.ongoing[i] + nP * dt['Pre-Sales'].ongoing[i] }));
   const newLeadItems = classified.newItems.map(it => ({ studentId: it.studentId, fullName: it.fullName }));
   // NOT deduped by lead — a lead can legitimately appear more than once
   // (once per distinct khung giờ touched), and the count here must match
@@ -780,6 +803,7 @@ async function generateWeeklySnapshot(weekStart) {
   const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames();
   ctx.counsellorSet = new Set(counsellorNames);
   ctx.presalesSet   = new Set(presalesNames);
+  ctx.dayTargets    = await loadDayTargets();
 
   const byLabel = {};
   // Keys are TRIMMED (some staff full_names carry stray whitespace, and the
@@ -856,6 +880,7 @@ async function weeklyReport(req, res, next) {
     const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames();
     ctx.counsellorSet = new Set(counsellorNames);
     ctx.presalesSet   = new Set(presalesNames);
+    ctx.dayTargets    = await loadDayTargets();
 
     let groupsDef;
     if (scope !== 'all')                                     groupsDef = [{ label: name, names: [name] }];
@@ -1379,6 +1404,76 @@ async function removeCallTargetTrackedStaff(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Call Day Targets (Staff Targets page, "Daily Call Quotas" grid) ───────
+// Per-role (Counselor / Pre-Sales), per-weekday (0=Mon..6=Sun) New/Ongoing
+// call quotas — what Weekly Report's "Calls by day" table compares actuals
+// against. Replaces the old hardcoded CALL_TARGETS constant (see
+// loadDayTargets() above); always returns all 14 (role, day) combinations,
+// defaulting anything missing to 0, so the frontend never has to guard for
+// a hole in the grid.
+async function callDayTargets(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised to view call day targets' });
+    }
+    const rows = (await pool.query(
+      `SELECT role, day_of_week, new_target, ongoing_target, updated_by, updated_at
+         FROM call_day_targets`
+    )).rows;
+    const cellMap = new Map();  // `${role}|${day}` -> row
+    for (const r of rows) cellMap.set(`${r.role}|${r.day_of_week}`, r);
+
+    const roles = ['Counselor', 'Pre-Sales'];
+    const data = roles.map(role => {
+      const cells = {};
+      for (let d = 0; d < 7; d++) {
+        const r = cellMap.get(`${role}|${d}`);
+        cells[d] = {
+          newTarget:     r ? r.new_target     : 0,
+          ongoingTarget: r ? r.ongoing_target : 0,
+          updatedBy:     r ? r.updated_by     : null,
+          updatedAt:     r ? r.updated_at     : null,
+        };
+      }
+      return { role, cells };
+    });
+
+    res.json({ success: true, data: { days: [0, 1, 2, 3, 4, 5, 6], rows: data } });
+  } catch (err) { next(err); }
+}
+
+async function saveCallDayTarget(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised to edit call day targets' });
+    }
+    const { role, dayOfWeek, newTarget, ongoingTarget } = req.body || {};
+    if (!['Counselor', 'Pre-Sales'].includes(role)) {
+      return res.status(400).json({ success: false, error: "role must be 'Counselor' or 'Pre-Sales'" });
+    }
+    const d = Number(dayOfWeek);
+    if (!Number.isInteger(d) || d < 0 || d > 6) {
+      return res.status(400).json({ success: false, error: 'dayOfWeek must be an integer 0-6 (0=Mon..6=Sun)' });
+    }
+    const nNew = Number(newTarget), nOngoing = Number(ongoingTarget);
+    if (!Number.isInteger(nNew) || nNew < 0 || !Number.isInteger(nOngoing) || nOngoing < 0) {
+      return res.status(400).json({ success: false, error: 'newTarget/ongoingTarget must be non-negative integers' });
+    }
+    const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+
+    const r = await pool.query(
+      `INSERT INTO call_day_targets (role, day_of_week, new_target, ongoing_target, updated_by, updated_at)
+            VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (role, day_of_week)
+       DO UPDATE SET new_target = EXCLUDED.new_target, ongoing_target = EXCLUDED.ongoing_target,
+                      updated_by = EXCLUDED.updated_by, updated_at = NOW()
+       RETURNING role, day_of_week AS "dayOfWeek", new_target AS "newTarget", ongoing_target AS "ongoingTarget", updated_by AS "updatedBy", updated_at AS "updatedAt"`,
+      [role, d, nNew, nOngoing, updatedBy]
+    );
+    res.json({ success: true, data: r.rows[0] });
+  } catch (err) { next(err); }
+}
+
 // ── Uncontactable → Pre-sales auto-transfer roster ────────────────────────
 // The round-robin pool (see uncontactableTransfer.js). `received` is how
 // many transfers each person has gotten so far — shown so it's visible the
@@ -1562,6 +1657,7 @@ module.exports = {
   notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation,
   monthlyTargets, saveMonthlyTarget, addTrackedStaff, removeTrackedStaff,
   callTargets, saveCallTarget, addCallTargetTrackedStaff, removeCallTargetTrackedStaff,
+  callDayTargets, saveCallDayTarget,
   listUncontactableRoster, addUncontactableRosterStaff, removeUncontactableRosterStaff, setUncontactableSlotMode,
   presalesWorkingHours, savePresalesWorkingHours,
   // Frozen Weekly Report: scheduler + manual re-publish + note freezing.

@@ -1,24 +1,42 @@
 // src/pages/StaffTargets.jsx
 // -----------------------------------------------------------------------------
-// Staff Targets — a dedicated admin page for maintaining monthly targets for
-// tracked staff. Two grids:
-//   1. Monthly Targets  — contract targets (monthly_targets / staff.target),
-//      surfaced inside the Weekly Report too.
-//   2. Call Targets     — call-volume targets (call_targets / staff.call_target),
-//      auto-populated with every active counselor + pre-sales staffer (still
-//      add/remove-able like grid 1), and the sole driver of Monthly Report's
-//      Calls KPI / % Calls KPI columns — no formula fallback.
+// Staff Targets — a dedicated admin page for every assignable quota/target,
+// grouped into three sections (2026-08 rename+categorization pass — this used
+// to be four flat, similarly-named grids with no grouping, which made it hard
+// to tell "Call Targets" the monthly-volume grid apart from the per-day quota
+// that used to be hardcoded in reportController.js with no UI at all):
+//
+//   SALES TARGETS
+//     Monthly Contract Targets — contracts signed per person per month
+//     (monthly_targets / staff.target). Surfaced inside the Weekly Report too.
+//
+//   CALL TARGETS
+//     Monthly Call Volume Targets — total calls per person per month
+//     (call_targets / staff.call_target), auto-populated with every active
+//     counselor + pre-sales staffer (still add/remove-able), sole driver of
+//     Monthly Report's Calls KPI / % Calls KPI columns — no formula fallback.
+//     Daily Call Quotas by Role — per-role (Counselor/Pre-Sales), per-weekday
+//     New/Ongoing targets (call_day_targets). Drives Weekly Report's "Calls by
+//     day" table. Used to be a hardcoded CALL_TARGETS constant in
+//     reportController.js with NO admin UI at all — this grid replaces it.
+//
+//   PRE-SALES ROUND-ROBIN
+//     Uncontactable → Pre-sales Roster, Pre-sales Working Hours — unchanged
+//     content, just grouped under a clearer heading.
 //
 // Access: Executive (CEO/COO), Quality and Tech Support — gated client-side on
 // the auth profile (roleProfiles.canManageTargets) AND server-side on every
-// /api/reports/*-targets + /tracked-staff + /call-target-staff endpoint
-// (reportController canAccessTargets). Managers still reach grid 1 via the
-// Weekly Report.
+// /api/reports/*-targets + /tracked-staff + /call-target-staff + /call-day-
+// targets endpoint (reportController canAccessTargets /
+// canAccessStaffTargetsPageOnly). Managers still reach the Monthly Contract
+// Targets grid via the Weekly Report.
 //
-// Grid: months down the rows, tracked staff across the columns, plus a rightmost
-// TOTAL column aggregating target across all tracked staff per month (and a
-// YTD total in the corner). Click a target cell to edit it inline. Target-only
-// — actual counts are shown in Weekly Report / Monthly Report instead, not here.
+// The two monthly grids: months down the rows, tracked staff across the
+// columns, plus a rightmost TOTAL column aggregating target across all
+// tracked staff per month (and a YTD total in the corner). Click a target
+// cell to edit it inline. Target-only — actual counts are shown in Weekly
+// Report / Monthly Report instead, not here. The Daily Call Quotas grid is
+// its own shape (role x weekday, no roster) — see DailyCallQuotaGrid below.
 // -----------------------------------------------------------------------------
 
 import { useState, useEffect, useRef } from 'react';
@@ -32,6 +50,15 @@ const card = { background: 'var(--bg-primary,#fff)', border: '1px solid var(--bo
 const sub  = { fontSize: '0.8rem', color: 'var(--text-secondary,#6b7280)' };
 const th   = { textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--text-secondary,#6b7280)', padding: '0.45rem 0.75rem', borderBottom: '1px solid var(--border,#e5e7eb)' };
 const td   = { padding: '0.45rem 0.75rem', fontSize: '0.85rem', borderBottom: '1px solid var(--border,#f1f5f9)' };
+// Table-level heading (subordinate to the page h1 and section headers below).
+const h2   = { fontSize: '1.1rem', fontWeight: 700, margin: 0 };
+// Category divider between groups of related tables (Sales / Calls / Pre-sales
+// round-robin) — the "more categorized" grouping on top of the per-table rename.
+const sectionHeader = { fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary,#6b7280)', borderBottom: '2px solid var(--border,#e5e7eb)', paddingBottom: '0.4rem', marginBottom: '1rem' };
+
+function SectionHeader({ children }) {
+  return <div style={sectionHeader}>{children}</div>;
+}
 
 // One grid — months down the rows, tracked staff across the columns, a
 // "Default" row for the base/fallback target, and a Total column. Reused for
@@ -93,7 +120,7 @@ function TargetsGrid({ title, subtitle, defaultLabel, defaultTitle, api, roster,
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
         <div>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{title}</h1>
+          <h2 style={h2}>{title}</h2>
           <div style={sub}>{subtitle}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -254,7 +281,7 @@ function UncontactableRosterList({ roster, L }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
         <div>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{L('Uncontactable → Pre-sales', 'Uncontactable → Pre-sales')}</h1>
+          <h2 style={h2}>{L('Uncontactable → Pre-sales Roster', 'Danh sách Uncontactable → Pre-sales')}</h2>
           <div style={sub}>
             {L(
               'Round-robin pool that automatically receives a lead once its counselor has logged 3 unanswered (KBM) calls covering all 3 time-slots. Status flips to New for them.',
@@ -325,6 +352,118 @@ function UncontactableRosterList({ roster, L }) {
   );
 }
 
+// Daily Call Quotas — per-role (Counselor / Pre-Sales), per-weekday New/
+// Ongoing call targets. Drives Weekly Report's "Calls by day" table (the
+// New/Target, Ongoing/Target columns). Used to be a hardcoded constant in
+// reportController.js; now lives in call_day_targets and is editable here.
+// Fixed 2 rows (one per role) x 7 columns (Mon..Sun) — no roster, no
+// add/remove, unlike the two grids above. Each cell holds two numbers (New,
+// Ongoing), same two-number-per-cell pattern as PresalesHoursGrid below.
+const DAY_LABELS_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_LABELS_VI = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+function DailyCallQuotaGrid({ L, language }) {
+  const [data, setData]         = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [editCell, setEditCell] = useState(null); // { role, day }
+  const [editNew,     setEditNew]     = useState('');
+  const [editOngoing, setEditOngoing] = useState('');
+  const skipBlurRef = useRef(false);
+
+  function reload() {
+    setLoading(true);
+    reportsAPI.callDayTargets()
+      .then(r => setData(r?.data || null))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }
+  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function save(role, day) {
+    const n = Number(editNew) || 0, o = Number(editOngoing) || 0;
+    reportsAPI.saveCallDayTarget(role, day, n, o)
+      .then(() => { setEditCell(null); reload(); })
+      .catch(() => setEditCell(null));
+  }
+
+  const rows = data?.rows || [];
+  const dayLabels = language === 'vi' ? DAY_LABELS_VI : DAY_LABELS_EN;
+  const roleLabel = (role) => role === 'Counselor' ? L('Counsellors', 'Tư vấn viên') : L('Pre-Sales', 'Pre-sales');
+
+  return (
+    <div>
+      <div style={{ marginBottom: '1rem' }}>
+        <h2 style={h2}>{L('Daily Call Quotas by Role', 'Định mức cuộc gọi theo ngày & vai trò')}</h2>
+        <div style={sub}>
+          {L(
+            'Per-weekday New / Ongoing call targets, one row per role — drives the Target columns on Weekly Report’s "Calls by day" table. Click a cell to edit (New × Ongoing).',
+            'Định mức cuộc gọi Mới / Đang xử lý theo từng ngày, mỗi vai trò một hàng — quyết định cột Chỉ tiêu trên bảng "Cuộc gọi theo ngày" của Báo cáo tuần. Nhấn vào ô để sửa (Mới × Đang xử lý).'
+          )}
+        </div>
+      </div>
+
+      <div style={card}>
+        {loading && !data && <div style={sub}>{L('Loading…', 'Đang tải…')}</div>}
+        {data && rows.length > 0 && (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{L('Role', 'Vai trò')}</th>
+                  {dayLabels.map(d => <th key={d} style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap' }}>{d}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.role}>
+                    <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{roleLabel(r.role)}</td>
+                    {[0, 1, 2, 3, 4, 5, 6].map(day => {
+                      const c = r.cells[day] || { newTarget: 0, ongoingTarget: 0 };
+                      const editing = editCell && editCell.role === r.role && editCell.day === day;
+                      return (
+                        <td key={day} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {editing ? (
+                            <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+                              <input type="number" min="0" step="1" value={editNew} autoFocus
+                                onChange={e => setEditNew(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.role, day); }
+                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
+                                }}
+                                title={L('New', 'Mới')}
+                                style={{ width: 32, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
+                              <span style={{ color: 'var(--text-secondary,#9ca3af)' }}>/</span>
+                              <input type="number" min="0" step="1" value={editOngoing}
+                                onChange={e => setEditOngoing(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.role, day); }
+                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
+                                }}
+                                onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } save(r.role, day); }}
+                                title={L('Ongoing', 'Đang xử lý')}
+                                style={{ width: 32, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
+                            </span>
+                          ) : (
+                            <span onClick={() => { setEditCell({ role: r.role, day }); setEditNew(String(c.newTarget)); setEditOngoing(String(c.ongoingTarget)); }}
+                              title={L('Click to edit New / Ongoing targets', 'Nhấn để sửa chỉ tiêu Mới / Đang xử lý')}
+                              style={{ cursor: 'pointer', fontWeight: 600 }}>
+                              {c.newTarget} / {c.ongoingTarget}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Pre-sales working hours — backs the weighted Uncontactable round-robin
 // (confirmed 2026-08): whoever's furthest behind their fair share (received
 // ÷ hours/day × days/month, THIS month) gets the next hand-off, instead of
@@ -364,7 +503,7 @@ function PresalesHoursGrid({ L }) {
   return (
     <div>
       <div style={{ marginBottom: '1rem' }}>
-        <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{L('Pre-sales Working Hours', 'Giờ làm việc Pre-sales')}</h1>
+        <h2 style={h2}>{L('Pre-sales Working Hours', 'Giờ làm việc Pre-sales')}</h2>
         <div style={sub}>
           {L(
             'Hours/day and calling days/month per person, editable whenever staff or their schedule changes. Drives the weighted round-robin above — someone working more hours receives proportionally more transfers.',
@@ -470,9 +609,16 @@ export default function StaffTargets() {
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', padding: '1rem' }}>
+      <div style={{ marginBottom: '1.5rem' }}>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>{L('Staff Targets', 'Chỉ tiêu nhân viên')}</h1>
+        <div style={sub}>{L('All assignable quotas and targets in one place, grouped by what they drive.', 'Tất cả chỉ tiêu có thể gán, gom nhóm theo mục đích sử dụng.')}</div>
+      </div>
+
+      {/* ── Sales Targets ─────────────────────────────────────────── */}
+      <SectionHeader>{L('Sales Targets', 'Chỉ tiêu Kinh doanh')}</SectionHeader>
       <TargetsGrid
-        title={L('Staff Targets', 'Chỉ tiêu nhân viên')}
-        subtitle={L('Monthly contract targets — click a value to edit. The Default row sets each person’s base target; a month cell overrides it. Total aggregates all staff.', 'Chỉ tiêu hợp đồng theo tháng — nhấn để sửa. Hàng Mặc định đặt chỉ tiêu cơ bản; ô tháng ghi đè. Tổng cộng dồn tất cả.')}
+        title={L('Monthly Contract Targets', 'Chỉ tiêu Hợp đồng theo tháng')}
+        subtitle={L('Contracts signed per person per month — click a value to edit. The Default row sets each person’s base target; a month cell overrides it. Total aggregates all staff.', 'Số hợp đồng ký theo từng người mỗi tháng — nhấn để sửa. Hàng Mặc định đặt chỉ tiêu cơ bản; ô tháng ghi đè. Tổng cộng dồn tất cả.')}
         defaultLabel={L('Default', 'Mặc định')}
         defaultTitle={L('Base monthly target — inherited by months with no override. Click to edit.', 'Chỉ tiêu mặc định — nhấn để sửa.')}
         api={{
@@ -486,10 +632,12 @@ export default function StaffTargets() {
         L={L}
       />
 
-      <div style={{ marginTop: '2rem' }}>
+      {/* ── Call Targets ──────────────────────────────────────────── */}
+      <div style={{ marginTop: '2.5rem' }}>
+        <SectionHeader>{L('Call Targets', 'Chỉ tiêu Cuộc gọi')}</SectionHeader>
         <TargetsGrid
-          title={L('Call Targets', 'Chỉ tiêu cuộc gọi')}
-          subtitle={L('Monthly call-volume targets — drives the Calls KPI columns on Monthly Report. Auto-populated with active Sales + Pre-sales staff; still add/remove-able below.', 'Chỉ tiêu số cuộc gọi theo tháng — quyết định cột KPI cuộc gọi trên Báo cáo tháng. Tự động điền nhân viên Sales và Pre-sales đang hoạt động; vẫn có thể thêm/xóa bên dưới.')}
+          title={L('Monthly Call Volume Targets', 'Chỉ tiêu Tổng số Cuộc gọi theo tháng')}
+          subtitle={L('Total calls per person per month — drives the Calls KPI columns on Monthly Report. Auto-populated with active Sales + Pre-sales staff; still add/remove-able below.', 'Tổng số cuộc gọi theo từng người mỗi tháng — quyết định cột KPI cuộc gọi trên Báo cáo tháng. Tự động điền nhân viên Sales và Pre-sales đang hoạt động; vẫn có thể thêm/xóa bên dưới.')}
           defaultLabel={L('Default', 'Mặc định')}
           defaultTitle={L('Base monthly call target — inherited by months with no override. Click to edit.', 'Chỉ tiêu cuộc gọi mặc định — nhấn để sửa.')}
           api={{
@@ -502,14 +650,20 @@ export default function StaffTargets() {
           roster={roster}
           L={L}
         />
+
+        <div style={{ marginTop: '1.5rem' }}>
+          <DailyCallQuotaGrid L={L} language={language} />
+        </div>
       </div>
 
-      <div style={{ marginTop: '2rem' }}>
+      {/* ── Pre-sales Round-Robin ─────────────────────────────────── */}
+      <div style={{ marginTop: '2.5rem' }}>
+        <SectionHeader>{L('Pre-sales Round-Robin', 'Xoay vòng Pre-sales')}</SectionHeader>
         <UncontactableRosterList roster={roster} L={L} />
-      </div>
 
-      <div style={{ marginTop: '2rem' }}>
-        <PresalesHoursGrid L={L} />
+        <div style={{ marginTop: '1.5rem' }}>
+          <PresalesHoursGrid L={L} />
+        </div>
       </div>
     </div>
   );

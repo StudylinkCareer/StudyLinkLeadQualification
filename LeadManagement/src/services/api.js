@@ -424,6 +424,9 @@ export const reportsAPI = {
   saveCallTarget:         (staffId, month, target) => request('PUT',    '/api/reports/call-targets', { staffId, month, target }),
   addCallTargetStaff:     (staffId)                => request('POST',   '/api/reports/call-target-staff', { staffId }),
   removeCallTargetStaff:  (staffId)                => request('DELETE', `/api/reports/call-target-staff/${staffId}`),
+  callDayTargets:         ()                       => request('GET', '/api/reports/call-day-targets'),
+  saveCallDayTarget:      (role, dayOfWeek, newTarget, ongoingTarget) =>
+    request('PUT', '/api/reports/call-day-targets', { role, dayOfWeek, newTarget, ongoingTarget }),
   uncontactableRoster:       ()        => request('GET',    '/api/reports/uncontactable-roster'),
   addUncontactableStaff:     (staffId) => request('POST',   '/api/reports/uncontactable-roster', { staffId }),
   removeUncontactableStaff:  (staffId) => request('DELETE', `/api/reports/uncontactable-roster/${staffId}`),
