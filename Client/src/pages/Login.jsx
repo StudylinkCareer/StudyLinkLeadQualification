@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 import { authAPI } from '../services/api';
 import DuplicateModal from '../components/DuplicateModal';
 import { COUNTRY_CODES } from '../utils/formFields';
@@ -16,6 +17,7 @@ import '../components/DuplicateModal.css';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const { language } = useLanguage();
   const L = (en, vi) => (language === 'vi' ? vi : en);
 
@@ -43,16 +45,32 @@ export default function Login() {
     ? email.trim()
     : `${phoneCountryCode} ${phoneNumber}`.trim();
 
+  // OTP TEMPORARILY DISABLED for login (2026-08) — studylink.org isn't
+  // verified with Resend yet (DNS pending) and no SMS gateway is chosen, so
+  // neither channel can actually deliver a real code right now. Bypassing
+  // exactly the way registration already does — the server accepts any
+  // code when the call carries no `purpose`, so this establishes the
+  // session directly instead of routing through /verify.
+  // TO RE-ENABLE once Resend/SMS are live: swap this back to
+  //   await authAPI.requestOTP(identifier, { identifier, channel, purpose: 'login' });
+  //   navigate('/verify', { state: { identifier, channel, purpose: 'login', mode: 'change', selectedRecordId: studentId } });
   const goVerify = async (studentId) => {
     setError('');
     setLoading(true);
     try {
-      await authAPI.requestOTP(identifier, { identifier, channel, purpose: 'login' });
-      navigate('/verify', {
-        state: { identifier, channel, purpose: 'login', mode: 'change', selectedRecordId: studentId },
+      const result = await authAPI.verifyOTP(identifier, '000000');
+      login(result.email, null, result.isCounselor);
+      navigate('/dashboard', {
+        state: {
+          email: channel === 'email' ? identifier : '',
+          phone: channel === 'phone' ? identifier : '',
+          mode: 'change',
+          selectedRecordId: studentId,
+        },
+        replace: true,
       });
     } catch (err) {
-      setError(err.message || L('Could not send the code. Please try again.', 'Không thể gửi mã. Vui lòng thử lại.'));
+      setError(err.message || L('Something went wrong. Please try again.', 'Đã có lỗi xảy ra. Vui lòng thử lại.'));
     } finally {
       setLoading(false);
     }
@@ -106,8 +124,8 @@ export default function Login() {
         <div className="home-logo">
           <h1>{L('Log in', 'Đăng nhập')}</h1>
           <p className="home-subtitle">
-            {L('Already registered with us? Verify your phone or email to pick up where you left off.',
-               'Đã đăng ký với chúng tôi? Xác thực số điện thoại hoặc email để tiếp tục hồ sơ của bạn.')}
+            {L('Already registered with us? Enter your phone or email to pick up where you left off.',
+               'Đã đăng ký với chúng tôi? Nhập số điện thoại hoặc email để tiếp tục hồ sơ của bạn.')}
           </p>
         </div>
 
@@ -173,7 +191,7 @@ export default function Login() {
           <div className="home-actions">
             <button className="btn btn--primary" onClick={handleSendCode}
               disabled={loading} style={{ width: '100%' }}>
-              {L('Send code', 'Gửi mã')}
+              {L('Continue', 'Tiếp tục')}
             </button>
           </div>
 
