@@ -1613,7 +1613,8 @@ export default function Leads() {
       case 'personCreatedAt':
       case 'personUpdatedAt':
       case 'personAssignedIn':
-      case 'personAssignedOut':      return v ? String(v).slice(0,10) : <MissingValue/>;
+      case 'personAssignedOut':
+      case 'lastNoteAt':              return v ? String(v).slice(0,10) : <MissingValue/>;
       case 'oceanExtraversion':
       case 'oceanAgreeableness':
       case 'oceanConscientiousness':
@@ -1662,7 +1663,8 @@ export default function Leads() {
       case 'stoneTier':   return { textAlign: 'center' };
       case 'createdAt':
       case 'campaignStart':
-      case 'campaignEnd': return { fontSize: '0.8125rem', fontVariantNumeric: 'tabular-nums' };
+      case 'campaignEnd':
+      case 'lastNoteAt': return { fontSize: '0.8125rem', fontVariantNumeric: 'tabular-nums' };
       case 'age':
       case 'riskScore':
       case 'closeDate':

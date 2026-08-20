@@ -1089,8 +1089,22 @@ async function searchLeads(req, res, next) {
         NULLIF(COALESCE(co.co_direct, co.co_sub), '') AS case_officer,
         co.quality              AS quality,
         co.tech_support         AS tech_support,
-        co.business_development AS business_development
+        co.business_development AS business_development,
+        -- Last Note (2026-08): the date/time of this person's most recent
+        -- note (= last logged contact) — "ngày take note cuối cùng" per the
+        -- CEO's own framing. Notes are stored per STUDENT (student_notes has
+        -- no lead_id), so this is the last note across that person's whole
+        -- history, not scoped to just this particular lead cycle — same
+        -- caveat as every other person-level column already on this list
+        -- (personCreatedAt etc.). A raw timestamp, not to_char'd, matching
+        -- how created_at/updated_at are handled elsewhere in this query.
+        ln.last_note_at AS last_note_at
       FROM leads l JOIN students s ON s.student_id = l.person_id
+      LEFT JOIN LATERAL (
+        SELECT MAX(sn.created_at) AS last_note_at
+          FROM student_notes sn
+         WHERE sn.student_id = s.student_id
+      ) ln ON true
       LEFT JOIN LATERAL (
         SELECT bool_or(true) AS has_slot,
                (array_agg(NULLIF(oa.staff_name,'')
