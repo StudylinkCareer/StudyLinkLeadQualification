@@ -12,25 +12,34 @@
 // for back-compat / NOT NULL + the existing UNIQUE(group,type,name); with
 // group mirrored to type, uniqueness is effectively (type, name)).
 //
-// Dates live in real columns. Manual visibility overrides live in meta JSONB
-// { manualShowDate, manualHideDate }. Optional display labels (label_en/
-// label_vi) and dedicated_counsellor are real columns (counsellor feeds the
-// event QR in R2b).
+// Dates live in real columns. Optional display labels (label_en/label_vi)
+// and dedicated_counsellor are real columns (counsellor feeds the event QR
+// in R2b).
 //
 // VISIBILITY LIFECYCLE per event (computed, not stored):
-//   - manualHideDate === today → hidden ; manualShowDate === today → visible
+//   - is_active = false → hidden, permanently, until switched back on
+//     ("Hide" in the admin UI — 2026-08: this used to be a same-day-only
+//     override that reappeared the next day; it's now the same permanent
+//     on/off switch the old separate "Active"/Deactivate column used,
+//     merged into one control per the business's explicit request. The
+//     Active column + its Ngô Quốc Hoàng-only gate are gone — anyone who
+//     can edit events (requireMarketingRole) can Hide/un-Hide one.)
 //   - else auto: before start → hidden ; start ≤ today ≤ end+1 → visible ;
-//     after end+1 → hidden. Overrides are single-day.
+//     after end+1 → hidden.
+// meta JSONB still exists on the row but is unused now (was manualShowDate/
+// manualHideDate for the old single-day override) — left as dead schema,
+// no migration needed to drop it.
 //
 // Routes:
 //   GET    /event-types  — PUBLIC. Flat Event Type list.
 //   POST   /event-types  — Admin/Mgr/Dir. Add (or reactivate) an Event Type.
 //   GET    /taxonomy     — PUBLIC. (Legacy group→type; kept for current LQ.)
 //   GET    /public       — PUBLIC. Visible events (?eventType= optional).
-//   GET    /             — Admin/Mgr/Dir. All active events.
+//   GET    /             — Admin/Mgr/Dir. All events (active + hidden).
 //   POST   /             — Create / reactivate.
-//   PUT    /:id          — Update type/name/labels/counsellor/dates/override.
-//   DELETE /:id          — Soft delete.
+//   PUT    /:id          — Update type/name/labels/counsellor/dates.
+//   PATCH  /:id/active   — Admin/Mgr/Dir. Hide/un-Hide (permanent).
+//   DELETE /:id          — Soft delete (same is_active flag as Hide).
 // ─────────────────────────────────────────────────────────────────────
 
 const express  = require('express');
@@ -50,25 +59,6 @@ function requireMarketingRole(req, res, next) {
   next();
 }
 
-// ── Persistent Active/Inactive toggle — Ngô Quốc Hoàng only (confirmed 2026-08) ──
-// The existing "Ẩn" (Hide) control is a SINGLE-DAY override (see computeHidden
-// above) — fine for "hide today's flyer", wrong for permanently turning off an
-// evergreen channel-tracking entry (Digital MKT, Facebook MKT, ...), which
-// re-appears every day since it has no end_date. This is a real, reversible
-// on/off switch instead, scoped to one specific person by email (not a role —
-// per-individual, same pattern as the Budget Approval design) rather than the
-// broader requireMarketingRole pool, since this is his own cleanup task.
-// Env-driven so a future account change needs no redeploy.
-function isEventsToggleAdmin(email) {
-  const allowed = (process.env.MARKETING_EVENTS_TOGGLE_EMAIL || 'marketing@studylink.org').toLowerCase();
-  return !!email && email.toLowerCase() === allowed;
-}
-function requireEventsToggleAdmin(req, res, next) {
-  if (!req.session?.staffId) return res.status(401).json({ success: false, error: 'Not authenticated' });
-  if (!isEventsToggleAdmin(req.session.staffEmail)) return res.status(403).json({ success: false, error: 'Not authorised' });
-  next();
-}
-
 // ── Date helpers ─────────────────────────────────────────────
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function addDays(dateStr, n) {
@@ -77,12 +67,9 @@ function addDays(dateStr, n) {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
-function computeHidden(startDate, endDate, meta) {
+function computeHidden(startDate, endDate, isActive) {
+  if (isActive === false) return true;   // manually Hidden — permanent, wins over the date window
   const today = todayISO();
-  const manualShowDate = meta?.manualShowDate || null;
-  const manualHideDate = meta?.manualHideDate || null;
-  if (manualHideDate === today) return true;
-  if (manualShowDate === today) return false;
   if (!startDate && !endDate) return false;
   if (startDate && today < startDate) return true;
   if (endDate && today > addDays(endDate, 1)) return true;
@@ -95,7 +82,6 @@ const COLS = `id, event_group, event_type, name, label_en, label_vi, dedicated_c
               meta, is_active`;
 
 function shapeRow(r) {
-  const meta = r.meta || {};
   return {
     id:                  r.id,
     eventType:           r.event_type,
@@ -105,10 +91,8 @@ function shapeRow(r) {
     dedicatedCounsellor: r.dedicated_counsellor || null,
     startDate:           r.start_date || null,
     endDate:             r.end_date   || null,
-    manualShowDate:      meta.manualShowDate || null,
-    manualHideDate:      meta.manualHideDate || null,
     isActive:            r.is_active,
-    hidden:              computeHidden(r.start_date, r.end_date, meta),
+    hidden:              computeHidden(r.start_date, r.end_date, r.is_active),
   };
 }
 
@@ -189,7 +173,7 @@ router.get('/public', async (req, res) => {
       `SELECT ${COLS} FROM events WHERE ${conds.join(' AND ')}
         ORDER BY start_date DESC NULLS LAST, name ASC`, params);
     const visible = r.rows
-      .filter(row => !computeHidden(row.start_date, row.end_date, row.meta))
+      .filter(row => !computeHidden(row.start_date, row.end_date, row.is_active))
       .map(row => ({
         id:        row.id,
         eventType: row.event_type,
@@ -218,11 +202,7 @@ router.get('/', requireMarketingRole, async (req, res) => {
     const r = await pool.query(
       `SELECT ${COLS} FROM events
         ORDER BY is_active DESC, start_date DESC NULLS LAST, name ASC`);
-    res.json({
-      success: true,
-      data: r.rows.map(shapeRow),
-      canToggleActive: isEventsToggleAdmin(req.session.staffEmail),
-    });
+    res.json({ success: true, data: r.rows.map(shapeRow) });
   } catch (err) {
     console.error('[events] list failed:', err);
     res.status(500).json({ success: false, error: 'Failed to load events' });
@@ -281,25 +261,15 @@ router.put('/:id', requireMarketingRole, async (req, res) => {
   const counsellor     = req.body.dedicatedCounsellor !== undefined ? norm(req.body.dedicatedCounsellor) : undefined;
   const startDate      = req.body.startDate      !== undefined ? norm(req.body.startDate) : undefined;
   const endDate        = req.body.endDate        !== undefined ? norm(req.body.endDate) : undefined;
-  const manualShowDate = req.body.manualShowDate !== undefined ? norm(req.body.manualShowDate) : undefined;
-  const manualHideDate = req.body.manualHideDate !== undefined ? norm(req.body.manualHideDate) : undefined;
 
   if (eventType === undefined && name === undefined && labelEn === undefined && labelVi === undefined
-      && counsellor === undefined && startDate === undefined && endDate === undefined
-      && manualShowDate === undefined && manualHideDate === undefined) {
+      && counsellor === undefined && startDate === undefined && endDate === undefined) {
     return res.status(400).json({ success: false, error: 'No fields to update' });
   }
   if (name !== undefined && !name) return res.status(400).json({ success: false, error: 'Event name cannot be empty' });
   if (eventType !== undefined && !eventType) return res.status(400).json({ success: false, error: 'Event type cannot be empty' });
 
   try {
-    const existing = await pool.query(`SELECT meta FROM events WHERE id=$1`, [id]);
-    if (existing.rowCount === 0) return res.status(404).json({ success: false, error: 'Event not found' });
-
-    const meta = existing.rows[0].meta || {};
-    if (manualShowDate !== undefined) { if (manualShowDate) meta.manualShowDate = manualShowDate; else delete meta.manualShowDate; }
-    if (manualHideDate !== undefined) { if (manualHideDate) meta.manualHideDate = manualHideDate; else delete meta.manualHideDate; }
-
     const sets = [], vals = [];
     if (eventType !== undefined) {                       // keep group mirrored to type
       vals.push(eventType); const p = vals.length;
@@ -311,9 +281,6 @@ router.put('/:id', requireMarketingRole, async (req, res) => {
     if (counsellor !== undefined) { vals.push(counsellor); sets.push(`dedicated_counsellor = $${vals.length}`); }
     if (startDate  !== undefined) { vals.push(startDate);  sets.push(`start_date = $${vals.length}::date`); }
     if (endDate    !== undefined) { vals.push(endDate);    sets.push(`end_date = $${vals.length}::date`); }
-    if (manualShowDate !== undefined || manualHideDate !== undefined) {
-      vals.push(JSON.stringify(meta)); sets.push(`meta = $${vals.length}::jsonb`);
-    }
     vals.push(id);
 
     const upd = await pool.query(
@@ -328,11 +295,12 @@ router.put('/:id', requireMarketingRole, async (req, res) => {
 });
 
 
-// ── Persistent Active/Inactive toggle (Ngô Quốc Hoàng only) ─────────────
-// Directly and reversibly sets is_active, unlike Delete (one-way soft-
-// delete from this UI's perspective — no reactivate button today) and Hide
-// (a same-day-only override that reappears tomorrow). Body: { isActive }.
-router.patch('/:id/active', requireEventsToggleAdmin, async (req, res) => {
+// ── Hide / un-Hide (permanent) ──────────────────────────────────────────
+// This IS the "Hide" button now (2026-08 merge — see the header comment).
+// Directly and reversibly sets is_active. Same gate as every other write on
+// this router (requireMarketingRole) — no longer restricted to one person.
+// Body: { isActive }.
+router.patch('/:id/active', requireMarketingRole, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id' });
   if (typeof req.body.isActive !== 'boolean') {

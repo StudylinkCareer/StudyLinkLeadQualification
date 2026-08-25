@@ -3,16 +3,17 @@
 // Events admin (manages the `events` table) — FLAT format:
 //   Event Type (marketing-editable dropdown, add new inline) + Event name,
 //   optional English/Vietnamese labels, optional Dedicated counsellor,
-//   Start / End dates, and a per-row "Hide from list" single-day override.
+//   Start / End dates, and a per-row "Hide" toggle.
 //   - Add (top form) · Edit (pencil modal) · Delete (trash, soft)
 //   The dedicated counsellor feeds the event QR (R2b) and pre-tags single-
 //   counsellor events on the LQ form.
 //
-// "Active" column (confirmed 2026-08): a real, reversible on/off switch —
-// distinct from "Hide" (single-day override, re-appears the next day, meant
-// for "hide today's flyer") and Delete (one-way from this UI). Only renders
-// for whoever the server says canToggleActive (Ngô Quốc Hoàng, by session
-// email) — everyone else's table looks unchanged.
+// "Hide" (2026-08 merge): now a real, PERMANENT, reversible on/off switch
+// (PATCH .../active, same is_active field Delete uses) — it used to be a
+// same-day-only override that reappeared the next day, and there used to be
+// a SEPARATE "Active" column doing the permanent toggle, visible only to
+// Ngô Quốc Hoàng. Both are gone; Hide alone now does the permanent job, for
+// anyone who can already edit events on this page (server: requireMarketingRole).
 // ─────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react';
@@ -27,8 +28,6 @@ const DOT_COLOR   = '#1a1a1a';   // QR module (square) colour
 const ACCENT      = '#c8102e';   // frame, banner, finder corners (StudyLink red)
 const BANNER_TEXT = 'SCAN ME';
 
-function todayISO() { return new Date().toISOString().slice(0, 10); }
-
 const ADD_SENTINEL = '__add_new_type__';
 
 export default function MarketingEvents() {
@@ -36,11 +35,6 @@ export default function MarketingEvents() {
   const [events, setEvents]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
-  // Persistent Active/Inactive toggle (confirmed 2026-08) — only true for
-  // Ngô Quốc Hoàng (server-computed from session email; not derivable
-  // client-side, so we just render/hide based on what the API told us).
-  const [canToggleActive, setCanToggleActive] = useState(false);
-  const [togglingActiveId, setTogglingActiveId] = useState(null);
 
   // ── Event Type list (flat, marketing-editable) ──
   const [eventTypes, setEventTypes] = useState([]);     // [{ code, labelEn, labelVi }]
@@ -209,7 +203,7 @@ export default function MarketingEvents() {
       const r = await fetch('/api/marketing-events', { credentials: 'include' });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'Load failed');
-      setEvents(j.data || []); setCanToggleActive(!!j.canToggleActive); setError('');
+      setEvents(j.data || []); setError('');
     } catch (e) {
       setError(e.message || 'Failed to load events');
     } finally { setLoading(false); }
@@ -299,40 +293,11 @@ export default function MarketingEvents() {
     }
   }
 
-  // Toggle the single-day visibility override.
+  // Hide / un-Hide — PERMANENT (2026-08 merge; used to be a single-day
+  // override, and there used to be a separate Active toggle doing this same
+  // job restricted to one person). Sets is_active directly.
   async function handleToggleHidden(ev) {
-    const today = todayISO();
-    let payload;
-    if (ev.hidden) {
-      payload = (ev.manualHideDate === today)
-        ? { manualHideDate: '', manualShowDate: '' }
-        : { manualShowDate: today, manualHideDate: '' };
-    } else {
-      payload = (ev.manualShowDate === today)
-        ? { manualShowDate: '', manualHideDate: '' }
-        : { manualHideDate: today, manualShowDate: '' };
-    }
     setTogglingId(ev.id);
-    try {
-      const r = await fetch(`/api/marketing-events/${ev.id}`, {
-        method: 'PUT', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.error || 'Toggle failed');
-      await load();
-    } catch (err) {
-      setError(err.message || 'Failed to toggle visibility');
-    } finally { setTogglingId(null); }
-  }
-
-  // Persistent Active/Inactive switch (confirmed 2026-08) — the real,
-  // reversible on/off control, as opposed to Hide's single-day override.
-  // Server 403s anyone but the one authorised email; the UI only renders
-  // this at all when canToggleActive came back true, so a non-owner never
-  // sees a control they can't use.
-  async function handleToggleActive(ev) {
-    setTogglingActiveId(ev.id);
     try {
       const r = await fetch(`/api/marketing-events/${ev.id}/active`, {
         method: 'PATCH', credentials: 'include',
@@ -343,13 +308,12 @@ export default function MarketingEvents() {
       if (!j.success) throw new Error(j.error || 'Toggle failed');
       await load();
     } catch (err) {
-      setError(err.message || 'Failed to toggle active state');
-    } finally { setTogglingActiveId(null); }
+      setError(err.message || 'Failed to toggle visibility');
+    } finally { setTogglingId(null); }
   }
 
   const inputStyle = { width: '100%', padding: '8px 10px', borderRadius: 4, border: '1px solid var(--border)' };
   const lbl        = { display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 };
-  const today = todayISO();
 
   // shared Event Type picker (select + inline add)
   const typePicker = (value, onPick, allowAdd) => (
@@ -448,19 +412,12 @@ export default function MarketingEvents() {
               <th style={{ padding: '8px 4px', width: 110 }}>{language === 'vi' ? 'Bắt đầu' : 'Start'}</th>
               <th style={{ padding: '8px 4px', width: 110 }}>{language === 'vi' ? 'Kết thúc' : 'End'}</th>
               <th style={{ padding: '8px 4px', width: 110, textAlign: 'center' }}>{language === 'vi' ? 'Ẩn' : 'Hide'}</th>
-              {canToggleActive && (
-                <th style={{ padding: '8px 4px', width: 110, textAlign: 'center' }}>{language === 'vi' ? 'Kích hoạt' : 'Active'}</th>
-              )}
               <th style={{ padding: '8px 4px', width: 80 }}></th>
             </tr>
           </thead>
           <tbody>
             {events.map((ev, idx) => {
-              const showOverrideToday = ev.manualShowDate === today;
-              const hideOverrideToday = ev.manualHideDate === today;
-              const overridden = showOverrideToday || hideOverrideToday;
               const saving = togglingId === ev.id;
-              const savingActive = togglingActiveId === ev.id;
               const subLabel = [ev.labelEn, ev.labelVi].filter(Boolean).join(' · ');
               return (
                 <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)', opacity: ev.isActive === false ? 0.5 : 1 }}>
@@ -479,33 +436,15 @@ export default function MarketingEvents() {
                     <label
                       title={
                         saving ? (language === 'vi' ? 'Đang lưu…' : 'Saving…')
-                        : ev.hidden
-                          ? (hideOverrideToday ? (language === 'vi' ? 'Đã ẩn hôm nay. Bấm để khôi phục.' : 'Hidden today (override). Click to revert.')
-                                               : (language === 'vi' ? 'Tự động ẩn. Bấm để hiển thị hôm nay.' : 'Auto-hidden. Click to show for today.'))
-                          : (showOverrideToday ? (language === 'vi' ? 'Hiển thị hôm nay (ghi đè). Bấm để khôi phục.' : 'Showing today (override). Click to revert.')
-                                               : (language === 'vi' ? 'Đang hoạt động. Bấm để ẩn hôm nay.' : 'Auto-active. Click to hide for today.'))
+                        : ev.isActive
+                          ? (language === 'vi' ? 'Đang hiển thị. Bấm để ẩn vĩnh viễn.' : 'Visible. Click to hide for good.')
+                          : (language === 'vi' ? 'Đã ẩn vĩnh viễn. Bấm để hiển thị lại.' : 'Hidden. Click to show again.')
                       }
                       style={{ display: 'inline-flex', alignItems: 'center', cursor: saving ? 'wait' : 'pointer' }}>
-                      <input type="checkbox" checked={ev.hidden} disabled={saving} onChange={() => handleToggleHidden(ev)}
+                      <input type="checkbox" checked={!ev.isActive} disabled={saving} onChange={() => handleToggleHidden(ev)}
                              style={{ width: 18, height: 18, cursor: saving ? 'wait' : 'pointer' }} />
                     </label>
-                    {overridden && <div style={{ fontSize: '0.7rem', color: '#2563eb', marginTop: 2 }}>{language === 'vi' ? 'hôm nay' : 'today only'}</div>}
                   </td>
-                  {canToggleActive && (
-                    <td style={{ padding: '10px 4px', textAlign: 'center' }}>
-                      <label
-                        title={
-                          savingActive ? (language === 'vi' ? 'Đang lưu…' : 'Saving…')
-                          : ev.isActive
-                            ? (language === 'vi' ? 'Đang hoạt động vĩnh viễn. Bấm để tắt hẳn.' : 'Permanently active. Click to turn off for good.')
-                            : (language === 'vi' ? 'Đã tắt vĩnh viễn. Bấm để bật lại.' : 'Permanently off. Click to turn back on.')
-                        }
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: savingActive ? 'wait' : 'pointer' }}>
-                        <input type="checkbox" checked={!!ev.isActive} disabled={savingActive} onChange={() => handleToggleActive(ev)}
-                               style={{ width: 18, height: 18, cursor: savingActive ? 'wait' : 'pointer' }} />
-                      </label>
-                    </td>
-                  )}
                   <td style={{ padding: '10px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button onClick={() => openQr(ev)} title="QR"
                             style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-secondary)', padding: '2px 7px', marginRight: 6, fontSize: '0.72rem', fontWeight: 700 }}>

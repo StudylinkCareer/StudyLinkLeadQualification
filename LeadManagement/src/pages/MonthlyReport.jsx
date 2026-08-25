@@ -390,6 +390,10 @@ export default function MonthlyReport() {
   const teamChartData = useMemo(() => (report?.teamPerformance || []).map((r) => ({
     name: r.fullName, target: r.target, inSystem: r.inSystem, outSystem: r.outSystem,
   })), [report]);
+  // Counsellors: raw counts (Total calls vs KBM) — backs the Telesales section's chart.
+  const counselorCallCountData = useMemo(() => (report?.teamPerformance || []).map((r) => ({
+    name: r.fullName, totalCalls: r.calls, kbmCount: r.kbmCalls,
+  })), [report]);
   const contractResourcesPieData = useMemo(() => toPieData(
     report?.contractResources, 'count', (r) => r.sourceLabel, (r) => r.sourceLabel, L('Other', 'Khác')
   ), [report, language]);
@@ -483,12 +487,6 @@ export default function MonthlyReport() {
                       <th style={{ textAlign: 'right' }}>{L('Total leads', 'Tổng leads')}</th>
                       <th style={{ textAlign: 'right' }}>{L('New this month', 'Mới tháng này')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Convert %', 'Tỉ lệ %')}</th>
-                      <th style={{ textAlign: 'right' }} title={L('First-ever successful contact', 'Lần đầu liên hệ thành công')}>{L('New', 'Mới')}</th>
-                      <th style={{ textAlign: 'right' }} title={L('Follow-up successful contacts', 'Liên hệ lại thành công')}>{L('Ongoing', 'Tiếp tục')}</th>
-                      <th style={{ textAlign: 'right' }} title={L('Không bắt máy', 'Không bắt máy')}>{L('KBM', 'KBM')}</th>
-                      <th style={{ textAlign: 'right' }}>{L('Calls', 'Cuộc gọi')}</th>
-                      <th style={{ textAlign: 'right' }}>{L('Calls KPI', 'KPI cuộc gọi')}</th>
-                      <th style={{ textAlign: 'right' }}>{L('% Calls KPI', '% KPI cuộc gọi')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Basic Counseling Letter', 'Thư tư vấn sơ bộ')}</th>
                       <th style={{ textAlign: 'right' }}>{L('Final Counseling Letter', 'Thư tư vấn cuối')}</th>
                     </tr>
@@ -521,18 +519,12 @@ export default function MonthlyReport() {
                             <td style={{ textAlign: 'right' }}>{r.totalLeads}</td>
                             <td style={{ textAlign: 'right' }}>{r.newLeadsThisMonth}</td>
                             <td style={{ textAlign: 'right' }}>{fmtPct(r.convertRate)}</td>
-                            <td style={{ textAlign: 'right' }}>{r.newCalls}</td>
-                            <td style={{ textAlign: 'right' }}>{r.ongoingCalls}</td>
-                            <td style={{ textAlign: 'right' }}>{r.kbmCalls}</td>
-                            <td style={{ textAlign: 'right' }}>{r.calls}</td>
-                            <td style={{ textAlign: 'right' }}>{r.callsKpi}</td>
-                            <td style={{ textAlign: 'right' }}>{fmtPct(r.pctCallsKpi)}</td>
                             <td style={{ textAlign: 'right' }}>{r.basicLetters}</td>
                             <td style={{ textAlign: 'right' }}>{r.finalLetters}</td>
                           </tr>
                           {drilldownLeads && (
                             <tr>
-                              <td colSpan={21} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                              <td colSpan={15} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
                                 <table className="leads-data-table" style={{ width: '100%' }}>
                                   <thead><tr>
                                     <th style={{ textAlign: 'left' }}>{L('Name', 'Tên')}</th>
@@ -559,7 +551,7 @@ export default function MonthlyReport() {
                       );
                     })}
                     {!(report.teamPerformance || []).length && (
-                      <tr><td colSpan={21} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                      <tr><td colSpan={15} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         {L('No counselors found', 'Không tìm thấy tư vấn viên')}
                       </td></tr>
                     )}
@@ -577,12 +569,6 @@ export default function MonthlyReport() {
                         <td style={{ textAlign: 'right' }}>{teamTotals.totalLeads}</td>
                         <td style={{ textAlign: 'right' }}>{teamTotals.newLeadsThisMonth}</td>
                         <td style={{ textAlign: 'right' }}>{fmtPct(teamTotals.convertRate)}</td>
-                        <td style={{ textAlign: 'right' }}>{teamTotals.newCalls}</td>
-                        <td style={{ textAlign: 'right' }}>{teamTotals.ongoingCalls}</td>
-                        <td style={{ textAlign: 'right' }}>{teamTotals.kbmCalls}</td>
-                        <td style={{ textAlign: 'right' }}>{teamTotals.calls}</td>
-                        <td style={{ textAlign: 'right' }}>{teamTotals.callsKpi}</td>
-                        <td style={{ textAlign: 'right' }}>{fmtPct(teamTotals.pctCallsKpi)}</td>
                         <td style={{ textAlign: 'right' }}>{teamTotals.basicLetters}</td>
                         <td style={{ textAlign: 'right' }}>{teamTotals.finalLetters}</td>
                       </tr>
@@ -592,8 +578,7 @@ export default function MonthlyReport() {
               </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
                 * {L('Target not set for this month — showing the staff-level default.', 'Chưa đặt chỉ tiêu cho tháng này — hiển thị chỉ tiêu mặc định.')}
-                {' '}{L('Total row: % KPI, Convert %, and % Calls KPI are company-wide (sum ÷ sum), not an average of each row.', 'Dòng tổng: % KPI, Tỉ lệ % và % KPI cuộc gọi tính theo toàn công ty (tổng ÷ tổng), không phải trung bình từng dòng.')}
-                {' '}{L('Calls KPI is auto-computed from the per-weekday counselor call targets (same ones Weekly Report uses), summed across every day actually in the month.', 'KPI cuộc gọi tự tính từ chỉ tiêu cuộc gọi theo ngày trong tuần của tư vấn viên (giống Báo cáo tuần), cộng dồn theo đúng số ngày trong tháng.')}
+                {' '}{L('Total row: % KPI and Convert % are company-wide (sum ÷ sum), not an average of each row.', 'Dòng tổng: % KPI và Tỉ lệ % tính theo toàn công ty (tổng ÷ tổng), không phải trung bình từng dòng.')}
               </div>
 
               {teamChartData.length > 0 && (
@@ -615,6 +600,104 @@ export default function MonthlyReport() {
                   </ResponsiveContainer>
                 </div>
               )}
+            </div>
+
+            {/* ── Telesales — Counsellors ── */}
+            {/* Pulled out of Team Performance (2026-08) so it reads as its own
+                report instead of being buried in a 15-column contracts table —
+                mirrors the Pre-sales section below exactly (same table shape,
+                same drill-down, same chart), reusing data teamPerformance
+                already computes (no new backend logic for the numbers
+                themselves — only callDetail, added for the drill-down). */}
+            <div className="section-card">
+              <div className="section-header"><span className="section-title">{L('Telesales (Counsellors)', 'Telesales (Tư vấn viên)')}</span></div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="leads-data-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>{L('Counselor', 'Tư vấn viên')}</th>
+                      <th style={{ textAlign: 'right' }} title={L('First-ever successful contact', 'Lần đầu liên hệ thành công')}>{L('New', 'Mới')}</th>
+                      <th style={{ textAlign: 'right' }} title={L('Follow-up successful contacts', 'Liên hệ lại thành công')}>{L('Ongoing', 'Tiếp tục')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('Total calls', 'Tổng cuộc gọi')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('Calls KPI', 'KPI cuộc gọi')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('% Calls KPI', '% KPI cuộc gọi')}</th>
+                      <th style={{ textAlign: 'right' }}>{L('KBM (unanswered)', 'Số cuộc KBM')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(report.teamPerformance || []).map((r) => {
+                      const callCellKey = expandedCallCell?.startsWith(`${r.staffId}|`) ? expandedCallCell.slice(String(r.staffId).length + 1) : null;
+                      const callDrilldownNotes = callCellKey ? filterCallDetail(r.callDetail, callCellKey) : null;
+                      const toggleCallCell = (key, count) => {
+                        if (!count) return;
+                        setExpandedCallCell((k) => (k === `${r.staffId}|${key}` ? null : `${r.staffId}|${key}`));
+                      };
+                      const clickableStyle = (count) => ({ textAlign: 'right', cursor: count ? 'pointer' : 'default', textDecoration: count ? 'underline dotted' : 'none' });
+                      return (
+                        <Fragment key={r.staffId}>
+                          <tr>
+                            <td>{r.fullName}</td>
+                            <td style={clickableStyle(r.newCalls)} onClick={() => toggleCallCell('new', r.newCalls)}>{r.newCalls}</td>
+                            <td style={clickableStyle(r.ongoingCalls)} onClick={() => toggleCallCell('ongoing', r.ongoingCalls)}>{r.ongoingCalls}</td>
+                            <td style={clickableStyle(r.calls)} onClick={() => toggleCallCell('total', r.calls)}>{r.calls}</td>
+                            <td style={{ textAlign: 'right' }}>{r.callsKpi}</td>
+                            <td style={{ textAlign: 'right' }}>{fmtPct(r.pctCallsKpi)}</td>
+                            <td style={clickableStyle(r.kbmCalls)} onClick={() => toggleCallCell('kbm', r.kbmCalls)}>{r.kbmCalls}</td>
+                          </tr>
+                          {callDrilldownNotes && (
+                            <tr key={`${r.staffId}-calls`}>
+                              <td colSpan={7} style={{ padding: 0, background: 'var(--bg-secondary)' }}>
+                                <CallDetailDrilldownPanel notes={callDrilldownNotes} navigate={navigate} L={L} language={language} />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {!(report.teamPerformance || []).length && (
+                      <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                        {L('No counselors found', 'Không tìm thấy tư vấn viên')}
+                      </td></tr>
+                    )}
+                  </tbody>
+                  {(report.teamPerformance || []).length > 0 && (
+                    <tfoot>
+                      <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
+                        <td>{L('Total', 'Tổng cộng')}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.newCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.ongoingCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.calls}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.callsKpi}</td>
+                        <td style={{ textAlign: 'right' }}>{fmtPct(teamTotals.pctCallsKpi)}</td>
+                        <td style={{ textAlign: 'right' }}>{teamTotals.kbmCalls}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+
+              {counselorCallCountData.length > 0 && (
+                <div style={{ marginTop: '1rem', maxWidth: 560 }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', textAlign: 'center' }}>
+                    {L('Total calls vs KBM', 'Tổng cuộc gọi vs KBM')}
+                  </div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={counselorCallCountData} barGap={2} margin={{ top: 24, right: 8, left: 0, bottom: 48 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} angle={-30} textAnchor="end" interval={0} />
+                      <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} allowDecimals={false} />
+                      <Tooltip />
+                      <Legend verticalAlign="top" align="center" wrapperStyle={{ fontSize: '0.7rem', paddingBottom: '6px' }} />
+                      <Bar dataKey="totalCalls" name={L('Total calls', 'Tổng cuộc gọi')} fill={COLORS.good} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="kbmCount" name={L('KBM (unanswered)', 'Số cuộc KBM')} fill={COLORS.warn} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
+                {L('Calls KPI is auto-computed from the per-weekday counselor call targets (same ones Weekly Report uses), summed across every day actually in the month.', 'KPI cuộc gọi tự tính từ chỉ tiêu cuộc gọi theo ngày trong tuần của tư vấn viên (giống Báo cáo tuần), cộng dồn theo đúng số ngày trong tháng.')}
+              </div>
             </div>
 
             {/* ── Contract Sources ── */}

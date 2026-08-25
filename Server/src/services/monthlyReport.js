@@ -162,9 +162,11 @@ async function getSalesMonthlyReport(monthLabel) {
   // Letters are counted by topic — same two topic strings Weekly Report's
   // lettersFor() already uses.
   const counselorNoteRows = counselorNames.length ? (await pool.query(
-    `SELECT author_name, student_id, contact_platform, content, topic, created_at, call_answered
-       FROM student_notes
-      WHERE author_name = ANY($1) AND created_at >= $2 AND created_at < $3`,
+    `SELECT sn.id AS note_id, sn.author_name, sn.student_id, s.full_name,
+            sn.contact_platform, sn.content, sn.topic, sn.created_at, sn.call_answered
+       FROM student_notes sn
+       JOIN students s ON s.student_id = sn.student_id
+      WHERE sn.author_name = ANY($1) AND sn.created_at >= $2 AND sn.created_at < $3`,
     [counselorNames, startISO, endISO]
   )).rows : [];
   const counselorCallStudentIds = [...new Set(counselorNoteRows.filter(isCallNote).map((n) => n.student_id))];
@@ -178,6 +180,30 @@ async function getSalesMonthlyReport(monthLabel) {
   for (const it of counselorClassified.newItems)     newByCounselor.set(it.note.author_name, (newByCounselor.get(it.note.author_name) || 0) + 1);
   for (const it of counselorClassified.ongoingItems) ongoingByCounselor.set(it.note.author_name, (ongoingByCounselor.get(it.note.author_name) || 0) + 1);
   for (const it of counselorClassified.kbmItems)     kbmByCounselor.set(it.note.author_name, (kbmByCounselor.get(it.note.author_name) || 0) + 1);
+
+  // Per-note detail backing the "click a number, see the receipts" drill-down
+  // on the new Telesales (Counsellors) table — same pattern as Pre-sales'
+  // callDetail below.
+  const counselorBucketByNoteId = new Map();
+  for (const it of counselorClassified.newItems)     counselorBucketByNoteId.set(it.note.note_id, { bucket: 'new' });
+  for (const it of counselorClassified.ongoingItems) counselorBucketByNoteId.set(it.note.note_id, { bucket: 'ongoing' });
+  for (const it of counselorClassified.kbmItems)     counselorBucketByNoteId.set(it.note.note_id, { bucket: 'kbm', kbmSource: it.kbmSource });
+  const counselorCallDetailByName = new Map();
+  for (const n of counselorNoteRows.filter(isCallNote)) {
+    if (!counselorCallDetailByName.has(n.author_name)) counselorCallDetailByName.set(n.author_name, []);
+    const meta = counselorBucketByNoteId.get(n.note_id) || {};
+    counselorCallDetailByName.get(n.author_name).push({
+      noteId: n.note_id,
+      studentId: n.student_id,
+      fullName: n.full_name,
+      contactPlatform: n.contact_platform,
+      content: n.content,
+      createdAt: n.created_at,
+      callAnswered: n.call_answered,
+      bucket: meta.bucket || null,
+      kbmSource: meta.kbmSource || null,
+    });
+  }
 
   const basicLettersByCounselor = new Map();
   const finalLettersByCounselor = new Map();
@@ -239,6 +265,7 @@ async function getSalesMonthlyReport(monthLabel) {
       newCalls,
       ongoingCalls,
       kbmCalls,
+      callDetail: counselorCallDetailByName.get(c.full_name) || [],
       callsKpi,
       pctCallsKpi: callsKpi ? Math.round((calls / callsKpi) * 1000) / 10 : null,
       basicLetters: basicLettersByCounselor.get(c.full_name) || 0,
