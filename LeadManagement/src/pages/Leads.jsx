@@ -1690,7 +1690,20 @@ export default function Leads() {
   // can no longer hide a column the role is RBAC-allowed to see, nor show
   // a column the role is RBAC-forbidden to see. This removes the duplicate
   // configuration surface — RBAC tables are the single source of truth.
-  const visibleCols = columns.filter(c => c.key === 'leadId' || (fieldList(c.key) !== 'none' && c.visible !== false));
+  //
+  // email/phone are a deliberate exception (2026-08, CEO request): kept out
+  // of the list COLUMNS unconditionally, regardless of RBAC list_permission
+  // — but their RBAC permission itself must stay 'view_masked', not 'none',
+  // because 'none' makes the server drop the field (and its _raw_ companion)
+  // from the response entirely, which silently broke phone/email search the
+  // same day it shipped (search reads whatever keys are actually present on
+  // each row — see matchesSearch below). Hiding the column here, in the UI
+  // layer, keeps that payload intact for search while still satisfying the
+  // "no phone/email in the list" request — this exclusion is the ONLY
+  // mechanism that should ever be used to hide these two specifically; do
+  // NOT go back to setting their list_permission to 'none'.
+  const LIST_COLUMN_EXCLUDED = new Set(['email', 'phone']);
+  const visibleCols = columns.filter(c => c.key === 'leadId' || (fieldList(c.key) !== 'none' && c.visible !== false && !LIST_COLUMN_EXCLUDED.has(c.key)));
   const FIELD_LABELS = {
     counselor:'Counselor', seniorCounselor:'Senior Counselor',
     presales:'Pre-Sales', marketingStaff:'Marketing Staff',
