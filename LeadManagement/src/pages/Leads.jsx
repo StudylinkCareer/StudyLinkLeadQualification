@@ -1380,16 +1380,16 @@ export default function Leads() {
 
     // Generic per-column free-text "contains" filters — covers every column that
     // doesn't have a dedicated multi/date chip. Matches against the raw value too.
+    // Uses matchesSearch (same normalisation as the global search box above —
+    // collapses whitespace/punctuation so "0938683383" matches a stored
+    // "093 8683383") — this used to be a plain, un-normalised .includes(),
+    // which silently failed on any phone number with the standard "093 xxx
+    // xxxx" spacing (found 2026-08, same day as the search-box regression).
     const colText = filters.colText || {};
     for (const [k, val] of Object.entries(colText)) {
-      const needle = String(val || '').trim().toLowerCase();
+      const needle = String(val || '').trim();
       if (!needle) continue;
-      r = r.filter(l => {
-        const disp = l[k];
-        const raw  = l[`_raw_${k}`];
-        return String(disp ?? '').toLowerCase().includes(needle)
-            || String(raw  ?? '').toLowerCase().includes(needle);
-      });
+      r = r.filter(l => matchesSearch(l[k], needle) || matchesSearch(l[`_raw_${k}`], needle));
     }
 
     // No sort here — TanStack handles sorting via its sortedRowModel.
