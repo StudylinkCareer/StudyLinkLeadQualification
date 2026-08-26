@@ -898,9 +898,10 @@ export default function Leads() {
   // re-applied (same mechanism the old "back to leads" arrow used).
   useEffect(() => {
     const count = countActiveFilters(filters);
-    const label = count > 0
-      ? `Leads (${count} filter${count > 1 ? 's' : ''})`
-      : 'Leads';
+    const parts = [];
+    if (count > 0)          parts.push(`${count} filter${count > 1 ? 's' : ''}`);
+    if (drillIds.length > 0) parts.push('drilled');
+    const label = parts.length > 0 ? `Leads (${parts.join(', ')})` : 'Leads';
     pushTrail({
       label,
       path:  '/leads',
@@ -943,9 +944,13 @@ export default function Leads() {
     if (!v) {
       // "All leads" — restore the saved global default layout (column_config),
       // falling back to catalog defaults when nothing has been saved.
+      // Also drops any drill-down ID scope (see clearFilters' comment above) —
+      // "All leads" should mean ALL leads, not "all leads within whatever
+      // Monthly Report segment I drilled in from".
       const base = baseConfigRef.current || {};
       setActiveVariantId(null);
       setFilters(EMPTY_FILTERS);
+      setDrillIds([]);
       setSorting([{ id: 'createdAt', desc: true }]);
       setColumnVisibility(base.columnVisibility || {});
       setColumnOrder(base.columnOrder || []);
@@ -1054,8 +1059,17 @@ export default function Leads() {
     setFilters(f => ({ ...f, colText: { ...(f.colText || {}), [colKey]: value } }));
     setPagination(p => ({ ...p, pageIndex: 0 }));
   }
+  // "Clear filters" also drops any drill-down ID scope (arrived via a Monthly
+  // Report / Dashboard drill — see the drillIds effect below). Before this fix
+  // (found 2026-08, same investigation as the phone/email search regression),
+  // a drilled-in ID scope silently outlived "Clear filters" — every filter box
+  // showed empty, the "Clear filters (N)" badge showed nothing active, yet the
+  // list was still invisibly restricted to the drilled ID set. That made a
+  // "search finds nothing" report impossible to distinguish from a real search
+  // bug just by looking at the page.
   function clearFilters() {
     setFilters(EMPTY_FILTERS);
+    setDrillIds([]);
     setPagination(p => ({ ...p, pageIndex: 0 }));
   }
 
@@ -1879,6 +1893,20 @@ export default function Leads() {
 
           {/* Actions on the far right — Print + Export are permission-gated */}
           <div style={{ marginLeft:'auto', display:'flex', gap:'8px', alignItems:'center' }}>
+            {/* Drill-down ID scope (arrived via a Monthly Report / Dashboard drill).
+                Previously invisible — didn't bump "Clear filters (N)", didn't get
+                reset by "All leads" or "Clear filters" — so a search that came up
+                empty because of this silent scope looked identical to a real bug.
+                Surfaced explicitly here, with its own way to drop it. */}
+            {drillIds.length > 0 && (
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={() => setDrillIds([])}
+                title="This list is scoped to a fixed set of leads from where you drilled in — click to show all leads instead"
+                style={{ color:'var(--primary)' }}>
+                Drilled view ({drillIds.length}) ✕
+              </button>
+            )}
             {activeFilterCount > 0 && (
               <button className="btn btn--ghost btn--sm" onClick={clearFilters}>Clear filters ({activeFilterCount})</button>
             )}
