@@ -1345,6 +1345,16 @@ export default function LeadDetail() {
       // reach this same modal from the Student page).
       const data = isStudentView
         ? await notesAPI.addStudentLevel(id, contactNoteType, noteText, {
+            // topic was omitted here (student-level notes were "topic-less"
+            // when this endpoint was written) but this is exactly how Family
+            // Contacts' Mother/Father call icons reach ContactLogModal from
+            // the Student page, and its NoteForm requires a real topic
+            // (Basic/Final Counselling Letter, First/Second Meeting, Office
+            // Visit). Dropping it here meant Weekly/Monthly Report's
+            // topic-based counts (`sn.topic = '...'`) silently missed every
+            // parent/family-contact note, even though the topic was right
+            // there in the note's own text. Found 2026-08.
+            topic,
             followUpDate,
             contactPlatform,
             callAnswered: callAnswered ?? null,

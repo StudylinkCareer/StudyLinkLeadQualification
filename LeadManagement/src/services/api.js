@@ -319,11 +319,17 @@ export const notesAPI = {
       draftId:         extra.draftId || null,
     }),
 
-  // Student-level notes (topic-less for now).
+  // Student-level notes. Originally topic-less by design, but Family
+  // Contacts' Mother/Father call icons reach this same endpoint via
+  // ContactLogModal (LeadDetail.jsx's isStudentView branch) with a real
+  // topic already required by its NoteForm — topic was just never forwarded
+  // here, so it silently missed Weekly/Monthly Report's topic-based counts.
+  // Fixed 2026-08.
   listStudentLevel: (studentId) => request('GET', `/api/notes/student-level/${encodeURIComponent(studentId)}`),
   addStudentLevel:  (studentId, noteType, content, extra = {}) =>
     request('POST', `/api/notes/student-level/${encodeURIComponent(studentId)}`, {
       noteType, content,
+      topic:           extra.topic           || null,
       followUpDate:    extra.followUpDate    || null,
       contactPlatform: extra.contactPlatform || null,
       meetingLocation: extra.meetingLocation || null,

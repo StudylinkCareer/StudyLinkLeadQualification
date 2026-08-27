@@ -169,7 +169,7 @@ async function getStudentLevelNotes(req, res, next) {
 async function addStudentLevelNote(req, res, next) {
   try {
     const { studentId } = req.params;
-    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation, callAnswered, draftId } = req.body;
+    const { noteType, content, topic, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation, callAnswered, draftId } = req.body;
     const staffRole = req.session.staffRole;
     const staffName = req.session.staffName;
     const authorId  = req.session.staffId;
@@ -190,8 +190,17 @@ async function addStudentLevelNote(req, res, next) {
       if (!ok) return res.status(403).json({ success: false, error: 'You can only write notes on students assigned to you.' });
     }
 
-    // Student-level notes carry no topic for now.
-    const note = await StudentNote.create({ studentId, leadId: null, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic: null, meetingLocation, callAnswered });
+    // Student-level notes used to carry no topic at all — but Family
+    // Contacts' Mother/Father call icons reach this endpoint via the same
+    // ContactLogModal that requires a real topic (Basic/Final Counselling
+    // Letter, First/Second Meeting, Office Visit). Hardcoding it to null
+    // here meant those notes' topic never made it past the frontend's own
+    // free-text content string, so Weekly/Monthly Report's topic-based
+    // counts (sn.topic = '...') silently never saw them. Fixed 2026-08 —
+    // now persists whatever topic the caller sends (still optional; a plain
+    // student-level note with no topic dropdown, e.g. a general call log,
+    // still saves fine with topic left null).
+    const note = await StudentNote.create({ studentId, leadId: null, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic: topic || null, meetingLocation, callAnswered });
 
     if (draftId) {
       await NoteDraft.complete(draftId, authorId, note.id).catch((e) => console.warn('[noteDrafts] complete failed:', e.message));
