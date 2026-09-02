@@ -37,6 +37,8 @@ export default function Sidebar() {
   const canManageStaff        = canDo('staff', 'manage');
   const canManageColumns      = canDo('column_config', 'manage');
   const canViewReports        = canDo('reports', 'view');
+  const canViewIndividualReport = canDo('reports', 'view_individual');
+  const canViewGroupReport      = canDo('reports', 'view_group');
   const canManageDistribution = canDo('distribution', 'manage');
   const canDeleteLeads        = canDo('leads', 'delete');
   // Admin-page navs match their backend guards so nothing is "visible but 403":
@@ -178,6 +180,26 @@ export default function Sidebar() {
             onClick={() => navigate('/reports/event')}
           >
             <FiBarChart2 size={16} /> {language === 'vi' ? 'Báo cáo sự kiện' : 'Event Report'}
+          </button>
+        )}
+
+        {/* New Individual/Group Report (2026-08 merge, in progress on the
+            reports-merge branch) — additive alongside Weekly/Monthly Report
+            above until cutover is verified. */}
+        {canViewIndividualReport && (
+          <button
+            className={`nav-item ${isActive('/reports/individual') ? 'active' : ''}`}
+            onClick={() => navigate('/reports/individual')}
+          >
+            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo cá nhân (mới)' : 'Individual Report (new)'}
+          </button>
+        )}
+        {canViewGroupReport && (
+          <button
+            className={`nav-item ${isActive('/reports/group') ? 'active' : ''}`}
+            onClick={() => navigate('/reports/group')}
+          >
+            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo công ty (mới)' : 'Company Report (new)'}
           </button>
         )}
 
