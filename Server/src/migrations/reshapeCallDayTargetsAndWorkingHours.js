@@ -96,6 +96,22 @@ function guessWeekdayHours(hoursPerDay, daysPerMonth) {
   await pool.query(`ALTER TABLE presales_working_hours ADD COLUMN IF NOT EXISTS day_of_week int`);
   await pool.query(`ALTER TABLE presales_working_hours ADD COLUMN IF NOT EXISTS hours numeric`);
 
+  // Swap the UNIQUE constraint to (staff_id, month, day_of_week) BEFORE the
+  // expansion loop below, not after — this was a real bug found running
+  // against prod (2026-09): with the OLD (staff_id, month) constraint still
+  // active during expansion, every day past the first for a given
+  // (staff, month) silently hit ON CONFLICT DO NOTHING against THAT
+  // constraint and got dropped, leaving only Monday's row per person. Safe
+  // to do this swap even though day_of_week is still NULL on every
+  // pre-existing row at this point — Postgres treats each NULL as distinct
+  // under a UNIQUE constraint, so there's no spurious conflict yet.
+  await pool.query(`ALTER TABLE presales_working_hours DROP CONSTRAINT IF EXISTS presales_working_hours_staff_id_month_key`);
+  await pool.query(`ALTER TABLE presales_working_hours DROP CONSTRAINT IF EXISTS presales_working_hours_staff_month_dow_key`);
+  await pool.query(
+    `ALTER TABLE presales_working_hours
+       ADD CONSTRAINT presales_working_hours_staff_month_dow_key UNIQUE (staff_id, month, day_of_week)`
+  );
+
   // Guess-prefill hours per (staff, month, day_of_week) from each existing
   // (staff, month) row BEFORE dropping the old columns / re-keying, so we
   // still have hours_per_day/days_per_month to read from. Idempotent: if a
@@ -120,7 +136,7 @@ function guessWeekdayHours(hoursPerDay, daysPerMonth) {
         await pool.query(
           `INSERT INTO presales_working_hours (staff_id, month, day_of_week, hours)
            VALUES ($1, $2, $3, $4)
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT (staff_id, month, day_of_week) DO UPDATE SET hours = EXCLUDED.hours`,
           [row.staff_id, row.month, dow, perDow[dow]]
         );
       }
@@ -132,12 +148,6 @@ function guessWeekdayHours(hoursPerDay, daysPerMonth) {
   await pool.query(`ALTER TABLE presales_working_hours ALTER COLUMN day_of_week SET NOT NULL`);
   await pool.query(`ALTER TABLE presales_working_hours ALTER COLUMN hours SET NOT NULL`);
   await pool.query(`ALTER TABLE presales_working_hours ALTER COLUMN hours SET DEFAULT 0`);
-  await pool.query(`ALTER TABLE presales_working_hours DROP CONSTRAINT IF EXISTS presales_working_hours_staff_id_month_key`);
-  await pool.query(`ALTER TABLE presales_working_hours DROP CONSTRAINT IF EXISTS presales_working_hours_staff_month_dow_key`);
-  await pool.query(
-    `ALTER TABLE presales_working_hours
-       ADD CONSTRAINT presales_working_hours_staff_month_dow_key UNIQUE (staff_id, month, day_of_week)`
-  );
   await pool.query(`ALTER TABLE presales_working_hours DROP COLUMN IF EXISTS hours_per_day`);
   await pool.query(`ALTER TABLE presales_working_hours DROP COLUMN IF EXISTS days_per_month`);
 
