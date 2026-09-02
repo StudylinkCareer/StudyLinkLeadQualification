@@ -13,14 +13,22 @@
 //
 // The dropdown's displayed period type is tracked as its OWN local state
 // (`uiPeriod`), deliberately NOT derived from `value.period` — switching the
-// dropdown to "Custom range" must only reveal the two date inputs + Apply
-// button, never immediately call onChange with blank from/to (found 2026-09
-// testing the branch-deploy: that fired a live request with empty dates,
-// which the backend correctly 400'd, but the frontend shouldn't have sent
-// it in the first place). onChange only fires once there's an actually
-// complete, fetchable value.
+// dropdown never immediately calls onChange with a stale/blank value.
+//
+// EVERY control here validates its value against the expected shape before
+// calling onChange — found 2026-09 testing the branch-deploy: this was
+// first fixed only for Custom range (which started genuinely blank), but
+// the same class of bug also hit Monthly (native <input type="month"> can
+// fire onChange with an incomplete value while the user is still typing,
+// depending on browser/OS) and would have hit Yearly too (a plain
+// <input type="number"> fires onChange on every keystroke — typing "2026"
+// fires with "2", "20", "202" first). Weekly/Monthly use a regex guard
+// on the native inputs' own onChange; Yearly uses an uncommitted local
+// draft, only propagated on blur/Enter once it's a valid 4-digit year;
+// Custom already required its own explicit Apply button since it has no
+// sensible default to begin with.
 // -----------------------------------------------------------------------------
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const sel = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderRadius: 6, border: '1px solid var(--border,#e5e7eb)' };
 const btn = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderRadius: 6, border: '1px solid var(--border,#e5e7eb)', background: 'var(--bg-primary,#fff)', cursor: 'pointer' };
@@ -46,16 +54,24 @@ export default function PeriodPicker({ value, onChange, L }) {
   const [uiPeriod, setUiPeriod] = useState(value?.period || 'weekly');
   const [customFrom, setCustomFrom] = useState(value?.from || '');
   const [customTo,   setCustomTo]   = useState(value?.to   || '');
+  // Yearly's own uncommitted draft — only propagated on blur/Enter once valid.
+  const [yearDraft, setYearDraft] = useState(value?.year || String(new Date().getFullYear()));
+  useEffect(() => { if (value?.period === 'yearly') setYearDraft(value.year); }, [value]);
 
   function setPeriod(p) {
     setUiPeriod(p);
-    // Only weekly/monthly/yearly have a value that's always immediately
-    // fetchable (a sensible default when switching in from another period
-    // type) — custom genuinely has nothing valid to send until both dates
-    // are picked, so it waits for the explicit Apply click below instead.
+    // weekly/monthly/yearly always have a sensible default to fall back to
+    // when switching in from another period type, so they fire immediately;
+    // custom genuinely has nothing valid until both dates are picked, so it
+    // waits for the explicit Apply click below instead.
     if (p === 'weekly')  onChange({ period: p, weekStart: value?.period === 'weekly'  ? value.weekStart : mondayOf(new Date()) });
     if (p === 'monthly') onChange({ period: p, month:     value?.period === 'monthly' ? value.month     : currentMonth() });
     if (p === 'yearly')  onChange({ period: p, year:      value?.period === 'yearly'  ? value.year      : String(new Date().getFullYear()) });
+  }
+
+  function commitYear() {
+    if (/^\d{4}$/.test(yearDraft)) onChange({ period: 'yearly', year: yearDraft });
+    else setYearDraft(value?.year || String(new Date().getFullYear())); // invalid — snap back
   }
 
   return (
@@ -70,15 +86,23 @@ export default function PeriodPicker({ value, onChange, L }) {
       {uiPeriod === 'weekly' && value?.period === 'weekly' && (
         <>
           <button style={btn} onClick={() => onChange({ period: 'weekly', weekStart: shiftWeek(value.weekStart, -1) })}>←</button>
-          <input type="date" value={value.weekStart} onChange={e => onChange({ period: 'weekly', weekStart: mondayOf(new Date(e.target.value + 'T00:00:00')) })} style={sel} />
+          <input type="date" value={value.weekStart}
+            onChange={e => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) onChange({ period: 'weekly', weekStart: mondayOf(new Date(e.target.value + 'T00:00:00')) }); }}
+            style={sel} />
           <button style={btn} onClick={() => onChange({ period: 'weekly', weekStart: shiftWeek(value.weekStart, 1) })}>→</button>
         </>
       )}
       {uiPeriod === 'monthly' && value?.period === 'monthly' && (
-        <input type="month" value={value.month} onChange={e => onChange({ period: 'monthly', month: e.target.value })} style={sel} />
+        <input type="month" value={value.month}
+          onChange={e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) onChange({ period: 'monthly', month: e.target.value }); }}
+          style={sel} />
       )}
       {uiPeriod === 'yearly' && value?.period === 'yearly' && (
-        <input type="number" min="2020" max="2100" value={value.year} onChange={e => onChange({ period: 'yearly', year: e.target.value })} style={{ ...sel, width: 90 }} />
+        <input type="number" min="2020" max="2100" value={yearDraft}
+          onChange={e => setYearDraft(e.target.value)}
+          onBlur={commitYear}
+          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+          style={{ ...sel, width: 90 }} />
       )}
       {uiPeriod === 'custom' && (
         <>
