@@ -5,23 +5,28 @@
 // with Hong Ha). Hidden entirely from lower-level staff (server 403s;
 // nav-hidden too, see Sidebar.jsx).
 //
-// V1 SCOPE: Team Performance (Counsellors) and Pre-sales tables cover
-// Contracted/Reversed/New/Ongoing/KBM/Total calls/Target/%KPI/Letters/
-// Meetings/case-type split/In-Out system/Convert %/Total leads/New this
-// period per person, plus a Contract Sources table + pie chart — all reused
-// from rangeReport.js (same logic as old Monthly Report's
-// resolveContractSourceLabel, generalized past a calendar month). Case-type/
-// In-Out/Convert % only apply to Counsellors (same as old Monthly Report —
-// Pre-sales rows carry these as null, columns omitted for that table).
-// Marketing Activities (funnel by event, cost planned/actual) is the one
-// remaining deliberate follow-up, not yet ported — flagged in-page.
+// Team Performance / Telesales / Pre-sales are three separate tables, same
+// split as the original Monthly Report (2026-09: restored after an earlier
+// pass wrongly merged Team Performance + Telesales into one table — see
+// reportController.js's groupReport comment). Team Performance carries
+// sales/contract OUTCOME metrics (Total leads, Contracted, Convert %, In/
+// Out system, case-type split, the real contract-SIGNING target from
+// monthly_targets); Telesales and Pre-sales carry calls ACTIVITY metrics
+// (New/Ongoing/Total calls, the calls-volume target from Phase 0's
+// redesigned quota mechanism, KBM) — genuinely different "target" concepts,
+// kept in separate tables/columns rather than one ambiguous column.
+//
+// V1 gaps, flagged in-page: Pre-sales' "Transferred to Sales" column
+// (audit-log based) and Marketing Activities (funnel by event, planned/
+// actual cost) — both not yet ported.
 // -----------------------------------------------------------------------------
 import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { reportsAPI } from '../services/api';
-import { KpiTiles, DrillPanel } from '../components/reports/KpiTiles';
+import { DrillPanel } from '../components/reports/KpiTiles';
+import BarChartCard from '../components/reports/BarChartCard';
 import PeriodPicker from '../components/reports/PeriodPicker';
 
 const card = { background: 'var(--bg-primary,#fff)', border: '1px solid var(--border,#e5e7eb)', borderRadius: 8, padding: '1rem 1.25rem', marginBottom: '1rem' };
@@ -29,98 +34,138 @@ const th = { textAlign: 'left', fontSize: '0.72rem', textTransform: 'uppercase',
 const td = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderBottom: '1px solid var(--border,#f1f5f9)' };
 const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị thực Khác'];
 const PIE_COLORS = ['#2563eb', '#8b5cf6', '#f59e0b', '#10B981', '#DC2626', '#0891B2', '#D97706'];
+const pct = (actual, target) => (target > 0 ? `${Math.round((actual / target) * 100)}%` : '—');
 
 function currentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-// showCounselorCols: case-type split / In-Out system / Convert % / Total
-// leads / New this period only apply to Counsellors (same as old Monthly
-// Report) — Pre-sales table omits these columns entirely rather than
-// showing an all-blank set.
-function StaffTable({ title, rows, showCounselorCols, L }) {
+// Sales/contract OUTCOME metrics — same columns as old Monthly Report's
+// Team Performance table, plus the real contract-signing Target (a value
+// per calendar month; shows "—" for weekly/custom periods that don't line
+// up with whole months, rather than a fabricated prorated guess — see
+// rangeReport.js's contractTargetForRange).
+function TeamPerformanceTable({ rows, L }) {
   const totals = rows.reduce((a, r) => ({
+    totalLeads: a.totalLeads + r.totalLeads, newThisPeriod: a.newThisPeriod + r.newThisPeriod,
     contracted: a.contracted + r.contracted, reversed: a.reversed + r.reversed,
-    newLeads: a.newLeads + r.newLeads, ongoing: a.ongoing + r.ongoing, kbm: a.kbm + r.kbm,
-    totalCalls: a.totalCalls + r.totalCalls, target: a.target + (r.target || 0),
-    basicLetters: a.basicLetters + r.basicLetters,
-    finalLetters: a.finalLetters + r.finalLetters, meetings: a.meetings + r.meetings,
-    inSystemCount: a.inSystemCount + (r.inSystemCount || 0), outSystemCount: a.outSystemCount + (r.outSystemCount || 0),
-    totalLeads: a.totalLeads + (r.totalLeads || 0), newThisPeriod: a.newThisPeriod + (r.newThisPeriod || 0),
-  }), { contracted: 0, reversed: 0, newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, target: 0, basicLetters: 0, finalLetters: 0, meetings: 0, inSystemCount: 0, outSystemCount: 0, totalLeads: 0, newThisPeriod: 0 });
-  const pct = (actual, target) => target > 0 ? `${Math.round((actual / target) * 100)}%` : '—';
+    inSystemCount: a.inSystemCount + r.inSystemCount, outSystemCount: a.outSystemCount + r.outSystemCount,
+    target: a.target + (r.target || 0), basicLetters: a.basicLetters + r.basicLetters, finalLetters: a.finalLetters + r.finalLetters,
+  }), { totalLeads: 0, newThisPeriod: 0, contracted: 0, reversed: 0, inSystemCount: 0, outSystemCount: 0, target: 0, basicLetters: 0, finalLetters: 0 });
+  const anyTarget = rows.some(r => r.target != null);
 
   return (
     <div style={card}>
-      <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{title}</div>
+      <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('Team Performance (Counsellors)', 'Hiệu suất đội (Tư vấn viên)')}</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: showCounselorCols ? 1180 : 800 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1080 }}>
           <thead><tr>
             <th style={th}>{L('Staff', 'Nhân viên')}</th>
-            {showCounselorCols && <th style={{ ...th, textAlign: 'right' }}>{L('Total leads', 'Tổng lead')}</th>}
-            {showCounselorCols && <th style={{ ...th, textAlign: 'right' }}>{L('New this period', 'Mới trong kỳ')}</th>}
+            <th style={{ ...th, textAlign: 'right' }}>{L('Total leads', 'Tổng lead')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('New this period', 'Mới trong kỳ')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Contracted', 'Ký HĐ')}</th>
-            {showCounselorCols && <th style={{ ...th, textAlign: 'right' }}>{L('Convert %', '% Convert')}</th>}
-            {showCounselorCols && <th style={{ ...th, textAlign: 'right' }}>{L('In system', 'Trong hệ thống')}</th>}
-            {showCounselorCols && <th style={{ ...th, textAlign: 'right' }}>{L('Out system', 'Ngoài hệ thống')}</th>}
-            {showCounselorCols && CASE_TYPES.map(t => <th key={t} style={{ ...th, textAlign: 'right' }}>{t}</th>)}
+            <th style={{ ...th, textAlign: 'right' }}>{L('Target', 'Chỉ tiêu')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Convert %', '% Convert')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('In system', 'Trong hệ thống')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Out system', 'Ngoài hệ thống')}</th>
+            {CASE_TYPES.map(t => <th key={t} style={{ ...th, textAlign: 'right' }}>{t}</th>)}
             <th style={{ ...th, textAlign: 'right' }}>{L('Reversed', 'Hủy')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Basic Ltr', 'Thư CB')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Final Ltr', 'Thư cuối')}</th>
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.fullName}>
+                <td style={{ ...td, fontWeight: 600 }}>{r.fullName}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.totalLeads}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.newThisPeriod}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.contracted}</td>
+                <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }} title={r.target == null ? L('Contract target is monthly — not shown for this period type', 'Chỉ tiêu hợp đồng theo tháng — không hiển thị cho loại kỳ này') : ''}>
+                  {r.target ?? '—'}
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.convertPct != null ? `${r.convertPct}%` : '—'}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.inSystemCount}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.outSystemCount}</td>
+                {CASE_TYPES.map(t => <td key={t} style={{ ...td, textAlign: 'right' }}>{r.caseTypeBreakdown?.[t] || 0}</td>)}
+                <td style={{ ...td, textAlign: 'right', color: r.reversed > 0 ? '#DC2626' : 'inherit' }}>{r.reversed}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.basicLetters}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.finalLetters}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={13} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No staff in this group.', 'Không có nhân viên.')}</td></tr>}
+            <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
+              <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.totalLeads}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.newThisPeriod}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.contracted}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{anyTarget ? totals.target : '—'}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.totalLeads > 0 ? `${Math.round((totals.contracted / totals.totalLeads) * 1000) / 10}%` : '—'}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.inSystemCount}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.outSystemCount}</td>
+              {CASE_TYPES.map(t => <td key={t} style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{rows.reduce((s, r) => s + (r.caseTypeBreakdown?.[t] || 0), 0)}</td>)}
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.reversed}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.basicLetters}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.finalLetters}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Calls ACTIVITY metrics — shared shape for Telesales (Counsellors) and
+// Pre-sales, same as old Monthly Report ("mirroring Pre-Sales exactly" was
+// the whole reason Telesales was split out of Team Performance in the first
+// place). `extraNote` surfaces a still-missing column (Pre-sales'
+// "Transferred to Sales") rather than silently omitting it.
+function CallsTable({ title, rows, showMeetings, extraNote, L }) {
+  const totals = rows.reduce((a, r) => ({
+    newLeads: a.newLeads + r.newLeads, ongoing: a.ongoing + r.ongoing, kbm: a.kbm + r.kbm,
+    totalCalls: a.totalCalls + r.totalCalls, target: a.target + (r.target || 0),
+    meetings: a.meetings + (r.meetings || 0),
+  }), { newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, target: 0, meetings: 0 });
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{title}</div>
+      {extraNote && <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary,#9ca3af)', marginBottom: '0.5rem' }}>{extraNote}</div>}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+          <thead><tr>
+            <th style={th}>{L('Staff', 'Nhân viên')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('New', 'Mới')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Ongoing', 'Theo dõi')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Total calls', 'Tổng cuộc gọi')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Target', 'Chỉ tiêu')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('% KPI', '% KPI')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('KBM', 'KBM')}</th>
-            <th style={{ ...th, textAlign: 'right' }}>{L('Basic Ltr', 'Thư CB')}</th>
-            <th style={{ ...th, textAlign: 'right' }}>{L('Final Ltr', 'Thư cuối')}</th>
-            <th style={{ ...th, textAlign: 'right' }}>{L('Meetings', 'Cuộc gặp')}</th>
+            {showMeetings && <th style={{ ...th, textAlign: 'right' }}>{L('Meetings', 'Cuộc gặp')}</th>}
           </tr></thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.fullName}>
                 <td style={{ ...td, fontWeight: 600 }}>{r.fullName}</td>
-                {showCounselorCols && <td style={{ ...td, textAlign: 'right' }}>{r.totalLeads}</td>}
-                {showCounselorCols && <td style={{ ...td, textAlign: 'right' }}>{r.newThisPeriod}</td>}
-                <td style={{ ...td, textAlign: 'right' }}>{r.contracted}</td>
-                {showCounselorCols && <td style={{ ...td, textAlign: 'right' }}>{r.convertPct != null ? `${r.convertPct}%` : '—'}</td>}
-                {showCounselorCols && <td style={{ ...td, textAlign: 'right' }}>{r.inSystemCount}</td>}
-                {showCounselorCols && <td style={{ ...td, textAlign: 'right' }}>{r.outSystemCount}</td>}
-                {showCounselorCols && CASE_TYPES.map(t => <td key={t} style={{ ...td, textAlign: 'right' }}>{r.caseTypeBreakdown?.[t] || 0}</td>)}
-                <td style={{ ...td, textAlign: 'right', color: r.reversed > 0 ? '#DC2626' : 'inherit' }}>{r.reversed}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.newLeads}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.ongoing}</td>
                 <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.totalCalls}</td>
                 <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }}>{r.target}</td>
                 <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: r.totalCalls >= r.target ? '#10B981' : '#DC2626' }}>{pct(r.totalCalls, r.target)}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.kbm}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.basicLetters}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.finalLetters}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.meetings}</td>
+                {showMeetings && <td style={{ ...td, textAlign: 'right' }}>{r.meetings}</td>}
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={showCounselorCols ? 17 : 9} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No staff in this group.', 'Không có nhân viên.')}</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={showMeetings ? 8 : 7} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No staff in this group.', 'Không có nhân viên.')}</td></tr>}
             <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
               <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
-              {showCounselorCols && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.totalLeads}</td>}
-              {showCounselorCols && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.newThisPeriod}</td>}
-              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.contracted}</td>
-              {showCounselorCols && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.totalLeads > 0 ? `${Math.round((totals.contracted / totals.totalLeads) * 1000) / 10}%` : '—'}</td>}
-              {showCounselorCols && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.inSystemCount}</td>}
-              {showCounselorCols && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.outSystemCount}</td>}
-              {showCounselorCols && CASE_TYPES.map(t => (
-                <td key={t} style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{rows.reduce((s, r) => s + (r.caseTypeBreakdown?.[t] || 0), 0)}</td>
-              ))}
-              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.reversed}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.newLeads}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.ongoing}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.totalCalls}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.target}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{pct(totals.totalCalls, totals.target)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.kbm}</td>
-              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.basicLetters}</td>
-              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.finalLetters}</td>
-              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.meetings}</td>
+              {showMeetings && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.meetings}</td>}
             </tr>
           </tbody>
         </table>
@@ -201,13 +246,20 @@ export default function GroupReport() {
   if (error) return <div style={{ maxWidth: 1200, margin: '0 auto', padding: '1rem' }}><div style={card}>{error}</div></div>;
 
   const cw = data?.companyWide;
-  const metrics = cw ? [
+  // Same grouped bar-chart-card language as Individual Report (2026-09,
+  // explicit request), applied company-wide instead of per-person.
+  const contractedBars = cw ? [
     { key: 'contracted', label: L('Contracted', 'Ký HĐ'), value: cw.contracted.count, color: '#10B981', cols: [{ key: 'fullName', label: 'Name' }], items: cw.contracted.items },
     { key: 'reversed', label: L('Reversed', 'Hủy sau ký'), value: cw.reversed.count, color: '#DC2626', cols: [{ key: 'fullName', label: 'Name' }], items: cw.reversed.items },
-    { key: 'newLeads', label: L('New calls', 'Cuộc gọi Mới'), value: cw.calls.totals.newLeads, color: '#8b5cf6', items: [] },
-    { key: 'ongoing', label: L('Ongoing calls', 'Cuộc gọi theo dõi'), value: cw.calls.totals.ongoing, color: '#8b5cf6', items: [] },
-    { key: 'kbm', label: L('KBM (unanswered)', 'Không bắt máy'), value: cw.calls.totals.kbm, color: '#DC2626', items: [] },
-    { key: 'letters', label: L('Counselling Letters', 'Thư tư vấn'), value: cw.basicLetters.count + cw.finalLetters.count, color: '#f59e0b', items: [] },
+  ] : [];
+  const lettersBars = cw ? [
+    { key: 'basic', label: L('Basic', 'Cơ bản'), value: cw.basicLetters.count, color: '#f59e0b', cols: [{ key: 'fullName', label: 'Name' }], items: cw.basicLetters.items },
+    { key: 'final', label: L('Final', 'Cuối'), value: cw.finalLetters.count, color: '#f59e0b', cols: [{ key: 'fullName', label: 'Name' }], items: cw.finalLetters.items },
+  ] : [];
+  const callsBars = cw ? [
+    { key: 'new', label: L('New', 'Mới'), value: cw.calls.totals.newLeads, color: '#8b5cf6' },
+    { key: 'ongoing', label: L('Ongoing', 'Theo dõi'), value: cw.calls.totals.ongoing, color: '#8b5cf6' },
+    { key: 'kbm', label: L('KBM (unanswered)', 'Không bắt máy'), value: cw.calls.totals.kbm, color: '#f59e0b' },
     { key: 'meetings', label: L('Meetings', 'Cuộc gặp'), value: cw.meetings.count, color: '#2563eb', cols: [{ key: 'fullName', label: 'Name' }, { key: 'topic', label: L('Type', 'Loại') }], items: cw.meetings.items },
   ] : [];
 
@@ -227,9 +279,20 @@ export default function GroupReport() {
 
       {data && (
         <>
-          <div style={card}><KpiTiles metrics={metrics} onOpen={setDrill} /></div>
-          <StaffTable title={L('Team Performance (Counsellors)', 'Hiệu suất đội (Tư vấn viên)')} rows={data.teamPerformance} showCounselorCols L={L} />
-          <StaffTable title={L('Pre-sales', 'Pre-sales')} rows={data.presales} showCounselorCols={false} L={L} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ ...card, flex: '1 1 260px' }}><BarChartCard title={L('Contracted', 'Ký HĐ')} subtitle={L('company-wide', 'toàn công ty')} bars={contractedBars} onOpen={setDrill} /></div>
+            <div style={{ ...card, flex: '1 1 200px' }}><BarChartCard title={L('Counselling Letters', 'Thư tư vấn')} bars={lettersBars} onOpen={setDrill} /></div>
+            <div style={{ ...card, flex: '1 1 320px' }}><BarChartCard title={L('Calls', 'Cuộc gọi')} bars={callsBars} onOpen={setDrill} /></div>
+          </div>
+          <TeamPerformanceTable rows={data.teamPerformance} L={L} />
+          <CallsTable title={L('Telesales (Counsellors)', 'Telesales (Tư vấn viên)')} rows={data.telesales} showMeetings={false} L={L} />
+          <CallsTable
+            title={L('Pre-sales', 'Pre-sales')}
+            rows={data.presales}
+            showMeetings
+            extraNote={L('"Transferred to Sales" (handoffs to a counsellor) is not yet ported to this table — follow-up.', 'Cột "Khách chuyển" (bàn giao cho tư vấn viên) chưa được đưa vào bảng này — sẽ bổ sung sau.')}
+            L={L}
+          />
           <ContractSources sources={cw?.contractSources} L={L} />
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#9ca3af)', marginTop: '-0.5rem' }}>
             {L(

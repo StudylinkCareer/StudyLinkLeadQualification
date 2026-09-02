@@ -358,6 +358,47 @@ async function computeRangeReport(names, from, to, opts = {}) {
   };
 }
 
+// Contract-SIGNING target (monthly_targets override, else staff.target
+// fallback) — a genuinely different metric from the calls-volume target
+// above (counselorTargetForRange/presalesTargetForRange), and deliberately
+// kept separate rather than reused under the same "target" label: this is
+// "how many contracts should you sign," not "how many calls should you
+// make." Old Monthly Report's Team Performance table showed this; Telesales
+// showed the calls one — conflating them under one ambiguous "Target"
+// column was a real mistake caught while porting (2026-09).
+//
+// Only meaningful at whole-calendar-month granularity — monthly_targets has
+// no week/day-level breakdown, and prorating a monthly commitment down to a
+// partial period would fabricate a number nobody actually set. Sums every
+// whole calendar month fully contained in [from, to); returns null (not a
+// fabricated 0) if no whole month is contained — e.g. a weekly period, or a
+// custom range that doesn't happen to line up with full months.
+async function contractTargetForRange(fullName, from, to) {
+  const staffRes = await pool.query(`SELECT id, COALESCE(target, 0) AS fallback FROM staff WHERE full_name = $1`, [fullName]);
+  if (staffRes.rows.length === 0) return null;
+  const { id: staffId, fallback } = staffRes.rows[0];
+
+  const months = [];
+  let cursor = new Date(from.getTime());
+  while (cursor < to) {
+    const vn = new Date(cursor.getTime() + VN_MS);
+    const y = vn.getUTCFullYear(), m = vn.getUTCMonth();
+    const monthStart = vnMidnightUTC(y, m, 1);
+    const monthEnd = vnMidnightUTC(y, m + 1, 1);
+    if (monthStart >= from && monthEnd <= to) months.push(`${y}-${String(m + 1).padStart(2, '0')}-01`);
+    cursor = monthEnd;
+  }
+  if (months.length === 0) return null;
+
+  const overrides = (await pool.query(
+    `SELECT to_char(month,'YYYY-MM-DD') AS month, target FROM monthly_targets WHERE staff_id = $1 AND month = ANY($2)`,
+    [staffId, months]
+  )).rows;
+  const overrideMap = new Map(overrides.map(r => [r.month, r.target]));
+  const total = months.reduce((sum, m) => sum + (overrideMap.has(m) ? overrideMap.get(m) : fallback), 0);
+  return { total, months: months.length };
+}
+
 // Total leads (current assignment, not a historical reconstruction — same
 // "as of right now" scoping Monthly Report's Team Performance table uses,
 // not week/month-bound) + New this period (assigned_in falls in [from,to)),
@@ -378,5 +419,5 @@ async function leadCounts(names, column, from, to) {
 
 module.exports = {
   resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange,
-  leadCounts, CASE_TYPES, vnMidnightUTC, VN_MS,
+  contractTargetForRange, leadCounts, CASE_TYPES, vnMidnightUTC, VN_MS,
 };

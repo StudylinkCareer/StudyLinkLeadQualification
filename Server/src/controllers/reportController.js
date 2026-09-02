@@ -985,49 +985,80 @@ async function groupReport(req, res, next) {
 
     // Company-wide totals (one computeRangeReport call across everyone) +
     // a per-staff breakdown (one call per person) — mirrors Monthly
-    // Report's per-counselor/per-presales row shape, v1 columns only
-    // (see file-header note above for what's deferred). Counsellor target
-    // is role-wide (same for everyone), computed once; Pre-Sales target is
-    // per-individual (their own working hours), one call per person.
-    const [companyWide, counselorTarget, counselorLeadCounts, presalesLeadCounts, ...perStaff] = await Promise.all([
+    // Report's original per-counselor/per-presales row shape (2026-09:
+    // split Team Performance/Telesales back into two tables, matching the
+    // old page — see file-header note). Counsellor CALLS target is
+    // role-wide (same for everyone), computed once; Pre-Sales target and
+    // every Counsellor's own contract-SIGNING target are per-individual,
+    // one call per person each — two genuinely different "target" concepts,
+    // never merged under one ambiguous column (found while porting, see
+    // rangeReport.js's contractTargetForRange comment).
+    const [companyWide, counselorCallTarget, counselorLeadCounts, ...perStaff] = await Promise.all([
       rangeReport.computeRangeReport(allNames, from, to, { bucket }),
       rangeReport.counselorTargetForRange(from, to),
       rangeReport.leadCounts(counsellorNames, 'counselor', from, to),
-      rangeReport.leadCounts(presalesNames, 'presales', from, to),
-      ...counsellorNames.map(name => rangeReport.computeRangeReport([name], from, to, { bucket }).then(d => ({ name, role: 'Counselor', data: d }))),
+      ...counsellorNames.map(name => Promise.all([
+        rangeReport.computeRangeReport([name], from, to, { bucket }),
+        rangeReport.contractTargetForRange(name, from, to),
+      ]).then(([d, contractTarget]) => ({ name, role: 'Counselor', data: d, contractTarget }))),
       ...presalesNames.map(name => Promise.all([
         rangeReport.computeRangeReport([name], from, to, { bucket }),
         rangeReport.presalesTargetForRange(name, from, to),
-      ]).then(([d, target]) => ({ name, role: 'Pre-Sales', data: d, target: target.total }))),
+      ]).then(([d, target]) => ({ name, role: 'Pre-Sales', data: d, callTarget: target.total }))),
     ]);
 
-    const rowFor = (r) => {
-      const lc = (r.role === 'Counselor' ? counselorLeadCounts : presalesLeadCounts).get(r.name) || { total: 0, newThisPeriod: 0 };
+    const counsellorRows = perStaff.filter(r => r.role === 'Counselor');
+    const presalesRows   = perStaff.filter(r => r.role === 'Pre-Sales');
+
+    // Team Performance — sales/contract OUTCOME metrics: Total leads, New
+    // this period, Contracted, Convert %, In/Out system, case-type split,
+    // the real contract-SIGNING target, and the two Letters columns
+    // (counted as conversion-adjacent, same as the old page). No calls
+    // volume here — that's Telesales below.
+    const teamPerformance = counsellorRows.map(r => {
+      const lc = counselorLeadCounts.get(r.name) || { total: 0, newThisPeriod: 0 };
       const c = r.data.contracted;
       return {
-        fullName: r.name, role: r.role,
-        contracted: c.count, reversed: r.data.reversed.count,
-        newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
-        totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
-        target: r.role === 'Counselor' ? counselorTarget.total : r.target,
-        basicLetters: r.data.basicLetters.count, finalLetters: r.data.finalLetters.count,
-        meetings: r.data.meetings.count,
-        // Case-type/in-out-system/Convert% only meaningfully apply to
-        // Counsellors (Monthly Report's Team Performance table) — Pre-sales
-        // rows carry them as null so the frontend can omit those columns.
-        caseTypeBreakdown: r.role === 'Counselor' ? c.caseTypeBreakdown : null,
-        inSystemCount: r.role === 'Counselor' ? c.inSystemCount : null,
-        outSystemCount: r.role === 'Counselor' ? c.outSystemCount : null,
+        fullName: r.name,
         totalLeads: lc.total, newThisPeriod: lc.newThisPeriod,
+        contracted: c.count, reversed: r.data.reversed.count,
         convertPct: lc.total > 0 ? Math.round((c.count / lc.total) * 1000) / 10 : null,
+        inSystemCount: c.inSystemCount, outSystemCount: c.outSystemCount,
+        caseTypeBreakdown: c.caseTypeBreakdown,
+        target: r.contractTarget?.total ?? null, // null = not applicable for this period type (see contractTargetForRange)
+        basicLetters: r.data.basicLetters.count, finalLetters: r.data.finalLetters.count,
       };
-    };
+    });
+
+    // Telesales — calls ACTIVITY metrics, same shape as the Pre-sales table
+    // below (that's the whole point of the original split: "so counselor
+    // calls read as their own report, mirroring Pre-Sales"). Calls target
+    // is role-wide (counselorCallTarget, same number for every row here).
+    const telesales = counsellorRows.map(r => ({
+      fullName: r.name,
+      newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
+      totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
+      target: counselorCallTarget.total,
+    }));
+
+    // Pre-sales — same original column set as old Monthly Report: New,
+    // Ongoing, Total calls, Calls KPI/%KPI, KBM, Meetings. No Letters (a
+    // Counsellor-only activity) and no Total leads/New this period (that
+    // was Team Performance-only) — both were wrongly on this row in an
+    // earlier pass, caught during the reconciliation request. "Transferred
+    // to Sales" (audit-log based, old Monthly Report's last Pre-sales
+    // column) is still genuinely not ported — flagged in the frontend.
+    const presales = presalesRows.map(r => ({
+      fullName: r.name,
+      newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
+      totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
+      target: r.callTarget,
+      meetings: r.data.meetings.count,
+    }));
 
     res.json({ success: true, data: {
       period, from: from.toISOString(), to: to.toISOString(),
-      companyWide,
-      teamPerformance: perStaff.filter(r => r.role === 'Counselor').map(rowFor),
-      presales:        perStaff.filter(r => r.role === 'Pre-Sales').map(rowFor),
+      companyWide, teamPerformance, telesales, presales,
     }});
   } catch (err) { next(err); }
 }
