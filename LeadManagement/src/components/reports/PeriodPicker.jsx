@@ -10,6 +10,15 @@
 //   { period: 'monthly', month: 'YYYY-MM' }
 //   { period: 'yearly',  year: 'YYYY' }
 //   { period: 'custom',  from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
+//
+// The dropdown's displayed period type is tracked as its OWN local state
+// (`uiPeriod`), deliberately NOT derived from `value.period` — switching the
+// dropdown to "Custom range" must only reveal the two date inputs + Apply
+// button, never immediately call onChange with blank from/to (found 2026-09
+// testing the branch-deploy: that fired a live request with empty dates,
+// which the backend correctly 400'd, but the frontend shouldn't have sent
+// it in the first place). onChange only fires once there's an actually
+// complete, fetchable value.
 // -----------------------------------------------------------------------------
 import { useState } from 'react';
 
@@ -34,45 +43,49 @@ function currentMonth() {
 }
 
 export default function PeriodPicker({ value, onChange, L }) {
-  const period = value?.period || 'weekly';
+  const [uiPeriod, setUiPeriod] = useState(value?.period || 'weekly');
   const [customFrom, setCustomFrom] = useState(value?.from || '');
   const [customTo,   setCustomTo]   = useState(value?.to   || '');
 
   function setPeriod(p) {
-    if (p === 'weekly')  onChange({ period: p, weekStart: value?.weekStart || mondayOf(new Date()) });
-    if (p === 'monthly') onChange({ period: p, month: value?.month || currentMonth() });
-    if (p === 'yearly')  onChange({ period: p, year: value?.year || String(new Date().getFullYear()) });
-    if (p === 'custom')  onChange({ period: p, from: customFrom, to: customTo });
+    setUiPeriod(p);
+    // Only weekly/monthly/yearly have a value that's always immediately
+    // fetchable (a sensible default when switching in from another period
+    // type) — custom genuinely has nothing valid to send until both dates
+    // are picked, so it waits for the explicit Apply click below instead.
+    if (p === 'weekly')  onChange({ period: p, weekStart: value?.period === 'weekly'  ? value.weekStart : mondayOf(new Date()) });
+    if (p === 'monthly') onChange({ period: p, month:     value?.period === 'monthly' ? value.month     : currentMonth() });
+    if (p === 'yearly')  onChange({ period: p, year:      value?.period === 'yearly'  ? value.year      : String(new Date().getFullYear()) });
   }
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-      <select value={period} onChange={e => setPeriod(e.target.value)} style={sel}>
+      <select value={uiPeriod} onChange={e => setPeriod(e.target.value)} style={sel}>
         <option value="weekly">{L('Weekly', 'Theo tuần')}</option>
         <option value="monthly">{L('Monthly', 'Theo tháng')}</option>
         <option value="yearly">{L('Yearly', 'Theo năm')}</option>
         <option value="custom">{L('Custom range', 'Tùy chọn')}</option>
       </select>
 
-      {period === 'weekly' && (
+      {uiPeriod === 'weekly' && value?.period === 'weekly' && (
         <>
-          <button style={btn} onClick={() => onChange({ period, weekStart: shiftWeek(value.weekStart, -1) })}>←</button>
-          <input type="date" value={value.weekStart} onChange={e => onChange({ period, weekStart: mondayOf(new Date(e.target.value + 'T00:00:00')) })} style={sel} />
-          <button style={btn} onClick={() => onChange({ period, weekStart: shiftWeek(value.weekStart, 1) })}>→</button>
+          <button style={btn} onClick={() => onChange({ period: 'weekly', weekStart: shiftWeek(value.weekStart, -1) })}>←</button>
+          <input type="date" value={value.weekStart} onChange={e => onChange({ period: 'weekly', weekStart: mondayOf(new Date(e.target.value + 'T00:00:00')) })} style={sel} />
+          <button style={btn} onClick={() => onChange({ period: 'weekly', weekStart: shiftWeek(value.weekStart, 1) })}>→</button>
         </>
       )}
-      {period === 'monthly' && (
-        <input type="month" value={value.month} onChange={e => onChange({ period, month: e.target.value })} style={sel} />
+      {uiPeriod === 'monthly' && value?.period === 'monthly' && (
+        <input type="month" value={value.month} onChange={e => onChange({ period: 'monthly', month: e.target.value })} style={sel} />
       )}
-      {period === 'yearly' && (
-        <input type="number" min="2020" max="2100" value={value.year} onChange={e => onChange({ period, year: e.target.value })} style={{ ...sel, width: 90 }} />
+      {uiPeriod === 'yearly' && value?.period === 'yearly' && (
+        <input type="number" min="2020" max="2100" value={value.year} onChange={e => onChange({ period: 'yearly', year: e.target.value })} style={{ ...sel, width: 90 }} />
       )}
-      {period === 'custom' && (
+      {uiPeriod === 'custom' && (
         <>
           <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={sel} />
           <span style={{ color: 'var(--text-secondary,#9ca3af)' }}>{L('to', 'đến')}</span>
           <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={sel} />
-          <button style={btn} disabled={!customFrom || !customTo} onClick={() => onChange({ period, from: customFrom, to: customTo })}>
+          <button style={btn} disabled={!customFrom || !customTo} onClick={() => onChange({ period: 'custom', from: customFrom, to: customTo })}>
             {L('Apply', 'Áp dụng')}
           </button>
         </>
