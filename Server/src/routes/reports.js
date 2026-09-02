@@ -62,6 +62,21 @@ router.get(
   reportCtrl.weeklyReport
 );
 
+// ── Individual Report / Company Report (2026-08) ──────────────
+// New, additive endpoints — /weekly and /monthly above are untouched.
+// Permission fully resolved inside each controller (own vs any-staffer /
+// company-wide vs hidden), same pattern as /weekly.
+router.get(
+  '/individual',
+  requireStaffAuth,
+  reportCtrl.individualReport
+);
+router.get(
+  '/group',
+  requireStaffAuth,
+  reportCtrl.groupReport
+);
+
 // Manual re-publish of a frozen week's snapshot (manager-scope; gated in ctrl).
 router.post(
   '/weekly/regenerate',
