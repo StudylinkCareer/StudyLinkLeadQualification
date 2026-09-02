@@ -19,7 +19,8 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { reportsAPI } from '../services/api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { KpiTiles, DrillPanel } from '../components/reports/KpiTiles';
+import { DrillPanel } from '../components/reports/KpiTiles';
+import BarChartCard from '../components/reports/BarChartCard';
 import PeriodPicker from '../components/reports/PeriodPicker';
 
 const card = { background: 'var(--bg-primary,#fff)', border: '1px solid var(--border,#e5e7eb)', borderRadius: 8, padding: '1rem 1.25rem', marginBottom: '1rem' };
@@ -205,35 +206,44 @@ export default function IndividualReport() {
 
   if (error) return <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1rem' }}><div style={card}>{error}</div></div>;
 
-  const metrics = data ? [
+  // Grouped bar-chart cards, ported from Weekly Report's original BarChart
+  // sections (2026-09, explicit request — same visual language, generalized
+  // past a fixed calendar week). Contracted is 2 bars now (Contracted,
+  // Reversed) rather than Weekly Report's old 5-tile last-week/MTD/QTD/YTD/
+  // reversed row, since it's already a single period-scoped figure (see
+  // file-header note) — selecting Monthly/Yearly as the period does what
+  // those buckets used to approximate.
+  const totalCalls = data ? data.calls.totals.newLeads + data.calls.totals.ongoing : 0;
+  const contractedBars = data ? [
     { key: 'contracted', label: L('Contracted', 'Ký HĐ'), value: data.contracted.count, color: '#10B981',
       cols: [NAME_COL, { key: 'destinationCountry', label: L('Destination', 'Điểm đến') }], items: data.contracted.items },
     { key: 'reversed', label: L('Reversed', 'Hủy sau ký'), value: data.reversed.count, color: '#DC2626',
       cols: [NAME_COL], items: data.reversed.items },
-    { key: 'basicLetters', label: L('Basic Letters', 'Thư CB'), value: data.basicLetters.count, color: '#f59e0b',
-      cols: [NAME_COL], items: data.basicLetters.items },
-    { key: 'finalLetters', label: L('Final Letters', 'Thư cuối'), value: data.finalLetters.count, color: '#f59e0b',
-      cols: [NAME_COL], items: data.finalLetters.items },
-    { key: 'new', label: L('New calls', 'Cuộc gọi Mới'), value: data.calls.totals.newLeads, color: '#8b5cf6',
-      cols: [NAME_COL], items: data.calls.newLeadItems },
-    { key: 'ongoing', label: L('Ongoing calls', 'Cuộc gọi theo dõi'), value: data.calls.totals.ongoing, color: '#8b5cf6',
-      cols: [NAME_COL], items: data.calls.ongoingItems },
-    { key: 'kbm', label: L('KBM (unanswered)', 'Không bắt máy'), value: data.calls.totals.kbm, color: '#DC2626',
-      cols: [NAME_COL], items: data.calls.kbmItems },
-    ...(data.callTarget ? [{
-      key: 'callsKpi', label: L('Calls KPI', 'KPI cuộc gọi'),
-      value: `${data.calls.totals.newLeads + data.calls.totals.ongoing} / ${data.callTarget.total}`,
-      color: (data.calls.totals.newLeads + data.calls.totals.ongoing) >= data.callTarget.total ? '#10B981' : '#DC2626',
-      items: [],
-    }] : []),
-    { key: 'meetings', label: L('Meetings', 'Cuộc gặp'), value: data.meetings.count, color: '#2563eb',
-      cols: [NAME_COL, { key: 'topic', label: L('Type', 'Loại') }], items: data.meetings.items },
-    { key: 'leadsIn', label: L('Leads in', 'Lead vào'), value: data.leadsFlow.in.count, color: '#2563eb',
-      cols: [NAME_COL], items: data.leadsFlow.in.leads },
-    { key: 'leadsOut', label: L('Leads out', 'Lead ra'), value: data.leadsFlow.out.count, color: '#2563eb',
-      cols: [NAME_COL], items: data.leadsFlow.out.leads },
-    { key: 'leadsProg', label: L('In progress', 'Đang xử lý'), value: data.leadsFlow.closing.count, color: '#2563eb',
-      cols: [NAME_COL], items: data.leadsFlow.closing.leads },
+  ] : [];
+  const lettersBars = data ? [
+    { key: 'basicLetters', label: L('Basic', 'Cơ bản'), value: data.basicLetters.count, color: '#f59e0b', cols: [NAME_COL], items: data.basicLetters.items },
+    { key: 'finalLetters', label: L('Final', 'Cuối'), value: data.finalLetters.count, color: '#f59e0b', cols: [NAME_COL], items: data.finalLetters.items },
+  ] : [];
+  const leadsBars = data ? [
+    { key: 'leadsOpen', label: L('Opening', 'Đầu kỳ'), value: data.leadsFlow.opening.count, color: '#2563eb', cols: [NAME_COL], items: data.leadsFlow.opening.leads },
+    { key: 'leadsIn', label: L('Leads in', 'Lead vào'), value: data.leadsFlow.in.count, color: '#2563eb', cols: [NAME_COL], items: data.leadsFlow.in.leads },
+    { key: 'leadsOut', label: L('Leads out', 'Lead ra'), value: data.leadsFlow.out.count, color: '#2563eb', cols: [NAME_COL], items: data.leadsFlow.out.leads },
+    { key: 'leadsProg', label: L('In progress', 'Đang xử lý'), value: data.leadsFlow.closing.count, color: '#2563eb', cols: [NAME_COL], items: data.leadsFlow.closing.leads },
+  ] : [];
+  const callsBars = data ? [
+    { key: 'new', label: L('New clients', 'Khách mới'), value: data.calls.totals.newLeads, color: '#8b5cf6', cols: [NAME_COL], items: data.calls.newLeadItems },
+    { key: 'ongoing', label: L('Follow-up', 'Theo dõi'), value: data.calls.totals.ongoing, color: '#8b5cf6', cols: [NAME_COL], items: data.calls.ongoingItems },
+    { key: 'kbm', label: L('KBM (unanswered)', 'Không bắt máy'), value: data.calls.totals.kbm, color: '#f59e0b', cols: [NAME_COL], items: data.calls.kbmItems },
+    { key: 'meetings', label: L('Meetings scheduled', 'Cuộc gặp'), value: data.meetings.count, color: '#8b5cf6', cols: [NAME_COL, { key: 'topic', label: L('Type', 'Loại') }], items: data.meetings.items },
+  ] : [];
+  // Actual vs target, at a glance — same reconciled number the CallsByBucket
+  // chart/table below break down day by day, and the same number Company
+  // Report's Telesales/Pre-sales tables show for this person (one shared
+  // computation, rangeReport.js's counselorTargetForRange/
+  // presalesTargetForRange — never a second, divergent calculation).
+  const callsKpiBars = data?.callTarget ? [
+    { key: 'actual', label: L('Actual', 'Thực tế'), value: totalCalls, color: totalCalls >= data.callTarget.total ? '#10B981' : '#DC2626' },
+    { key: 'target', label: L('Target', 'Chỉ tiêu'), value: data.callTarget.total, color: '#e5e7eb' },
   ] : [];
 
   return (
@@ -259,7 +269,15 @@ export default function IndividualReport() {
 
       {data && (
         <>
-          <div style={card}><KpiTiles metrics={metrics} onOpen={setDrill} /></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ ...card, flex: '1 1 260px' }}><BarChartCard title={L('Contracted', 'Ký HĐ')} subtitle={L('this view', 'kỳ này')} bars={contractedBars} onOpen={setDrill} /></div>
+            <div style={{ ...card, flex: '1 1 200px' }}><BarChartCard title={L('Counselling Letters', 'Thư tư vấn')} bars={lettersBars} onOpen={setDrill} /></div>
+            {data.callTarget && (
+              <div style={{ ...card, flex: '1 1 200px' }}><BarChartCard title={L('Calls KPI', 'KPI cuộc gọi')} bars={callsKpiBars} onOpen={setDrill} /></div>
+            )}
+            <div style={{ ...card, flex: '1 1 260px' }}><BarChartCard title={L('Leads', 'Lead')} bars={leadsBars} onOpen={setDrill} /></div>
+            <div style={{ ...card, flex: '1 1 260px' }}><BarChartCard title={L('Calls', 'Cuộc gọi')} bars={callsBars} onOpen={setDrill} /></div>
+          </div>
           <CallsByBucket data={data} L={L} />
           <ModeMatrix data={data} L={L} />
         </>
