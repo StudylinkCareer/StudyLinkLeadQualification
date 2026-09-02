@@ -408,6 +408,18 @@ export const reportsAPI = {
     const s = qs.toString();
     return request('GET', `/api/reports/weekly${s ? `?${s}` : ''}`);
   },
+  // Individual Report / Company Report (2026-08) — `periodParams` is
+  // whatever PeriodPicker's onChange produced: { period, weekStart } |
+  // { period, month } | { period, year } | { period, from, to }.
+  individualReport: (periodParams, staffName) => {
+    const qs = new URLSearchParams(periodParams);
+    if (staffName) qs.set('staffName', staffName);
+    return request('GET', `/api/reports/individual?${qs.toString()}`);
+  },
+  groupReport: (periodParams) => {
+    const qs = new URLSearchParams(periodParams);
+    return request('GET', `/api/reports/group?${qs.toString()}`);
+  },
   getRecommendation: (weekStart, mode, resources) => {
     const qs = new URLSearchParams();
     if (weekStart) qs.set('weekStart', weekStart);

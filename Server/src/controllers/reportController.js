@@ -951,8 +951,10 @@ async function individualReport(req, res, next) {
       closing: { count: closing.length, leads: closing.map(objectToCamelCase) },
     };
 
+    const staffOptions = scope === 'all' ? (await weeklyStaffNames()).allNames.sort() : [];
+
     res.json({ success: true, data: {
-      period, from: from.toISOString(), to: to.toISOString(), staffName, canPickAnyStaff: scope === 'all',
+      period, from: from.toISOString(), to: to.toISOString(), staffName, canPickAnyStaff: scope === 'all', staffOptions,
       leadsFlow, ...rangeData,
     }});
   } catch (err) { next(err); }
