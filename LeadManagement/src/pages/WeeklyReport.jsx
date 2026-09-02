@@ -154,29 +154,41 @@ function KpiTiles({ sectionTitle, metrics, groups, onBar }) {
   );
 }
 
+// Counsellors keep separate New/Ongoing targets (role-wide, day-of-week
+// grid). Pre-Sales' target is now per-individual, hours-derived, and
+// combined New+Ongoing (2026-08 redesign, planned with Hong Ha) — so their
+// actual/target is its own single column rather than split like Counsellors'.
 function ByDay({ group, multi, L }) {
   const daily = group.calls?.daily || [];
   const tot = daily.reduce((a, r) => ({
     newLeads: a.newLeads + r.newLeads, ongoing: a.ongoing + r.ongoing,
     targetNew: a.targetNew + r.targetNew, targetOngoing: a.targetOngoing + r.targetOngoing,
-  }), { newLeads: 0, ongoing: 0, targetNew: 0, targetOngoing: 0 });
+    presalesActual: a.presalesActual + (r.presalesActual || 0), presalesTarget: a.presalesTarget + (r.presalesTarget || 0),
+  }), { newLeads: 0, ongoing: 0, targetNew: 0, targetOngoing: 0, presalesActual: 0, presalesTarget: 0 });
   return (
     <div style={{ marginBottom: multi ? '1rem' : 0 }}>
       {multi && <div style={{ fontWeight: 700, fontSize: '0.85rem', margin: '0.5rem 0 0.25rem' }}>{group.label}</div>}
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr><th style={th}>{L('Day', 'Ngày')}</th><th style={{ ...th, textAlign: 'right' }}>{L('New / target', 'Mới / MT')}</th><th style={{ ...th, textAlign: 'right' }}>{L('Ongoing / target', 'Theo dõi / MT')}</th></tr></thead>
+        <thead><tr>
+          <th style={th}>{L('Day', 'Ngày')}</th>
+          <th style={{ ...th, textAlign: 'right' }}>{L('New / target', 'Mới / MT')}</th>
+          <th style={{ ...th, textAlign: 'right' }}>{L('Ongoing / target', 'Theo dõi / MT')}</th>
+          <th style={{ ...th, textAlign: 'right' }}>{L('Pre-Sales / target', 'Pre-Sales / MT')}</th>
+        </tr></thead>
         <tbody>
           {daily.map(r => (
             <tr key={r.day}>
               <td style={tdc}>{r.day}</td>
               <td style={{ ...tdc, textAlign: 'right', fontWeight: 600, color: r.newLeads >= r.targetNew ? '#10B981' : '#DC2626' }}>{r.newLeads} / {r.targetNew}</td>
               <td style={{ ...tdc, textAlign: 'right', fontWeight: 600, color: r.ongoing >= r.targetOngoing ? '#10B981' : '#DC2626' }}>{r.ongoing} / {r.targetOngoing}</td>
+              <td style={{ ...tdc, textAlign: 'right', fontWeight: 600, color: (r.presalesActual || 0) >= (r.presalesTarget || 0) ? '#10B981' : '#DC2626' }}>{r.presalesActual || 0} / {r.presalesTarget || 0}</td>
             </tr>
           ))}
           <tr>
             <td style={{ ...tdc, fontWeight: 700 }}>{L('Totals', 'Tổng')}</td>
             <td style={{ ...tdc, textAlign: 'right', fontWeight: 700, color: tot.newLeads >= tot.targetNew ? '#10B981' : '#DC2626' }}>{tot.newLeads} / {tot.targetNew}</td>
             <td style={{ ...tdc, textAlign: 'right', fontWeight: 700, color: tot.ongoing >= tot.targetOngoing ? '#10B981' : '#DC2626' }}>{tot.ongoing} / {tot.targetOngoing}</td>
+            <td style={{ ...tdc, textAlign: 'right', fontWeight: 700, color: tot.presalesActual >= tot.presalesTarget ? '#10B981' : '#DC2626' }}>{tot.presalesActual} / {tot.presalesTarget}</td>
           </tr>
         </tbody>
       </table>

@@ -495,33 +495,46 @@ async function contractedBuckets(ctx, names) {
 }
 
 // Per-person DAILY call targets by role (index 0=Mon … 6=Sun; Sunday = 0).
-// Fallback only, used if call_day_targets somehow has no row for a
-// (role, day) pair — the DB (editable from Staff Targets) is the real
-// source now; see loadDayTargets() below. Values match the migration seed.
+// Fallback only, used if call_day_targets has no Counselor row for ANY
+// month yet — the DB (editable from Staff Targets) is the real source now;
+// see loadDayTargets() below. Counselor-only (2026-08 Phase-0 redesign,
+// planned with Hong Ha): Pre-Sales no longer has a role-wide daily target —
+// their target is now per-individual, derived from presales_working_hours
+// (hours worked that day x 8), combined New+Ongoing, computed directly in
+// computeGroup below rather than through this table.
 const CALL_TARGETS = {
-  Counselor:   { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5,  5,  5,  5,  5,  2, 0] },
-  'Pre-Sales': { new: [15, 15, 15, 15, 15, 7, 0], ongoing: [10, 10, 10, 10, 10, 5, 0] },
+  Counselor: { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5, 5, 5, 5, 5, 2, 0] },
 };
 
-// Loads the editable per-role, per-weekday call quotas (Staff Targets page)
-// into the same shape CALL_TARGETS has, so computeGroup's lookup doesn't
-// need to change beyond reading ctx.dayTargets instead of the constant.
+// Loads the editable, month-aware per-weekday Counselor call quotas (Staff
+// Targets page's "Daily Call Quotas" grid) and returns a lookup function
+// `forMonth(monthKey)` -> {new:[7], ongoing:[7]}, monthKey = 'YYYY-MM-01'.
+// "Copy forward" semantics (confirmed 2026-08): a month with no row of its
+// own inherits the most recently configured EARLIER month, never silently
+// drops to 0 — only truly falls back to the hardcoded CALL_TARGETS default
+// if NO month has ever been configured at all.
 // Called once per report build (generateWeeklySnapshot / weeklyReport's live
-// path) and stashed on ctx, same pattern as ctx.counsellorSet/presalesSet.
+// path) and stashed on ctx, same pattern as ctx.counsellorSet/presalesSet —
+// computeGroup calls the returned function per day, since a single week can
+// span two different months near a month boundary.
 async function loadDayTargets() {
   const rows = (await pool.query(
-    `SELECT role, day_of_week, new_target, ongoing_target FROM call_day_targets`
+    `SELECT to_char(month, 'YYYY-MM-01') AS month, day_of_week, new_target, ongoing_target
+       FROM call_day_targets WHERE role = 'Counselor' ORDER BY month`
   )).rows;
-  const out = {
-    Counselor:   { new: [...CALL_TARGETS.Counselor.new],   ongoing: [...CALL_TARGETS.Counselor.ongoing] },
-    'Pre-Sales': { new: [...CALL_TARGETS['Pre-Sales'].new], ongoing: [...CALL_TARGETS['Pre-Sales'].ongoing] },
-  };
+  const byMonth = new Map();
   for (const r of rows) {
-    if (!out[r.role]) continue;
-    out[r.role].new[r.day_of_week]     = r.new_target;
-    out[r.role].ongoing[r.day_of_week] = r.ongoing_target;
+    if (!byMonth.has(r.month)) byMonth.set(r.month, { new: [...CALL_TARGETS.Counselor.new], ongoing: [...CALL_TARGETS.Counselor.ongoing] });
+    const m = byMonth.get(r.month);
+    m.new[r.day_of_week]     = r.new_target;
+    m.ongoing[r.day_of_week] = r.ongoing_target;
   }
-  return out;
+  const months = [...byMonth.keys()].sort();
+  return function forMonth(monthKey) {
+    let best = null;
+    for (const m of months) { if (m <= monthKey) best = m; else break; }
+    return best ? byMonth.get(best) : { new: [...CALL_TARGETS.Counselor.new], ongoing: [...CALL_TARGETS.Counselor.ongoing] };
+  };
 }
 
 // Reconstructs a group's ACTIVE book as at instant `tISO` (point-in-time), from
@@ -649,13 +662,25 @@ async function computeGroup(names, ctx, opts = {}) {
 
   const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const dayIndexOf = (ms) => Math.max(0, Math.min(6, Math.floor((ms - ctx.weekStartMs) / (24 * 60 * 60 * 1000))));
-  const daily = dayNames.map(d => ({ day: d, newLeads: 0, ongoing: 0 }));
-  const modeDaily = dayNames.map(d => ({ day: d, byMode: {} }));   // mode x day matrix
+  // Role-aware from here on (2026-08 Phase-0 redesign): Counsellors keep a
+  // role-wide New/Ongoing target; Pre-Sales' target is per-individual
+  // (hours worked that day x 8, combined — see below), so their actuals and
+  // targets are tracked as a single combined bucket, not New/Ongoing.
+  const daily = dayNames.map(d => ({ day: d, counselor: { newLeads: 0, ongoing: 0 }, presales: { total: 0 } }));
+  const modeDaily = dayNames.map(d => ({ day: d, byMode: {} }));   // mode x day matrix, unaffected by the role split
   const platforms = {};
+  const cSet = ctx.counsellorSet || new Set();
+  const pSet = ctx.presalesSet   || new Set();
   for (const [bucketKey, items] of [['newCount', classified.newItems], ['ongoing', classified.ongoingItems]]) {
     for (const item of items) {
       const i = dayIndexOf(new Date(item.note.created_at).getTime());
-      if (bucketKey === 'newCount') daily[i].newLeads++; else daily[i].ongoing++;
+      if (pSet.has(item.note.author_name)) {
+        daily[i].presales.total++;
+      } else if (bucketKey === 'newCount') {
+        daily[i].counselor.newLeads++;
+      } else {
+        daily[i].counselor.ongoing++;
+      }
       const p = item.note.contact_platform ? normalizeMode(item.note.contact_platform) : 'Phone call';
       platforms[p] = platforms[p] || { platform: p, newCount: 0, ongoing: 0 };
       platforms[p][bucketKey]++;
@@ -663,17 +688,63 @@ async function computeGroup(names, ctx, opts = {}) {
     }
   }
   const headcount = Math.max(0, names.length);
-  // Role-aware, day-of-week-aware targets: sum each role's per-day target across
-  // the people in this group. Roles come from staff.role via ctx.counsellorSet /
-  // ctx.presalesSet (built in weeklyReport). Falls back to 0 if a name has no role.
-  const cSet = ctx.counsellorSet || new Set();
-  const pSet = ctx.presalesSet   || new Set();
   const nC = names.filter(n => cSet.has(n)).length;
-  const nP = names.filter(n => pSet.has(n)).length;
-  const dt = ctx.dayTargets || CALL_TARGETS;   // ctx.dayTargets set by loadDayTargets() at build time
-  const dailyCalls = daily.map((d, i) => ({ day: d.day, newLeads: d.newLeads, ongoing: d.ongoing,
-    targetNew:     nC * dt.Counselor.new[i]     + nP * dt['Pre-Sales'].new[i],
-    targetOngoing: nC * dt.Counselor.ongoing[i] + nP * dt['Pre-Sales'].ongoing[i] }));
+
+  // Counsellor targets: role-wide, day-of-week + month aware (ctx.dayTargets
+  // is the forMonth() lookup function from loadDayTargets()).
+  const dt = ctx.dayTargets || (() => ({ new: [...CALL_TARGETS.Counselor.new], ongoing: [...CALL_TARGETS.Counselor.ongoing] }));
+  const monthKeyOf = (ms) => {
+    const vn = new Date(ms + VN_MS);
+    return `${vn.getUTCFullYear()}-${String(vn.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  };
+
+  // Pre-Sales targets: per-individual, hours(staff, month, day_of_week) x 8,
+  // summed across whichever Pre-Sales members are actually in this group.
+  // A week can span two months near a boundary, so this is looked up per
+  // day, per person — not a single flat number for the whole week.
+  const presalesNames = names.filter(n => pSet.has(n));
+  const presalesHoursByNameMonthDow = new Map(); // `${name}|${monthKey}|${dow}` -> hours
+  if (presalesNames.length) {
+    const hourRows = (await pool.query(
+      `SELECT s.full_name, to_char(wh.month, 'YYYY-MM-01') AS month, wh.day_of_week, wh.hours
+         FROM presales_working_hours wh JOIN staff s ON s.id = wh.staff_id
+        WHERE s.full_name = ANY($1)`,
+      [presalesNames]
+    )).rows;
+    for (const r of hourRows) {
+      presalesHoursByNameMonthDow.set(`${r.full_name}|${r.month}|${r.day_of_week}`, Number(r.hours));
+    }
+  }
+  // "Copy forward" fallback per person: if THIS month has no hours row for
+  // them at all (any day), fall back to their most recent earlier month
+  // that does — mirrors the Counsellor grid's copy-forward semantics.
+  const presalesMonthsByName = new Map();
+  for (const key of presalesHoursByNameMonthDow.keys()) {
+    const [name, month] = key.split('|');
+    if (!presalesMonthsByName.has(name)) presalesMonthsByName.set(name, new Set());
+    presalesMonthsByName.get(name).add(month);
+  }
+  function presalesHoursFor(name, monthKey, dow) {
+    const direct = presalesHoursByNameMonthDow.get(`${name}|${monthKey}|${dow}`);
+    if (direct !== undefined) return direct;
+    const months = [...(presalesMonthsByName.get(name) || [])].sort();
+    let best = null;
+    for (const m of months) { if (m <= monthKey) best = m; else break; }
+    return best ? (presalesHoursByNameMonthDow.get(`${name}|${best}|${dow}`) || 0) : 0;
+  }
+
+  const dailyCalls = daily.map((d, i) => {
+    const monthKey = monthKeyOf(ctx.weekStartMs + i * 24 * 60 * 60 * 1000);
+    const dt_i = dt(monthKey);
+    let presalesTarget = 0;
+    for (const nm of presalesNames) presalesTarget += presalesHoursFor(nm, monthKey, i) * 8;
+    return {
+      day: d.day,
+      newLeads: d.counselor.newLeads, ongoing: d.counselor.ongoing,
+      targetNew: nC * dt_i.new[i], targetOngoing: nC * dt_i.ongoing[i],
+      presalesActual: d.presales.total, presalesTarget,
+    };
+  });
   const newLeadItems = classified.newItems.map(it => ({ studentId: it.studentId, fullName: it.fullName }));
   // NOT deduped by lead — a lead can legitimately appear more than once
   // (once per distinct khung giờ touched), and the count here must match
@@ -1219,226 +1290,53 @@ async function removeTrackedStaff(req, res, next) {
   } catch (err) { next(err); }
 }
 
-// ── Call Targets (Staff Targets page, second grid below Monthly Targets) ──
-// Same shape/pattern as monthlyTargets/saveMonthlyTarget/addTrackedStaff/
-// removeTrackedStaff above, but for call volume instead of contracts:
-// staff.call_target (default) + call_targets (per-month override) +
-// call_target_tracked_staff (roster — auto-seeded by the migration, but
-// still add/remove-able like the Monthly Targets roster). Fully replaces
-// the old per-weekday CALL_TARGETS formula in Monthly Report's Calls KPI —
-// no fallback to that formula; an unconfigured staffer just shows 0/—.
-// "Actual" = notes matching the same isCallNote rule Monthly Report uses,
-// bucketed by the note's own created_at month (TIMESTAMPTZ — VN-midnight
-// bucketing is correct here, unlike the actual_close_date DATE-column case
-// in monthlyTargets above).
-async function callTargets(req, res, next) {
-  try {
-    if (!canAccessStaffTargetsPageOnly(req)) {
-      return res.status(403).json({ success: false, error: 'Not authorised to view call targets' });
-    }
-
-    const { months, yearStartISO } = buildTargetMonths();
-
-    const tracked = (await pool.query(
-      `SELECT t.staff_id, t.sort_order, s.full_name, COALESCE(s.call_target, 0) AS fallback_target
-         FROM call_target_tracked_staff t
-         JOIN staff s ON s.id = t.staff_id
-        WHERE s.is_active = true
-        ORDER BY t.sort_order, s.full_name`
-    )).rows;
-    const names = tracked.map(r => r.full_name);
-
-    const overrides = names.length ? (await pool.query(
-      `SELECT ct.staff_id, to_char(ct.month, 'YYYY-MM') AS label, ct.target
-         FROM call_targets ct
-         JOIN call_target_tracked_staff t ON t.staff_id = ct.staff_id
-        WHERE ct.month >= DATE '2026-01-01'`
-    )).rows : [];
-    const overrideMap = new Map();
-    for (const o of overrides) overrideMap.set(`${o.staff_id}|${o.label}`, o.target);
-
-    // Actual = New + Ongoing (KBM excluded) — the same unified New/Ongoing/
-    // KBM rule Weekly Report and Monthly Report use (confirmed 2026-08), so
-    // this grid's numbers agree with Monthly Report's Calls KPI. Computed
-    // per staffer, per month, with a running history cursor so e.g. March's
-    // classification correctly knows about a lead first contacted in
-    // January (not "New" again) as well as anything from before this year.
-    const noteRows = names.length ? (await pool.query(
-      `SELECT author_name, student_id, created_at, contact_platform, content, call_answered
-         FROM student_notes
-        WHERE author_name = ANY($1) AND created_at >= $2`,
-      [names, yearStartISO]
-    )).rows : [];
-    const histRows = names.length ? (await pool.query(
-      `SELECT author_name, student_id, created_at, contact_platform, content, call_answered
-         FROM student_notes
-        WHERE author_name = ANY($1) AND created_at < $2`,
-      [names, yearStartISO]
-    )).rows : [];
-    const notesByStaff = new Map();
-    for (const n of noteRows) { if (!notesByStaff.has(n.author_name)) notesByStaff.set(n.author_name, []); notesByStaff.get(n.author_name).push(n); }
-    const histByStaff = new Map();
-    for (const n of histRows) { if (!histByStaff.has(n.author_name)) histByStaff.set(n.author_name, []); histByStaff.get(n.author_name).push(n); }
-
-    const actualMap = new Map(); // name -> { label -> {actual, kbm} }
-    for (const name of names) {
-      const ownNotes = notesByStaff.get(name) || [];
-      const ownHist  = histByStaff.get(name) || [];
-      const byMonth = {};
-      for (const mo of months) {
-        const periodNotes  = ownNotes.filter(n => { const t = new Date(n.created_at).getTime(); return t >= mo.startMs && t < mo.endMs; });
-        const historyNotes = [...ownHist, ...ownNotes.filter(n => new Date(n.created_at).getTime() < mo.startMs)];
-        const c = classifyCalls(periodNotes, historyNotes);
-        byMonth[mo.label] = { actual: c.newCount + c.ongoingCount, kbm: c.kbmCount };
-      }
-      actualMap.set(name, byMonth);
-    }
-
-    const rows = tracked.map(tr => {
-      const cells = {};
-      let ytdActual = 0, ytdTarget = 0;
-      const byMonth = actualMap.get(tr.full_name) || {};
-      for (const mo of months) {
-        const actual     = (byMonth[mo.label] || {}).actual || 0;
-        const ov         = overrideMap.get(`${tr.staff_id}|${mo.label}`);
-        const isFallback = ov === undefined;
-        const target     = isFallback ? tr.fallback_target : ov;
-        cells[mo.label]  = { actual, target, isFallback };
-        ytdActual += actual;
-        ytdTarget += target;
-      }
-      return {
-        staffId:        tr.staff_id,
-        fullName:       tr.full_name,
-        sortOrder:      tr.sort_order,
-        fallbackTarget: tr.fallback_target,
-        cells,
-        ytd: { actual: ytdActual, target: ytdTarget },
-      };
-    });
-
-    res.json({
-      success: true,
-      data: { months: months.map(m => ({ month: m.month, label: m.label })), rows },
-    });
-  } catch (err) { next(err); }
-}
-
-async function saveCallTarget(req, res, next) {
-  try {
-    if (!canAccessStaffTargetsPageOnly(req)) {
-      return res.status(403).json({ success: false, error: 'Not authorised to edit call targets' });
-    }
-    const { staffId, month, target } = req.body || {};
-    if (!staffId || !/^\d+$/.test(String(staffId))) {
-      return res.status(400).json({ success: false, error: 'staffId is required' });
-    }
-    const mm = String(month || '');
-    const monthDate = /^\d{4}-\d{2}$/.test(mm)    ? `${mm}-01`
-                    : /^\d{4}-\d{2}-01$/.test(mm) ? mm
-                    : null;
-    if (!monthDate) {
-      return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
-    }
-    const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
-
-    // Empty target reverts this cell to the staff-level fallback (delete override).
-    if (target === '' || target === null || target === undefined) {
-      await pool.query(`DELETE FROM call_targets WHERE staff_id = $1 AND month = $2`, [staffId, monthDate]);
-      return res.json({ success: true, data: { staffId: Number(staffId), month: mm.slice(0, 7), reverted: true } });
-    }
-
-    const n = Number(target);
-    if (!Number.isInteger(n) || n < 0) {
-      return res.status(400).json({ success: false, error: 'target must be a non-negative integer' });
-    }
-
-    const r = await pool.query(
-      `INSERT INTO call_targets (staff_id, month, target, updated_by, updated_at)
-            VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (staff_id, month)
-       DO UPDATE SET target = EXCLUDED.target, updated_by = EXCLUDED.updated_by, updated_at = NOW()
-       RETURNING staff_id, to_char(month, 'YYYY-MM') AS month, target, updated_by, updated_at`,
-      [staffId, monthDate, n, updatedBy]
-    );
-    res.json({ success: true, data: r.rows[0] });
-  } catch (err) { next(err); }
-}
-
-async function addCallTargetTrackedStaff(req, res, next) {
-  try {
-    if (!canAccessStaffTargetsPageOnly(req)) {
-      return res.status(403).json({ success: false, error: 'Not authorised' });
-    }
-    const { staffId } = req.body || {};
-    if (!staffId || !/^\d+$/.test(String(staffId))) {
-      return res.status(400).json({ success: false, error: 'staffId is required' });
-    }
-    const exists = await pool.query(`SELECT id, full_name FROM staff WHERE id = $1`, [staffId]);
-    if (exists.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Staff member not found' });
-    }
-    const addedBy = req.session.staffName || req.session.staffEmail || 'unknown';
-    await pool.query(
-      `INSERT INTO call_target_tracked_staff (staff_id, sort_order, added_by)
-            VALUES ($1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM call_target_tracked_staff), $2)
-       ON CONFLICT (staff_id) DO NOTHING`,
-      [staffId, addedBy]
-    );
-    res.json({ success: true, data: { staffId: Number(staffId), fullName: exists.rows[0].full_name } });
-  } catch (err) { next(err); }
-}
-
-async function removeCallTargetTrackedStaff(req, res, next) {
-  try {
-    if (!canAccessStaffTargetsPageOnly(req)) {
-      return res.status(403).json({ success: false, error: 'Not authorised' });
-    }
-    const staffId = req.params.staffId;
-    if (!staffId || !/^\d+$/.test(String(staffId))) {
-      return res.status(400).json({ success: false, error: 'staffId is required' });
-    }
-    // call_targets history is intentionally preserved so re-adding restores it.
-    await pool.query(`DELETE FROM call_target_tracked_staff WHERE staff_id = $1`, [staffId]);
-    res.json({ success: true, data: { staffId: Number(staffId), removed: true } });
-  } catch (err) { next(err); }
-}
+// ── Call Targets (Monthly Call Volume Targets) — RETIRED 2026-08 ─────────
+// Superseded by the Daily Call Quotas grid (Counsellors, role-wide,
+// per-weekday) + Pre-sales Working Hours (per-individual, per-weekday) —
+// see loadDayTargets() and callDayTargets/presalesWorkingHours below.
+// call_targets / call_target_tracked_staff / staff.call_target and its
+// sibling columns are deliberately LEFT IN PLACE, unmaintained, rather than
+// dropped — old Monthly Report (Server/src/services/monthlyReport.js) still
+// reads them for its Calls-KPI columns and is untouched during the
+// Individual/Group Report migration; those columns will go stale (frozen at
+// whatever was last configured) until Monthly Report itself is retired.
+// The UI grid for editing them is removed from StaffTargets.jsx.
 
 // ── Call Day Targets (Staff Targets page, "Daily Call Quotas" grid) ───────
-// Per-role (Counselor / Pre-Sales), per-weekday (0=Mon..6=Sun) New/Ongoing
-// call quotas — what Weekly Report's "Calls by day" table compares actuals
-// against. Replaces the old hardcoded CALL_TARGETS constant (see
-// loadDayTargets() above); always returns all 14 (role, day) combinations,
-// defaulting anything missing to 0, so the frontend never has to guard for
-// a hole in the grid.
+// Counsellors only (2026-08 Phase-0 redesign, planned with Hong Ha) —
+// Pre-Sales no longer has a role-wide daily target, see presalesWorkingHours
+// below. Per-weekday (0=Mon..6=Sun) New/Ongoing quotas, now also per-month:
+// what Weekly Report's "Calls by day" table compares Counsellor actuals
+// against (loadDayTargets() above). Always returns all 7 days for the
+// requested month, defaulting anything missing to 0, so the frontend never
+// has to guard for a hole in the grid.
 async function callDayTargets(req, res, next) {
   try {
     if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised to view call day targets' });
     }
+    const mm = String(req.query.month || '');
+    const monthDate = /^\d{4}-\d{2}$/.test(mm) ? `${mm}-01` : null;
+    if (!monthDate) return res.status(400).json({ success: false, error: 'month (YYYY-MM) is required' });
+
     const rows = (await pool.query(
-      `SELECT role, day_of_week, new_target, ongoing_target, updated_by, updated_at
-         FROM call_day_targets`
+      `SELECT day_of_week, new_target, ongoing_target, updated_by, updated_at
+         FROM call_day_targets WHERE role = 'Counselor' AND month = $1`,
+      [monthDate]
     )).rows;
-    const cellMap = new Map();  // `${role}|${day}` -> row
-    for (const r of rows) cellMap.set(`${r.role}|${r.day_of_week}`, r);
-
-    const roles = ['Counselor', 'Pre-Sales'];
-    const data = roles.map(role => {
-      const cells = {};
-      for (let d = 0; d < 7; d++) {
-        const r = cellMap.get(`${role}|${d}`);
-        cells[d] = {
-          newTarget:     r ? r.new_target     : 0,
-          ongoingTarget: r ? r.ongoing_target : 0,
-          updatedBy:     r ? r.updated_by     : null,
-          updatedAt:     r ? r.updated_at     : null,
-        };
-      }
-      return { role, cells };
-    });
-
-    res.json({ success: true, data: { days: [0, 1, 2, 3, 4, 5, 6], rows: data } });
+    const cellMap = new Map();
+    for (const r of rows) cellMap.set(r.day_of_week, r);
+    const cells = {};
+    for (let d = 0; d < 7; d++) {
+      const r = cellMap.get(d);
+      cells[d] = {
+        newTarget:     r ? r.new_target     : 0,
+        ongoingTarget: r ? r.ongoing_target : 0,
+        updatedBy:     r ? r.updated_by     : null,
+        updatedAt:     r ? r.updated_at     : null,
+      };
+    }
+    res.json({ success: true, data: { month: mm, days: [0, 1, 2, 3, 4, 5, 6], role: 'Counselor', cells } });
   } catch (err) { next(err); }
 }
 
@@ -1447,10 +1345,10 @@ async function saveCallDayTarget(req, res, next) {
     if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised to edit call day targets' });
     }
-    const { role, dayOfWeek, newTarget, ongoingTarget } = req.body || {};
-    if (!['Counselor', 'Pre-Sales'].includes(role)) {
-      return res.status(400).json({ success: false, error: "role must be 'Counselor' or 'Pre-Sales'" });
-    }
+    const { month, dayOfWeek, newTarget, ongoingTarget } = req.body || {};
+    const mm = String(month || '');
+    const monthDate = /^\d{4}-\d{2}$/.test(mm) ? `${mm}-01` : null;
+    if (!monthDate) return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
     const d = Number(dayOfWeek);
     if (!Number.isInteger(d) || d < 0 || d > 6) {
       return res.status(400).json({ success: false, error: 'dayOfWeek must be an integer 0-6 (0=Mon..6=Sun)' });
@@ -1462,13 +1360,13 @@ async function saveCallDayTarget(req, res, next) {
     const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
 
     const r = await pool.query(
-      `INSERT INTO call_day_targets (role, day_of_week, new_target, ongoing_target, updated_by, updated_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (role, day_of_week)
+      `INSERT INTO call_day_targets (role, month, day_of_week, new_target, ongoing_target, updated_by, updated_at)
+            VALUES ('Counselor', $1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (role, month, day_of_week)
        DO UPDATE SET new_target = EXCLUDED.new_target, ongoing_target = EXCLUDED.ongoing_target,
                       updated_by = EXCLUDED.updated_by, updated_at = NOW()
-       RETURNING role, day_of_week AS "dayOfWeek", new_target AS "newTarget", ongoing_target AS "ongoingTarget", updated_by AS "updatedBy", updated_at AS "updatedAt"`,
-      [role, d, nNew, nOngoing, updatedBy]
+       RETURNING role, to_char(month,'YYYY-MM') AS month, day_of_week AS "dayOfWeek", new_target AS "newTarget", ongoing_target AS "ongoingTarget", updated_by AS "updatedBy", updated_at AS "updatedAt"`,
+      [monthDate, d, nNew, nOngoing, updatedBy]
     );
     res.json({ success: true, data: r.rows[0] });
   } catch (err) { next(err); }
@@ -1515,17 +1413,26 @@ async function setUncontactableSlotMode(req, res, next) {
 }
 
 // ── Pre-sales working-hours grid ──────────────────────────────────────────
-// Backs the weighted round-robin (see uncontactableTransfer.js pickNextPresales)
-// — hours/day x days/month per roster member per month, editable by whoever
-// can manage Staff Targets (e.g. cô Như / HR) whenever a person's schedule
-// or the roster itself changes. Same months list as the other grids
-// (buildTargetMonths) for one consistent "2026 →" table shape across the page.
+// Reshaped 2026-08 (Phase-0 redesign, planned with Hong Ha): per-weekday
+// (0=Mon..6=Sun) hours per roster member, per month — replaces the old flat
+// hours_per_day x days_per_month average. Drives TWO things now: the
+// weighted round-robin's capacity calc (uncontactableTransfer.js
+// pickNextPresales) AND each Pre-Sales person's own Calls-KPI target
+// (hours x 8, combined New+Ongoing — see computeGroup in this file).
+// Editable by whoever can manage Staff Targets (e.g. cô Như / HR). One
+// month at a time (matches callDayTargets' shape); "copy forward" fallback
+// for an unconfigured month is applied at READ time by consumers
+// (pickNextPresales, computeGroup), not stored here — this endpoint only
+// returns exactly what's configured for the requested month.
 async function presalesWorkingHours(req, res, next) {
   try {
     if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
-    const { months } = buildTargetMonths();
+    const mm = String(req.query.month || '');
+    const monthDate = /^\d{4}-\d{2}$/.test(mm) ? `${mm}-01` : null;
+    if (!monthDate) return res.status(400).json({ success: false, error: 'month (YYYY-MM) is required' });
+
     const roster = (await pool.query(`
       SELECT t.staff_id, t.sort_order, t.slot_mode, s.full_name
         FROM uncontactable_transfer_presales_staff t
@@ -1535,22 +1442,21 @@ async function presalesWorkingHours(req, res, next) {
     `)).rows;
     const staffIds = roster.map((r) => r.staff_id);
     const hourRows = staffIds.length ? (await pool.query(
-      `SELECT staff_id, to_char(month, 'YYYY-MM') AS label, hours_per_day, days_per_month
-         FROM presales_working_hours WHERE staff_id = ANY($1)`,
-      [staffIds]
+      `SELECT staff_id, day_of_week, hours, updated_by, updated_at
+         FROM presales_working_hours WHERE staff_id = ANY($1) AND month = $2`,
+      [staffIds, monthDate]
     )).rows : [];
-    const hoursMap = new Map(); // `${staffId}|${label}` -> {hoursPerDay, daysPerMonth}
-    for (const h of hourRows) {
-      hoursMap.set(`${h.staff_id}|${h.label}`, { hoursPerDay: Number(h.hours_per_day), daysPerMonth: Number(h.days_per_month) });
-    }
+    const hoursMap = new Map(); // `${staffId}|${dow}` -> row
+    for (const h of hourRows) hoursMap.set(`${h.staff_id}|${h.day_of_week}`, h);
     const rows = roster.map((r) => {
       const cells = {};
-      for (const mo of months) {
-        cells[mo.label] = hoursMap.get(`${r.staff_id}|${mo.label}`) || { hoursPerDay: 0, daysPerMonth: 0 };
+      for (let d = 0; d < 7; d++) {
+        const h = hoursMap.get(`${r.staff_id}|${d}`);
+        cells[d] = { hours: h ? Number(h.hours) : 0, updatedBy: h ? h.updated_by : null, updatedAt: h ? h.updated_at : null };
       }
       return { staffId: r.staff_id, fullName: r.full_name, slotMode: r.slot_mode, cells };
     });
-    res.json({ success: true, data: { months, rows } });
+    res.json({ success: true, data: { month: mm, days: [0, 1, 2, 3, 4, 5, 6], rows } });
   } catch (err) { next(err); }
 }
 
@@ -1559,24 +1465,28 @@ async function savePresalesWorkingHours(req, res, next) {
     if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
-    const { staffId, month, hoursPerDay, daysPerMonth } = req.body || {};
-    if (!staffId || !/^\d{4}-\d{2}$/.test(month || '')) {
+    const { staffId, month, dayOfWeek, hours } = req.body || {};
+    const mm = String(month || '');
+    if (!staffId || !/^\d{4}-\d{2}$/.test(mm)) {
       return res.status(400).json({ success: false, error: 'staffId and month (YYYY-MM) are required' });
     }
-    const h = Number(hoursPerDay), d = Number(daysPerMonth);
-    if (!Number.isFinite(h) || h < 0 || !Number.isFinite(d) || d < 0) {
-      return res.status(400).json({ success: false, error: 'hoursPerDay and daysPerMonth must be non-negative numbers' });
+    const d = Number(dayOfWeek);
+    if (!Number.isInteger(d) || d < 0 || d > 6) {
+      return res.status(400).json({ success: false, error: 'dayOfWeek must be an integer 0-6 (0=Mon..6=Sun)' });
+    }
+    const h = Number(hours);
+    if (!Number.isFinite(h) || h < 0) {
+      return res.status(400).json({ success: false, error: 'hours must be a non-negative number' });
     }
     const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
     await pool.query(
-      `INSERT INTO presales_working_hours (staff_id, month, hours_per_day, days_per_month, updated_by)
+      `INSERT INTO presales_working_hours (staff_id, month, day_of_week, hours, updated_by)
        VALUES ($1, ($2 || '-01')::date, $3, $4, $5)
-       ON CONFLICT (staff_id, month)
-         DO UPDATE SET hours_per_day = EXCLUDED.hours_per_day, days_per_month = EXCLUDED.days_per_month,
-                        updated_by = EXCLUDED.updated_by, updated_at = now()`,
-      [staffId, month, h, d, updatedBy]
+       ON CONFLICT (staff_id, month, day_of_week)
+         DO UPDATE SET hours = EXCLUDED.hours, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [staffId, mm, d, h, updatedBy]
     );
-    res.json({ success: true, data: { staffId: Number(staffId), month, hoursPerDay: h, daysPerMonth: d } });
+    res.json({ success: true, data: { staffId: Number(staffId), month: mm, dayOfWeek: d, hours: h } });
   } catch (err) { next(err); }
 }
 
@@ -1656,7 +1566,6 @@ async function lockRecommendationsBefore(weekStartYmd) {
 module.exports = {
   notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation,
   monthlyTargets, saveMonthlyTarget, addTrackedStaff, removeTrackedStaff,
-  callTargets, saveCallTarget, addCallTargetTrackedStaff, removeCallTargetTrackedStaff,
   callDayTargets, saveCallDayTarget,
   listUncontactableRoster, addUncontactableRosterStaff, removeUncontactableRosterStaff, setUncontactableSlotMode,
   presalesWorkingHours, savePresalesWorkingHours,

@@ -10,19 +10,27 @@
 //     Monthly Contract Targets — contracts signed per person per month
 //     (monthly_targets / staff.target). Surfaced inside the Weekly Report too.
 //
-//   CALL TARGETS
-//     Monthly Call Volume Targets — total calls per person per month
-//     (call_targets / staff.call_target), auto-populated with every active
-//     counselor + pre-sales staffer (still add/remove-able), sole driver of
-//     Monthly Report's Calls KPI / % Calls KPI columns — no formula fallback.
-//     Daily Call Quotas by Role — per-role (Counselor/Pre-Sales), per-weekday
-//     New/Ongoing targets (call_day_targets). Drives Weekly Report's "Calls by
-//     day" table. Used to be a hardcoded CALL_TARGETS constant in
-//     reportController.js with NO admin UI at all — this grid replaces it.
+//   CALL TARGETS (reshaped 2026-08, planned with Hong Ha — "Phase 0" of the
+//   Weekly/Monthly Report merge)
+//     Monthly Call Volume Targets RETIRED — superseded by the two grids
+//     below giving day-of-week + per-individual granularity instead of one
+//     flat monthly number. call_targets/staff.call_target are left in the
+//     DB, unmaintained, only because old Monthly Report still reads them.
+//     Daily Call Quotas (Counsellors) — per-weekday New/Ongoing targets,
+//     ROLE-WIDE (all counsellors share the same hours), now also per-MONTH
+//     via the dropdown above the table. Drives Weekly Report's "Calls by
+//     day" table for Counsellors.
+//     Pre-sales Working Hours — per-STAFF-MEMBER, per-weekday HOURS (not a
+//     call count). A Pre-Sales person's daily call target = their hours
+//     that day x 8, combined New+Ongoing (no separate New/Ongoing split —
+//     per Hong Ha, doesn't matter for Pre-Sales the way it does for
+//     Counsellors). This is now the only place Pre-Sales targets live.
 //
 //   PRE-SALES ROUND-ROBIN
-//     Uncontactable → Pre-sales Roster, Pre-sales Working Hours — unchanged
-//     content, just grouped under a clearer heading.
+//     Uncontactable → Pre-sales Roster — unchanged. Pre-sales Working Hours
+//     moved up into CALL TARGETS above (it now drives two things: the
+//     round-robin's fairness weighting AND Pre-Sales' own KPI target, so it
+//     lives with the other call-quota grid rather than only here).
 //
 // Access: Executive (CEO/COO), Quality and Tech Support — gated client-side on
 // the auth profile (roleProfiles.canManageTargets) AND server-side on every
@@ -352,59 +360,68 @@ function UncontactableRosterList({ roster, L }) {
   );
 }
 
-// Daily Call Quotas — per-role (Counselor / Pre-Sales), per-weekday New/
-// Ongoing call targets. Drives Weekly Report's "Calls by day" table (the
-// New/Target, Ongoing/Target columns). Used to be a hardcoded constant in
-// reportController.js; now lives in call_day_targets and is editable here.
-// Fixed 2 rows (one per role) x 7 columns (Mon..Sun) — no roster, no
-// add/remove, unlike the two grids above. Each cell holds two numbers (New,
-// Ongoing), same two-number-per-cell pattern as PresalesHoursGrid below.
+// Daily Call Quotas — Counsellors only (2026-08 redesign: Pre-Sales moved to
+// PresalesHoursGrid below, hours-based instead of a role-wide call count).
+// Per-weekday New/Ongoing call targets, one row ("Counsellors"), now also
+// per-MONTH via the dropdown — a new/unconfigured month copies forward the
+// most recently configured earlier month (server-side "copy forward" —
+// this grid just shows whatever the server resolves for the picked month).
+// Drives Weekly Report's "Calls by day" table's Counsellor New/Target,
+// Ongoing/Target columns. Each cell holds two numbers (New, Ongoing).
 const DAY_LABELS_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_LABELS_VI = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 
+function currentMonthLabel() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function DailyCallQuotaGrid({ L, language }) {
+  const [month, setMonth]       = useState(currentMonthLabel());
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(true);
-  const [editCell, setEditCell] = useState(null); // { role, day }
+  const [editDay, setEditDay]   = useState(null); // day index being edited
   const [editNew,     setEditNew]     = useState('');
   const [editOngoing, setEditOngoing] = useState('');
   const skipBlurRef = useRef(false);
 
   function reload() {
     setLoading(true);
-    reportsAPI.callDayTargets()
+    reportsAPI.callDayTargets(month)
       .then(r => setData(r?.data || null))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }
-  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(); }, [month]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function save(role, day) {
+  function save(day) {
     const n = Number(editNew) || 0, o = Number(editOngoing) || 0;
-    reportsAPI.saveCallDayTarget(role, day, n, o)
-      .then(() => { setEditCell(null); reload(); })
-      .catch(() => setEditCell(null));
+    reportsAPI.saveCallDayTarget(month, day, n, o)
+      .then(() => { setEditDay(null); reload(); })
+      .catch(() => setEditDay(null));
   }
 
-  const rows = data?.rows || [];
+  const cells = data?.cells || {};
   const dayLabels = language === 'vi' ? DAY_LABELS_VI : DAY_LABELS_EN;
-  const roleLabel = (role) => role === 'Counselor' ? L('Counsellors', 'Tư vấn viên') : L('Pre-Sales', 'Pre-sales');
 
   return (
     <div>
-      <div style={{ marginBottom: '1rem' }}>
-        <h2 style={h2}>{L('Daily Call Quotas by Role', 'Định mức cuộc gọi theo ngày & vai trò')}</h2>
-        <div style={sub}>
-          {L(
-            'Per-weekday New / Ongoing call targets, one row per role — drives the Target columns on Weekly Report’s "Calls by day" table. Click a cell to edit (New × Ongoing).',
-            'Định mức cuộc gọi Mới / Đang xử lý theo từng ngày, mỗi vai trò một hàng — quyết định cột Chỉ tiêu trên bảng "Cuộc gọi theo ngày" của Báo cáo tuần. Nhấn vào ô để sửa (Mới × Đang xử lý).'
-          )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+        <div>
+          <h2 style={h2}>{L('Daily Call Quotas (Counsellors)', 'Định mức cuộc gọi theo ngày (Tư vấn viên)')}</h2>
+          <div style={sub}>
+            {L(
+              'Per-weekday New / Ongoing call targets, role-wide across all counsellors. A month with no values yet copies forward the last configured month. Click a cell to edit (New × Ongoing).',
+              'Định mức cuộc gọi Mới / Đang xử lý theo từng ngày, áp dụng chung cho mọi tư vấn viên. Tháng chưa đặt sẽ dùng lại giá trị của tháng gần nhất đã đặt. Nhấn vào ô để sửa (Mới × Đang xử lý).'
+            )}
+          </div>
         </div>
+        <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }} />
       </div>
 
       <div style={card}>
         {loading && !data && <div style={sub}>{L('Loading…', 'Đang tải…')}</div>}
-        {data && rows.length > 0 && (
+        {data && (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
               <thead>
@@ -414,47 +431,45 @@ function DailyCallQuotaGrid({ L, language }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => (
-                  <tr key={r.role}>
-                    <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{roleLabel(r.role)}</td>
-                    {[0, 1, 2, 3, 4, 5, 6].map(day => {
-                      const c = r.cells[day] || { newTarget: 0, ongoingTarget: 0 };
-                      const editing = editCell && editCell.role === r.role && editCell.day === day;
-                      return (
-                        <td key={day} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {editing ? (
-                            <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
-                              <input type="number" min="0" step="1" value={editNew} autoFocus
-                                onChange={e => setEditNew(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.role, day); }
-                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
-                                }}
-                                title={L('New', 'Mới')}
-                                style={{ width: 32, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
-                              <span style={{ color: 'var(--text-secondary,#9ca3af)' }}>/</span>
-                              <input type="number" min="0" step="1" value={editOngoing}
-                                onChange={e => setEditOngoing(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.role, day); }
-                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
-                                }}
-                                onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } save(r.role, day); }}
-                                title={L('Ongoing', 'Đang xử lý')}
-                                style={{ width: 32, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
-                            </span>
-                          ) : (
-                            <span onClick={() => { setEditCell({ role: r.role, day }); setEditNew(String(c.newTarget)); setEditOngoing(String(c.ongoingTarget)); }}
-                              title={L('Click to edit New / Ongoing targets', 'Nhấn để sửa chỉ tiêu Mới / Đang xử lý')}
-                              style={{ cursor: 'pointer', fontWeight: 600 }}>
-                              {c.newTarget} / {c.ongoingTarget}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                <tr>
+                  <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{L('Counsellors', 'Tư vấn viên')}</td>
+                  {[0, 1, 2, 3, 4, 5, 6].map(day => {
+                    const c = cells[day] || { newTarget: 0, ongoingTarget: 0 };
+                    const editing = editDay === day;
+                    return (
+                      <td key={day} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {editing ? (
+                          <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+                            <input type="number" min="0" step="1" value={editNew} autoFocus
+                              onChange={e => setEditNew(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter')  { skipBlurRef.current = true; save(day); }
+                                if (e.key === 'Escape') { skipBlurRef.current = true; setEditDay(null); }
+                              }}
+                              title={L('New', 'Mới')}
+                              style={{ width: 32, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
+                            <span style={{ color: 'var(--text-secondary,#9ca3af)' }}>/</span>
+                            <input type="number" min="0" step="1" value={editOngoing}
+                              onChange={e => setEditOngoing(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter')  { skipBlurRef.current = true; save(day); }
+                                if (e.key === 'Escape') { skipBlurRef.current = true; setEditDay(null); }
+                              }}
+                              onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } save(day); }}
+                              title={L('Ongoing', 'Đang xử lý')}
+                              style={{ width: 32, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
+                          </span>
+                        ) : (
+                          <span onClick={() => { setEditDay(day); setEditNew(String(c.newTarget)); setEditOngoing(String(c.ongoingTarget)); }}
+                            title={L('Click to edit New / Ongoing targets', 'Nhấn để sửa chỉ tiêu Mới / Đang xử lý')}
+                            style={{ cursor: 'pointer', fontWeight: 600 }}>
+                            {c.newTarget} / {c.ongoingTarget}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
               </tbody>
             </table>
           </div>
@@ -464,52 +479,57 @@ function DailyCallQuotaGrid({ L, language }) {
   );
 }
 
-// Pre-sales working hours — backs the weighted Uncontactable round-robin
-// (confirmed 2026-08): whoever's furthest behind their fair share (received
-// ÷ hours/day × days/month, THIS month) gets the next hand-off, instead of
-// just "fewest received". Same roster as UncontactableRosterList above —
-// add/remove staff there, edit their hours here. Each cell holds TWO
-// numbers (hours/day, days/month) rather than the single-value TargetsGrid
-// pattern, so it's its own small grid rather than a TargetsGrid instance.
-function PresalesHoursGrid({ L }) {
+// Pre-sales working hours — reshaped 2026-08 (planned with Hong Ha): per-
+// STAFF-MEMBER, per-weekday HOURS (not a flat hours/day x days/month
+// average). Drives TWO things now: the weighted Uncontactable round-robin
+// above (whoever's furthest behind received ÷ this month's hour-capacity
+// gets the next hand-off) AND each Pre-Sales person's own Calls-KPI target
+// (hours that day x 8, combined New+Ongoing). Same roster as
+// UncontactableRosterList above — add/remove staff there, edit their hours
+// here. A month with no values yet copies forward the last configured
+// month (server-side; this grid just shows whatever the server resolves).
+function PresalesHoursGrid({ L, language }) {
+  const [month, setMonth]       = useState(currentMonthLabel());
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(true);
-  const [editCell, setEditCell] = useState(null); // { staffId, month }
+  const [editCell, setEditCell] = useState(null); // { staffId, day }
   const [editHours, setEditHours] = useState('');
-  const [editDays,  setEditDays]  = useState('');
   const skipBlurRef = useRef(false);
 
   function reload() {
     setLoading(true);
-    reportsAPI.presalesWorkingHours()
+    reportsAPI.presalesWorkingHours(month)
       .then(r => setData(r?.data || null))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }
-  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(); }, [month]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function save(staffId, month) {
-    const h = Number(editHours) || 0, d = Number(editDays) || 0;
-    reportsAPI.savePresalesWorkingHours(staffId, month, h, d)
+  function save(staffId, day) {
+    const h = Number(editHours) || 0;
+    reportsAPI.savePresalesWorkingHours(staffId, month, day, h)
       .then(() => { setEditCell(null); reload(); })
       .catch(() => setEditCell(null));
   }
 
   const rows = data?.rows || [];
-  const months = data?.months || [];
-  const monthlyHours = (c) => Math.round((c.hoursPerDay || 0) * (c.daysPerMonth || 0) * 10) / 10;
-  const totalForMonth = (label) => rows.reduce((s, r) => s + monthlyHours(r.cells[label] || { hoursPerDay: 0, daysPerMonth: 0 }), 0);
+  const dayLabels = language === 'vi' ? DAY_LABELS_VI : DAY_LABELS_EN;
+  const dailyTarget = (hours) => Math.round((hours || 0) * 8 * 10) / 10; // hours x 8 calls/hr
+  const totalHoursForDay = (day) => rows.reduce((s, r) => s + Number((r.cells[day] || { hours: 0 }).hours || 0), 0);
 
   return (
     <div>
-      <div style={{ marginBottom: '1rem' }}>
-        <h2 style={h2}>{L('Pre-sales Working Hours', 'Giờ làm việc Pre-sales')}</h2>
-        <div style={sub}>
-          {L(
-            'Hours/day and calling days/month per person, editable whenever staff or their schedule changes. Drives the weighted round-robin above — someone working more hours receives proportionally more transfers.',
-            'Số giờ/ngày và số ngày gọi/tháng của từng người, cập nhật khi đổi nhân viên hoặc đổi giờ làm. Quyết định tỉ lệ xoay vòng có trọng số ở trên — người làm nhiều giờ hơn sẽ nhận nhiều lead chuyển hơn theo tỉ lệ.'
-          )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+        <div>
+          <h2 style={h2}>{L('Pre-sales Working Hours', 'Giờ làm việc Pre-sales')}</h2>
+          <div style={sub}>
+            {L(
+              'Hours worked per person, per weekday — sets each person’s own Calls-KPI target (hours × 8, combined New+Ongoing) and feeds the weighted round-robin above. Click a cell to edit.',
+              'Số giờ làm việc của từng người theo mỗi ngày trong tuần — quyết định chỉ tiêu cuộc gọi của người đó (giờ × 8, gộp Mới+Đang xử lý) và tỉ lệ xoay vòng có trọng số ở trên. Nhấn vào ô để sửa.'
+            )}
+          </div>
         </div>
+        <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }} />
       </div>
 
       <div style={card}>
@@ -522,58 +542,48 @@ function PresalesHoursGrid({ L }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
               <thead>
                 <tr>
-                  <th style={{ ...th, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>2026</th>
-                  {rows.map(r => (
-                    <th key={r.staffId} style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap' }}>{r.fullName}</th>
-                  ))}
-                  <th style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap', color: 'var(--primary,#2563eb)' }}>{L('Total h/mo', 'Tổng h/tháng')}</th>
+                  <th style={{ ...th, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{L('Staff', 'Nhân viên')}</th>
+                  {dayLabels.map(d => <th key={d} style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap' }}>{d}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {months.map(mo => (
-                  <tr key={mo.label}>
-                    <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{mo.label}</td>
-                    {rows.map(r => {
-                      const c = r.cells[mo.label] || { hoursPerDay: 0, daysPerMonth: 0 };
-                      const editing = editCell && editCell.staffId === r.staffId && editCell.month === mo.label;
+                {rows.map(r => (
+                  <tr key={r.staffId}>
+                    <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{r.fullName}</td>
+                    {[0, 1, 2, 3, 4, 5, 6].map(day => {
+                      const c = r.cells[day] || { hours: 0 };
+                      const editing = editCell && editCell.staffId === r.staffId && editCell.day === day;
                       return (
-                        <td key={r.staffId} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <td key={day} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                           {editing ? (
-                            <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
-                              <input type="number" min="0" step="0.5" value={editHours} autoFocus
-                                onChange={e => setEditHours(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.staffId, mo.label); }
-                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
-                                }}
-                                title={L('Hours/day', 'Giờ/ngày')}
-                                style={{ width: 36, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
-                              <span style={{ color: 'var(--text-secondary,#9ca3af)' }}>×</span>
-                              <input type="number" min="0" step="1" value={editDays}
-                                onChange={e => setEditDays(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.staffId, mo.label); }
-                                  if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
-                                }}
-                                onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } save(r.staffId, mo.label); }}
-                                title={L('Days/month', 'Ngày/tháng')}
-                                style={{ width: 34, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
-                            </span>
+                            <input type="number" min="0" step="0.5" value={editHours} autoFocus
+                              onChange={e => setEditHours(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter')  { skipBlurRef.current = true; save(r.staffId, day); }
+                                if (e.key === 'Escape') { skipBlurRef.current = true; setEditCell(null); }
+                              }}
+                              onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } save(r.staffId, day); }}
+                              style={{ width: 44, padding: '2px 4px', fontSize: '0.8rem', textAlign: 'right' }} />
                           ) : (
-                            <span onClick={() => { setEditCell({ staffId: r.staffId, month: mo.label }); setEditHours(String(c.hoursPerDay || 0)); setEditDays(String(c.daysPerMonth || 0)); }}
-                              title={L('Click to edit hours/day × days/month', 'Nhấn để sửa giờ/ngày × ngày/tháng')}
-                              style={{ cursor: 'pointer', fontWeight: 600, fontStyle: (c.hoursPerDay || c.daysPerMonth) ? 'normal' : 'italic', color: (c.hoursPerDay || c.daysPerMonth) ? 'inherit' : 'var(--text-secondary,#9ca3af)' }}>
-                              {(c.hoursPerDay || c.daysPerMonth) ? `${c.hoursPerDay}h × ${c.daysPerMonth}d` : L('not set', 'chưa đặt')}
+                            <span onClick={() => { setEditCell({ staffId: r.staffId, day }); setEditHours(String(c.hours || 0)); }}
+                              title={L(`Click to edit — target is ${dailyTarget(c.hours)} calls (hours × 8)`, `Nhấn để sửa — chỉ tiêu ${dailyTarget(c.hours)} cuộc gọi (giờ × 8)`)}
+                              style={{ cursor: 'pointer', fontWeight: 600, fontStyle: c.hours ? 'normal' : 'italic', color: c.hours ? 'inherit' : 'var(--text-secondary,#9ca3af)' }}>
+                              {c.hours ? `${c.hours}h` : L('not set', 'chưa đặt')}
                             </span>
                           )}
                         </td>
                       );
                     })}
-                    <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, background: 'var(--bg-secondary,#f8fafc)' }}>
-                      {Math.round(totalForMonth(mo.label) * 10) / 10}
-                    </td>
                   </tr>
                 ))}
+                <tr>
+                  <td style={{ ...td, fontWeight: 700, position: 'sticky', left: 0, background: 'var(--bg-secondary,#f8fafc)' }}>{L('Total h', 'Tổng giờ')}</td>
+                  {[0, 1, 2, 3, 4, 5, 6].map(day => (
+                    <td key={day} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, background: 'var(--bg-secondary,#f8fafc)' }}>
+                      {Math.round(totalHoursForDay(day) * 10) / 10}
+                    </td>
+                  ))}
+                </tr>
               </tbody>
             </table>
           </div>
@@ -633,26 +643,14 @@ export default function StaffTargets() {
       />
 
       {/* ── Call Targets ──────────────────────────────────────────── */}
+      {/* Monthly Call Volume Targets retired 2026-08 — superseded by the two
+          grids below (day-of-week + per-individual granularity). */}
       <div style={{ marginTop: '2.5rem' }}>
         <SectionHeader>{L('Call Targets', 'Chỉ tiêu Cuộc gọi')}</SectionHeader>
-        <TargetsGrid
-          title={L('Monthly Call Volume Targets', 'Chỉ tiêu Tổng số Cuộc gọi theo tháng')}
-          subtitle={L('Total calls per person per month — drives the Calls KPI columns on Monthly Report. Auto-populated with active Sales + Pre-sales staff; still add/remove-able below.', 'Tổng số cuộc gọi theo từng người mỗi tháng — quyết định cột KPI cuộc gọi trên Báo cáo tháng. Tự động điền nhân viên Sales và Pre-sales đang hoạt động; vẫn có thể thêm/xóa bên dưới.')}
-          defaultLabel={L('Default', 'Mặc định')}
-          defaultTitle={L('Base monthly call target — inherited by months with no override. Click to edit.', 'Chỉ tiêu cuộc gọi mặc định — nhấn để sửa.')}
-          api={{
-            load:        reportsAPI.callTargets,
-            saveCell:    reportsAPI.saveCallTarget,
-            saveDefault: staffAPI.setCallTarget,
-            addTracked:  reportsAPI.addCallTargetStaff,
-            removeTracked: reportsAPI.removeCallTargetStaff,
-          }}
-          roster={roster}
-          L={L}
-        />
+        <DailyCallQuotaGrid L={L} language={language} />
 
         <div style={{ marginTop: '1.5rem' }}>
-          <DailyCallQuotaGrid L={L} language={language} />
+          <PresalesHoursGrid L={L} language={language} />
         </div>
       </div>
 
@@ -660,10 +658,6 @@ export default function StaffTargets() {
       <div style={{ marginTop: '2.5rem' }}>
         <SectionHeader>{L('Pre-sales Round-Robin', 'Xoay vòng Pre-sales')}</SectionHeader>
         <UncontactableRosterList roster={roster} L={L} />
-
-        <div style={{ marginTop: '1.5rem' }}>
-          <PresalesHoursGrid L={L} />
-        </div>
       </div>
     </div>
   );

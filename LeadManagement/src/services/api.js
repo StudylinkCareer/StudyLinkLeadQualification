@@ -426,20 +426,20 @@ export const reportsAPI = {
   saveMonthlyTarget:  (staffId, month, target) => request('PUT',    '/api/reports/monthly-targets', { staffId, month, target }),
   addTrackedStaff:    (staffId)                => request('POST',   '/api/reports/tracked-staff', { staffId }),
   removeTrackedStaff: (staffId)                => request('DELETE', `/api/reports/tracked-staff/${staffId}`),
-  callTargets:            ()                       => request('GET',    '/api/reports/call-targets'),
-  saveCallTarget:         (staffId, month, target) => request('PUT',    '/api/reports/call-targets', { staffId, month, target }),
-  addCallTargetStaff:     (staffId)                => request('POST',   '/api/reports/call-target-staff', { staffId }),
-  removeCallTargetStaff:  (staffId)                => request('DELETE', `/api/reports/call-target-staff/${staffId}`),
-  callDayTargets:         ()                       => request('GET', '/api/reports/call-day-targets'),
-  saveCallDayTarget:      (role, dayOfWeek, newTarget, ongoingTarget) =>
-    request('PUT', '/api/reports/call-day-targets', { role, dayOfWeek, newTarget, ongoingTarget }),
+  // callTargets/saveCallTarget/addCallTargetStaff/removeCallTargetStaff
+  // (Monthly Call Volume Targets) retired 2026-08 — superseded by
+  // callDayTargets (Counsellors) + presalesWorkingHours (Pre-Sales),
+  // both now month-scoped.
+  callDayTargets:         (month)                                  => request('GET', `/api/reports/call-day-targets?month=${month}`),
+  saveCallDayTarget:      (month, dayOfWeek, newTarget, ongoingTarget) =>
+    request('PUT', '/api/reports/call-day-targets', { month, dayOfWeek, newTarget, ongoingTarget }),
   uncontactableRoster:       ()        => request('GET',    '/api/reports/uncontactable-roster'),
   addUncontactableStaff:     (staffId) => request('POST',   '/api/reports/uncontactable-roster', { staffId }),
   removeUncontactableStaff:  (staffId) => request('DELETE', `/api/reports/uncontactable-roster/${staffId}`),
   setUncontactableSlotMode:  (staffId, slotMode) => request('PATCH', `/api/reports/uncontactable-roster/${staffId}/slot-mode`, { slotMode }),
-  presalesWorkingHours:      ()        => request('GET', '/api/reports/presales-working-hours'),
-  savePresalesWorkingHours:  (staffId, month, hoursPerDay, daysPerMonth) =>
-    request('PUT', '/api/reports/presales-working-hours', { staffId, month, hoursPerDay, daysPerMonth }),
+  presalesWorkingHours:      (month)   => request('GET', `/api/reports/presales-working-hours?month=${month}`),
+  savePresalesWorkingHours:  (staffId, month, dayOfWeek, hours) =>
+    request('PUT', '/api/reports/presales-working-hours', { staffId, month, dayOfWeek, hours }),
 
   // ── Sales + Marketing Monthly Report ──
   monthlyReport:  (month)                     => request('GET', `/api/reports/monthly?month=${month}`),

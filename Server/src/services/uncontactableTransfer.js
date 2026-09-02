@@ -75,23 +75,60 @@ function vnMonthKey(now = new Date()) {
 // `excludeStaffId` (the lead's current owner) so a hop can never bounce
 // back to the same person. Falls back to plain "fewest received" if no
 // one in the (remaining) roster has any hours configured this month.
+//
+// Capacity (2026-08 Phase-0 redesign, planned with Hong Ha): presales_working_hours
+// is now per-weekday (staff_id, month, day_of_week) -> hours, not a flat
+// hours_per_day x days_per_month average — so capacity for "this month" is
+// the sum of each configured weekday's hours x how many of that weekday
+// actually fall in the current VN month. "Copy forward" semantics: a month
+// with no rows of its own falls back to the most recent earlier month that
+// has any, same as the Daily Call Quotas grid.
 async function pickNextPresales(excludeStaffId = null) {
   const monthKey = vnMonthKey();
+  const hourRows = (await pool.query(
+    `SELECT staff_id, to_char(month,'YYYY-MM-01') AS month, day_of_week, hours
+       FROM presales_working_hours`
+  )).rows;
+  const byStaff = new Map(); // staffId -> Map(month -> [7] hours)
+  for (const h of hourRows) {
+    if (!byStaff.has(h.staff_id)) byStaff.set(h.staff_id, new Map());
+    const byMonth = byStaff.get(h.staff_id);
+    if (!byMonth.has(h.month)) byMonth.set(h.month, [0,0,0,0,0,0,0]);
+    byMonth.get(h.month)[h.day_of_week] = Number(h.hours);
+  }
+  // How many of each weekday (0=Mon..6=Sun) fall in the current VN month.
+  const VN_MS = 7 * 60 * 60 * 1000;
+  const now = new Date(Date.now() + VN_MS);
+  const y = now.getUTCFullYear(), m = now.getUTCMonth();
+  const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const dowCounts = [0,0,0,0,0,0,0];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const jsDay = new Date(Date.UTC(y, m, d)).getUTCDay(); // 0=Sun..6=Sat
+    dowCounts[(jsDay + 6) % 7]++; // -> 0=Mon..6=Sun
+  }
+  function capacityFor(staffId) {
+    const byMonth = byStaff.get(staffId);
+    if (!byMonth || byMonth.size === 0) return 0;
+    const months = [...byMonth.keys()].sort();
+    let best = null;
+    for (const mo of months) { if (mo <= monthKey) best = mo; else break; }
+    const perDow = best ? byMonth.get(best) : [0,0,0,0,0,0,0];
+    return perDow.reduce((sum, hrs, dow) => sum + hrs * dowCounts[dow], 0);
+  }
+
   const r = await pool.query(
     `SELECT t.staff_id, s.full_name, t.slot_mode,
-            COALESCE(wh.hours_per_day, 0) * COALESCE(wh.days_per_month, 0) AS capacity,
             (SELECT COUNT(*) FROM uncontactable_transfers WHERE to_presales_staff_id = t.staff_id) AS received
        FROM uncontactable_transfer_presales_staff t
        JOIN staff s ON s.id = t.staff_id
-       LEFT JOIN presales_working_hours wh ON wh.staff_id = t.staff_id AND wh.month = $1
       WHERE s.is_active = true
-        AND ($2::int IS NULL OR t.staff_id <> $2)
+        AND ($1::int IS NULL OR t.staff_id <> $1)
       ORDER BY t.sort_order ASC`,
-    [monthKey, excludeStaffId]
+    [excludeStaffId]
   );
   const candidates = r.rows.map((row) => ({
     staffId: row.staff_id, fullName: row.full_name, slotMode: row.slot_mode,
-    capacity: Number(row.capacity), received: Number(row.received),
+    capacity: capacityFor(row.staff_id), received: Number(row.received),
   }));
   if (candidates.length === 0) return null;
 

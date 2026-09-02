@@ -105,32 +105,13 @@ router.delete(
   reportCtrl.removeTrackedStaff
 );
 
-// ── Call Targets tracker (Staff Targets page, second grid) ───
-// Same gating as Monthly Targets above.
-router.get(
-  '/call-targets',
-  requireStaffAuth,
-  reportCtrl.callTargets
-);
-router.put(
-  '/call-targets',
-  requireStaffAuth,
-  reportCtrl.saveCallTarget
-);
-router.post(
-  '/call-target-staff',
-  requireStaffAuth,
-  reportCtrl.addCallTargetTrackedStaff
-);
-router.delete(
-  '/call-target-staff/:staffId',
-  requireStaffAuth,
-  reportCtrl.removeCallTargetTrackedStaff
-);
+// ── Call Targets (Monthly Call Volume Targets) — RETIRED 2026-08 ─────
+// Routes removed; see reportController.js's "RETIRED" comment above
+// callDayTargets for why the underlying tables are left in place.
 
 // ── Call Day Targets (Staff Targets page, "Daily Call Quotas" grid) ──
-// Per-role, per-weekday New/Ongoing quotas — drives Weekly Report's "Calls
-// by day" table. Same gating as Call/Monthly Targets above.
+// Counsellors only now, per-weekday New/Ongoing quotas, per month — drives
+// Weekly Report's "Calls by day" table. Same gating as Monthly Targets above.
 router.get(
   '/call-day-targets',
   requireStaffAuth,
