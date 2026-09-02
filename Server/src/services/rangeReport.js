@@ -31,6 +31,9 @@ const pool = new Pool({
 const VN_MS = 7 * 60 * 60 * 1000;
 const vnMidnightUTC = (y, m, d) => new Date(Date.UTC(y, m, d) - VN_MS);
 
+// Same 4 buckets Monthly Report's Team Performance table uses.
+const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị thực Khác'];
+
 /**
  * Resolves a period spec (from query params) into a half-open [from, to)
  * VN-anchored range, plus a bucket granularity for any "by X" breakdown.
@@ -277,13 +280,48 @@ async function computeRangeReport(names, from, to, opts = {}) {
   // Contracted within the range — actual_close_date (real signing date),
   // not filtered by current lead_status, same rule as contractedBuckets /
   // Monthly Report: a lead reversed after signing still counts as a signing
-  // for the period it signed in.
+  // for the period it signed in. Selects case_type/is_out_of_system/source
+  // fields too — same data Monthly Report's Team Performance case-type
+  // columns and Contract Sources use, computed below rather than a second
+  // round-trip query.
   const contractedRows = names.length ? (await pool.query(
-    `SELECT l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country
+    `SELECT l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country,
+            l.case_type, l.is_out_of_system, s.source, s.source_detail, s.lead_source,
+            solv.meta->>'mode' AS sol_mode, COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label
        FROM leads l JOIN students s ON s.student_id = l.person_id
+       LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
       WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND l.actual_close_date >= $2 AND l.actual_close_date < $3`,
-    [names, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10)])).rows.map(objectToCamelCase) : [];
+    [names, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10)])).rows : [];
+
+  // Case-type split + in/out system — same 4 buckets Monthly Report's Team
+  // Performance table uses.
+  const caseTypeBreakdown = {};
+  for (const t of CASE_TYPES) caseTypeBreakdown[t] = 0;
+  let inSystemCount = 0, outSystemCount = 0, unclassifiedCount = 0;
+  for (const r of contractedRows) {
+    if (CASE_TYPES.includes(r.case_type)) caseTypeBreakdown[r.case_type]++;
+    if (r.is_out_of_system === true) outSystemCount++;
+    else if (r.is_out_of_system === false) inSystemCount++;
+    else unclassifiedCount++;
+  }
+  // Contract Sources — same resolution rule as Monthly Report's
+  // resolveContractSourceLabel: Event/Campaign leads use the lookup label,
+  // Ex-Client sources collapse to one bucket (avoids fragmenting by
+  // free-text client name), everything else is "source - source_detail".
+  const sourceCounts = new Map();
+  for (const r of contractedRows) {
+    let label;
+    if (r.sol_mode === 'events') label = r.sol_label || 'Event/Campaign';
+    else if (/^ex[\s-]?client(s)?$/i.test((r.source || '').trim())) label = 'Ex-Client';
+    else label = [r.source, r.source_detail].filter(Boolean).join(' - ') || '(Unknown / not recorded)';
+    sourceCounts.set(label, (sourceCounts.get(label) || 0) + 1);
+  }
+  const contractSources = [...sourceCounts.entries()]
+    .map(([source, count]) => ({ source, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const contractedItems = contractedRows.map(objectToCamelCase);
 
   // Reversed: signed (per audit log) within the range, but no longer
   // Contracted now. Mirrors contractedBuckets' 'reversed' bucket, scoped to
@@ -311,9 +349,34 @@ async function computeRangeReport(names, from, to, opts = {}) {
     },
     basicLetters, finalLetters,
     meetings: { count: meetings.length, items: meetings },
-    contracted: { count: contractedRows.length, items: contractedRows },
+    contracted: {
+      count: contractedRows.length, items: contractedItems,
+      caseTypeBreakdown, inSystemCount, outSystemCount, unclassifiedCount,
+    },
+    contractSources,
     reversed: { count: reversedRows.length, items: reversedRows },
   };
 }
 
-module.exports = { resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange, vnMidnightUTC, VN_MS };
+// Total leads (current assignment, not a historical reconstruction — same
+// "as of right now" scoping Monthly Report's Team Performance table uses,
+// not week/month-bound) + New this period (assigned_in falls in [from,to)),
+// per name, for whichever assignment column applies ('counselor' for
+// Counsellors, 'presales' for Pre-Sales).
+async function leadCounts(names, column, from, to) {
+  if (!names.length) return new Map();
+  const col = column === 'presales' ? 'presales' : 'counselor';
+  const rows = (await pool.query(
+    `SELECT ${col} AS name, COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE assigned_in >= $1 AND assigned_in < $2)::int AS new_this_period
+       FROM leads WHERE ${col} = ANY($3)
+       GROUP BY ${col}`,
+    [from.toISOString().slice(0, 10), to.toISOString().slice(0, 10), names]
+  )).rows;
+  return new Map(rows.map(r => [r.name, { total: r.total, newThisPeriod: r.new_this_period }]));
+}
+
+module.exports = {
+  resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange,
+  leadCounts, CASE_TYPES, vnMidnightUTC, VN_MS,
+};
