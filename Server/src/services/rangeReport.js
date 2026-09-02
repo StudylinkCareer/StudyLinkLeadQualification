@@ -116,7 +116,11 @@ const COUNSELOR_DEFAULT = { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5, 5, 5, 
  * Same for every counsellor (role-wide), so callers compute this ONCE per
  * report, not once per person.
  */
-async function counselorTargetForRange(from, to) {
+// `granularity` ('day'/'week'/'month', matching computeRangeReport's own
+// bucket choice) also returns a per-bucket breakdown for a "Calls by X"
+// table with target columns — omit it to skip that work when only the
+// grand total is needed (e.g. Company Report's StaffTable row).
+async function counselorTargetForRange(from, to, granularity = null) {
   const rows = (await pool.query(
     `SELECT to_char(month,'YYYY-MM-01') AS month, day_of_week, new_target, ongoing_target
        FROM call_day_targets WHERE role = 'Counselor' ORDER BY month`
@@ -134,11 +138,20 @@ async function counselorTargetForRange(from, to) {
     return row || { new: COUNSELOR_DEFAULT.new[dow], ongoing: COUNSELOR_DEFAULT.ongoing[dow] };
   }
   let totalNew = 0, totalOngoing = 0;
+  const bucketMap = granularity ? new Map() : null;
   for (let ms = from.getTime(); ms < to.getTime(); ms += 86400000) {
     const t = forDay(monthKeyOf(ms), dowOf(ms));
     totalNew += t.new; totalOngoing += t.ongoing;
+    if (bucketMap) {
+      const key = bucketKeyOf(ms, granularity);
+      if (!bucketMap.has(key)) bucketMap.set(key, { bucket: key, new: 0, ongoing: 0 });
+      const b = bucketMap.get(key);
+      b.new += t.new; b.ongoing += t.ongoing;
+    }
   }
-  return { new: totalNew, ongoing: totalOngoing, total: totalNew + totalOngoing };
+  const result = { new: totalNew, ongoing: totalOngoing, total: totalNew + totalOngoing };
+  if (bucketMap) result.byBucket = [...bucketMap.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
+  return result;
 }
 
 /**
@@ -147,7 +160,7 @@ async function counselorTargetForRange(from, to) {
  * Same copy-forward-per-month semantics as the round-robin's capacity calc
  * (uncontactableTransfer.js pickNextPresales), per-individual not role-wide.
  */
-async function presalesTargetForRange(fullName, from, to) {
+async function presalesTargetForRange(fullName, from, to, granularity = null) {
   const rows = (await pool.query(
     `SELECT to_char(wh.month,'YYYY-MM-01') AS month, wh.day_of_week, wh.hours
        FROM presales_working_hours wh JOIN staff s ON s.id = wh.staff_id
@@ -166,10 +179,20 @@ async function presalesTargetForRange(fullName, from, to) {
     return best ? byMonth.get(best)[dow] : 0;
   }
   let totalHours = 0;
+  const bucketMap = granularity ? new Map() : null;
   for (let ms = from.getTime(); ms < to.getTime(); ms += 86400000) {
-    totalHours += hoursForDay(monthKeyOf(ms), dowOf(ms));
+    const h = hoursForDay(monthKeyOf(ms), dowOf(ms));
+    totalHours += h;
+    if (bucketMap) {
+      const key = bucketKeyOf(ms, granularity);
+      if (!bucketMap.has(key)) bucketMap.set(key, { bucket: key, hours: 0, total: 0 });
+      const b = bucketMap.get(key);
+      b.hours += h; b.total += h * 8;
+    }
   }
-  return { hours: totalHours, total: totalHours * 8 };
+  const result = { hours: totalHours, total: totalHours * 8 };
+  if (bucketMap) result.byBucket = [...bucketMap.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
+  return result;
 }
 
 /**
@@ -214,13 +237,21 @@ async function computeRangeReport(names, from, to, opts = {}) {
   const callsByBucket = [...bucketMap.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
 
   const platforms = {};
+  // Day/week/month x platform matrix — same shape as Weekly Report's
+  // modeDaily (ByModeMatrix component), generalized past exactly 7 days.
+  const modeMap = new Map(); // bucketKey -> { platform -> count }
   for (const [kind, items] of [['newCount', classified.newItems], ['ongoing', classified.ongoingItems]]) {
     for (const item of items) {
       const raw = item.note.contact_platform || 'Phone call';
       platforms[raw] = platforms[raw] || { platform: raw, newCount: 0, ongoing: 0 };
       platforms[raw][kind]++;
+      const key = bucketKeyOf(new Date(item.note.created_at).getTime(), bucket);
+      if (!modeMap.has(key)) modeMap.set(key, {});
+      const row = modeMap.get(key);
+      row[raw] = (row[raw] || 0) + 1;
     }
   }
+  const modeByBucket = [...modeMap.entries()].map(([k, byMode]) => ({ bucket: k, byMode })).sort((a, b) => a.bucket.localeCompare(b.bucket));
 
   const lettersFor = async (topic) => {
     const rows = (await pool.query(
@@ -271,7 +302,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
 
   return {
     calls: {
-      byBucket: callsByBucket, bucket,
+      byBucket: callsByBucket, bucket, modeByBucket,
       byPlatform: Object.values(platforms),
       totals: { newLeads: classified.newCount, ongoing: classified.ongoingCount, kbm: classified.kbmCount },
       newLeadItems: classified.newItems.map(it => ({ studentId: it.studentId, fullName: it.fullName })),

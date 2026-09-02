@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { reportsAPI } from '../services/api';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { KpiTiles, DrillPanel } from '../components/reports/KpiTiles';
 import PeriodPicker from '../components/reports/PeriodPicker';
 
@@ -25,12 +26,154 @@ const card = { background: 'var(--bg-primary,#fff)', border: '1px solid var(--bo
 const th = { textAlign: 'left', fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-secondary,#6b7280)', padding: '0.4rem 0.6rem', borderBottom: '1px solid var(--border,#e5e7eb)' };
 const td = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderBottom: '1px solid var(--border,#f1f5f9)' };
 const NAME_COL = { key: 'fullName', label: 'Name' };
+const MODES = ['E-mail', 'Phone call', 'SMS', 'Zalo', 'WhatsApp', 'Messenger'];
 
 function mondayOf(d) {
   const dow = (d.getDay() + 6) % 7;
   const mon = new Date(d);
   mon.setDate(d.getDate() - dow);
   return mon.toISOString().slice(0, 10);
+}
+
+function bucketLabel(granularity, L) {
+  return granularity === 'day' ? L('Day', 'Ngày') : granularity === 'week' ? L('Week of', 'Tuần') : L('Month', 'Tháng');
+}
+
+// "Calls by day/week/month" — actual vs target, role-aware: Counsellors keep
+// a New/Ongoing split (role-wide day-of-week grid); Pre-Sales is a single
+// combined Total/Target column (per-individual hours x 8, no split — see
+// Phase 0's redesigned quota mechanism). Successor to Weekly Report's ByDay
+// table, generalized past exactly 7 days. Uses callTarget.byBucket as the
+// spine when available (covers every day in range, even at 0), so the table
+// never has gaps — falls back to calls.byBucket alone when the staffer is
+// neither a Counsellor nor Pre-Sales (no target concept applies).
+function CallsByBucket({ data, L }) {
+  const actualByKey = new Map(data.calls.byBucket.map(b => [b.bucket, b]));
+  const targetByKey = new Map((data.callTarget?.byBucket || []).map(b => [b.bucket, b]));
+  const keys = data.callTarget ? [...targetByKey.keys()].sort() : data.calls.byBucket.map(b => b.bucket);
+  if (keys.length === 0) return null;
+  const isCounselor = data.role === 'Counselor';
+
+  const rows = keys.map(k => {
+    const a = actualByKey.get(k) || { newLeads: 0, ongoing: 0 };
+    const t = targetByKey.get(k);
+    return {
+      bucket: k, newLeads: a.newLeads, ongoing: a.ongoing, total: a.newLeads + a.ongoing,
+      targetNew: t?.new, targetOngoing: t?.ongoing, target: isCounselor ? (t ? t.new + t.ongoing : undefined) : t?.total,
+    };
+  });
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('Calls by ', 'Cuộc gọi theo ') + bucketLabel(data.calls.bucket, L).toLowerCase()}</div>
+      <div style={{ height: 220, marginBottom: '1rem' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border,#e5e7eb)" />
+            <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: '0.75rem' }} />
+            {isCounselor ? (
+              <>
+                <Bar dataKey="newLeads" name={L('New', 'Mới')} fill="#8b5cf6" />
+                <Bar dataKey="ongoing" name={L('Ongoing', 'Theo dõi')} fill="#c4b5fd" />
+                <Bar dataKey="target" name={L('Target', 'Chỉ tiêu')} fill="#e5e7eb" />
+              </>
+            ) : (
+              <>
+                <Bar dataKey="total" name={L('Actual', 'Thực tế')} fill="#8b5cf6" />
+                <Bar dataKey="target" name={L('Target', 'Chỉ tiêu')} fill="#e5e7eb" />
+              </>
+            )}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={th}>{bucketLabel(data.calls.bucket, L)}</th>
+            {isCounselor ? (
+              <>
+                <th style={{ ...th, textAlign: 'right' }}>{L('New / target', 'Mới / MT')}</th>
+                <th style={{ ...th, textAlign: 'right' }}>{L('Ongoing / target', 'Theo dõi / MT')}</th>
+              </>
+            ) : (
+              <th style={{ ...th, textAlign: 'right' }}>{L('Total / target', 'Tổng / MT')}</th>
+            )}
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.bucket}>
+                <td style={td}>{r.bucket}</td>
+                {isCounselor ? (
+                  <>
+                    <td style={{ ...td, textAlign: 'right', color: r.targetNew != null ? (r.newLeads >= r.targetNew ? '#10B981' : '#DC2626') : 'inherit' }}>
+                      {r.newLeads}{r.targetNew != null ? ` / ${r.targetNew}` : ''}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', color: r.targetOngoing != null ? (r.ongoing >= r.targetOngoing ? '#10B981' : '#DC2626') : 'inherit' }}>
+                      {r.ongoing}{r.targetOngoing != null ? ` / ${r.targetOngoing}` : ''}
+                    </td>
+                  </>
+                ) : (
+                  <td style={{ ...td, textAlign: 'right', color: r.target != null ? (r.total >= r.target ? '#10B981' : '#DC2626') : 'inherit' }}>
+                    {r.total}{r.target != null ? ` / ${r.target}` : ''}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// "Breakdown by contact mode" — bucket x platform matrix. Successor to
+// Weekly Report's ByModeMatrix, generalized past exactly 7 days.
+function ModeMatrix({ data, L }) {
+  const grid = data.calls.modeByBucket || [];
+  if (grid.length === 0) return null;
+  const extra = new Set();
+  grid.forEach(d => Object.keys(d.byMode || {}).forEach(k => { if (!MODES.includes(k)) extra.add(k); }));
+  const cols = [...MODES, ...extra];
+  const modeTotals = {}; cols.forEach(c => { modeTotals[c] = 0; });
+  let grand = 0;
+  const rows = grid.map(d => {
+    let rowTotal = 0;
+    const cells = cols.map(c => { const v = (d.byMode && d.byMode[c]) || 0; modeTotals[c] += v; rowTotal += v; return v; });
+    grand += rowTotal;
+    return { bucket: d.bucket, cells, rowTotal };
+  });
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('Breakdown by contact mode', 'Phân tích theo kênh liên hệ')}</div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+          <thead><tr>
+            <th style={th}>{bucketLabel(data.calls.bucket, L)}</th>
+            {cols.map(c => <th key={c} style={{ ...th, textAlign: 'right' }}>{c}</th>)}
+            <th style={{ ...th, textAlign: 'right', color: 'var(--primary,#2563eb)' }}>{L('Total', 'Tổng')}</th>
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.bucket}>
+                <td style={td}>{r.bucket}</td>
+                {r.cells.map((v, i) => <td key={cols[i]} style={{ ...td, textAlign: 'right' }}>{v}</td>)}
+                <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{r.rowTotal}</td>
+              </tr>
+            ))}
+            <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
+              <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
+              {cols.map(c => <td key={c} style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{modeTotals[c]}</td>)}
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{grand}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 export default function IndividualReport() {
@@ -117,46 +260,8 @@ export default function IndividualReport() {
       {data && (
         <>
           <div style={card}><KpiTiles metrics={metrics} onOpen={setDrill} /></div>
-
-          {data.calls.byBucket.length > 0 && (
-            <div style={card}>
-              <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('Calls over time', 'Cuộc gọi theo thời gian')}</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr>
-                  <th style={th}>{data.calls.bucket === 'day' ? L('Day', 'Ngày') : data.calls.bucket === 'week' ? L('Week of', 'Tuần') : L('Month', 'Tháng')}</th>
-                  <th style={{ ...th, textAlign: 'right' }}>{L('New', 'Mới')}</th>
-                  <th style={{ ...th, textAlign: 'right' }}>{L('Ongoing', 'Theo dõi')}</th>
-                </tr></thead>
-                <tbody>
-                  {data.calls.byBucket.map(b => (
-                    <tr key={b.bucket}>
-                      <td style={td}>{b.bucket}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>{b.newLeads}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>{b.ongoing}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {data.calls.byPlatform.length > 0 && (
-            <div style={card}>
-              <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('By contact platform', 'Theo kênh liên hệ')}</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr><th style={th}>{L('Platform', 'Kênh')}</th><th style={{ ...th, textAlign: 'right' }}>{L('New', 'Mới')}</th><th style={{ ...th, textAlign: 'right' }}>{L('Ongoing', 'Theo dõi')}</th></tr></thead>
-                <tbody>
-                  {data.calls.byPlatform.map(p => (
-                    <tr key={p.platform}>
-                      <td style={td}>{p.platform}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>{p.newCount}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>{p.ongoing}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <CallsByBucket data={data} L={L} />
+          <ModeMatrix data={data} L={L} />
         </>
       )}
 

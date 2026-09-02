@@ -945,8 +945,8 @@ async function individualReport(req, res, next) {
       membersAsAt([staffName], from.toISOString()),
       membersAsAt([staffName], to.toISOString()),
       rangeReport.computeRangeReport([staffName], from, to, { bucket }),
-      isCounselor ? rangeReport.counselorTargetForRange(from, to)
-        : isPresales ? rangeReport.presalesTargetForRange(staffName, from, to).then(t => ({ total: t.total, hours: t.hours }))
+      isCounselor ? rangeReport.counselorTargetForRange(from, to, bucket)
+        : isPresales ? rangeReport.presalesTargetForRange(staffName, from, to, bucket)
         : Promise.resolve(null),
     ]);
     const openIds = new Set(opening.map(r => r.lead_id));
