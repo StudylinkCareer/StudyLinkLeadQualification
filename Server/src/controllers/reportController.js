@@ -993,10 +993,12 @@ async function groupReport(req, res, next) {
     // one call per person each — two genuinely different "target" concepts,
     // never merged under one ambiguous column (found while porting, see
     // rangeReport.js's contractTargetForRange comment).
-    const [companyWide, counselorCallTarget, counselorLeadCounts, ...perStaff] = await Promise.all([
+    const [companyWide, counselorCallTarget, counselorLeadCounts, transfersByName, marketingActivities, ...perStaff] = await Promise.all([
       rangeReport.computeRangeReport(allNames, from, to, { bucket }),
       rangeReport.counselorTargetForRange(from, to),
       rangeReport.leadCounts(counsellorNames, 'counselor', from, to),
+      rangeReport.transfersToSalesForRange(presalesNames, from, to),
+      rangeReport.marketingActivitiesForRange(from, to),
       ...counsellorNames.map(name => Promise.all([
         rangeReport.computeRangeReport([name], from, to, { bucket }),
         rangeReport.contractTargetForRange(name, from, to),
@@ -1042,23 +1044,25 @@ async function groupReport(req, res, next) {
     }));
 
     // Pre-sales — same original column set as old Monthly Report: New,
-    // Ongoing, Total calls, Calls KPI/%KPI, KBM, Meetings. No Letters (a
-    // Counsellor-only activity) and no Total leads/New this period (that
-    // was Team Performance-only) — both were wrongly on this row in an
-    // earlier pass, caught during the reconciliation request. "Transferred
-    // to Sales" (audit-log based, old Monthly Report's last Pre-sales
-    // column) is still genuinely not ported — flagged in the frontend.
-    const presales = presalesRows.map(r => ({
-      fullName: r.name,
-      newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
-      totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
-      target: r.callTarget,
-      meetings: r.data.meetings.count,
-    }));
+    // Ongoing, Total calls, Calls KPI/%KPI, KBM, Meetings, Transferred to
+    // Sales. No Letters (a Counsellor-only activity) and no Total leads/New
+    // this period (that was Team Performance-only) — both were wrongly on
+    // this row in an earlier pass, caught during the reconciliation request.
+    const presales = presalesRows.map(r => {
+      const transfers = transfersByName.get(r.name) || [];
+      return {
+        fullName: r.name,
+        newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
+        totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
+        target: r.callTarget,
+        meetings: r.data.meetings.count,
+        transferred: transfers.length, transferredItems: transfers,
+      };
+    });
 
     res.json({ success: true, data: {
       period, from: from.toISOString(), to: to.toISOString(),
-      companyWide, teamPerformance, telesales, presales,
+      companyWide, teamPerformance, telesales, presales, marketingActivities,
     }});
   } catch (err) { next(err); }
 }

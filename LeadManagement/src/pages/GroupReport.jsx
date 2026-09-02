@@ -16,9 +16,9 @@
 // redesigned quota mechanism, KBM) — genuinely different "target" concepts,
 // kept in separate tables/columns rather than one ambiguous column.
 //
-// V1 gaps, flagged in-page: Pre-sales' "Transferred to Sales" column
-// (audit-log based) and Marketing Activities (funnel by event, planned/
-// actual cost) — both not yet ported.
+// Pre-sales' "Transferred to Sales" column (audit-log based handoffs to a
+// counsellor) and Marketing Activities (funnel by event, planned/actual
+// cost) are both ported from the old Monthly Report as of 2026-09.
 // -----------------------------------------------------------------------------
 import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -118,19 +118,35 @@ function TeamPerformanceTable({ rows, L }) {
 // Calls ACTIVITY metrics — shared shape for Telesales (Counsellors) and
 // Pre-sales, same as old Monthly Report ("mirroring Pre-Sales exactly" was
 // the whole reason Telesales was split out of Team Performance in the first
-// place). `extraNote` surfaces a still-missing column (Pre-sales'
-// "Transferred to Sales") rather than silently omitting it.
-function CallsTable({ title, rows, showMeetings, extraNote, L }) {
+// place). `showTransferred` adds Pre-sales' "Transferred to Sales" column
+// (audit-log-based handoffs to a counsellor, see rangeReport.js's
+// transfersToSalesForRange) — clickable per row, opens the transferred
+// leads' detail (destination, who received them, when) via `onOpen`.
+function CallsTable({ title, rows, showMeetings, showTransferred, onOpen, L }) {
   const totals = rows.reduce((a, r) => ({
     newLeads: a.newLeads + r.newLeads, ongoing: a.ongoing + r.ongoing, kbm: a.kbm + r.kbm,
     totalCalls: a.totalCalls + r.totalCalls, target: a.target + (r.target || 0),
-    meetings: a.meetings + (r.meetings || 0),
-  }), { newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, target: 0, meetings: 0 });
+    meetings: a.meetings + (r.meetings || 0), transferred: a.transferred + (r.transferred || 0),
+  }), { newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, target: 0, meetings: 0, transferred: 0 });
+  const colCount = 7 + (showMeetings ? 1 : 0) + (showTransferred ? 1 : 0);
+
+  function openTransferred(r) {
+    const items = (r.transferredItems || []).map(it => ({ ...it, transferredAtDisplay: it.transferredAt ? new Date(it.transferredAt).toLocaleDateString() : '' }));
+    onOpen({
+      title: L('Transferred to Sales', 'Khách chuyển') + ` — ${r.fullName}`,
+      cols: [
+        { key: 'fullName', label: L('Name', 'Tên') },
+        { key: 'destinationCountry', label: L('Destination', 'Điểm đến') },
+        { key: 'receivedBy', label: L('Received by', 'Người nhận') },
+        { key: 'transferredAtDisplay', label: L('Date', 'Ngày') },
+      ],
+      items,
+    });
+  }
 
   return (
     <div style={card}>
-      <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{title}</div>
-      {extraNote && <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary,#9ca3af)', marginBottom: '0.5rem' }}>{extraNote}</div>}
+      <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{title}</div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
           <thead><tr>
@@ -142,21 +158,31 @@ function CallsTable({ title, rows, showMeetings, extraNote, L }) {
             <th style={{ ...th, textAlign: 'right' }}>{L('% KPI', '% KPI')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('KBM', 'KBM')}</th>
             {showMeetings && <th style={{ ...th, textAlign: 'right' }}>{L('Meetings', 'Cuộc gặp')}</th>}
+            {showTransferred && <th style={{ ...th, textAlign: 'right' }}>{L('Transferred', 'Khách chuyển')}</th>}
           </tr></thead>
           <tbody>
-            {rows.map(r => (
-              <tr key={r.fullName}>
-                <td style={{ ...td, fontWeight: 600 }}>{r.fullName}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.newLeads}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.ongoing}</td>
-                <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.totalCalls}</td>
-                <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }}>{r.target}</td>
-                <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: r.totalCalls >= r.target ? '#10B981' : '#DC2626' }}>{pct(r.totalCalls, r.target)}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.kbm}</td>
-                {showMeetings && <td style={{ ...td, textAlign: 'right' }}>{r.meetings}</td>}
-              </tr>
-            ))}
-            {rows.length === 0 && <tr><td colSpan={showMeetings ? 8 : 7} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No staff in this group.', 'Không có nhân viên.')}</td></tr>}
+            {rows.map(r => {
+              const clickable = showTransferred && (r.transferred || 0) > 0;
+              return (
+                <tr key={r.fullName}>
+                  <td style={{ ...td, fontWeight: 600 }}>{r.fullName}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{r.newLeads}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{r.ongoing}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.totalCalls}</td>
+                  <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }}>{r.target}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: r.totalCalls >= r.target ? '#10B981' : '#DC2626' }}>{pct(r.totalCalls, r.target)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{r.kbm}</td>
+                  {showMeetings && <td style={{ ...td, textAlign: 'right' }}>{r.meetings}</td>}
+                  {showTransferred && (
+                    <td style={{ ...td, textAlign: 'right', cursor: clickable ? 'pointer' : 'default', textDecoration: clickable ? 'underline' : 'none' }}
+                      onClick={clickable ? () => openTransferred(r) : undefined}>
+                      {r.transferred || 0}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+            {rows.length === 0 && <tr><td colSpan={colCount} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No staff in this group.', 'Không có nhân viên.')}</td></tr>}
             <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
               <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.newLeads}</td>
@@ -166,6 +192,61 @@ function CallsTable({ title, rows, showMeetings, extraNote, L }) {
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{pct(totals.totalCalls, totals.target)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.kbm}</td>
               {showMeetings && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.meetings}</td>}
+              {showTransferred && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.transferred}</td>}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Marketing Activities — funnel by event (lead count, status breakdown,
+// budget planned/actual), same shape as old Monthly Report's marketing
+// section. Reuses the Event Report budget ledger as-is (see rangeReport.js's
+// marketingActivitiesForRange). VND figures, unformatted (matches how the
+// rest of this app displays currency — no existing shared formatter).
+function MarketingActivities({ activities, L }) {
+  if (!activities) return null;
+  const vnd = (n) => (n == null ? '—' : `${n.toLocaleString()}₫`);
+  const totals = activities.reduce((a, r) => ({
+    leadCount: a.leadCount + r.leadCount,
+    totalCostPlanned: a.totalCostPlanned + (r.totalCostPlanned || 0),
+    totalCostActual: a.totalCostActual + (r.totalCostActual || 0),
+  }), { leadCount: 0, totalCostPlanned: 0, totalCostActual: 0 });
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('Marketing Activities', 'Hoạt động Marketing')}</div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+          <thead><tr>
+            <th style={th}>{L('Event', 'Sự kiện')}</th>
+            <th style={th}>{L('Type', 'Loại')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Leads', 'Lead')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Contracted', 'Ký HĐ')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Cost (planned)', 'Chi phí (dự kiến)')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Cost (actual)', 'Chi phí (thực tế)')}</th>
+          </tr></thead>
+          <tbody>
+            {activities.map(a => (
+              <tr key={a.eventId}>
+                <td style={{ ...td, fontWeight: 600 }}>{a.name}</td>
+                <td style={td}>{a.eventType || '—'}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{a.leadCount}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{a.byStatus?.['Contracted'] || 0}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{vnd(a.totalCostPlanned)}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{vnd(a.totalCostActual)}</td>
+              </tr>
+            ))}
+            {activities.length === 0 && <tr><td colSpan={6} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No marketing events in this period.', 'Không có sự kiện marketing trong kỳ.')}</td></tr>}
+            <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
+              <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
+              <td style={td} />
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.leadCount}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{activities.reduce((s, a) => s + (a.byStatus?.['Contracted'] || 0), 0)}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{vnd(totals.totalCostPlanned)}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{vnd(totals.totalCostActual)}</td>
             </tr>
           </tbody>
         </table>
@@ -290,16 +371,12 @@ export default function GroupReport() {
             title={L('Pre-sales', 'Pre-sales')}
             rows={data.presales}
             showMeetings
-            extraNote={L('"Transferred to Sales" (handoffs to a counsellor) is not yet ported to this table — follow-up.', 'Cột "Khách chuyển" (bàn giao cho tư vấn viên) chưa được đưa vào bảng này — sẽ bổ sung sau.')}
+            showTransferred
+            onOpen={setDrill}
             L={L}
           />
           <ContractSources sources={cw?.contractSources} L={L} />
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#9ca3af)', marginTop: '-0.5rem' }}>
-            {L(
-              'v1: Marketing Activities (funnel by event, cost planned/actual) from the old Monthly Report is not yet ported here — follow-up.',
-              'v1: chưa đưa Hoạt động Marketing (phễu theo sự kiện, chi phí dự kiến/thực tế) từ Báo cáo tháng cũ sang — sẽ bổ sung sau.'
-            )}
-          </div>
+          <MarketingActivities activities={data.marketingActivities} L={L} />
         </>
       )}
 

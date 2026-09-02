@@ -22,6 +22,7 @@
 const { Pool } = require('pg');
 const { classifyCalls, isCallNote } = require('./callClassification');
 const { objectToCamelCase } = require('../utils/caseConvert');
+const eventBudget = require('./eventBudget');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -417,7 +418,81 @@ async function leadCounts(names, column, from, to) {
   return new Map(rows.map(r => [r.name, { total: r.total, newThisPeriod: r.new_this_period }]));
 }
 
+// "Khách chuyển" — leads whose `presales` field was cleared/changed away
+// from one of `names` within [from, to). Ported verbatim from Monthly
+// Report's getSalesMonthlyReport, generalized past a calendar month. Only
+// catches handoffs done through Lead.update() (which logs via logChanges —
+// the bulk distribution paths never touch `presales`, so a handoff done
+// that way won't appear here, same caveat the old page had). received-by is
+// the lead's CURRENT counselor, not necessarily who received it at the
+// exact transfer moment.
+async function transfersToSalesForRange(names, from, to) {
+  if (!names.length) return new Map();
+  const rows = (await pool.query(
+    `SELECT DISTINCT ON (a.lead_id) a.lead_id, a.old_value AS presales_from, a.changed_at,
+            l.person_id AS student_id, s.full_name, l.destination_country, l.counselor
+       FROM audit_log a
+       JOIN leads l ON l.lead_id = a.lead_id
+       JOIN students s ON s.student_id = l.person_id
+      WHERE a.field_name = 'presales' AND a.old_value = ANY($1)
+        AND COALESCE(a.new_value, '') <> ALL($1)
+        AND a.changed_at >= $2 AND a.changed_at < $3
+      ORDER BY a.lead_id, a.changed_at DESC`,
+    [names, from.toISOString(), to.toISOString()]
+  )).rows;
+  const byName = new Map();
+  for (const row of rows) {
+    if (!byName.has(row.presales_from)) byName.set(row.presales_from, []);
+    byName.get(row.presales_from).push({
+      leadId: row.lead_id, studentId: row.student_id, fullName: row.full_name,
+      destinationCountry: row.destination_country, receivedBy: row.counselor, transferredAt: row.changed_at,
+    });
+  }
+  return byName;
+}
+
+// Marketing Activities — ported verbatim from Monthly Report's
+// getMarketingMonthlyReport, generalized past a calendar month. Company-
+// wide only (same as the original — never scoped to a single staffer,
+// hence no `names` param), reuses the Event Report budget ledger as-is via
+// eventBudget.getBudget() (zero new budget code).
+async function marketingActivitiesForRange(from, to) {
+  const rows = (await pool.query(
+    `SELECT e.id AS event_id, e.name, e.event_type, le.student_id, rl.lead_status
+       FROM events e
+       JOIN lead_events le ON le.event_id = e.id
+       LEFT JOIN LATERAL (
+             SELECT lead_status FROM leads
+              WHERE person_id = le.student_id
+              ORDER BY (lead_status NOT IN ('Contracted', 'Lost', 'Archived')) DESC, lead_id DESC
+              LIMIT 1
+            ) rl ON true
+      WHERE le.created_at >= $1 AND le.created_at < $2`,
+    [from.toISOString(), to.toISOString()]
+  )).rows;
+
+  const byEvent = new Map();
+  for (const row of rows) {
+    if (!byEvent.has(row.event_id)) {
+      byEvent.set(row.event_id, { eventId: row.event_id, name: row.name, eventType: row.event_type, leadCount: 0, byStatus: {} });
+    }
+    const bucket = byEvent.get(row.event_id);
+    bucket.leadCount += 1;
+    const status = row.lead_status || '(no lead record)';
+    bucket.byStatus[status] = (bucket.byStatus[status] || 0) + 1;
+  }
+
+  const activities = await Promise.all([...byEvent.values()].map(async (a) => {
+    let budget = null;
+    try { budget = await eventBudget.getBudget(a.eventId); } catch { budget = null; }
+    return { ...a, totalCostPlanned: budget ? budget.totalCostPlanned : null, totalCostActual: budget ? budget.totalCostActual : null };
+  }));
+  activities.sort((a, b) => b.leadCount - a.leadCount);
+  return activities;
+}
+
 module.exports = {
   resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange,
-  contractTargetForRange, leadCounts, CASE_TYPES, vnMidnightUTC, VN_MS,
+  contractTargetForRange, leadCounts, transfersToSalesForRange, marketingActivitiesForRange,
+  CASE_TYPES, vnMidnightUTC, VN_MS,
 };
