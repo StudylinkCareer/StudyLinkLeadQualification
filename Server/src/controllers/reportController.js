@@ -989,9 +989,11 @@ async function groupReport(req, res, next) {
     // (see file-header note above for what's deferred). Counsellor target
     // is role-wide (same for everyone), computed once; Pre-Sales target is
     // per-individual (their own working hours), one call per person.
-    const [companyWide, counselorTarget, ...perStaff] = await Promise.all([
+    const [companyWide, counselorTarget, counselorLeadCounts, presalesLeadCounts, ...perStaff] = await Promise.all([
       rangeReport.computeRangeReport(allNames, from, to, { bucket }),
       rangeReport.counselorTargetForRange(from, to),
+      rangeReport.leadCounts(counsellorNames, 'counselor', from, to),
+      rangeReport.leadCounts(presalesNames, 'presales', from, to),
       ...counsellorNames.map(name => rangeReport.computeRangeReport([name], from, to, { bucket }).then(d => ({ name, role: 'Counselor', data: d }))),
       ...presalesNames.map(name => Promise.all([
         rangeReport.computeRangeReport([name], from, to, { bucket }),
@@ -999,15 +1001,27 @@ async function groupReport(req, res, next) {
       ]).then(([d, target]) => ({ name, role: 'Pre-Sales', data: d, target: target.total }))),
     ]);
 
-    const rowFor = (r) => ({
-      fullName: r.name, role: r.role,
-      contracted: r.data.contracted.count, reversed: r.data.reversed.count,
-      newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
-      totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
-      target: r.role === 'Counselor' ? counselorTarget.total : r.target,
-      basicLetters: r.data.basicLetters.count, finalLetters: r.data.finalLetters.count,
-      meetings: r.data.meetings.count,
-    });
+    const rowFor = (r) => {
+      const lc = (r.role === 'Counselor' ? counselorLeadCounts : presalesLeadCounts).get(r.name) || { total: 0, newThisPeriod: 0 };
+      const c = r.data.contracted;
+      return {
+        fullName: r.name, role: r.role,
+        contracted: c.count, reversed: r.data.reversed.count,
+        newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
+        totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
+        target: r.role === 'Counselor' ? counselorTarget.total : r.target,
+        basicLetters: r.data.basicLetters.count, finalLetters: r.data.finalLetters.count,
+        meetings: r.data.meetings.count,
+        // Case-type/in-out-system/Convert% only meaningfully apply to
+        // Counsellors (Monthly Report's Team Performance table) — Pre-sales
+        // rows carry them as null so the frontend can omit those columns.
+        caseTypeBreakdown: r.role === 'Counselor' ? c.caseTypeBreakdown : null,
+        inSystemCount: r.role === 'Counselor' ? c.inSystemCount : null,
+        outSystemCount: r.role === 'Counselor' ? c.outSystemCount : null,
+        totalLeads: lc.total, newThisPeriod: lc.newThisPeriod,
+        convertPct: lc.total > 0 ? Math.round((c.count / lc.total) * 1000) / 10 : null,
+      };
+    };
 
     res.json({ success: true, data: {
       period, from: from.toISOString(), to: to.toISOString(),
