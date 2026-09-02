@@ -937,10 +937,17 @@ async function individualReport(req, res, next) {
     catch (e) { return res.status(400).json({ success: false, error: e.message }); }
     const { from, to, bucket, period } = periodResolved;
 
-    const [opening, closing, rangeData] = await Promise.all([
+    const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames();
+    const isCounselor = counsellorNames.includes(staffName);
+    const isPresales   = presalesNames.includes(staffName);
+
+    const [opening, closing, rangeData, callTarget] = await Promise.all([
       membersAsAt([staffName], from.toISOString()),
       membersAsAt([staffName], to.toISOString()),
       rangeReport.computeRangeReport([staffName], from, to, { bucket }),
+      isCounselor ? rangeReport.counselorTargetForRange(from, to)
+        : isPresales ? rangeReport.presalesTargetForRange(staffName, from, to).then(t => ({ total: t.total, hours: t.hours }))
+        : Promise.resolve(null),
     ]);
     const openIds = new Set(opening.map(r => r.lead_id));
     const closeIds = new Set(closing.map(r => r.lead_id));
@@ -951,10 +958,11 @@ async function individualReport(req, res, next) {
       closing: { count: closing.length, leads: closing.map(objectToCamelCase) },
     };
 
-    const staffOptions = scope === 'all' ? (await weeklyStaffNames()).allNames.sort() : [];
+    const staffOptions = scope === 'all' ? allNames.sort() : [];
 
     res.json({ success: true, data: {
       period, from: from.toISOString(), to: to.toISOString(), staffName, canPickAnyStaff: scope === 'all', staffOptions,
+      role: isCounselor ? 'Counselor' : isPresales ? 'Pre-Sales' : null, callTarget,
       leadsFlow, ...rangeData,
     }});
   } catch (err) { next(err); }
@@ -978,11 +986,17 @@ async function groupReport(req, res, next) {
     // Company-wide totals (one computeRangeReport call across everyone) +
     // a per-staff breakdown (one call per person) — mirrors Monthly
     // Report's per-counselor/per-presales row shape, v1 columns only
-    // (see file-header note above for what's deferred).
-    const [companyWide, ...perStaff] = await Promise.all([
+    // (see file-header note above for what's deferred). Counsellor target
+    // is role-wide (same for everyone), computed once; Pre-Sales target is
+    // per-individual (their own working hours), one call per person.
+    const [companyWide, counselorTarget, ...perStaff] = await Promise.all([
       rangeReport.computeRangeReport(allNames, from, to, { bucket }),
+      rangeReport.counselorTargetForRange(from, to),
       ...counsellorNames.map(name => rangeReport.computeRangeReport([name], from, to, { bucket }).then(d => ({ name, role: 'Counselor', data: d }))),
-      ...presalesNames.map(name => rangeReport.computeRangeReport([name], from, to, { bucket }).then(d => ({ name, role: 'Pre-Sales', data: d }))),
+      ...presalesNames.map(name => Promise.all([
+        rangeReport.computeRangeReport([name], from, to, { bucket }),
+        rangeReport.presalesTargetForRange(name, from, to),
+      ]).then(([d, target]) => ({ name, role: 'Pre-Sales', data: d, target: target.total }))),
     ]);
 
     const rowFor = (r) => ({
@@ -990,6 +1004,7 @@ async function groupReport(req, res, next) {
       contracted: r.data.contracted.count, reversed: r.data.reversed.count,
       newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
       totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
+      target: r.role === 'Counselor' ? counselorTarget.total : r.target,
       basicLetters: r.data.basicLetters.count, finalLetters: r.data.finalLetters.count,
       meetings: r.data.meetings.count,
     });

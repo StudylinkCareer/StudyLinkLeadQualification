@@ -77,6 +77,12 @@ export default function IndividualReport() {
       cols: [NAME_COL], items: data.calls.ongoingItems },
     { key: 'kbm', label: L('KBM (unanswered)', 'Không bắt máy'), value: data.calls.totals.kbm, color: '#DC2626',
       cols: [NAME_COL], items: data.calls.kbmItems },
+    ...(data.callTarget ? [{
+      key: 'callsKpi', label: L('Calls KPI', 'KPI cuộc gọi'),
+      value: `${data.calls.totals.newLeads + data.calls.totals.ongoing} / ${data.callTarget.total}`,
+      color: (data.calls.totals.newLeads + data.calls.totals.ongoing) >= data.callTarget.total ? '#10B981' : '#DC2626',
+      items: [],
+    }] : []),
     { key: 'meetings', label: L('Meetings', 'Cuộc gặp'), value: data.meetings.count, color: '#2563eb',
       cols: [NAME_COL, { key: 'topic', label: L('Type', 'Loại') }], items: data.meetings.items },
     { key: 'leadsIn', label: L('Leads in', 'Lead vào'), value: data.leadsFlow.in.count, color: '#2563eb',

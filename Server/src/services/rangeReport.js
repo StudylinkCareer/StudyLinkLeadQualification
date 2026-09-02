@@ -93,6 +93,85 @@ function bucketKeyOf(ms, granularity) {
   return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
+// VN-local day-of-week for an instant, 0=Mon..6=Sun (call_day_targets'/
+// presales_working_hours' convention).
+function dowOf(ms) {
+  const vn = new Date(ms + VN_MS);
+  return (vn.getUTCDay() + 6) % 7;
+}
+function monthKeyOf(ms) {
+  const vn = new Date(ms + VN_MS);
+  return `${vn.getUTCFullYear()}-${String(vn.getUTCMonth() + 1).padStart(2, '0')}-01`;
+}
+
+// Same hardcoded fallback as reportController.js's CALL_TARGETS — used only
+// if NO month has ever been configured in call_day_targets at all.
+const COUNSELOR_DEFAULT = { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5, 5, 5, 5, 5, 2, 0] };
+
+/**
+ * Counsellors' role-wide daily New/Ongoing target, summed across every
+ * calendar day in [from, to) — same "copy forward the most recent earlier
+ * month" semantics as reportController.js's loadDayTargets() (Weekly
+ * Report), just totalled over an arbitrary range instead of exactly 7 days.
+ * Same for every counsellor (role-wide), so callers compute this ONCE per
+ * report, not once per person.
+ */
+async function counselorTargetForRange(from, to) {
+  const rows = (await pool.query(
+    `SELECT to_char(month,'YYYY-MM-01') AS month, day_of_week, new_target, ongoing_target
+       FROM call_day_targets WHERE role = 'Counselor' ORDER BY month`
+  )).rows;
+  const byMonth = new Map();
+  for (const r of rows) {
+    if (!byMonth.has(r.month)) byMonth.set(r.month, [null, null, null, null, null, null, null]);
+    byMonth.get(r.month)[r.day_of_week] = { new: r.new_target, ongoing: r.ongoing_target };
+  }
+  const months = [...byMonth.keys()].sort();
+  function forDay(monthKey, dow) {
+    let best = null;
+    for (const m of months) { if (m <= monthKey) best = m; else break; }
+    const row = best ? byMonth.get(best)[dow] : null;
+    return row || { new: COUNSELOR_DEFAULT.new[dow], ongoing: COUNSELOR_DEFAULT.ongoing[dow] };
+  }
+  let totalNew = 0, totalOngoing = 0;
+  for (let ms = from.getTime(); ms < to.getTime(); ms += 86400000) {
+    const t = forDay(monthKeyOf(ms), dowOf(ms));
+    totalNew += t.new; totalOngoing += t.ongoing;
+  }
+  return { new: totalNew, ongoing: totalOngoing, total: totalNew + totalOngoing };
+}
+
+/**
+ * One Pre-Sales person's own daily hours x 8, summed across every calendar
+ * day in [from, to) — combined New+Ongoing target (no split, per Hong Ha).
+ * Same copy-forward-per-month semantics as the round-robin's capacity calc
+ * (uncontactableTransfer.js pickNextPresales), per-individual not role-wide.
+ */
+async function presalesTargetForRange(fullName, from, to) {
+  const rows = (await pool.query(
+    `SELECT to_char(wh.month,'YYYY-MM-01') AS month, wh.day_of_week, wh.hours
+       FROM presales_working_hours wh JOIN staff s ON s.id = wh.staff_id
+      WHERE s.full_name = $1 ORDER BY wh.month`,
+    [fullName]
+  )).rows;
+  const byMonth = new Map();
+  for (const r of rows) {
+    if (!byMonth.has(r.month)) byMonth.set(r.month, [0, 0, 0, 0, 0, 0, 0]);
+    byMonth.get(r.month)[r.day_of_week] = Number(r.hours);
+  }
+  const months = [...byMonth.keys()].sort();
+  function hoursForDay(monthKey, dow) {
+    let best = null;
+    for (const m of months) { if (m <= monthKey) best = m; else break; }
+    return best ? byMonth.get(best)[dow] : 0;
+  }
+  let totalHours = 0;
+  for (let ms = from.getTime(); ms < to.getTime(); ms += 86400000) {
+    totalHours += hoursForDay(monthKeyOf(ms), dowOf(ms));
+  }
+  return { hours: totalHours, total: totalHours * 8 };
+}
+
 /**
  * Calls (New/Ongoing/KBM), Counselling Letters, Meetings, Contracted-in-
  * range + reversed, for a group of staff names over [from, to). Same
@@ -206,4 +285,4 @@ async function computeRangeReport(names, from, to, opts = {}) {
   };
 }
 
-module.exports = { resolvePeriod, computeRangeReport, vnMidnightUTC, VN_MS };
+module.exports = { resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange, vnMidnightUTC, VN_MS };

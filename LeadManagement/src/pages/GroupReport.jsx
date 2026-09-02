@@ -6,9 +6,12 @@
 // nav-hidden too, see Sidebar.jsx).
 //
 // V1 SCOPE: Team Performance (Counsellors) and Pre-sales tables cover
-// Contracted/Reversed/New/Ongoing/KBM/Total calls/Letters/Meetings per
-// person — Monthly Report's fuller columns (Target/%KPI/case-type split/
-// Convert %/Total leads/New this period, Contract Sources, Marketing
+// Contracted/Reversed/New/Ongoing/KBM/Total calls/Target/%KPI/Letters/
+// Meetings per person (Target reuses Phase 0's redesigned quota mechanism —
+// rangeReport.js's counselorTargetForRange/presalesTargetForRange — the
+// same number the Staff Targets grids drive, not a separate
+// reimplementation). Monthly Report's remaining columns (case-type split,
+// Convert %, Total leads/New this period, Contract Sources, Marketing
 // Activities) are a deliberate follow-up, not yet ported. Flagged in the
 // page itself, not silently missing.
 // -----------------------------------------------------------------------------
@@ -32,15 +35,17 @@ function StaffTable({ title, rows, L }) {
   const totals = rows.reduce((a, r) => ({
     contracted: a.contracted + r.contracted, reversed: a.reversed + r.reversed,
     newLeads: a.newLeads + r.newLeads, ongoing: a.ongoing + r.ongoing, kbm: a.kbm + r.kbm,
-    totalCalls: a.totalCalls + r.totalCalls, basicLetters: a.basicLetters + r.basicLetters,
+    totalCalls: a.totalCalls + r.totalCalls, target: a.target + (r.target || 0),
+    basicLetters: a.basicLetters + r.basicLetters,
     finalLetters: a.finalLetters + r.finalLetters, meetings: a.meetings + r.meetings,
-  }), { contracted: 0, reversed: 0, newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, basicLetters: 0, finalLetters: 0, meetings: 0 });
+  }), { contracted: 0, reversed: 0, newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, target: 0, basicLetters: 0, finalLetters: 0, meetings: 0 });
+  const pct = (actual, target) => target > 0 ? `${Math.round((actual / target) * 100)}%` : '—';
 
   return (
     <div style={card}>
       <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{title}</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
           <thead><tr>
             <th style={th}>{L('Staff', 'Nhân viên')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Contracted', 'Ký HĐ')}</th>
@@ -48,6 +53,8 @@ function StaffTable({ title, rows, L }) {
             <th style={{ ...th, textAlign: 'right' }}>{L('New', 'Mới')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Ongoing', 'Theo dõi')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Total calls', 'Tổng cuộc gọi')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Target', 'Chỉ tiêu')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('% KPI', '% KPI')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('KBM', 'KBM')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Basic Ltr', 'Thư CB')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Final Ltr', 'Thư cuối')}</th>
@@ -62,13 +69,15 @@ function StaffTable({ title, rows, L }) {
                 <td style={{ ...td, textAlign: 'right' }}>{r.newLeads}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.ongoing}</td>
                 <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.totalCalls}</td>
+                <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }}>{r.target}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: r.totalCalls >= r.target ? '#10B981' : '#DC2626' }}>{pct(r.totalCalls, r.target)}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.kbm}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.basicLetters}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.finalLetters}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.meetings}</td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={10} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No staff in this group.', 'Không có nhân viên.')}</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={12} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No staff in this group.', 'Không có nhân viên.')}</td></tr>}
             <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
               <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.contracted}</td>
@@ -76,6 +85,8 @@ function StaffTable({ title, rows, L }) {
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.newLeads}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.ongoing}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.totalCalls}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.target}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{pct(totals.totalCalls, totals.target)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.kbm}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.basicLetters}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.finalLetters}</td>
@@ -144,8 +155,8 @@ export default function GroupReport() {
           <StaffTable title={L('Pre-sales', 'Pre-sales')} rows={data.presales} L={L} />
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#9ca3af)', marginTop: '-0.5rem' }}>
             {L(
-              'v1: Target/%KPI, case-type split, Convert %, Contract Sources and Marketing Activities from the old Monthly Report are not yet ported here — follow-up.',
-              'v1: chưa đưa Chỉ tiêu/%KPI, phân loại case-type, %Convert, Nguồn HĐ và Hoạt động Marketing từ Báo cáo tháng cũ sang — sẽ bổ sung sau.'
+              'v1: case-type split, Convert %, Total leads/New this period, Contract Sources and Marketing Activities from the old Monthly Report are not yet ported here — follow-up.',
+              'v1: chưa đưa phân loại case-type, %Convert, Tổng lead/Lead mới trong kỳ, Nguồn HĐ và Hoạt động Marketing từ Báo cáo tháng cũ sang — sẽ bổ sung sau.'
             )}
           </div>
         </>
