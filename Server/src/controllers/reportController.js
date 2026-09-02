@@ -40,6 +40,7 @@ const { canManageTargets } = require('../utils/authProfiles');
 const { containsPhoneMention } = require('../services/phoneAliases');
 const { objectToCamelCase }    = require('../utils/caseConvert');
 const { classifyCalls, isCallNote } = require('../services/callClassification');
+const rangeReport = require('../services/rangeReport');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -903,6 +904,103 @@ async function generateWeeklySnapshot(weekStart) {
   return weekStartYmd;
 }
 
+// ── Individual Report / Company Report (2026-08, planned with Hong Ha) ───
+// Successors to Weekly Report's individual mode / Monthly Report, both
+// generalized to weekly/monthly/yearly/custom periods via rangeReport.js.
+//
+// V1 SCOPE NOTE: always computed live (no frozen-snapshot reuse yet for the
+// weekly preset — that's a deliberate deferral, not an oversight; the
+// numbers themselves are correct and match a live call to the old /weekly
+// endpoint for the same range, just without the snapshot's performance/
+// point-in-time-freeze properties). Company Report's per-staff breakdown
+// covers Calls/Letters/Meetings/Contracted per person — Monthly Report's
+// fuller columns (Target/%KPI/case-type split/Convert%/Contract Sources/
+// Marketing Activities) are a follow-up, not yet ported here.
+//
+// RBAC: resource='reports', operations 'view_individual'/'view_group'
+// (seedIndividualGroupReportScope.js) — deliberately separate from the OLD
+// (reports,'view') key Monthly/Activity Report still use.
+async function individualReport(req, res, next) {
+  try {
+    const role = req.session.staffRole;
+    const myName = req.session.staffName;
+    const scope = await permissionService.getResourceScope(role, 'reports', 'view_individual');
+    if (!scope || scope === 'none') {
+      return res.status(403).json({ success: false, error: 'Not authorised to view Individual Report' });
+    }
+    // 'own' → always the caller, ignoring any staffName param. 'all' → any
+    // staffer, defaulting to the caller if none given.
+    const staffName = scope === 'all' ? (req.query.staffName || myName) : myName;
+
+    let periodResolved;
+    try { periodResolved = rangeReport.resolvePeriod(req.query); }
+    catch (e) { return res.status(400).json({ success: false, error: e.message }); }
+    const { from, to, bucket, period } = periodResolved;
+
+    const [opening, closing, rangeData] = await Promise.all([
+      membersAsAt([staffName], from.toISOString()),
+      membersAsAt([staffName], to.toISOString()),
+      rangeReport.computeRangeReport([staffName], from, to, { bucket }),
+    ]);
+    const openIds = new Set(opening.map(r => r.lead_id));
+    const closeIds = new Set(closing.map(r => r.lead_id));
+    const leadsFlow = {
+      opening: { count: opening.length, leads: opening.map(objectToCamelCase) },
+      in:      { count: closing.filter(r => !openIds.has(r.lead_id)).length,  leads: closing.filter(r => !openIds.has(r.lead_id)).map(objectToCamelCase) },
+      out:     { count: opening.filter(r => !closeIds.has(r.lead_id)).length, leads: opening.filter(r => !closeIds.has(r.lead_id)).map(objectToCamelCase) },
+      closing: { count: closing.length, leads: closing.map(objectToCamelCase) },
+    };
+
+    res.json({ success: true, data: {
+      period, from: from.toISOString(), to: to.toISOString(), staffName, canPickAnyStaff: scope === 'all',
+      leadsFlow, ...rangeData,
+    }});
+  } catch (err) { next(err); }
+}
+
+async function groupReport(req, res, next) {
+  try {
+    const role = req.session.staffRole;
+    const scope = await permissionService.getResourceScope(role, 'reports', 'view_group');
+    if (scope !== 'all') {
+      return res.status(403).json({ success: false, error: 'Not authorised to view Company Report' });
+    }
+
+    let periodResolved;
+    try { periodResolved = rangeReport.resolvePeriod(req.query); }
+    catch (e) { return res.status(400).json({ success: false, error: e.message }); }
+    const { from, to, bucket, period } = periodResolved;
+
+    const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames();
+
+    // Company-wide totals (one computeRangeReport call across everyone) +
+    // a per-staff breakdown (one call per person) — mirrors Monthly
+    // Report's per-counselor/per-presales row shape, v1 columns only
+    // (see file-header note above for what's deferred).
+    const [companyWide, ...perStaff] = await Promise.all([
+      rangeReport.computeRangeReport(allNames, from, to, { bucket }),
+      ...counsellorNames.map(name => rangeReport.computeRangeReport([name], from, to, { bucket }).then(d => ({ name, role: 'Counselor', data: d }))),
+      ...presalesNames.map(name => rangeReport.computeRangeReport([name], from, to, { bucket }).then(d => ({ name, role: 'Pre-Sales', data: d }))),
+    ]);
+
+    const rowFor = (r) => ({
+      fullName: r.name, role: r.role,
+      contracted: r.data.contracted.count, reversed: r.data.reversed.count,
+      newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
+      totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
+      basicLetters: r.data.basicLetters.count, finalLetters: r.data.finalLetters.count,
+      meetings: r.data.meetings.count,
+    });
+
+    res.json({ success: true, data: {
+      period, from: from.toISOString(), to: to.toISOString(),
+      companyWide,
+      teamPerformance: perStaff.filter(r => r.role === 'Counselor').map(rowFor),
+      presales:        perStaff.filter(r => r.role === 'Pre-Sales').map(rowFor),
+    }});
+  } catch (err) { next(err); }
+}
+
 async function weeklyReport(req, res, next) {
   try {
     const role = req.session.staffRole;
@@ -1565,10 +1663,15 @@ async function lockRecommendationsBefore(weekStartYmd) {
 
 module.exports = {
   notesActivity, contractedStats, weeklyReport, getRecommendation, saveRecommendation,
+  individualReport, groupReport,
   monthlyTargets, saveMonthlyTarget, addTrackedStaff, removeTrackedStaff,
   callDayTargets, saveCallDayTarget,
   listUncontactableRoster, addUncontactableRosterStaff, removeUncontactableRosterStaff, setUncontactableSlotMode,
   presalesWorkingHours, savePresalesWorkingHours,
   // Frozen Weekly Report: scheduler + manual re-publish + note freezing.
   generateWeeklySnapshot, vnWeekStart, regenerateWeeklySnapshot, lockRecommendationsBefore,
+  // Exported for reuse by rangeReport.js (Individual/Group Report, 2026-08) —
+  // point-in-time book reconstruction is complex enough that it should have
+  // exactly one implementation, not a second copy for arbitrary ranges.
+  membersAsAt, vnMidnightUTC, weeklyStaffNames,
 };
