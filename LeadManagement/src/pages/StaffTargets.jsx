@@ -53,6 +53,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
 import { reportsAPI, staffAPI } from '../services/api';
 import { canManageTargets } from '../utils/roleProfiles';
+import YearMonthPicker from '../components/reports/YearMonthPicker';
 
 const card = { background: 'var(--bg-primary,#fff)', border: '1px solid var(--border,#e5e7eb)', borderRadius: 8, padding: '1rem 1.25rem', marginBottom: '1rem' };
 const sub  = { fontSize: '0.8rem', color: 'var(--text-secondary,#6b7280)' };
@@ -416,7 +417,7 @@ function DailyCallQuotaGrid({ L, language }) {
             )}
           </div>
         </div>
-        <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }} />
+        <YearMonthPicker value={month} onChange={setMonth} L={L} />
       </div>
 
       <div style={card}>
@@ -529,7 +530,7 @@ function PresalesHoursGrid({ L, language }) {
             )}
           </div>
         </div>
-        <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }} />
+        <YearMonthPicker value={month} onChange={setMonth} L={L} />
       </div>
 
       <div style={card}>
