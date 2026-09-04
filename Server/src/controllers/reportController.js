@@ -39,7 +39,7 @@ const permissionService    = require('../services/permissionService');
 const { canManageTargets } = require('../utils/authProfiles');
 const { containsPhoneMention } = require('../services/phoneAliases');
 const { objectToCamelCase }    = require('../utils/caseConvert');
-const { classifyCalls, isCallNote } = require('../services/callClassification');
+const { classifyCalls, isCallNote, normalizeMode } = require('../services/callClassification');
 const rangeReport = require('../services/rangeReport');
 
 const pool = new Pool({
@@ -435,19 +435,6 @@ async function contractedStats(req, res, next) {
 // Managers: all / by-group (Counsellors|Pre-Sales) / selected (one combined total) /
 // individual. Individual users always see only themselves. Leads-in assignment
 // date falls back to students.created_at when no assignment audit row exists.
-
-// Normalise a stored contact_platform into one of the six communication modes.
-// Keyword-only call mentions (no platform) are treated as Phone call upstream.
-function normalizeMode(platform) {
-  const p = String(platform || '').toLowerCase();
-  if (p.includes('mail'))                         return 'E-mail';
-  if (p.includes('phone') || p.includes('call'))  return 'Phone call';
-  if (p.includes('sms') || p.includes('text'))    return 'SMS';
-  if (p.includes('zalo'))                          return 'Zalo';
-  if (p.includes('whatsapp'))                      return 'WhatsApp';
-  if (p.includes('messenger') || p.includes('facebook')) return 'Messenger';
-  return platform || 'Phone call';
-}
 
 // Contracted buckets (last week / MTD / QTD / YTD + reversed YTD), still-Contracted
 // only, with names for drill-down. names = array → scope to those staff;
