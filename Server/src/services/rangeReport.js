@@ -31,6 +31,21 @@ const pool = new Pool({
 
 const VN_MS = 7 * 60 * 60 * 1000;
 const vnMidnightUTC = (y, m, d) => new Date(Date.UTC(y, m, d) - VN_MS);
+// The VN-calendar date (YYYY-MM-DD) a UTC instant falls on — for comparing
+// a `from`/`to` range boundary against a plain DATE column (actual_close_date,
+// assigned_in). NOT the same as `dt.toISOString().slice(0, 10)`: `from`/`to`
+// are UTC instants representing VN-MIDNIGHT of a given day — e.g. July's
+// `from` is "2026-07-01 00:00 VN", stored as the UTC instant
+// "2026-06-30T17:00:00Z". Slicing that raw ISO string reads off the UTC
+// calendar date, "2026-06-30" — a full day EARLIER than the VN date it's
+// supposed to represent. Both `from` and `to` shift the same way, so the
+// whole [from, to) window silently lands one calendar day early. Found
+// 2026-09 as a real report bug: a lead signed 2026-06-30 (June) was showing
+// up in the JULY report, because July's shifted window actually ran
+// June 30 - July 30 instead of July 1 - July 31. Shift into VN-local time
+// FIRST, matching reportController.js's vnYmd(), before reading the
+// calendar fields back out.
+const vnYmd = (dt) => new Date(dt.getTime() + VN_MS).toISOString().slice(0, 10);
 
 // Same 4 buckets Monthly Report's Team Performance table uses.
 const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị thực Khác'];
@@ -310,7 +325,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
        LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
       WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND l.actual_close_date >= $2 AND l.actual_close_date < $3`,
-    [contractedNames, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10)])).rows : [];
+    [contractedNames, vnYmd(from), vnYmd(to)])).rows : [];
 
   // Case-type split + in/out system — same 4 buckets Monthly Report's Team
   // Performance table uses.
@@ -428,7 +443,7 @@ async function leadCounts(names, column, from, to) {
             COUNT(*) FILTER (WHERE assigned_in >= $1 AND assigned_in < $2)::int AS new_this_period
        FROM leads WHERE ${col} = ANY($3)
        GROUP BY ${col}`,
-    [from.toISOString().slice(0, 10), to.toISOString().slice(0, 10), names]
+    [vnYmd(from), vnYmd(to), names]
   )).rows;
   return new Map(rows.map(r => [r.name, { total: r.total, newThisPeriod: r.new_this_period }]));
 }
