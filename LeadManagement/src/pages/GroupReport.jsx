@@ -19,6 +19,14 @@
 // Pre-sales' "Transferred to Sales" column (audit-log based handoffs to a
 // counsellor) and Marketing Activities (funnel by event, planned/actual
 // cost) are both ported from the old Monthly Report as of 2026-09.
+//
+// Pre-sales' "Contracted" column (2026-09, Hong Ha's fix): Pre-Sales
+// occasionally closes a deal directly with no counselor handoff, so it
+// never shows in Team Performance (counsellor-only) — this column is that
+// contract's only home in the report, no target/%KPI alongside it since
+// Pre-Sales has no contract-signing quota. Team Performance's own
+// Contracted sum plus this column's sum always equal the top "Contracted"
+// tile's company-wide count.
 // -----------------------------------------------------------------------------
 import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -122,13 +130,21 @@ function TeamPerformanceTable({ rows, L }) {
 // (audit-log-based handoffs to a counsellor, see rangeReport.js's
 // transfersToSalesForRange) — clickable per row, opens the transferred
 // leads' detail (destination, who received them, when) via `onOpen`.
-function CallsTable({ title, rows, showMeetings, showTransferred, onOpen, L }) {
+// `showContracted` adds a Contracted column (2026-09, Hong Ha's fix) —
+// Pre-Sales occasionally closes a deal directly with no counselor handoff,
+// so it never shows in Team Performance (counsellor-only); this is that
+// contract's only home in the report. No target/%KPI alongside it — Pre-
+// Sales has no contract-signing quota, only a real count. Team Performance's
+// own Contracted sum plus this column's sum always equal the top
+// "Contracted" tile's company-wide count.
+function CallsTable({ title, rows, showMeetings, showTransferred, showContracted, onOpen, L }) {
   const totals = rows.reduce((a, r) => ({
     newLeads: a.newLeads + r.newLeads, ongoing: a.ongoing + r.ongoing, kbm: a.kbm + r.kbm,
     totalCalls: a.totalCalls + r.totalCalls, target: a.target + (r.target || 0),
     meetings: a.meetings + (r.meetings || 0), transferred: a.transferred + (r.transferred || 0),
-  }), { newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, target: 0, meetings: 0, transferred: 0 });
-  const colCount = 7 + (showMeetings ? 1 : 0) + (showTransferred ? 1 : 0);
+    contracted: a.contracted + (r.contracted || 0),
+  }), { newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, target: 0, meetings: 0, transferred: 0, contracted: 0 });
+  const colCount = 7 + (showMeetings ? 1 : 0) + (showTransferred ? 1 : 0) + (showContracted ? 1 : 0);
 
   function openTransferred(r) {
     const items = (r.transferredItems || []).map(it => ({ ...it, transferredAtDisplay: it.transferredAt ? new Date(it.transferredAt).toLocaleDateString() : '' }));
@@ -141,6 +157,17 @@ function CallsTable({ title, rows, showMeetings, showTransferred, onOpen, L }) {
         { key: 'transferredAtDisplay', label: L('Date', 'Ngày') },
       ],
       items,
+    });
+  }
+
+  function openContracted(r) {
+    onOpen({
+      title: L('Contracted', 'Ký HĐ') + ` — ${r.fullName}`,
+      cols: [
+        { key: 'fullName', label: L('Name', 'Tên') },
+        { key: 'destinationCountry', label: L('Destination', 'Điểm đến') },
+      ],
+      items: r.contractedItems || [],
     });
   }
 
@@ -159,10 +186,12 @@ function CallsTable({ title, rows, showMeetings, showTransferred, onOpen, L }) {
             <th style={{ ...th, textAlign: 'right' }}>{L('KBM', 'KBM')}</th>
             {showMeetings && <th style={{ ...th, textAlign: 'right' }}>{L('Meetings', 'Cuộc gặp')}</th>}
             {showTransferred && <th style={{ ...th, textAlign: 'right' }}>{L('Transferred', 'Khách chuyển')}</th>}
+            {showContracted && <th style={{ ...th, textAlign: 'right' }}>{L('Contracted', 'Ký HĐ')}</th>}
           </tr></thead>
           <tbody>
             {rows.map(r => {
-              const clickable = showTransferred && (r.transferred || 0) > 0;
+              const transferClickable = showTransferred && (r.transferred || 0) > 0;
+              const contractedClickable = showContracted && (r.contracted || 0) > 0;
               return (
                 <tr key={r.fullName}>
                   <td style={{ ...td, fontWeight: 600 }}>{r.fullName}</td>
@@ -174,9 +203,15 @@ function CallsTable({ title, rows, showMeetings, showTransferred, onOpen, L }) {
                   <td style={{ ...td, textAlign: 'right' }}>{r.kbm}</td>
                   {showMeetings && <td style={{ ...td, textAlign: 'right' }}>{r.meetings}</td>}
                   {showTransferred && (
-                    <td style={{ ...td, textAlign: 'right', cursor: clickable ? 'pointer' : 'default', textDecoration: clickable ? 'underline' : 'none' }}
-                      onClick={clickable ? () => openTransferred(r) : undefined}>
+                    <td style={{ ...td, textAlign: 'right', cursor: transferClickable ? 'pointer' : 'default', textDecoration: transferClickable ? 'underline' : 'none' }}
+                      onClick={transferClickable ? () => openTransferred(r) : undefined}>
                       {r.transferred || 0}
+                    </td>
+                  )}
+                  {showContracted && (
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, cursor: contractedClickable ? 'pointer' : 'default', textDecoration: contractedClickable ? 'underline' : 'none' }}
+                      onClick={contractedClickable ? () => openContracted(r) : undefined}>
+                      {r.contracted || 0}
                     </td>
                   )}
                 </tr>
@@ -193,6 +228,7 @@ function CallsTable({ title, rows, showMeetings, showTransferred, onOpen, L }) {
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.kbm}</td>
               {showMeetings && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.meetings}</td>}
               {showTransferred && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.transferred}</td>}
+              {showContracted && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.contracted}</td>}
             </tr>
           </tbody>
         </table>
@@ -372,6 +408,7 @@ export default function GroupReport() {
             rows={data.presales}
             showMeetings
             showTransferred
+            showContracted
             onOpen={setDrill}
             L={L}
           />

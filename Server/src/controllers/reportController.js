@@ -981,7 +981,7 @@ async function groupReport(req, res, next) {
     // never merged under one ambiguous column (found while porting, see
     // rangeReport.js's contractTargetForRange comment).
     const [companyWide, counselorCallTarget, counselorLeadCounts, transfersByName, marketingActivities, ...perStaff] = await Promise.all([
-      rangeReport.computeRangeReport(allNames, from, to, { bucket, contractedNames: counsellorNames }),
+      rangeReport.computeRangeReport(allNames, from, to, { bucket }),
       rangeReport.counselorTargetForRange(from, to),
       rangeReport.leadCounts(counsellorNames, 'counselor', from, to),
       rangeReport.transfersToSalesForRange(presalesNames, from, to),
@@ -1035,6 +1035,14 @@ async function groupReport(req, res, next) {
     // Sales. No Letters (a Counsellor-only activity) and no Total leads/New
     // this period (that was Team Performance-only) — both were wrongly on
     // this row in an earlier pass, caught during the reconciliation request.
+    // Contracted (2026-09, Hong Ha's fix): Pre-Sales occasionally closes a
+    // deal directly with no counselor handoff — that lead's counselor field
+    // is blank, only presales is set, so it would never appear in Team
+    // Performance (counsellor-only). Surfacing it here means the two tables
+    // together always add up to companyWide.contracted.count, instead of
+    // that contract silently vanishing from the report. No target/%KPI for
+    // it — Pre-Sales has no contract-signing quota, only Counsellors do
+    // (contractTargetForRange) — this is just the real count.
     const presales = presalesRows.map(r => {
       const transfers = transfersByName.get(r.name) || [];
       return {
@@ -1044,6 +1052,7 @@ async function groupReport(req, res, next) {
         target: r.callTarget,
         meetings: r.data.meetings.count,
         transferred: transfers.length, transferredItems: transfers,
+        contracted: r.data.contracted.count, contractedItems: r.data.contracted.items,
       };
     });
 
