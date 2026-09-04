@@ -18,17 +18,19 @@
 // EVERY control here validates its value against the expected shape before
 // calling onChange — found 2026-09 testing the branch-deploy: this was
 // first fixed only for Custom range (which started genuinely blank), but
-// the same class of bug also hit Monthly (native <input type="month"> can
-// fire onChange with an incomplete value while the user is still typing,
-// depending on browser/OS) and would have hit Yearly too (a plain
-// <input type="number"> fires onChange on every keystroke — typing "2026"
-// fires with "2", "20", "202" first). Weekly/Monthly use a regex guard
-// on the native inputs' own onChange; Yearly uses an uncommitted local
-// draft, only propagated on blur/Enter once it's a valid 4-digit year;
-// Custom already required its own explicit Apply button since it has no
-// sensible default to begin with.
+// the same class of bug also hit Monthly (native <input type="month"> could
+// fire onChange with an incomplete value while the user was still typing,
+// depending on browser/OS — since replaced by YearMonthPicker's two plain
+// <select>s, which can't hold a partial value in the first place) and would
+// have hit Yearly too (a plain <input type="number"> fires onChange on
+// every keystroke — typing "2026" fires with "2", "20", "202" first).
+// Weekly uses a regex guard on the native date input's own onChange; Yearly
+// uses an uncommitted local draft, only propagated on blur/Enter once it's
+// a valid 4-digit year; Custom already required its own explicit Apply
+// button since it has no sensible default to begin with.
 // -----------------------------------------------------------------------------
 import { useState, useEffect } from 'react';
+import YearMonthPicker from './YearMonthPicker';
 
 const sel = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderRadius: 6, border: '1px solid var(--border,#e5e7eb)' };
 const btn = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderRadius: 6, border: '1px solid var(--border,#e5e7eb)', background: 'var(--bg-primary,#fff)', cursor: 'pointer' };
@@ -93,9 +95,7 @@ export default function PeriodPicker({ value, onChange, L }) {
         </>
       )}
       {uiPeriod === 'monthly' && value?.period === 'monthly' && (
-        <input type="month" value={value.month}
-          onChange={e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) onChange({ period: 'monthly', month: e.target.value }); }}
-          style={sel} />
+        <YearMonthPicker value={value.month} onChange={month => onChange({ period: 'monthly', month })} L={L} />
       )}
       {uiPeriod === 'yearly' && value?.period === 'yearly' && (
         <input type="number" min="2020" max="2100" value={yearDraft}
