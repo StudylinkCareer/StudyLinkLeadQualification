@@ -994,7 +994,7 @@ async function groupReport(req, res, next) {
     // never merged under one ambiguous column (found while porting, see
     // rangeReport.js's contractTargetForRange comment).
     const [companyWide, counselorCallTarget, counselorLeadCounts, transfersByName, marketingActivities, ...perStaff] = await Promise.all([
-      rangeReport.computeRangeReport(allNames, from, to, { bucket }),
+      rangeReport.computeRangeReport(allNames, from, to, { bucket, contractedNames: counsellorNames }),
       rangeReport.counselorTargetForRange(from, to),
       rangeReport.leadCounts(counsellorNames, 'counselor', from, to),
       rangeReport.transfersToSalesForRange(presalesNames, from, to),
