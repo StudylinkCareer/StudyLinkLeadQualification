@@ -225,17 +225,6 @@ async function presalesTargetForRange(fullName, from, to, granularity = null) {
 async function computeRangeReport(names, from, to, opts = {}) {
   const fromISO = from.toISOString(), toISO = to.toISOString();
   const bucket = opts.bucket || 'day';
-  // Which names "count" as a contract-signing/reversal/source, separate from
-  // `names` (which drives calls/letters/meetings). Defaults to `names` — an
-  // individual report still credits a contract signed under EITHER their
-  // counselor OR presales assignment. Company Report passes counsellorNames
-  // here explicitly (2026-09, Hong Ha's fix): a lead can be marked Contracted
-  // with only a Pre-Sales assignment and no counselor (e.g. closed directly
-  // by Pre-Sales, no handoff) — that still counted toward the company-wide
-  // "Contracted" total via the old `names`-wide OR match, but was invisible
-  // in the Team Performance table (which only sums per-counsellor rows), so
-  // the two numbers on the page silently disagreed (7 vs 6 for August).
-  const contractedNames = opts.contractedNames || names;
 
   const periodNoteRows = names.length ? (await pool.query(
     `SELECT sn.student_id, sn.author_name, sn.contact_platform, sn.content, sn.created_at, sn.call_answered, s.full_name
@@ -317,7 +306,24 @@ async function computeRangeReport(names, from, to, opts = {}) {
   // fields too — same data Monthly Report's Team Performance case-type
   // columns and Contract Sources use, computed below rather than a second
   // round-trip query.
-  const contractedRows = contractedNames.length ? (await pool.query(
+  //
+  // Matches on `names` (counselor OR presales) — same population as calls/
+  // letters/meetings above, deliberately NOT narrowed to counsellorNames
+  // only. A lead can be Contracted with only a Pre-Sales assignment and no
+  // counselor (closed directly by Pre-Sales, no handoff) — an earlier pass
+  // (2026-09) narrowed Company Report's company-wide contracted total to
+  // counsellorNames to make it match Team Performance's counselor-only sum,
+  // which fixed THAT mismatch but made those Pre-Sales-closed contracts
+  // disappear from the report entirely (Hong Ha caught this — a real
+  // contract, Phan Thị Mỹ Tiên/Phạm Thị Ngọc Thảo, wasn't listed anywhere).
+  // Reverted: groupReport's presales row mapper now also surfaces its own
+  // `contracted` count/items, so Team Performance's sum + Pre-sales'
+  // Contracted column together equal the company-wide total again — the
+  // right fix is showing where the number comes from, not making the
+  // number smaller. (Verified no lead has BOTH counselor and presales set
+  // to a roster name simultaneously, so this can't double-count between
+  // the two tables.)
+  const contractedRows = names.length ? (await pool.query(
     `SELECT l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country,
             l.case_type, l.is_out_of_system, s.lead_source,
             COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label
@@ -325,7 +331,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
        LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
       WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND l.actual_close_date >= $2 AND l.actual_close_date < $3`,
-    [contractedNames, vnYmd(from), vnYmd(to)])).rows : [];
+    [names, vnYmd(from), vnYmd(to)])).rows : [];
 
   // Case-type split + in/out system — same 4 buckets Monthly Report's Team
   // Performance table uses.
@@ -357,7 +363,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
   // Reversed: signed (per audit log) within the range, but no longer
   // Contracted now. Mirrors contractedBuckets' 'reversed' bucket, scoped to
   // the period instead of "this year".
-  const reversedRows = contractedNames.length ? (await pool.query(
+  const reversedRows = names.length ? (await pool.query(
     `SELECT DISTINCT ON (a.lead_id) a.lead_id, l.person_id AS student_id, s.full_name
        FROM audit_log a
        JOIN leads l ON l.lead_id = a.lead_id
@@ -367,7 +373,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
         AND (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND l.lead_status <> 'Contracted'
       ORDER BY a.lead_id, a.changed_at DESC`,
-    [contractedNames, fromISO, toISO])).rows.map(objectToCamelCase) : [];
+    [names, fromISO, toISO])).rows.map(objectToCamelCase) : [];
 
   return {
     calls: {
