@@ -20,7 +20,7 @@
 // system, not a fourth reimplementation.
 // ─────────────────────────────────────────────────────────────────────
 const { Pool } = require('pg');
-const { classifyCalls, isCallNote } = require('./callClassification');
+const { classifyCalls, isCallNote, normalizeMode } = require('./callClassification');
 const { objectToCamelCase } = require('../utils/caseConvert');
 const eventBudget = require('./eventBudget');
 
@@ -254,10 +254,16 @@ async function computeRangeReport(names, from, to, opts = {}) {
   const platforms = {};
   // Day/week/month x platform matrix — same shape as Weekly Report's
   // modeDaily (ByModeMatrix component), generalized past exactly 7 days.
+  // normalizeMode() collapses raw contact_platform variants (an explicit
+  // "Phone Call" note vs a null-platform one, plus any other free-text
+  // spelling) down to the same 6 canonical modes computeGroup uses — found
+  // 2026-09 that this was missing here, so "Phone Call" and the null-
+  // platform fallback were showing as two separate columns in the mode
+  // matrix for the exact same thing.
   const modeMap = new Map(); // bucketKey -> { platform -> count }
   for (const [kind, items] of [['newCount', classified.newItems], ['ongoing', classified.ongoingItems]]) {
     for (const item of items) {
-      const raw = item.note.contact_platform || 'Phone call';
+      const raw = normalizeMode(item.note.contact_platform);
       platforms[raw] = platforms[raw] || { platform: raw, newCount: 0, ongoing: 0 };
       platforms[raw][kind]++;
       const key = bucketKeyOf(new Date(item.note.created_at).getTime(), bucket);

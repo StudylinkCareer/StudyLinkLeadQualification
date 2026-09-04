@@ -123,4 +123,26 @@ function classifyCalls(periodNotes, historyNotes = []) {
   };
 }
 
-module.exports = { classifyCalls, isCallNote, classifyKbm };
+// Normalise a stored contact_platform into one of six communication modes.
+// Shared by Weekly Report (computeGroup) and Individual/Company Report
+// (rangeReport.js) so a "by platform / by mode" breakdown always collapses
+// the same way in both places — moved here 2026-09 after a real report bug:
+// rangeReport.js was using the raw contact_platform string directly instead
+// of this normalization, so an explicit "Phone Call" note (the exact label
+// LeadDetail.jsx's CONTACT_LABELS stores when a staffer picks that method)
+// and a null-platform call note (which falls back to the string literal
+// below) landed in two different map keys — 'Phone Call' vs 'Phone call' —
+// and showed up as two separate columns for what's really one mode.
+// Keyword-only call mentions (no platform) are treated as Phone call upstream.
+function normalizeMode(platform) {
+  const p = String(platform || '').toLowerCase();
+  if (p.includes('mail'))                                return 'E-mail';
+  if (p.includes('phone') || p.includes('call'))          return 'Phone call';
+  if (p.includes('sms') || p.includes('text'))            return 'SMS';
+  if (p.includes('zalo'))                                 return 'Zalo';
+  if (p.includes('whatsapp'))                             return 'WhatsApp';
+  if (p.includes('messenger') || p.includes('facebook'))  return 'Messenger';
+  return platform || 'Phone call';
+}
+
+module.exports = { classifyCalls, isCallNote, classifyKbm, normalizeMode };
