@@ -210,6 +210,17 @@ async function presalesTargetForRange(fullName, from, to, granularity = null) {
 async function computeRangeReport(names, from, to, opts = {}) {
   const fromISO = from.toISOString(), toISO = to.toISOString();
   const bucket = opts.bucket || 'day';
+  // Which names "count" as a contract-signing/reversal/source, separate from
+  // `names` (which drives calls/letters/meetings). Defaults to `names` — an
+  // individual report still credits a contract signed under EITHER their
+  // counselor OR presales assignment. Company Report passes counsellorNames
+  // here explicitly (2026-09, Hong Ha's fix): a lead can be marked Contracted
+  // with only a Pre-Sales assignment and no counselor (e.g. closed directly
+  // by Pre-Sales, no handoff) — that still counted toward the company-wide
+  // "Contracted" total via the old `names`-wide OR match, but was invisible
+  // in the Team Performance table (which only sums per-counsellor rows), so
+  // the two numbers on the page silently disagreed (7 vs 6 for August).
+  const contractedNames = opts.contractedNames || names;
 
   const periodNoteRows = names.length ? (await pool.query(
     `SELECT sn.student_id, sn.author_name, sn.contact_platform, sn.content, sn.created_at, sn.call_answered, s.full_name
@@ -285,15 +296,15 @@ async function computeRangeReport(names, from, to, opts = {}) {
   // fields too — same data Monthly Report's Team Performance case-type
   // columns and Contract Sources use, computed below rather than a second
   // round-trip query.
-  const contractedRows = names.length ? (await pool.query(
+  const contractedRows = contractedNames.length ? (await pool.query(
     `SELECT l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country,
-            l.case_type, l.is_out_of_system, s.source, s.source_detail, s.lead_source,
-            solv.meta->>'mode' AS sol_mode, COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label
+            l.case_type, l.is_out_of_system, s.lead_source,
+            COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label
        FROM leads l JOIN students s ON s.student_id = l.person_id
        LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
       WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND l.actual_close_date >= $2 AND l.actual_close_date < $3`,
-    [names, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10)])).rows : [];
+    [contractedNames, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10)])).rows : [];
 
   // Case-type split + in/out system — same 4 buckets Monthly Report's Team
   // Performance table uses.
@@ -306,16 +317,14 @@ async function computeRangeReport(names, from, to, opts = {}) {
     else if (r.is_out_of_system === false) inSystemCount++;
     else unclassifiedCount++;
   }
-  // Contract Sources — same resolution rule as Monthly Report's
-  // resolveContractSourceLabel: Event/Campaign leads use the lookup label,
-  // Ex-Client sources collapse to one bucket (avoids fragmenting by
-  // free-text client name), everything else is "source - source_detail".
+  // Contract Sources — grouped by the Source of Lead field (students.lead_source,
+  // resolved through the source_of_lead lookup list) rather than the legacy
+  // source/source_detail free-text columns Monthly Report used (2026-09,
+  // Hong Ha's fix — Source of Lead is the actively-maintained field; the old
+  // ones are being phased out).
   const sourceCounts = new Map();
   for (const r of contractedRows) {
-    let label;
-    if (r.sol_mode === 'events') label = r.sol_label || 'Event/Campaign';
-    else if (/^ex[\s-]?client(s)?$/i.test((r.source || '').trim())) label = 'Ex-Client';
-    else label = [r.source, r.source_detail].filter(Boolean).join(' - ') || '(Unknown / not recorded)';
+    const label = r.sol_label || '(Unknown / not recorded)';
     sourceCounts.set(label, (sourceCounts.get(label) || 0) + 1);
   }
   const contractSources = [...sourceCounts.entries()]
@@ -327,7 +336,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
   // Reversed: signed (per audit log) within the range, but no longer
   // Contracted now. Mirrors contractedBuckets' 'reversed' bucket, scoped to
   // the period instead of "this year".
-  const reversedRows = names.length ? (await pool.query(
+  const reversedRows = contractedNames.length ? (await pool.query(
     `SELECT DISTINCT ON (a.lead_id) a.lead_id, l.person_id AS student_id, s.full_name
        FROM audit_log a
        JOIN leads l ON l.lead_id = a.lead_id
@@ -337,7 +346,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
         AND (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND l.lead_status <> 'Contracted'
       ORDER BY a.lead_id, a.changed_at DESC`,
-    [names, fromISO, toISO])).rows.map(objectToCamelCase) : [];
+    [contractedNames, fromISO, toISO])).rows.map(objectToCamelCase) : [];
 
   return {
     calls: {
