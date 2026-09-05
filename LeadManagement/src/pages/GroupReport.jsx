@@ -294,12 +294,39 @@ function MarketingActivities({ activities, L }) {
 // Contract Sources — table + pie chart. Capped to the top 7 sources (+
 // "Other") for the pie, same cap Monthly Report used, so a long tail of
 // one-off sources doesn't turn the chart illegible.
-function ContractSources({ sources, L }) {
+//
+// Per-source row click opens the same DrillPanel side panel used elsewhere
+// on this page (BarChartCard, Pre-sales' Transferred/Contracted columns) —
+// Hoàng asked for specific source / campaign / lead-in date / signed date /
+// days-to-close per contract (2026-09); reusing the existing panel instead
+// of a new inline-expand or a second drilldown layer, since it's already
+// the established "click a number, see the list" idiom on this exact page.
+function ContractSources({ sources, onOpen, L }) {
   if (!sources || sources.length === 0) return null;
   const total = sources.reduce((s, r) => s + r.count, 0);
   const top = sources.slice(0, 7);
   const restCount = sources.slice(7).reduce((s, r) => s + r.count, 0);
   const pieData = restCount > 0 ? [...top, { source: L('Other', 'Khác'), count: restCount }] : top;
+
+  const openSource = (r) => {
+    const items = (r.items || []).map(it => ({
+      ...it,
+      leadCreatedAtDisplay: it.leadCreatedAt ? new Date(it.leadCreatedAt).toLocaleDateString() : '',
+      actualCloseDateDisplay: it.actualCloseDate ? new Date(it.actualCloseDate).toLocaleDateString() : '',
+    }));
+    onOpen && onOpen({
+      title: r.source,
+      cols: [
+        { key: 'fullName', label: L('Student', 'Học sinh') },
+        { key: 'specificSource', label: L('Specific source', 'Nguồn cụ thể') },
+        { key: 'campaign', label: L('Campaign', 'Chiến dịch') },
+        { key: 'leadCreatedAtDisplay', label: L('Lead-in date', 'Ngày nhập lead') },
+        { key: 'actualCloseDateDisplay', label: L('Signed date', 'Ngày ký HĐ') },
+        { key: 'daysToClose', label: L('Days to close', 'Số ngày') },
+      ],
+      items,
+    });
+  };
 
   return (
     <div style={card}>
@@ -310,7 +337,7 @@ function ContractSources({ sources, L }) {
             <thead><tr><th style={th}>{L('Source', 'Nguồn')}</th><th style={{ ...th, textAlign: 'right' }}>{L('Contracts', 'Hợp đồng')}</th></tr></thead>
             <tbody>
               {sources.map(r => (
-                <tr key={r.source}>
+                <tr key={r.source} onClick={() => openSource(r)} style={{ cursor: onOpen ? 'pointer' : 'default' }}>
                   <td style={td}>{r.source}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{r.count}</td>
                 </tr>
@@ -412,7 +439,7 @@ export default function GroupReport() {
             onOpen={setDrill}
             L={L}
           />
-          <ContractSources sources={cw?.contractSources} L={L} />
+          <ContractSources sources={cw?.contractSources} onOpen={setDrill} L={L} />
           <MarketingActivities activities={data.marketingActivities} L={L} />
         </>
       )}
