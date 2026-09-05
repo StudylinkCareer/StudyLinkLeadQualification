@@ -31,6 +31,16 @@ export function KpiTiles({ metrics, onOpen }) {
 }
 
 // Fixed side panel, opened via KpiTiles' onOpen. `drill` = { title, cols, items } | null.
+//
+// Stacked label:value cards, not a wide table (2026-09, fixed after Hoàng's
+// Contract Sources drilldown made this a real problem — 6 cols of names/
+// dates/free text in a 420px panel forced a horizontal scrollbar to read
+// the later columns). A table can't win here: fixed layout truncates real
+// content, auto layout just overflows the panel. Cols stack per item
+// instead, so width is only ever driven by the panel, not by column count —
+// this scales to any number of cols without ever needing horizontal scroll,
+// and costs nothing on the existing 1-4 col drills elsewhere (still reads
+// as a compact list, just one line per field instead of one line per item).
 export function DrillPanel({ drill, onClose, onRowClick, L }) {
   if (!drill) return null;
   return (
@@ -44,23 +54,21 @@ export function DrillPanel({ drill, onClose, onRowClick, L }) {
         <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-          <thead>
-            <tr>{drill.cols.map(c => <th key={c.key} style={{ textAlign: 'left', padding: '0.4rem 0.75rem', borderBottom: '1px solid var(--border,#e5e7eb)', color: 'var(--text-secondary,#6b7280)' }}>{c.label}</th>)}</tr>
-          </thead>
-          <tbody>
-            {drill.items.map((it, i) => (
-              <tr key={it.studentId ? `${it.studentId}-${i}` : i}
-                onClick={() => it.studentId && onRowClick && onRowClick(it.studentId)}
-                style={{ cursor: it.studentId ? 'pointer' : 'default', borderBottom: '1px solid var(--border,#f1f5f9)' }}>
-                {drill.cols.map(c => <td key={c.key} style={{ padding: '0.4rem 0.75rem' }}>{it[c.key] ?? ''}</td>)}
-              </tr>
+        {drill.items.map((it, i) => (
+          <div key={it.studentId ? `${it.studentId}-${i}` : i}
+            onClick={() => it.studentId && onRowClick && onRowClick(it.studentId)}
+            style={{ padding: '0.5rem 1rem', cursor: it.studentId ? 'pointer' : 'default', borderBottom: '1px solid var(--border,#f1f5f9)' }}>
+            {drill.cols.map(c => (
+              <div key={c.key} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '0.1rem 0', fontSize: '0.82rem' }}>
+                <span style={{ color: 'var(--text-secondary,#6b7280)', flexShrink: 0 }}>{c.label}</span>
+                <span style={{ textAlign: 'right', wordBreak: 'break-word' }}>{it[c.key] ?? ''}</span>
+              </div>
             ))}
-            {drill.items.length === 0 && (
-              <tr><td style={{ padding: '0.75rem', color: 'var(--text-secondary,#9ca3af)' }}>{L ? L('No records', 'Không có') : 'No records'}</td></tr>
-            )}
-          </tbody>
-        </table>
+          </div>
+        ))}
+        {drill.items.length === 0 && (
+          <div style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary,#9ca3af)' }}>{L ? L('No records', 'Không có') : 'No records'}</div>
+        )}
       </div>
     </div>
   );
