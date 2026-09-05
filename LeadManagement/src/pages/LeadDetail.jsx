@@ -1758,10 +1758,22 @@ export default function LeadDetail() {
       ];
       // Same split handleContactSave uses — on the Student page, `id` is the
       // student_id, not a numeric lead_id, so this has to go through the
-      // student-level notes endpoint instead (which also means no structured
-      // `topic` there, same as the Contact Log Modal's parent-call icons).
+      // student-level notes endpoint instead. `topic` WAS missing from this
+      // branch's params (real bug, found 2026-09 via a staff report — Lộc
+      // Trí Thành's and Nguyễn Thị Anh Phương's Final Counselling Letter
+      // notes both saved with topic NULL): handleContactSave's ContactLogModal
+      // path got this exact fix in 2026-08 ("Family Contacts' Mother/Father
+      // call icons... dropping it here meant Weekly/Monthly Report's
+      // topic-based counts silently missed every parent/family-contact
+      // note"), but this sibling function — the main "Add Note" form,
+      // reached whenever staff add a note from the Student page rather than
+      // a specific numbered Lead page (not specifically about contract
+      // status, despite that correlation being what the report surfaced) —
+      // never got the same fix. Same content-vs-column split as before: the
+      // topic was always right there in the note's own text ("Topic: ..."),
+      // just never forwarded as the structured column the reports filter on.
       const data = isStudentView
-        ? await notesAPI.addStudentLevel(id, noteType, parts.join('\n'), { followUpDate, contactPlatform:null, callAnswered:null })
+        ? await notesAPI.addStudentLevel(id, noteType, parts.join('\n'), { topic, followUpDate, contactPlatform:null, callAnswered:null })
         : await notesAPI.addForLead(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null, callAnswered:null });
       setNotes(n=>[data.data,...n]);
     } catch(e) { alert(e.message); }
