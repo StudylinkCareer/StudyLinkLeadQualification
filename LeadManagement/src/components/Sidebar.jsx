@@ -158,21 +158,11 @@ export default function Sidebar() {
           </button>
         )}
 
-        <button
-          className={`nav-item ${isActive('/reports/weekly') ? 'active' : ''}`}
-          onClick={() => navigate('/reports/weekly')}
-        >
-          <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần (tĩnh)' : 'Weekly Report (static)'}
-        </button>
-
-        {canViewReports && (
-          <button
-            className={`nav-item ${isActive('/reports/monthly') ? 'active' : ''}`}
-            onClick={() => navigate('/reports/monthly')}
-          >
-            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tháng' : 'Monthly Report'}
-          </button>
-        )}
+        {/* Weekly Report / Monthly Report (2026-09): disabled, not deleted -
+            superseded by Individual Report (new) / Company Report (new) below.
+            Nav links removed per Hong Ha's decision to retire these in favor
+            of the new reports; routes/pages/backend endpoints are untouched
+            so a direct URL still works if ever needed. */}
 
         {canViewEventAnalytics(staff?.position) && (
           <button
@@ -183,9 +173,8 @@ export default function Sidebar() {
           </button>
         )}
 
-        {/* New Individual/Group Report (2026-08 merge, in progress on the
-            reports-merge branch) — additive alongside Weekly/Monthly Report
-            above until cutover is verified. */}
+        {/* Individual/Group Report (2026-08 merge) — now the primary reports,
+            Weekly/Monthly Report above disabled in favor of these. */}
         {canViewIndividualReport && (
           <button
             className={`nav-item ${isActive('/reports/individual') ? 'active' : ''}`}
