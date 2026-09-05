@@ -180,7 +180,7 @@ export default function Sidebar() {
             className={`nav-item ${isActive('/reports/individual') ? 'active' : ''}`}
             onClick={() => navigate('/reports/individual')}
           >
-            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo cá nhân (mới)' : 'Individual Report (new)'}
+            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo cá nhân' : 'Individual Report'}
           </button>
         )}
         {canViewGroupReport && (
@@ -188,7 +188,7 @@ export default function Sidebar() {
             className={`nav-item ${isActive('/reports/group') ? 'active' : ''}`}
             onClick={() => navigate('/reports/group')}
           >
-            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo công ty (mới)' : 'Company Report (new)'}
+            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo công ty' : 'Company Report'}
           </button>
         )}
 
