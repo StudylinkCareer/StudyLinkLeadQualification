@@ -528,12 +528,29 @@ async function loadDayTargets() {
 // Reconstructs a group's ACTIVE book as at instant `tISO` (point-in-time), from
 // the audit log: each lead's counselor / presales / status = its last logged
 // change on-or-before T, else the value just before its first change after T,
-// else the current value (never changed). Non-terminal only. Validated to
-// reproduce the live book exactly at T = now for all counsellors.
+// else the current value (never changed). Non-terminal only.
+//
+// Phase-scoped (2026-09, real bug found via Individual Report vs Dashboard
+// disagreeing for the same counsellor by ~2x): `leads.counselor`/`presales`
+// are legacy columns only reliably current WHILE a lead sits in that exact
+// phase — once a lead moves on (e.g. Counselling -> Presales for further
+// nurturing, or -> Pool), nothing clears the old name, so the un-scoped
+// version of this query kept counting leads long after they'd left that
+// person's actual book. Dashboard already avoids this (own-scope /api/leads
+// filters to `orderPhase === myPhase`, phaseForPosition/isReportableStatus) -
+// this brings membersAsAt in line with that same rule instead of being the
+// one inconsistent count. orderPhase is a STUDENT-level field, audited by
+// student_id (not lead_id) - hence the separate `asofStudent` helper.
+// Superseded the old "validated to reproduce the live book exactly at T=now"
+// comment - that validation predated leads drifting across phases this far.
 async function membersAsAt(names, tISO) {
   const asof = (field, src) => `COALESCE(
       (SELECT a.new_value FROM audit_log a WHERE a.lead_id=l.lead_id AND a.field_name='${field}' AND a.changed_at <= $2 ORDER BY a.changed_at DESC LIMIT 1),
       (SELECT a.old_value FROM audit_log a WHERE a.lead_id=l.lead_id AND a.field_name='${field}' AND a.changed_at >  $2 ORDER BY a.changed_at ASC  LIMIT 1),
+      ${src})`;
+  const asofStudent = (field, src) => `COALESCE(
+      (SELECT a.new_value FROM audit_log a WHERE a.student_id=l.person_id AND a.field_name='${field}' AND a.changed_at <= $2 ORDER BY a.changed_at DESC LIMIT 1),
+      (SELECT a.old_value FROM audit_log a WHERE a.student_id=l.person_id AND a.field_name='${field}' AND a.changed_at >  $2 ORDER BY a.changed_at ASC  LIMIT 1),
       ${src})`;
   const { rows } = await pool.query(
     `WITH candidates AS (
@@ -548,13 +565,15 @@ async function membersAsAt(names, tISO) {
         SELECT l.lead_id, l.person_id AS student_id,
                btrim(${asof('counselor', 'l.counselor')})   AS cslr,
                btrim(${asof('presales',  'l.presales')})     AS pres,
-                     ${asof('leadStatus', 'l.lead_status')}  AS status
+                     ${asof('leadStatus', 'l.lead_status')}  AS status,
+                     ${asofStudent('orderPhase', 's0.order_phase')} AS phase
           FROM leads l
+          JOIN students s0 ON s0.student_id = l.person_id
          WHERE l.lead_id IN (SELECT lead_id FROM candidates) AND l.created_at <= $2
      )
      SELECT a.lead_id, a.student_id, s.full_name, s.lead_source, a.status AS lead_status
        FROM asof a JOIN students s ON s.student_id = a.student_id
-      WHERE (a.cslr = ANY($1) OR a.pres = ANY($1))
+      WHERE ((a.cslr = ANY($1) AND a.phase = 'Counselling') OR (a.pres = ANY($1) AND a.phase = 'Presales'))
         AND a.status NOT IN ('Contracted','Lost','Archived','Cancelled')
       ORDER BY s.full_name`,
     [names, tISO]);
