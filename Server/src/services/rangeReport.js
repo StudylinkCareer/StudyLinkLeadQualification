@@ -325,10 +325,17 @@ async function computeRangeReport(names, from, to, opts = {}) {
   // the two tables.)
   const contractedRows = names.length ? (await pool.query(
     `SELECT l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country,
-            l.case_type, l.is_out_of_system, s.lead_source,
-            COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label
+            l.case_type, l.is_out_of_system, s.lead_source, s.source, s.source_detail,
+            l.created_at AS lead_created_at, l.actual_close_date,
+            COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label,
+            ev.campaign_names
        FROM leads l JOIN students s ON s.student_id = l.person_id
        LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
+       LEFT JOIN LATERAL (
+             SELECT string_agg(DISTINCT e.name, ', ') AS campaign_names
+               FROM lead_events le JOIN events e ON e.id = le.event_id
+              WHERE le.student_id = l.person_id
+            ) ev ON true
       WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
         AND l.actual_close_date >= $2 AND l.actual_close_date < $3`,
     [names, vnYmd(from), vnYmd(to)])).rows : [];
@@ -349,13 +356,39 @@ async function computeRangeReport(names, from, to, opts = {}) {
   // source/source_detail free-text columns Monthly Report used (2026-09,
   // Hong Ha's fix — Source of Lead is the actively-maintained field; the old
   // ones are being phased out).
-  const sourceCounts = new Map();
+  //
+  // Per-contract drilldown fields (2026-09, Hoàng's ask): the grouping key
+  // above stays the clean, actively-maintained Source of Lead bucket, but
+  // each contract underneath it also carries the legacy source/source_detail
+  // pair as "specific source" (Nguồn cụ thể) — this is the exact free-text
+  // Monthly Report used to show as ITS single source label (e.g. "Database -
+  // Onshore" + "PTE LIFE"), so nothing is lost by grouping on the cleaner
+  // field above. Campaign comes from lead_events/events (the same link
+  // Marketing Activities counts leads through), not students.campaign_name/
+  // campaign_type — those free-text fields were empty on every August
+  // contract checked live; the event link is what's actually populated.
+  const dayMs = 24 * 60 * 60 * 1000;
+  const detailFor = (r) => {
+    const specificSource = [r.source, r.source_detail].filter(Boolean).join(' - ') || null;
+    const leadCreatedAt = r.lead_created_at ? new Date(r.lead_created_at).toISOString() : null;
+    const actualCloseDate = r.actual_close_date ? new Date(r.actual_close_date).toISOString() : null;
+    const daysToClose = (leadCreatedAt && actualCloseDate)
+      ? Math.round((new Date(actualCloseDate) - new Date(leadCreatedAt)) / dayMs)
+      : null;
+    return {
+      leadId: r.lead_id, studentId: r.student_id, fullName: r.full_name,
+      specificSource, campaign: r.campaign_names || null,
+      leadCreatedAt, actualCloseDate, daysToClose,
+    };
+  };
+  const sourceBuckets = new Map();
   for (const r of contractedRows) {
     const label = r.sol_label || '(Unknown / not recorded)';
-    sourceCounts.set(label, (sourceCounts.get(label) || 0) + 1);
+    if (!sourceBuckets.has(label)) sourceBuckets.set(label, []);
+    sourceBuckets.get(label).push(detailFor(r));
   }
-  const contractSources = [...sourceCounts.entries()]
-    .map(([source, count]) => ({ source, count }))
+  const contractSources = [...sourceBuckets.entries()]
+    .map(([source, items]) => ({ source, count: items.length, items }))
     .sort((a, b) => b.count - a.count);
 
   const contractedItems = contractedRows.map(objectToCamelCase);
