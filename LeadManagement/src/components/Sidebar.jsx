@@ -158,11 +158,28 @@ export default function Sidebar() {
           </button>
         )}
 
-        {/* Weekly Report / Monthly Report (2026-09): disabled, not deleted -
-            superseded by Individual Report (new) / Company Report (new) below.
-            Nav links removed per Hong Ha's decision to retire these in favor
-            of the new reports; routes/pages/backend endpoints are untouched
-            so a direct URL still works if ever needed. */}
+        {/* Weekly Report / Monthly Report (2026-09): disabled for everyone,
+            not deleted - superseded by Individual Report / Company Report
+            below, per Hong Ha's decision to retire these. Nav links stay
+            visible only for Huy Anh (position gate, not a role/scope change -
+            routes/pages/backend endpoints were never touched) so he can
+            still get to them himself without re-exposing them company-wide. */}
+        {staff?.position === 'Manager, Technical Support' && canViewReports && (
+          <button
+            className={`nav-item ${isActive('/reports/monthly') ? 'active' : ''}`}
+            onClick={() => navigate('/reports/monthly')}
+          >
+            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tháng' : 'Monthly Report'}
+          </button>
+        )}
+        {staff?.position === 'Manager, Technical Support' && (
+          <button
+            className={`nav-item ${isActive('/reports/weekly') ? 'active' : ''}`}
+            onClick={() => navigate('/reports/weekly')}
+          >
+            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần (tĩnh)' : 'Weekly Report (static)'}
+          </button>
+        )}
 
         {canViewEventAnalytics(staff?.position) && (
           <button
