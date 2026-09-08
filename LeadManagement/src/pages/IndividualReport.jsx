@@ -205,16 +205,24 @@ export default function IndividualReport() {
   // arrives - only the latest-fired request can ever update state.
   useEffect(() => {
     let cancelled = false;
+    const runId = Math.random().toString(36).slice(2, 8);
+    // TEMP TRACE (2026-09, remove once the all-zero bug is confirmed fixed):
+    // logs every run's start/finish so we can see the actual request
+    // sequence instead of inferring it - the cancel-guard fix alone didn't
+    // resolve a live repro, so something about the actual sequence of
+    // events differs from what that fix assumed.
+    console.log(`[IndividualReport ${runId}] START staff=${selectedStaff || '(self)'} period=${JSON.stringify(periodVal)}`);
     setLoading(true); setError(null);
     reportsAPI.individualReport(periodVal, selectedStaff || undefined)
       .then(r => {
+        console.log(`[IndividualReport ${runId}] RESOLVED staffName=${r.data.staffName} cancelled=${cancelled}`);
         if (cancelled) return;
         setData(r.data);
         if (!selectedStaff) setSelectedStaff(r.data.staffName);
       })
-      .catch(e => { if (!cancelled) setError(e.message); })
+      .catch(e => { console.log(`[IndividualReport ${runId}] ERROR cancelled=${cancelled}`, e); if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    return () => { console.log(`[IndividualReport ${runId}] CLEANUP (cancelling)`); cancelled = true; };
   }, [periodVal, selectedStaff]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function openLead(studentId) { navigate(`/students/${studentId}`); }
