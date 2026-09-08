@@ -102,7 +102,19 @@ const zaloVerifyHtml =
 app.get('/', (_req, res) => res.type('html').send(zaloVerifyHtml));
 app.get(`/zalo_verifier${ZALO_VERIFY_CODE}.html`, (_req, res) => res.type('html').send(zaloVerifyHtml));
 
-// Routes
+// Every /api response is authenticated, per-session, frequently-changing
+// data — never something a browser or intermediary should cache. Express
+// sets a weak ETag by default, which is normally harmless (conditional GET
+// still round-trips to the server), but investigating a live report bug
+// (2026-09: Individual Report showing all-zero for one staffer on some
+// loads, not others, surviving a hard refresh) this was the one remaining
+// unruled-out explanation once the frontend fetch-race fix alone didn't
+// resolve it — no explicit Cache-Control anywhere meant a GET response
+// could in principle be cached under its exact query string by the browser
+// or a proxy in between and replayed for an identical later request,
+// including a stale/racy one caught mid-bug before that fix shipped.
+// Correct regardless of whether that's this bug's actual cause.
+app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 app.use('/api', apiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/students', studentRoutes);
