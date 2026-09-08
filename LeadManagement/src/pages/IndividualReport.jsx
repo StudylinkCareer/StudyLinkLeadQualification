@@ -205,24 +205,30 @@ export default function IndividualReport() {
   // arrives - only the latest-fired request can ever update state.
   useEffect(() => {
     let cancelled = false;
-    const runId = Math.random().toString(36).slice(2, 8);
-    // TEMP TRACE (2026-09, remove once the all-zero bug is confirmed fixed):
-    // logs every run's start/finish so we can see the actual request
-    // sequence instead of inferring it - the cancel-guard fix alone didn't
-    // resolve a live repro, so something about the actual sequence of
-    // events differs from what that fix assumed.
-    console.log(`[IndividualReport ${runId}] START staff=${selectedStaff || '(self)'} period=${JSON.stringify(periodVal)}`);
     setLoading(true); setError(null);
     reportsAPI.individualReport(periodVal, selectedStaff || undefined)
       .then(r => {
-        console.log(`[IndividualReport ${runId}] RESOLVED staffName=${r.data.staffName} cancelled=${cancelled}`);
         if (cancelled) return;
         setData(r.data);
-        if (!selectedStaff) setSelectedStaff(r.data.staffName);
+        // Real root cause of the "Vinh shows all zero" bug (2026-09, found
+        // live via a console trace): staffOptions only lists counsellors/
+        // presales, which a manager/IT viewer (scope='all' but not
+        // themselves a salesperson) never appears in. Defaulting to THEIR
+        // own name here set selectedStaff to a value with no matching
+        // <option> - the <select> then falls back to visually showing its
+        // FIRST option (alphabetically "Nguyễn Thành Vinh"), while every
+        // actual request kept fetching the caller's own (genuinely all-
+        // zero) report underneath. Only fall back to the caller's own name
+        // if it's actually a pickable option; otherwise default to the
+        // first real one, so what's displayed always matches what's fetched.
+        if (!selectedStaff) {
+          const opts = r.data.staffOptions || [];
+          setSelectedStaff(opts.includes(r.data.staffName) ? r.data.staffName : (opts[0] || r.data.staffName));
+        }
       })
-      .catch(e => { console.log(`[IndividualReport ${runId}] ERROR cancelled=${cancelled}`, e); if (!cancelled) setError(e.message); })
+      .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { console.log(`[IndividualReport ${runId}] CLEANUP (cancelling)`); cancelled = true; };
+    return () => { cancelled = true; };
   }, [periodVal, selectedStaff]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function openLead(studentId) { navigate(`/students/${studentId}`); }
