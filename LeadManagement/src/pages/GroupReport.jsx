@@ -378,14 +378,20 @@ export default function GroupReport() {
 
   useEffect(() => { pushTrail && pushTrail({ label: L('Company Report', 'Báo cáo công ty') }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function load() {
+  // Same race-condition fix as IndividualReport.jsx (2026-09): rapid period
+  // changes (e.g. clicking through months quickly) can fire this effect
+  // again before the prior request resolves; without a guard, an
+  // out-of-order response could overwrite fresh data with stale data. The
+  // cleanup flag makes a superseded run's response a no-op.
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true); setError(null);
     reportsAPI.groupReport(periodVal)
-      .then(r => setData(r.data))
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }
-  useEffect(() => { load(); }, [periodVal]); // eslint-disable-line react-hooks/exhaustive-deps
+      .then(r => { if (!cancelled) setData(r.data); })
+      .catch(e => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [periodVal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) return <div style={{ maxWidth: 1200, margin: '0 auto', padding: '1rem' }}><div style={card}>{error}</div></div>;
 
