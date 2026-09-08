@@ -193,14 +193,29 @@ export default function IndividualReport() {
 
   useEffect(() => { pushTrail && pushTrail({ label: L('Individual Report', 'Báo cáo cá nhân') }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function load() {
+  // Race condition (2026-09, found live: reload, pick Vinh + August in two
+  // clicks -> shows all zeroes until you flip away and back). Picking a
+  // staffer and a period are two separate state changes, so this effect
+  // fires twice back to back - one in-flight request per change. Nothing
+  // stopped the OLDER request's response from landing after the newer one
+  // and overwriting good data with stale (e.g. still-default-period,
+  // barely-started-week) data, even though the UI already showed the new
+  // selection. Standard fix: a per-run cancelled flag via the effect's
+  // cleanup, so a superseded run's response is a no-op when it finally
+  // arrives - only the latest-fired request can ever update state.
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true); setError(null);
     reportsAPI.individualReport(periodVal, selectedStaff || undefined)
-      .then(r => { setData(r.data); if (!selectedStaff) setSelectedStaff(r.data.staffName); })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }
-  useEffect(() => { load(); }, [periodVal, selectedStaff]); // eslint-disable-line react-hooks/exhaustive-deps
+      .then(r => {
+        if (cancelled) return;
+        setData(r.data);
+        if (!selectedStaff) setSelectedStaff(r.data.staffName);
+      })
+      .catch(e => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [periodVal, selectedStaff]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function openLead(studentId) { navigate(`/students/${studentId}`); }
 
