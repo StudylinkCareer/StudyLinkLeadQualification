@@ -38,7 +38,7 @@ import { containsPhoneMention } from '../utils/phoneAliases';
 // ── NoteForm ─────────────────────────────────────────────────────────────────
 // Unified structured note form. All 5 fields mandatory.
 // onSubmit receives: { topic, summary, nextSteps, reason, followUpDate }
-function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }) {
+function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered, showContactPlatform }) {
   const [topic,        setTopic]        = useState('');
   const [summary,      setSummary]      = useState('');
   const [nextSteps,    setNextSteps]    = useState('');
@@ -48,11 +48,27 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }
   // call-like methods (Phone Call / Zalo). null until the staffer picks one,
   // required before saving so the count is real rather than a guess.
   const [callAnswered, setCallAnswered] = useState(null);
+  // Contact Platform (2026-09, real bug found live): this general "+ New
+  // Note" form previously had no way to say a note documented a phone/Zalo/
+  // etc. contact — it always saved contactPlatform=null, so it could never
+  // register as a "call" in Individual/Company Report's Calls tracking
+  // unless the free text happened to contain a literal phone/call keyword
+  // (isCallNote's content fallback; Zalo/WhatsApp/etc. aren't in that
+  // keyword list at all). Real gap specifically for notes written from the
+  // Student/Sales page ("phần phụ huynh"), where staff commonly use this
+  // form rather than the dedicated Log-a-Call flow (ContactLogModal, which
+  // already asks for a platform via its icon row before this form even
+  // opens). Optional here — a genuine non-contact note (e.g. an office
+  // visit writeup) still saves fine with "— None —" left selected.
+  const [contactPlatform, setContactPlatform] = useState('');
+  const effectiveShowCallAnswered = showContactPlatform
+    ? ['Phone Call', 'Zalo', 'WhatsApp'].includes(contactPlatform)
+    : showCallAnswered;
 
   const fld = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
   const inp = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
   const sel = { ...inp, resize:'none', cursor:'pointer' };
-  const isValid = topic && summary.trim() && nextSteps.trim() && reason.trim() && followUpDate && (!showCallAnswered || callAnswered != null);
+  const isValid = topic && summary.trim() && nextSteps.trim() && reason.trim() && followUpDate && (!effectiveShowCallAnswered || callAnswered != null);
 
   function handleSubmit() {
     if (!topic)            { alert('Topic / Objective is required.'); return; }
@@ -60,8 +76,11 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }
     if (!nextSteps.trim()) { alert('Next Steps is required.'); return; }
     if (!reason.trim())    { alert('Reason is required.'); return; }
     if (!followUpDate)     { alert('Follow-up Date is required.'); return; }
-    if (showCallAnswered && callAnswered == null) { alert('Please indicate whether the call was answered.'); return; }
-    onSubmit({ topic, summary: summary.trim(), nextSteps: nextSteps.trim(), reason: reason.trim(), followUpDate, callAnswered });
+    if (effectiveShowCallAnswered && callAnswered == null) { alert('Please indicate whether the call was answered.'); return; }
+    onSubmit({
+      topic, summary: summary.trim(), nextSteps: nextSteps.trim(), reason: reason.trim(), followUpDate, callAnswered,
+      ...(showContactPlatform ? { contactPlatform: contactPlatform || null } : {}),
+    });
   }
 
   return (
@@ -73,7 +92,21 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }
           {(topicOptions||[]).map(o=><option key={o.code} value={o.code}>{o.labelEn||o.code}</option>)}
         </select>
       </div>
-      {showCallAnswered && (
+      {showContactPlatform && (
+        <div>
+          <label style={fld}>Contact Platform <span style={{ color:'var(--text-secondary)', fontWeight:400 }}>(if this documents a call/message)</span></label>
+          <select value={contactPlatform} onChange={e=>setContactPlatform(e.target.value)} disabled={disabled} style={sel}>
+            <option value="">— None —</option>
+            <option value="Phone Call">Phone Call</option>
+            <option value="SMS">SMS</option>
+            <option value="Zalo">Zalo</option>
+            <option value="WhatsApp">WhatsApp</option>
+            <option value="Messenger">Messenger</option>
+            <option value="E-mail">E-mail</option>
+          </select>
+        </div>
+      )}
+      {effectiveShowCallAnswered && (
         <div>
           <label style={fld}>Did they answer? <span style={{ color:'#dc2626' }}>*</span></label>
           <div style={{ display:'flex', gap:'0.5rem' }}>
@@ -1743,7 +1776,7 @@ export default function LeadDetail() {
     finally { setRecalcOcean(false); }
   }
 
-  async function addNote({ topic, summary, nextSteps, reason, followUpDate }) {
+  async function addNote({ topic, summary, nextSteps, reason, followUpDate, contactPlatform, callAnswered }) {
     setAdding(true);
     try {
       const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
@@ -1772,9 +1805,17 @@ export default function LeadDetail() {
       // never got the same fix. Same content-vs-column split as before: the
       // topic was always right there in the note's own text ("Topic: ..."),
       // just never forwarded as the structured column the reports filter on.
+      //
+      // contactPlatform/callAnswered were ALSO hardcoded null here (real
+      // bug, found 2026-09 — a call logged through this form, e.g. from the
+      // Student page's parent-contact section, never registered as a "call"
+      // in Calls tracking; isCallNote() needs contact_platform set, and its
+      // fallback keyword match doesn't recognize Zalo/WhatsApp/etc. mentions,
+      // only literal phone/call wording). Now forwarded from NoteForm's new
+      // optional Contact Platform picker instead of hardcoded.
       const data = isStudentView
-        ? await notesAPI.addStudentLevel(id, noteType, parts.join('\n'), { topic, followUpDate, contactPlatform:null, callAnswered:null })
-        : await notesAPI.addForLead(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform:null, callAnswered:null });
+        ? await notesAPI.addStudentLevel(id, noteType, parts.join('\n'), { topic, followUpDate, contactPlatform: contactPlatform || null, callAnswered: callAnswered ?? null })
+        : await notesAPI.addForLead(id, noteType, parts.join('\n'), { topic, followUpDate, reminderStatus:'active', contactPlatform: contactPlatform || null, callAnswered: callAnswered ?? null });
       setNotes(n=>[data.data,...n]);
     } catch(e) { alert(e.message); }
     finally { setAdding(false); }
@@ -2544,6 +2585,7 @@ export default function LeadDetail() {
                         topicOptions={topicOptions}
                         saving={addingNote}
                         disabled={!canAddNotes}
+                        showContactPlatform
                         onSubmit={async (data) => { await addNote(data); setShowNoteForm(false); }}
                       />
                     </div>
