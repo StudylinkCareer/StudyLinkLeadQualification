@@ -103,15 +103,10 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered, 
         </div>
       )}
       {showMktMessage && (
-        <label style={{ display:'block', fontSize:'0.8125rem', cursor:disabled?'not-allowed':'pointer' }}>
-          <span style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
-            <input type="checkbox" checked={mktMessage} disabled={disabled}
-              onChange={e => setMktMessage(e.target.checked)} />
-            MKT message
-          </span>
-          <span style={{ display:'block', marginTop:'0.25rem', paddingLeft:'1.375rem', color:'var(--text-secondary)', fontWeight:400 }}>
-            (tin nhắn marketing hàng loạt — không tính KBM dù chọn "Không" ở trên)
-          </span>
+        <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.8125rem', cursor:disabled?'not-allowed':'pointer' }}>
+          <input type="checkbox" checked={mktMessage} disabled={disabled}
+            onChange={e => setMktMessage(e.target.checked)} />
+          MKT message
         </label>
       )}
       <div>
