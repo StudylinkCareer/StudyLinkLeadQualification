@@ -314,6 +314,11 @@ export const notesAPI = {
       // ?? not || — callAnswered can legitimately be `false` (didn't pick up),
       // which || would wrongly collapse to null.
       callAnswered:    extra.callAnswered ?? null,
+      // "MKT message" checkbox (2026-09) — same explicit-whitelist trap that
+      // dropped topic/contactPlatform before: this function builds its own
+      // request body rather than forwarding `extra` as-is, so a new field
+      // has to be added here too or it's silently never sent at all.
+      mktMessage:      !!extra.mktMessage,
       // Set when this note completes a pending draft (cross-device note
       // drafts, confirmed 2026-08) — the backend marks the draft resolved.
       draftId:         extra.draftId || null,
@@ -335,6 +340,9 @@ export const notesAPI = {
       meetingLocation: extra.meetingLocation || null,
       // ?? not || — callAnswered can legitimately be `false` (didn't pick up).
       callAnswered:    extra.callAnswered ?? null,
+      // "MKT message" checkbox (2026-09) — same explicit-whitelist trap as
+      // addForLead above; added here too so it isn't silently dropped.
+      mktMessage:      !!extra.mktMessage,
       draftId:         extra.draftId || null,
     }),
 

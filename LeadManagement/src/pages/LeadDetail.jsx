@@ -38,7 +38,7 @@ import { containsPhoneMention } from '../utils/phoneAliases';
 // ── NoteForm ─────────────────────────────────────────────────────────────────
 // Unified structured note form. All 5 fields mandatory.
 // onSubmit receives: { topic, summary, nextSteps, reason, followUpDate }
-function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }) {
+function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered, showMktMessage }) {
   const [topic,        setTopic]        = useState('');
   const [summary,      setSummary]      = useState('');
   const [nextSteps,    setNextSteps]    = useState('');
@@ -48,6 +48,14 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }
   // call-like methods (Phone Call / Zalo). null until the staffer picks one,
   // required before saving so the count is real rather than a guess.
   const [callAnswered, setCallAnswered] = useState(null);
+  // "MKT message" (2026-09, Hong Ha's request): Zalo/WhatsApp only. A
+  // broadcast/marketing text has no real "did they answer" — nobody's
+  // expected to reply live — so before this, staff had no honest option but
+  // "Không bắt máy" for one that went unanswered, which then counted as KBM
+  // and dropped the send from their Calls KPI entirely. Ticking this exempts
+  // it regardless of the Yes/No picked above (see classifyKbm). Optional,
+  // defaults unchecked — doesn't affect isValid.
+  const [mktMessage, setMktMessage] = useState(false);
 
   const fld = { display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)', marginBottom:'0.375rem' };
   const inp = { width:'100%', resize:'vertical', boxSizing:'border-box', padding:'0.625rem 0.75rem', borderRadius:'8px', border:'1px solid var(--border)', fontSize:'0.875rem', background:'var(--bg-secondary)', color:'var(--text-primary)', fontFamily:'inherit', lineHeight:1.5 };
@@ -61,7 +69,7 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }
     if (!reason.trim())    { alert('Reason is required.'); return; }
     if (!followUpDate)     { alert('Follow-up Date is required.'); return; }
     if (showCallAnswered && callAnswered == null) { alert('Please indicate whether the call was answered.'); return; }
-    onSubmit({ topic, summary: summary.trim(), nextSteps: nextSteps.trim(), reason: reason.trim(), followUpDate, callAnswered });
+    onSubmit({ topic, summary: summary.trim(), nextSteps: nextSteps.trim(), reason: reason.trim(), followUpDate, callAnswered, mktMessage });
   }
 
   return (
@@ -93,6 +101,16 @@ function NoteForm({ onSubmit, saving, topicOptions, disabled, showCallAnswered }
             </button>
           </div>
         </div>
+      )}
+      {showMktMessage && (
+        <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.8125rem', cursor:disabled?'not-allowed':'pointer' }}>
+          <input type="checkbox" checked={mktMessage} disabled={disabled}
+            onChange={e => setMktMessage(e.target.checked)} />
+          MKT message
+          <span style={{ color:'var(--text-secondary)', fontWeight:400 }}>
+            (tin nhắn marketing hàng loạt — không tính KBM dù chọn "Không" ở trên)
+          </span>
+        </label>
       )}
       <div>
         <label style={fld}>Summary <span style={{ color:'#dc2626' }}>*</span></label>
@@ -801,7 +819,8 @@ function ContactLogModal({ method, studentId, leadId, noteType, studentName, stu
               topicOptions={topicOptions}
               saving={saving}
               showCallAnswered={method === 'call' || method === 'zalo' || method === 'whatsapp'}
-              onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate, callAnswered }) => {
+              showMktMessage={isZalo || isWhatsApp}
+              onSubmit={async ({ topic, summary, nextSteps, reason, followUpDate, callAnswered, mktMessage }) => {
                 setSaving(true);
                 const parts = [
                   icon + ' ' + label + ' — ' + studentName,
@@ -813,7 +832,7 @@ function ContactLogModal({ method, studentId, leadId, noteType, studentName, stu
                   '\nReason:\n' + reason,
                   '\nFollow-up Date: ' + followUpDate,
                 ];
-                await onSave({ noteText: parts.join('\n'), topic, followUpDate, contactPlatform: label, callAnswered: callAnswered ?? null, draftId });
+                await onSave({ noteText: parts.join('\n'), topic, followUpDate, contactPlatform: label, callAnswered: callAnswered ?? null, mktMessage, draftId });
                 setSaving(false);
               }}
             />
@@ -1326,7 +1345,7 @@ export default function LeadDetail() {
     );
   }
 
-  async function handleContactSave({ noteText, topic, followUpDate, contactPlatform, callAnswered, draftId }) {
+  async function handleContactSave({ noteText, topic, followUpDate, contactPlatform, callAnswered, mktMessage, draftId }) {
     try {
       // The note type had been hardcoded to 'counselor' here regardless of
       // who's actually logged in — fine for Counselors, but the backend
@@ -1358,6 +1377,7 @@ export default function LeadDetail() {
             followUpDate,
             contactPlatform,
             callAnswered: callAnswered ?? null,
+            mktMessage,
             draftId,
           })
         : await notesAPI.addForLead(id, contactNoteType, noteText, {
@@ -1365,6 +1385,7 @@ export default function LeadDetail() {
             followUpDate,
             contactPlatform,
             callAnswered: callAnswered ?? null,
+            mktMessage,
             reminderStatus: followUpDate ? 'active' : null,
             draftId,
           });

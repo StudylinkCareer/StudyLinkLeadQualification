@@ -44,6 +44,15 @@ function isCallNote(n) {
 }
 
 function classifyKbm(n) {
+  // MKT message exemption (2026-09, Hong Ha's request): a Zalo/WhatsApp
+  // note tagged "MKT message" is a broadcast text, not a call — there's no
+  // real "did they answer" for a message nobody's expected to pick up live.
+  // Before this, staff had no honest option but to tick "Không bắt máy" for
+  // an unanswered marketing text, which then got classified as KBM and
+  // dropped from their KPI entirely, even though sending it was real work.
+  // Checked first, ahead of call_answered, so ticking this box always wins
+  // regardless of what (if anything) was picked for "Did they answer?".
+  if (n.mkt_message) return null;
   if (n.call_answered === false) return 'toggle';
   if (n.call_answered === true) return null;
   return containsUnansweredMention(n.content) ? 'keyword' : null;

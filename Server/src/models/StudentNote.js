@@ -12,12 +12,16 @@ const pool = new Pool({
 // callAnswered: null unless this note came from a Phone Call/Zalo contact-log
 // entry (Monthly Report's Số cuộc KBM tracking) — `??` not `||` since `false`
 // (didn't pick up) is a meaningful value, not an "unset" one.
-async function create({ studentId, leadId, noteType, content, authorId, authorName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered }) {
+// mktMessage: "MKT message" checkbox (2026-09) — a Zalo/WhatsApp broadcast
+// text, exempted from ever counting as KBM regardless of callAnswered (see
+// callClassification.js's classifyKbm). Defaults false, not a tri-state
+// like callAnswered — there's no meaningful "unset" for a checkbox.
+async function create({ studentId, leadId, noteType, content, authorId, authorName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered, mktMessage }) {
   const result = await pool.query(
     `INSERT INTO student_notes
        (student_id, lead_id, note_type, content, author_id, author_name,
-        follow_up_date, reminder_status, rescheduled_date, contact_platform, topic, meeting_location, call_answered)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        follow_up_date, reminder_status, rescheduled_date, contact_platform, topic, meeting_location, call_answered, mkt_message)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
     [studentId, leadId || null, noteType, content, authorId, authorName,
      followUpDate || null,
@@ -26,7 +30,8 @@ async function create({ studentId, leadId, noteType, content, authorId, authorNa
      contactPlatform || null,
      topic || null,
      meetingLocation || null,
-     callAnswered ?? null]
+     callAnswered ?? null,
+     !!mktMessage]
   );
   return objectToCamelCase(result.rows[0]);
 }

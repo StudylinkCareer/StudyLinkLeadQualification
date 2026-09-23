@@ -227,7 +227,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
   const bucket = opts.bucket || 'day';
 
   const periodNoteRows = names.length ? (await pool.query(
-    `SELECT sn.student_id, sn.author_name, sn.contact_platform, sn.content, sn.created_at, sn.call_answered, s.full_name
+    `SELECT sn.student_id, sn.author_name, sn.contact_platform, sn.content, sn.created_at, sn.call_answered, sn.mkt_message, s.full_name
        FROM student_notes sn JOIN students s ON s.student_id = sn.student_id
       WHERE sn.author_name = ANY($1) AND sn.created_at >= $2 AND sn.created_at < $3`,
     [names, fromISO, toISO])).rows : [];
@@ -238,7 +238,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
   // to correctly credit "New" to a staffer's genuine first-ever contact
   // with that lead, regardless of who else touched it earlier.
   const histRows = callStudentIds.length ? (await pool.query(
-    `SELECT student_id, author_name, contact_platform, content, created_at, call_answered
+    `SELECT student_id, author_name, contact_platform, content, created_at, call_answered, mkt_message
        FROM student_notes WHERE student_id = ANY($1) AND created_at < $2`,
     [callStudentIds, fromISO])).rows : [];
 

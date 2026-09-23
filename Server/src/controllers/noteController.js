@@ -108,7 +108,7 @@ async function getLeadNotes(req, res, next) {
 async function addLeadNote(req, res, next) {
   try {
     const { leadId } = req.params;
-    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered, draftId } = req.body;
+    const { noteType, content, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered, mktMessage, draftId } = req.body;
     const staffRole = req.session.staffRole;
     const staffName = req.session.staffName;
     const authorId  = req.session.staffId;
@@ -132,7 +132,7 @@ async function addLeadNote(req, res, next) {
       if (!ok) return res.status(403).json({ success: false, error: 'You can only write notes on leads assigned to you.' });
     }
 
-    const note = await StudentNote.create({ studentId: lead.studentId, leadId, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered });
+    const note = await StudentNote.create({ studentId: lead.studentId, leadId, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic, meetingLocation, callAnswered, mktMessage });
 
     // Resuming a draft (confirmed 2026-08, cross-device note drafts) — mark
     // it completed and link it to the note that was actually saved. Never
@@ -169,7 +169,7 @@ async function getStudentLevelNotes(req, res, next) {
 async function addStudentLevelNote(req, res, next) {
   try {
     const { studentId } = req.params;
-    const { noteType, content, topic, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation, callAnswered, draftId } = req.body;
+    const { noteType, content, topic, followUpDate, reminderStatus, rescheduledDate, contactPlatform, meetingLocation, callAnswered, mktMessage, draftId } = req.body;
     const staffRole = req.session.staffRole;
     const staffName = req.session.staffName;
     const authorId  = req.session.staffId;
@@ -200,7 +200,7 @@ async function addStudentLevelNote(req, res, next) {
     // now persists whatever topic the caller sends (still optional; a plain
     // student-level note with no topic dropdown, e.g. a general call log,
     // still saves fine with topic left null).
-    const note = await StudentNote.create({ studentId, leadId: null, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic: topic || null, meetingLocation, callAnswered });
+    const note = await StudentNote.create({ studentId, leadId: null, noteType, content, authorId, authorName: staffName, followUpDate, reminderStatus, rescheduledDate, contactPlatform, topic: topic || null, meetingLocation, callAnswered, mktMessage });
 
     if (draftId) {
       await NoteDraft.complete(draftId, authorId, note.id).catch((e) => console.warn('[noteDrafts] complete failed:', e.message));
