@@ -1,6 +1,7 @@
 require('dotenv').config();
 const pool = require('./db');
 const { isManagerOrAdmin } = require('../utils/authProfiles');
+const { duplicateWhere } = require('../utils/contactMatch');
 
 // ── Counselor check ──────────────────────────────────────────────────────────
 // Any active staff who is a counsellor (by position) OR a manager/admin profile
@@ -23,12 +24,9 @@ async function checkCounselor(email) {
 
 // ── Search duplicates ────────────────────────────────────────────────────────
 async function searchDuplicates(email, phone) {
-  const result = await pool.query(
-    `SELECT * FROM students 
-     WHERE (email = $1 AND email != '') 
-        OR (phone = $2 AND phone != '')`,
-    [email || '', phone || '']
-  );
+  const match = duplicateWhere(email, phone);
+  if (!match) return [];
+  const result = await pool.query(`SELECT * FROM students WHERE ${match.where}`, match.values);
   return result.rows.map(rowToCamelCase);
 }
 

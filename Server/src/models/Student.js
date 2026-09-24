@@ -8,6 +8,7 @@
 
 const { Pool } = require('pg');
 const { syncOrderPhase } = require('../utils/orderPhase');
+const { duplicateWhere } = require('../utils/contactMatch');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -371,25 +372,10 @@ async function update(studentId, data) {
 
 // ── CHECK DUPLICATES ──────────────────────────────────────────
 async function checkDuplicates(email, phone) {
-  const conditions = [];
-  const values     = [];
-
-  if (email) {
-    conditions.push(`LOWER(email) = LOWER($${values.length + 1})`);
-    values.push(email);
-  }
-  if (phone) {
-    conditions.push(`phone = $${values.length + 1}`);
-    values.push(phone);
-  }
-
-  if (!conditions.length) return [];
-
-  const result = await pool.query(
-    `SELECT * FROM students WHERE ${conditions.join(' OR ')}`,
-    values
-  );
-
+  // Same matching rule as the returning-student lookup (see utils/contactMatch.js).
+  const match = duplicateWhere(email, phone);
+  if (!match) return [];
+  const result = await pool.query(`SELECT * FROM students WHERE ${match.where}`, match.values);
   return result.rows.map(rowToJs);
 }
 
