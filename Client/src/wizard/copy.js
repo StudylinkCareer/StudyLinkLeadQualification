@@ -12,6 +12,10 @@ const vi = {
   home: 'Trang chủ',
   loading: 'Đang tải…',
   splashHint: 'Chạm để tiếp tục',
+  signOut: 'Đăng xuất',
+  provMajor: 'Thành phố lớn',
+  provOther: 'Tỉnh / thành khác',
+  serviceUpdating: 'Hệ thống đang được cập nhật. Vui lòng thử lại sau ít phút.',
 
   // Register
   regHaveAccount: 'Đã có tài khoản StudyLink?',
@@ -168,6 +172,10 @@ const en = {
   home: 'Home',
   loading: 'Loading…',
   splashHint: 'Tap to continue',
+  signOut: 'Sign out',
+  provMajor: 'Major cities',
+  provOther: 'Other provinces',
+  serviceUpdating: 'The system is being updated. Please try again in a few minutes.',
 
   regHaveAccount: 'Already have a StudyLink account?',
   regLogin: 'Log in',

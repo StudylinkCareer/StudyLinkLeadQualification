@@ -17,6 +17,13 @@ export default function Hub() {
   const { w, progress } = useWizard();
   const cur = progress.currentStep;
   const done = { 1: progress.step1, 2: progress.step2, 3: progress.step3 };
+  // "Bắt đầu thôi": the first step still to do. Everything done but not yet finished →
+  // the career result (so they can press "Hoàn thành"); journey complete → final screen.
+  const startPath = progress.completed ? '/app/done'
+    : !progress.step1 ? '/app/step/1'
+    : !progress.step2 ? '/app/step/2'
+    : !progress.step3 ? '/app/step/3'
+    : '/app/result/career';
 
   return (
     <Screen>
@@ -55,7 +62,7 @@ export default function Hub() {
       </ol>
 
       <div className="wz-center">
-        <NavButton onClick={() => navigate(progress.completed ? '/app/done' : `/app/step/${cur}`)}>{w('letsGo')}</NavButton>
+        <NavButton onClick={() => navigate(startPath)}>{w('letsGo')}</NavButton>
       </div>
 
       <div className="wz-gift">

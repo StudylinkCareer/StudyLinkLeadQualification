@@ -45,7 +45,7 @@ export default function GemResult() {
         </div>
       </div>
       <div className="wz-center">
-        <NavButton onClick={() => navigate('/app/hub')}>{w('next')}</NavButton>
+        <NavButton onClick={() => navigate('/app/step/3')}>{w('next')}</NavButton>
       </div>
     </Screen>
   );

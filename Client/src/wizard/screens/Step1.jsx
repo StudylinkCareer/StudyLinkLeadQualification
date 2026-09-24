@@ -102,7 +102,7 @@ export default function Step1() {
         await studentAPI.calculateRisk(student.studentId);
         await reload();
       }
-      navigate('/app/hub');
+      navigate('/app/step/2');
     } catch (err) {
       setMessage(err.message || w('saveFailed'));
     } finally {

@@ -889,7 +889,10 @@ async function completeJourney(req, res, next) {
     res.json({ success: true, data: { journeyCompletedAt: r.rows[0].journey_completed_at } });
   } catch (err) {
     if (err.code === '42703') {
-      return res.status(503).json({ success: false, error: 'journey_completed_at column missing — run addJourneyCompletedAt migration' });
+      // Deployed before the migration ran: tell the operator in the log, keep the message
+      // customer-safe (the wizard shows its own "system updating" text on a 503).
+      console.error('[complete-journey] students.journey_completed_at is missing — run src/migrations/addJourneyCompletedAt.js');
+      return res.status(503).json({ success: false, error: 'Service temporarily unavailable' });
     }
     next(err);
   }

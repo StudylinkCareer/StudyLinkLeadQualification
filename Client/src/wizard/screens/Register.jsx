@@ -8,9 +8,11 @@ import { useRegistration } from '../hooks/useRegistration';
 import { COUNTRY_CODES, STUDY_PLANS, VIETNAM_PROVINCES } from '../../utils/formFields';
 import { t } from '../../i18n';
 import { formatPhoneInput, isEmail, isValidYob } from '../lib/phone';
-import { captureQrParams, matchEvent } from '../lib/qrParams';
+import { captureQrParams, matchEvent, normText } from '../lib/qrParams';
 
 const NONE = 'none';
+// Hà Nội, Hồ Chí Minh, Đà Nẵng, Hải Phòng, Cần Thơ (matched on the accent-free code).
+const MAJOR_CITIES = ['ha noi', 'ho chi minh', 'da nang', 'hai phong', 'can tho'];
 
 export default function Register() {
   const navigate = useNavigate();
@@ -66,6 +68,13 @@ export default function Register() {
   const provinceOptions = provinces.length
     ? provinces.map((p) => ({ value: p.code, label: L(p) }))
     : VIETNAM_PROVINCES.map((p) => ({ value: p, label: p }));
+  // The 5 centrally-run cities are what most customers pick, so they go first.
+  const provinceGroups = (() => {
+    const key = (o) => normText(o.value);
+    const majors = MAJOR_CITIES.map((c) => provinceOptions.find((o) => key(o).startsWith(c))).filter(Boolean);
+    const rest = provinceOptions.filter((o) => !majors.includes(o));
+    return [{ label: w('provMajor'), options: majors }, { label: w('provOther'), options: rest }];
+  })();
   const planLabels = t('studyPlanOptions', language);
   const planOptions = STUDY_PLANS.map((v, i) => ({ value: v, label: Array.isArray(planLabels) ? planLabels[i] : v }));
 
@@ -217,7 +226,7 @@ export default function Register() {
 
         <div className="wz-row2">
           <SelectField id="wz-residence" label={w('residence')} required invalid={errors.residence} placeholder={w('choose')}
-            value={residence} options={provinceOptions}
+            value={residence} options={provinceOptions} groups={provinceGroups}
             onChange={(v) => { setResidence(v); clearErr('residence'); }} />
           <SelectField id="wz-plan" label={w('dream')} required invalid={errors.studyPlan} placeholder={w('choose')}
             value={studyPlan} options={planOptions}

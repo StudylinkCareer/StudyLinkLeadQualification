@@ -74,9 +74,14 @@
   display: flex; align-items: center; justify-content: center;
 }
 .wz-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.wz-idrow { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; min-height: 26px; }
+.wz-idrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 26px; }
 .wz-id { background: #fff; color: var(--wz-red); font-size: 12px; font-weight: 500; padding: 5px 8px 3px; border-radius: 6px; }
-.wz-saved { font-size: 14px; font-weight: 700; }
+.wz-saved { font-size: 13px; font-weight: 700; }
+.wz-signout {
+  margin-left: auto; min-height: 36px; padding: 4px 14px; border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 8px; background: transparent; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.wz-signout:hover { background: rgba(255, 255, 255, 0.15); }
 
 /* ── white sheet ── */
 .wz-sheet {

@@ -32,14 +32,18 @@ export function TextField({ id, label, required, invalid, hint, ...rest }) {
 }
 
 // options: [{ value, label }]
-export function SelectField({ id, label, required, invalid, hint, value, onChange, options, placeholder, disabled }) {
+// `groups` (optional): [{ label, options }] renders <optgroup>s instead of the flat list.
+export function SelectField({ id, label, required, invalid, hint, value, onChange, options, groups, placeholder, disabled }) {
+  const opt = (o) => <option key={o.value} value={o.value}>{o.label}</option>;
   return (
     <Field id={id} label={label} required={required} hint={hint}>
       <select id={id} className={`wz-select${invalid ? ' wz-invalid' : ''}`} value={value}
         onChange={(e) => onChange(e.target.value)} disabled={disabled} required={required}
         aria-invalid={invalid || undefined}>
         <option value="">{placeholder}</option>
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {groups
+          ? groups.filter((g) => g.options.length).map((g) => <optgroup key={g.label} label={g.label}>{g.options.map(opt)}</optgroup>)
+          : options.map(opt)}
       </select>
     </Field>
   );

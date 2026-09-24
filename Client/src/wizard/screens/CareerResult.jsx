@@ -63,6 +63,7 @@ export default function CareerResult() {
       navigate('/app/done');
     } catch (err) {
       if (err.status === 422) setNeedStep1(true);
+      else if (err.status === 503) setMessage(w('serviceUpdating'));
       else setMessage(err.message || w('saveFailed'));
     } finally {
       setBusy(false);
