@@ -1,9 +1,8 @@
 // client/src/pages/Login.jsx
-// New (2026-08): separate Login flow for RETURNING students — phone or
-// email + a real OTP. Registration (`Home.jsx`, `/`) is completely
-// unchanged and untouched by this file; this page only ever resolves to an
-// EXISTING record (via /auth/login-lookup) or sends the user back to
-// registration if nothing is found.
+// Login flow for RETURNING students — phone or email (OTP currently bypassed,
+// see goVerify). This page only ever resolves to an EXISTING record (via
+// /auth/login-lookup) and then resumes it in the wizard (/app/hub); if nothing is
+// found it sends the user to registration (/app/reg).
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -60,15 +59,10 @@ export default function Login() {
     try {
       const result = await authAPI.verifyOTP(identifier, '000000');
       login(result.email, null, result.isCounselor);
-      navigate('/dashboard', {
-        state: {
-          email: channel === 'email' ? identifier : '',
-          phone: channel === 'phone' ? identifier : '',
-          mode: 'change',
-          selectedRecordId: studentId,
-        },
-        replace: true,
-      });
+      // Hand the chosen record to the wizard (it reads this key on load), then
+      // resume wherever the student left off.
+      try { sessionStorage.setItem('wz_studentId', studentId); } catch { /* private mode */ }
+      navigate('/app/hub', { replace: true });
     } catch (err) {
       setError(err.message || L('Something went wrong. Please try again.', 'Đã có lỗi xảy ra. Vui lòng thử lại.'));
     } finally {
@@ -181,7 +175,7 @@ export default function Login() {
               {L("We couldn't find an account with that ", "Chúng tôi không tìm thấy hồ sơ với ")}
               {L(channel === 'email' ? 'email.' : 'phone number.', channel === 'email' ? 'email này.' : 'số điện thoại này.')}
               {' '}
-              <Link to="/">{L('New here? Register', 'Chưa có hồ sơ? Đăng ký')}</Link>
+              <Link to="/app/reg">{L('New here? Register', 'Chưa có hồ sơ? Đăng ký')}</Link>
             </div>
           )}
 
@@ -196,7 +190,7 @@ export default function Login() {
           </div>
 
           <div className="home-actions" style={{ marginTop: '0.5rem' }}>
-            <Link to="/">{L('New here? Register instead', 'Chưa có hồ sơ? Đăng ký tại đây')}</Link>
+            <Link to="/app/reg">{L('New here? Register instead', 'Chưa có hồ sơ? Đăng ký tại đây')}</Link>
           </div>
         </div>
       </div>

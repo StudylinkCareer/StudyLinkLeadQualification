@@ -114,9 +114,11 @@ export const OPTION_LABELS_VI = {
   // ── Study Plans ─────────────────────────────────────────────
   studyPlans: {
     'Study Abroad':                   'Du học',
-    'English Summer Camp':            'Trại hè tiếng Anh',
+    'English Summer School':          'Trại hè tiếng Anh',
     'Study in Vietnam':               'Học trong nước',
     'Do not study':                   'Không học',
+    'Work':                           'Việc làm',
+    'Settlement':                     'Định cư',
   },
 
   // ── Timeline ────────────────────────────────────────────────

@@ -12,6 +12,7 @@ router.post('/request-otp', authController.requestOTP);
 router.post('/verify-otp', authController.verifyOTP);
 router.get('/session', authController.checkSession);
 router.post('/logout', authController.logout);
-router.post('/qr-login', authController.qrLogin);
+// /qr-login removed (2026-09): it granted an authenticated session with no identity
+// check and nothing has called it since the legacy Home form's QR branch went away.
 
 module.exports = router;

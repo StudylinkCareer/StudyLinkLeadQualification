@@ -166,7 +166,7 @@ const vi = {
   'scholarshipDemand_tier_30-50% scholarship': '30-50%',
   'scholarshipDemand_tier_20-25% scholarship': '20-25%',
   'scholarshipDemand_tier_No scholarship needed': 'Không cần',
-  'englishLevel_tier_Beginner': 'Vỡ lòng',
+  'englishLevel_tier_Beginner': 'Mới bắt đầu',
   'englishLevel_tier_IELTS 4-4.5': 'IELTS 4-4.5',
   'englishLevel_tier_IELTS 5-5.5': 'IELTS 5-5.5',
   'englishLevel_tier_IELTS 6-6.5': 'IELTS 6-6.5',
@@ -288,7 +288,7 @@ const vi = {
   nextBtn: 'Tiếp tục',
   contactDetailRequired: 'Nhập thông tin liên hệ',
 
-  studyPlanOptions: ['Du học dài hạn','Trại hè tiếng Anh', 'Học trong nước', 'Không đi học'],
+  studyPlanOptions: ['Du học dài hạn','Trại hè tiếng Anh', 'Học trong nước', 'Không đi học', 'Việc làm', 'Định cư'],
   leadSourceOptions: ['Cơ sở dữ liệu', 'Quảng cáo FB-Zalo-GG-TikTok', 'Tiếp cận trường học', 'Đại lý giới thiệu', 'Khách hàng cũ'],
   interactionOptions: ['Chỉ để lại liên hệ', 'Có hỏi thăm', 'Điền form một phần', 'Điền form đầy đủ', 'Gọi điện - Đến trực tiếp'],
   timelineOptions: ['6 tháng tới', '6-12 tháng', '12-24 tháng', '24-36 tháng', 'Hơn 36 tháng'],

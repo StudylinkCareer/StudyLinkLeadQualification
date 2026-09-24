@@ -24,7 +24,7 @@ export const FIELD_OPTIONS = {
   incomeEvidence:     ['0% documented', '30-35% documented', '50% documented', '70-75% documented', '100% documented'],
   studyPlanGap:       ['Different major, 5+ year gap', 'Different major, 2-5 year gap', 'Same major, 2-5 year gap', 'Same major, < 2 year gap', 'Same major, no gap'],
   ultimateObjective:  ['Migration only', 'Work only', 'Study but work more', 'Study for migration pathway', 'Study only'],
-  studyPlans:         ['Study Abroad', 'English Summer Camp', 'Study in Vietnam', 'Do not study'],
+  studyPlans:         ['Study Abroad', 'English Summer School', 'Study in Vietnam', 'Do not study', 'Work', 'Settlement'],
   timeline:           ['Next 6 months', '6-12 months', '12-24 months', '24-36 months', '36+ months'],
   leadSource:         ['Databases', 'FB-Zalo-GG-TikTok ads', 'School outreach', 'Subagent referrals', 'Ex-client'],
 };

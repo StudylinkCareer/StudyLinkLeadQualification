@@ -83,6 +83,8 @@ const SEED = {
     { code: 'English Summer School', labelVi: 'Trại hè tiếng Anh' },
     { code: 'Study in Vietnam',      labelVi: 'Học trong nước' },
     { code: 'Do not study',          labelVi: 'Không học' },
+    { code: 'Work',                  labelEn: 'Work',       labelVi: 'Việc làm' },
+    { code: 'Settlement',            labelEn: 'Settlement', labelVi: 'Định cư' },
   ],
 
   lead_source: [

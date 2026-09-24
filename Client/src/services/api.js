@@ -44,7 +44,6 @@ export const authAPI = {
   verifyOTP: (email, code, extra = {}) => api.post('/auth/verify-otp', { email, code, ...extra }),
   checkSession: () => api.get('/auth/session'),
   logout: () => api.post('/auth/logout'),
-  qrLogin: (data) => api.post('/auth/qr-login', data),
   // ── New (2026-08): separate Login flow, phone/email + real OTP ──
   loginLookup: (identifier, channel) => api.post('/auth/login-lookup', { identifier, channel }),
   otpChannels: () => api.get('/auth/otp-channels'),
@@ -67,6 +66,12 @@ export const studentAPI = {
   calculateRisk: (id) => api.post(`/students/${encodeURIComponent(id)}/calculate-risk`),
   calculateOcean: (id, language = 'en') => api.post(`/students/${encodeURIComponent(id)}/calculate-ocean?language=${language}`),
   uploadPhotos: (id, photos) => api.post(`/students/${encodeURIComponent(id)}/upload-photos`, photos),
+  // Wizard: country/timeline/study plan written to the student AND their lead (the
+  // event-QR gate reads the lead copy). Body: { destinationCountry, timeline, studyPlans }.
+  saveQualification: (id, data) => api.put(`/students/${encodeURIComponent(id)}/qualification`, data),
+  completeJourney: (id) => api.post(`/students/${encodeURIComponent(id)}/complete-journey`),
+  // Read-only narrative text for the stored OCEAN scores, in the requested language.
+  oceanNarrative: (id, language = 'en') => api.get(`/students/${encodeURIComponent(id)}/ocean-narrative?language=${language}`),
 };
 
 export const documentAPI = {

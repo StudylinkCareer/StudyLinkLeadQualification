@@ -262,7 +262,7 @@ Pipeline order: **CORS** (`origin: config.corsOrigin` from `CORS_ORIGIN`, `crede
 Auth key: **client** = student LQ session (`req.session.authenticated`); **staff** = LM session (`req.session.staffId`); **perm(x.y)** = `requirePermission`; **role∈{…}** = hardcoded gate; **public** = none.
 
 - **Health** (`routes/api.js`): `GET /health` (public).
-- **Auth — student/LQ** (`routes/auth.js`, `/api/auth`): `POST /check-login` (public, 3-way analysis) · `POST /request-otp` (public, **OTP send bypassed**) · `POST /verify-otp` (public, **any 6-digit code accepted**) · `GET /session` · `POST /logout` · `POST /qr-login`.
+- **Auth — student/LQ** (`routes/auth.js`, `/api/auth`): `POST /check-login` (public, 3-way analysis) · `POST /request-otp` (public, **OTP send bypassed**) · `POST /verify-otp` (public, **any 6-digit code accepted**) · `GET /session` · `POST /logout` (`/qr-login` removed 2026-09).
 - **Students — LQ client** (`routes/students.js`, `/api/students`, `requireAuth`): `POST /register` · `POST /:id/add-registration` · `POST /deactivate` · `GET /search` (+counselor) · `GET /check-duplicate` · `GET /by-email` · `GET /:id` · `PUT /:id` · `POST /:id/calculate-risk` · `POST /:id/calculate-ocean` · `POST /:id/upload-photos`.
 - **Staff / LM core** (`routes/staff.js`, `/api/staff`, `requireStaffAuth` + `requirePermission`): login/logout/session; `GET /permissions` (the user's permission map), `GET /roles`, `GET /columns`; layout variants (`/variants`); `GET /lead-list`, `GET /students/search`, `POST /students/export-excel` (perm `leads.export`), `GET/PUT /students/:id`, calculate-risk/ocean (perm `leads.recalculate`), `DELETE /students` + delete-preview (perm `leads.delete`), orphan cleanup (perm `leads.delete`); audit (`/audit/:studentId`, `/audit-range`, perm `audit.view`); column-config (`PUT` perm `column_config.manage`); staff mgmt (`GET/POST /` perm `staff.manage`), `PUT /assign/:studentId` · `/mass-assign` · `/mass-move-phase` · `/phase/:studentId` · `/assignment/:studentId` (perm `leads.assign`), `PUT /:id/target` (perm `staff.set_target`), `PUT /:id/password`, `PUT /:id/deactivate` (perm `staff.delete`).
 - **Leads (engagement)** (`routes/leads.js`, `/api/leads`, `requireStaffAuth` only): `GET /` · `GET /student/:studentId` · `POST /student/:studentId` · `GET /:leadId` · `PUT /:leadId`. **⚠️ Per-lead access control + field masking NOT yet applied here** (documented TODO in `leadController.js`) — any authenticated staff can read/write any lead. Terminal-status lock *is* enforced (Lost/Archived/Cancelled editable only by manager/admin profiles).
@@ -285,7 +285,7 @@ Two **independent** session identities on the same cookie:
 
 | | Student / LQ client | Staff / LM console |
 |---|---|---|
-| Login | `/api/auth/*` (OTP-style, **bypassed**) or `qr-login` | `POST /api/staff/login` (email + bcrypt) |
+| Login | `/api/auth/*` (OTP-style, **bypassed**) | `POST /api/staff/login` (email + bcrypt) |
 | Session flag | `req.session.authenticated = true` | `req.session.staffId` set |
 | Fields | `email`, `isCounselor`, (`studentId`) | `staffId`, `staffEmail`, `staffName`, `staffRole`, `staffTier`, `staffPosition` |
 | Guards | `requireAuth`, `requireCounselor` | `requireStaffAuth` |
@@ -332,71 +332,60 @@ The customer-facing **intake** front end (Vite + React SPA, `react-router`, no R
 
 ### 6.1 App shell & routing (`src/main.jsx`, `src/App.jsx`)
 
-Bilingual EN/VI via `t(key, language)`. Providers: `LanguageProvider` → `AuthProvider` → `LookupProvider`. Routes:
+Bilingual EN/VI via `t(key, language)` (shared UI strings in `src/i18n`, wizard copy in `src/wizard/copy.js`). Providers: `LanguageProvider` → `AuthProvider` → `LookupProvider`. Routes:
 
-| Path | Page | Protected? | Purpose |
-|------|------|------------|---------|
-| `/` | `Home.jsx` | public | Login / intake details capture |
-| `/verify` | `OTPVerification.jsx` | public | OTP step (currently bypassed) |
-| `/dashboard` | `Dashboard.jsx` | **yes** | The 7-tab student record |
-| `/desk` | `DeskPage.jsx` | public (PIN + rep token) | Event check-in desk for reps |
-| `/badge/:token` | `BadgePage.jsx` | public (token) | Printable event QR badge |
-| `/profile` | `ProfilePage.jsx` | public (`?t=` token) | "Know you better" self-service form |
+| Path | Page | Purpose |
+|------|------|---------|
+| `/app/*` | `wizard/WizardApp.jsx` | **The customer journey** (see 6.2). |
+| `/` | redirect → `/app` | Old entry point; **the query string is preserved** so event-QR links (`/?sol=Event/Campaign&eid=&ename=&counsellor=`) and the console's "Create Sales/Lead" launcher (`/?src=console`) keep working. |
+| `/login` | `Login.jsx` | Returning students: look up by email (phone "coming soon"), OTP bypassed, then → `/app/hub`. |
+| `/dashboard`, `/verify`, anything unknown | redirect → `/app/hub` / `/app` | Retired screens; old bookmarks land in the wizard. |
+| `/desk` | `DeskPage.jsx` | Event check-in desk for reps (PIN + rep token). |
+| `/badge/:token` | `BadgePage.jsx` | Printable event QR badge (token). |
+| `/profile` | `ProfilePage.jsx` | "Know you better" self-service form (`?t=` token). |
 
-`ProtectedRoute` guards only `/dashboard`. `AuthContext` holds `isAuthenticated/email/studentId/isCounselor/loading`; on mount calls `authAPI.checkSession()`.
+`/badge`, `/desk`, `/profile` are linked from already-sent emails/Zalo messages — never change those paths. `AuthContext` holds `isAuthenticated/email/studentId/isCounselor/loading` and calls `authAPI.checkSession()` on mount.
 
-### 6.2 The login screen (`src/pages/Home.jsx`)
+### 6.2 The wizard (`src/wizard/`, "Giải Mã Xuất Ngoại", mobile-first)
 
-Captures the full first-contact payload before any account exists. **Mandatory** (`*`): `fullName*`, `email*` (regex), phone (country code + `phoneNumber*`, auto-formatted), `yearOfBirth*` (1980–2018), **Source of Lead cascade** (`sourceOfLead*` → a mode-dependent second field: `list`→Source dropdown; `events`→Event dropdown, auto-fills dedicated counsellor; `list_freetext`→Source + free-text referrer; `b2b`→Referral type + Partner, unknown party sets `sourceUnverified`), `placeOfResidence*` (province), `studyPlan*`, `preferredSocial*` (default Zalo), `connectWithYou*` (consent). Optional: `counsellor` dropdown, headshot.
+Design source: the approved clickable prototype (Hoàng/Ms. Hà). Styles are scoped under `.wz` in `wizard.css`; the layout is full-viewport on phones and a centred ≤480px column from 768px. Flow: **Splash** (tap anywhere) → **Register** → **Hub** (three always-clickable steps, progress derived from saved data) → **Step 1** "Chân dung bản mệnh" → **Step 2** 9-question index quiz → **Gem result** → **Step 3** 15-question career quiz → **Career result** → **Congrats** (only after `journey_completed_at`) with a share dialog and a contact panel.
 
-**Reference data (public, best-effort):** source-options ← `GET /api/reference-data/public/source-options`; counsellors ← `/public/counsellors`; events ← `/api/marketing-events/public`; provinces ← `/api/lookups/public/vietnam_province`. Failures leave empty lists (form not blocked). **Deep-link/QR prefill** via URL params (`?sol=Event/Campaign&eid=&ename=&counsellor=`).
+- **State** — `context/WizardContext.jsx`: loads the student by session (falls back to `sessionStorage.wz_studentId`, which `/login` sets), `patch()` sends only the changed fields (debounced 600 ms), `deriveProgress()` (step 1 = one full parent block + a country; step 2 = `stoneTier`; step 3 = OCEAN traits stored).
+- **Register** (`screens/Register.jsx`, `hooks/useRegistration.js`) — the ONE place a student is created: `checkLogin` → bypassed OTP pair → `POST /students/register` (or open the existing record + `add-registration`). Fields: name, phone, email, year of birth (1980–2018), channel (`sourceOfLead`, event and B2B modes excluded) + dependent "Nguồn", event (`eventId`; legacy encoding `sourceOfLead='Event/Campaign'`, `source=<event name>`), province, study plan, consent Yes/No, plus a consent line. All option lists come from the public endpoints. The counsellor picker is gone (only the QR `?counsellor=` param / an event's dedicated counsellor assign one; blank → Pool).
+- **Step 1** — Mẹ/Ba → one `mother*`/`father*` block; countries from the `country` lookup (max 3); timeline bucket; optional Facebook/Instagram handle (`contactMedium1/contactDetail1/preferredSocial`). Saved through `PUT /students/:id/qualification`, which **writes the student AND the lead** (the advance-QR gate reads the lead copy).
+- **Quiz / results** — the 9 answers are the English tier codes from `SELF_ASSESSMENT_FIELDS`; `calculate-risk` scores on the server; stones are shown with the existing `stone_*` copy and the interim PNGs in `src/Assets/Stones`. The 15 OCEAN answers are 1–5 in `oceanQ1..15`; `calculate-ocean` stores traits, narrative and the **English persona name**; the client shows the localized persona/careers from `utils/oceanArchetypes.js` and five trait bars (`wizard/lib/traits.js`).
+- **Completion** — `POST /students/:id/complete-journey` (idempotent) needs one full parent + a country, else 422. It sets `students.journey_completed_at`.
+- **Share** — a generic `/app` link only (no personal data); Facebook/Threads web share, Zalo/Instagram via the native share sheet or copy-link. **Contact panel** — hotline, Zalo, email and the three VN offices from `wizard/lib/contact.js` (source: studylink.org/vn/lien-he.html). KU-TE reward logic is not implemented (display text only).
+- **Assets** — `Client/public/wizard/` (`splash.jpg` is the old low-res art, to be replaced with Hoàng's new export; mascots, share icons, gift).
 
-### 6.3 The `checkLogin` 3-way returning-student logic
+### 6.3 Server hardening the wizard relies on
 
-On submit, `handleLogin` calls `authAPI.checkLogin(email, phone)`; the response drives a switch:
-- **`no_match`** → **Case 3 (new)**: `mode='create'` — new student + lead.
-- **`single_active` + `hasActiveLead===true`** → **Case 1**: confirmation modal ("you already have an active enquiry"), then `mode='change'`, `selectedRecordId` — retrieve/edit the existing lead.
-- **`single_active` + `hasActiveLead===false`** → **Case 2**: modal ("a new enquiry will be created"), then `mode='create_lead'`, `existingStudentId` — new lead on the existing student.
-- **`conflict`** → `DuplicateModal` (radio-pick which record to keep; others queued for deactivation).
-- **`counselor`** → `mode='counselor'` (staff logging in) → dashboard opens in student-search mode.
+`ENFORCE_STUDENT_OWNERSHIP=true` (Railway env var; unset/false = legacy behaviour) turns on: (a) a session may only touch student records it registered or matched through its own email/phone lookup (`middleware/studentOwnership.js`; `check-login`/`login-lookup` claim the matches), (b) customer PUTs cannot write server-owned fields (`stoneTier`, `riskScore`, `status`, OCEAN traits/narrative/archetype), (c) `getByEmail`/`GET /students/<email>` only for the session's own email, (d) a minimal 409 body for registrations that ask for it. `POST /auth/qr-login` was removed (it granted a session with no identity check). Registration and `/login` OTP remain intentionally bypassed. **Known gap:** `GET /students/check-duplicate` still returns other students' data to any logged-in session.
 
-The chosen `mode` + all captured fields pass through router `state` → `/verify` → `/dashboard`.
+### 6.4 The `checkLogin` 3-way returning-student logic
 
-### 6.4 OTP step (`src/pages/OTPVerification.jsx`) — bypassed
+`authAPI.checkLogin(email, phone)` drives the wizard's Register submit:
+- **`no_match`** → new student + lead.
+- **`single_active` + `hasActiveLead`** → "welcome back" dialog, then open that record and append a registration.
+- **`single_active` without an active lead** → dialog, then a new lead on the existing student (`existingStudentId`).
+- **`conflict`** → pick which record to keep; the others are deactivated.
 
-**OTP is auto-submitted:** a `useEffect` pre-fills `BYPASS_CODE='000000'` and calls verify after 1200ms. Real OTP is fully wired (resend countdown, 5-attempt lockout, WebOTP, iOS autofill) but inactive; the file header documents re-enabling.
+The connected-unit ownership rule is applied server-side at `POST /students/register`: counsellor named → `order_phase='Counselling'` + Counselor slot; blank → `order_phase='Pool'` + Quality slot = `Mạch Nguyễn Phi Vân`.
 
-### 6.5 Registration & the ownership rule
+### 6.5 Event-QR qualification gate (what a customer must finish)
 
-Registration happens **in the Dashboard** (`loadStudent`, guarded by `registeredRef` so create fires once): Case 1 → `getById` + `addRegistration`; Case 2 → `register({...payload, existingStudentId})`; Case 3 → `register(payload)` (409 = already exists → load that record). **The connected-unit ownership rule is applied server-side** at `POST /students/register`: counsellor named → `order_phase='Counselling'` + Counselor slot; blank → `order_phase='Pool'` + Quality slot = `Mạch Nguyễn Phi Vân`.
+`services/eventQualification.js` mints advance event QR tokens only when the admin-editable `event_qualification_fields` required list is complete. On prod (2026-09) that is: year of birth, lead source, residency, destination country, and the nine quiz answers. Destination country/timeline/study plan are read from the **lead** row, which is why the wizard writes both copies.
 
-### 6.6 Dashboard & tabs (`src/pages/Dashboard.jsx`, `src/components/Tabs/`)
-
-Multi-tab student record, autosave on tab-change/close (`useFormState`). Three tabs are **counselorOnly**.
-
-| Tab | Component | Captures | Gating |
-|-----|-----------|----------|--------|
-| **Personal** | `PersonalDetailsTab` | Name, up to 2 contact slots, email, phone, study plans; read-only Event/Campaign section; inline Family Contact | always |
-| **Study** | `StudentInfoTab` | `destinationCountry` (multi, max 3), `timeline`, `processApplication`, `residency` | gated |
-| **Assessment** | `SelfAssessmentTab` | Risk questions → risk score → **Stone Tier**. Calculate → `studentAPI.calculateRisk` | gated |
-| **Career** | `CareerFitTab` | 15 OCEAN Likert → Big-Five + radar + archetype + narrative. Recalculate → `calculateOcean` | gated |
-| **Family** | `FamilyContactsTab` | Mother/father details | counselorOnly |
-| **Counselor** | `CounselorFeedbackTab` | ⚠️ see §9 — currently shows a legacy Career-Fit form | counselorOnly |
-| **Documents** | `DocumentsTab` | File upload (≤10MB) via Google Drive | counselorOnly |
-
-**Stone Tiers** (score capped 200): Quartz 40–75, Agate 76–105, Sapphire 106–135, Ruby 136–165, Diamond 166–200. **Tab-gating**: `checkMandatoryFields` (name/phone/email/studyPlans) then `checkFamilyMandatoryFields` (complete mother OR father) unlock the gated tabs. **Returning-student re-hydration**: assessment/OCEAN/study-info live on the student record; `SelfAssessmentTab` and `CareerFitTab` have `useEffect`s keyed on `formData.studentId` to restore the stored result banners (their `useState` initializers only capture mount-time data — hence the effects).
-
-### 6.7 Event features
+### 6.6 Event features
 
 - **`DeskPage.jsx`** (`/desk`) — public mobile rep check-in desk (Bearer-token): PIN sign-in → pick desk → scan student QR → name only + note + optional 1–10 rating → `eventDeskAPI.visit`. No LM login.
 - **`BadgePage.jsx`** (`/badge/:token`) — public full-screen registration badge; renders a QR PNG client-side; QR encodes the bare token the desk scanner resolves.
 - **`ProfilePage.jsx`** (`/profile?t=`) — public, token-gated Vietnamese "Know you better" self-service form; writes answers back to the lead via `profileAPI.save`.
 
-### 6.8 LQ findings / gotchas
+### 6.7 LQ findings / gotchas
 
-1. **`CounselorFeedbackTab.jsx` is mislabeled** — its body is an older, English-only OCEAN Career-Fit form (header comment even reads `CareerFitTab.jsx`). The **Counselor tab therefore shows a duplicate Career-Fit form, not counselor feedback** — almost certainly an accidental copy/overwrite; verify before relying on that tab.
-2. **OTP fully bypassed** (`'000000'`, auto-submit).
-3. `api.js` `checkLogin`/`verifyOTP` silently drop the extra `fullName`/`phone` args callers pass (match uses email + phone only).
+1. **Registration and `/login` OTP are bypassed** (`'000000'`), intentionally.
+2. The old tabbed Dashboard, `Home.jsx`, `CounselorFeedbackTab` and the other legacy tabs were **deleted at the wizard cutover (2026-09)**.
 
 ---
 
@@ -555,7 +544,6 @@ Ranked roughly by importance. Most are intentional or low-risk but **you must kn
 1. **🔴 OTP is fully bypassed on the LQ login.** Any 6-digit code (auto-submitted `000000`) logs a customer in; no email is sent. Intentional (removed a flaky email dependency) but it means the LQ app has **no real login verification**. Re-enable via §8.5.
 2. **🔴 `/api/leads` has no per-lead access control yet.** Any authenticated staff member can read/write any lead via that router (documented TODO in `leadController.js`). The `/api/staff/*` lead endpoints *do* enforce scope; the gap is the `/api/leads` router. Terminal-status lock is enforced everywhere.
 3. **🟠 Redundant LQ Netlify site.** `studylinkindex.netlify.app` duplicates `slcareerguidance.netlify.app` (both auto-deploy from `main`). Delete `studylinkindex` after confirming no custom domain / external links (§3.3).
-4. **🟠 `CounselorFeedbackTab.jsx` (LQ) is mislabeled** and renders a legacy English-only Career-Fit form instead of counselor feedback — the Counselor tab shows a duplicate OCEAN form. Verify against intent before relying on it.
 5. **🟠 Hybrid RBAC.** Some gates are table-driven (`role_permissions`), others hardcode `role ∈ {Admin,Manager,Director}` (Reference Data, Referral Sources, Marketing Events) or role/position (Maintenance, Event Console, Deep Cleanse). `session.staffRole` may hold **either** a new profile **or** a legacy role depending on migration state — `utils/authProfiles.js` intentionally lists both. Console routes are auth-gated but not permission-gated at the router.
 6. **🟠 Staff referenced by name string**, not FK, in `order_assignments.staff_name` and the `leads`/`students` staff mirror columns. Duplicate / event-rep name rows require explicit workarounds (`syncOrderPhase`, `reconcileStaffSlots`). Renaming a staff member is not automatically propagated.
 7. **🟡 Vestigial columns on `students`.** The table physically carries ~46 legacy engagement columns (`lead_status`, `counselor`, `close_date`, …) from before the person/lead split. **Canonical engagement data of record is `leads`.** Some legacy paths still read the `students` mirror.
@@ -587,7 +575,7 @@ Ranked roughly by importance. Most are intentional or low-risk but **you must kn
 - Backend entry / wiring: `Server/src/server.js`, `Server/src/app.js`, `Server/src/config/index.js`
 - Auth + RBAC: `Server/src/controllers/authController.js`, `Server/src/services/permissionService.js`, migrations `Server/Migrations/authProfiles_up.js` + `data/auth_profiles.json` + `data/auth_staff_map.json`
 - Phase model (source of truth): `Server/src/utils/orderPhase.js`
-- LQ intake flow: `Client/src/pages/Home.jsx`, `Dashboard.jsx`, `src/components/Tabs/`
+- LQ intake flow: `Client/src/wizard/` (routes in `WizardApp.jsx`; register in `screens/Register.jsx`)
 - Console sidebar + gating: `LeadManagement/src/components/Sidebar.jsx`, `src/contexts/PermissionsContext.jsx`
 - Console keystone screens: `LeadManagement/src/pages/Leads.jsx`, `LeadDetail.jsx`
 

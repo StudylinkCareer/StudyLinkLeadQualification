@@ -291,7 +291,7 @@ const en = {
   nextBtn: 'Next',
   contactDetailRequired: 'Enter contact detail',
 
-  studyPlanOptions: ['Study Abroad', 'English Summer Camp', 'Study in Vietnam', 'Do not study' ],
+  studyPlanOptions: ['Study Abroad', 'English Summer Camp', 'Study in Vietnam', 'Do not study', 'Work', 'Settlement'],
   leadSourceOptions: ['Databases', 'FB-Zalo-GG-TikTok ads', 'School outreach', 'Subagent referrals', 'Ex-client'],
   interactionOptions: ['Only left contact', 'Queries', 'Fill lead form partly', 'Fill lead form fully', 'Call in-Walk in'],
   timelineOptions: ['Next 6 months', '6-12 months', '12-24 months', '24-36 months', '36+ months'],

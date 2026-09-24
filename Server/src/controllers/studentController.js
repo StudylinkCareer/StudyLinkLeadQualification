@@ -5,6 +5,8 @@ const Lead    = require('../models/Lead');
 const OrderAssignment = require('../models/OrderAssignment');
 const { issueAdvanceTokens } = require('../services/eventQualification');
 const { calculateRiskScore } = require('../utils/riskCalculator');
+const { archetypeKey, archetypeNameEn } = require('../utils/oceanArchetypes');
+const { enforcing, bindStudent, ownsStudent, isOwnEmail } = require('../middleware/studentOwnership');
 const ExcelJS = require('exceljs');                                 // ← NEW
 const { Pool } = require('pg');                                     // ← NEW
 
@@ -77,6 +79,9 @@ async function register(req, res, next) {
     // Student.create. Otherwise it's a brand-new student (case 3).
     let existingStudent = null;
     if (existingStudentId) {
+      if (enforcing() && !ownsStudent(req, existingStudentId)) {
+        return res.status(403).json({ success: false, error: 'Forbidden' });
+      }
       // findById returns { data: <record> }; Student.create returns the record
       // directly. Unwrap so student.studentId is populated for Lead.create below.
       const found = await Student.findById(existingStudentId);
@@ -86,10 +91,16 @@ async function register(req, res, next) {
       const dupes = await Student.checkDuplicates(email, phone);
       const activeDupes = dupes.filter((d) => (d.status || 'Active') === 'Active');
       if (activeDupes.length > 0) {
+        bindStudent(req, activeDupes[0].studentId);
+        // The wizard opts in to a minimal body (`minimalConflict`); the legacy
+        // Dashboard still loads the full record from `existing`, so it keeps it.
+        const existing = (enforcing() && req.body.minimalConflict)
+          ? { studentId: activeDupes[0].studentId, fullName: activeDupes[0].fullName }
+          : activeDupes[0];
         return res.status(409).json({
           success: false,
           error: 'A record with this email or phone already exists',
-          existing: activeDupes[0],
+          existing,
         });
       }
     }
@@ -160,6 +171,7 @@ async function register(req, res, next) {
 
       await client.query('COMMIT');
       req.session.studentId = student.studentId;
+      bindStudent(req, student.studentId);
       return res.status(201).json({ success: true, data: student });
     } catch (txErr) {
       try { await client.query('ROLLBACK'); } catch (_) { /* connection already broken */ }
@@ -182,13 +194,25 @@ async function getStudent(req, res, next) {
     // Phase-driven assignment context: every position's owner, plus what the
     // current phase allows (editable positions + legal next phases).
     const sid = result.data.studentId || result.data.student_id || id;
+    if (id.includes('@')) bindStudent(req, sid); // email form already passed requireOwnStudent
+    // Opening a record makes it this session's current student, so a returning
+    // student who opens the link in a new tab resumes where they left off
+    // (verifyOTP clears session.studentId on every login).
+    if (ownsStudent(req, sid)) req.session.studentId = sid;
     const phase = result.data.orderPhase || null;
-    const [assignments, editablePositions, nextPhases] = await Promise.all([
+    // journey_completed_at lives outside Student COLUMNS on purpose: reading it
+    // by hand keeps every student query working if code deploys before the migration.
+    const readJourney = pool
+      .query(`SELECT journey_completed_at FROM students WHERE student_id = $1`, [sid])
+      .then((j) => (j.rows[0] && j.rows[0].journey_completed_at) || null)
+      .catch((e) => { if (e.code === '42703') return null; throw e; });
+    const [assignments, editablePositions, nextPhases, journeyCompletedAt] = await Promise.all([
       OrderAssignment.getForOrder(sid),
       OrderAssignment.activePositions(phase),
       OrderAssignment.allowedTransitions(phase),
+      readJourney,
     ]);
-    res.json({ success: true, data: { ...result.data, assignments, editablePositions, nextPhases } });
+    res.json({ success: true, data: { ...result.data, journeyCompletedAt, assignments, editablePositions, nextPhases } });
   } catch (err) { next(err); }
 }
 
@@ -196,12 +220,24 @@ async function getByEmail(req, res, next) {
   try {
     const { email } = req.query;
     if (!email) return res.status(400).json({ success: false, error: 'Email query parameter required' });
+    if (enforcing() && !isOwnEmail(req, email)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const result = await Student.findByEmail(email);
     if (!result) return res.status(404).json({ success: false, error: 'Student not found' });
     req.session.studentId = result.data.studentId;
+    bindStudent(req, result.data.studentId);
     res.json({ success: true, data: result.data });
   } catch (err) { next(err); }
 }
+
+// Fields the customer app must never write: the server computes them (scores, gem,
+// persona) or staff own them. Stripped from every customer PUT.
+const SERVER_OWNED_FIELDS = [
+  'studentId', 'stoneTier', 'riskScore', 'status', 'oceanNarrative', 'oceanArchetype',
+  'oceanExtraversion', 'oceanAgreeableness', 'oceanConscientiousness',
+  'oceanNeuroticism', 'oceanOpenness',
+];
 
 async function updateStudent(req, res, next) {
   try {
@@ -213,6 +249,7 @@ async function updateStudent(req, res, next) {
     const data = { ...req.body };
     delete data.counselor;
     delete data.orderPhase;
+    for (const k of SERVER_OWNED_FIELDS) delete data[k];
     const updated = await Student.update(id, data);
     await issueAdvanceTokens(pool, id);
     res.json({ success: true, data: updated });
@@ -235,6 +272,9 @@ async function deactivateRecords(req, res, next) {
     const { studentIds } = req.body;
     if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0)
       return res.status(400).json({ success: false, error: 'studentIds array is required' });
+    if (enforcing() && !studentIds.every((sid) => ownsStudent(req, sid))) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const result = await Student.deactivateRecords(studentIds);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
@@ -347,6 +387,10 @@ async function calculateOcean(req, res, next) {
 
     const scores    = calculateOceanScores(responses);
     const narrative = generateNarrative(scores, language);
+    // Language-independent persona (English name); key lets clients localize it.
+    const allAnswered   = Object.values(responses).every((v) => v >= 1 && v <= 5);
+    const archetype     = allAnswered ? archetypeNameEn(scores) : null;
+    const archetypeKeyV = allAnswered ? archetypeKey(scores) : null;
 
     await Student.update(id, {
       oceanExtraversion:      Number(scores.extraversion),
@@ -355,13 +399,36 @@ async function calculateOcean(req, res, next) {
       oceanNeuroticism:       Number(scores.neuroticism),
       oceanOpenness:          Number(scores.openness),
       oceanNarrative:         narrative,
+      ...(archetype ? { oceanArchetype: archetype } : {}),
     });
 
-    res.json({ success: true, data: { scores, narrative } });
+    res.json({ success: true, data: { scores, narrative, archetype, archetypeKey: archetypeKeyV } });
   } catch (err) {
     console.error(`[OCEAN] Error:`, err.message);
     next(err);
   }
+}
+
+// Read-only: the stored trait scores rendered as narrative text in the requested
+// language (the stored narrative is in whichever language it was last calculated in).
+async function getOceanNarrative(req, res, next) {
+  try {
+    const { id } = req.params;
+    const language = req.query.language === 'vi' ? 'vi' : 'en';
+    const result = await Student.findById(id);
+    if (!result) return res.status(404).json({ success: false, error: 'Student not found' });
+    const d = result.data;
+    const traits = ['Extraversion', 'Agreeableness', 'Conscientiousness', 'Neuroticism', 'Openness'];
+    if (traits.some((t) => d[`ocean${t}`] === null || d[`ocean${t}`] === undefined || d[`ocean${t}`] === '')) {
+      return res.json({ success: true, data: { narrative: d.oceanNarrative || '' } });
+    }
+    const scores = {
+      extraversion: Number(d.oceanExtraversion), agreeableness: Number(d.oceanAgreeableness),
+      conscientiousness: Number(d.oceanConscientiousness), neuroticism: Number(d.oceanNeuroticism),
+      openness: Number(d.oceanOpenness),
+    };
+    res.json({ success: true, data: { narrative: generateNarrative(scores, language) } });
+  } catch (err) { next(err); }
 }
 
 async function calculateRisk(req, res, next) {
@@ -740,8 +807,97 @@ async function addRegistration(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Wizard: qualification fields (dual-write students + the student's lead) ──
+// The advance-QR gate (eventQualification.overlayLeadQualFields) reads
+// destination_country / timeline / study_plans from the LEAD row, but the legacy
+// PUT /students/:id only writes the students copy — so customers registering on
+// their own never satisfied it. This writes both.
+const QUAL_TIMELINES  = ['Next 6 months', '6-12 months', '12-24 months', '24-36 months', '36+ months'];
+const QUAL_STUDY_PLANS = ['Study Abroad', 'English Summer School', 'Study in Vietnam', 'Do not study', 'Work', 'Settlement'];
+
+async function updateQualification(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { destinationCountry, timeline, studyPlans } = req.body || {};
+    const patch = {};
+
+    // Empty / missing values mean "leave as is" — this endpoint never clears a field.
+    // (The form is prefilled from the students copy, which can be staler than the
+    // lead a counsellor edited; sending a blank must not wipe the lead's value.)
+    const list = (Array.isArray(destinationCountry) ? destinationCountry : String(destinationCountry || '').split(','))
+      .map((s) => String(s).trim()).filter(Boolean);
+    if (list.length) {
+      if (list.length > 3) return res.status(400).json({ success: false, error: 'At most 3 countries' });
+      // Countries must be real `country` lookup codes (when the lookup is loaded);
+      // otherwise fall back to a basic sanity check.
+      const known = await pool.query(`SELECT code FROM lookup_values WHERE category = 'country' AND is_active = true`);
+      const ok = known.rows.length
+        ? list.every((c) => known.rows.some((r) => r.code === c))
+        : list.every((c) => c.length <= 60);
+      if (!ok) return res.status(400).json({ success: false, error: 'Invalid country' });
+      patch.destinationCountry = list.join(', ');
+    }
+    if (timeline) {
+      if (!QUAL_TIMELINES.includes(timeline)) return res.status(400).json({ success: false, error: 'Invalid timeline' });
+      patch.timeline = timeline;
+    }
+    if (studyPlans) {
+      if (!QUAL_STUDY_PLANS.includes(studyPlans)) return res.status(400).json({ success: false, error: 'Invalid study plan' });
+      patch.studyPlans = studyPlans;
+    }
+    if (!Object.keys(patch).length) {
+      return res.status(400).json({ success: false, error: 'Nothing to update' });
+    }
+
+    const found = await Student.findById(id);
+    if (!found) return res.status(404).json({ success: false, error: 'Student not found' });
+
+    await Student.update(id, patch);
+    // Same lead the qualification gate reads: prefer an open lead, else the newest.
+    const lead = await pool.query(
+      `SELECT lead_id FROM leads WHERE person_id = $1
+        ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id DESC LIMIT 1`,
+      [id]);
+    const leadId = lead.rows[0] ? lead.rows[0].lead_id : null;
+    if (leadId) await Lead.update(leadId, patch);
+    await issueAdvanceTokens(pool, id);
+    res.json({ success: true, data: { ...patch, leadId } });
+  } catch (err) { next(err); }
+}
+
+// ── Wizard: mark the journey complete (idempotent) ───────────────────────────
+// The final "unlock" needs Step 1 done: one parent (name+phone+email) and at
+// least one country. Enforced here so the timestamp can safely drive rewards later.
+async function completeJourney(req, res, next) {
+  try {
+    const { id } = req.params;
+    const found = await Student.findById(id);
+    if (!found) return res.status(404).json({ success: false, error: 'Student not found' });
+    const s = found.data;
+    const has = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+    const missing = [];
+    const motherOk = has(s.motherFullName) && has(s.motherPhone) && has(s.motherEmail);
+    const fatherOk = has(s.fatherFullName) && has(s.fatherPhone) && has(s.fatherEmail);
+    if (!motherOk && !fatherOk) missing.push('parent');
+    if (!has(s.destinationCountry)) missing.push('destinationCountry');
+    if (missing.length) {
+      return res.status(422).json({ success: false, error: 'Step 1 is not complete', missing });
+    }
+    const r = await pool.query(
+      `UPDATE students SET journey_completed_at = COALESCE(journey_completed_at, now())
+        WHERE student_id = $1 RETURNING journey_completed_at`, [id]);
+    res.json({ success: true, data: { journeyCompletedAt: r.rows[0].journey_completed_at } });
+  } catch (err) {
+    if (err.code === '42703') {
+      return res.status(503).json({ success: false, error: 'journey_completed_at column missing — run addJourneyCompletedAt migration' });
+    }
+    next(err);
+  }
+}
+
 module.exports = {
   register, addRegistration, getStudent, getByEmail, updateStudent, checkDuplicate,
+  updateQualification, completeJourney, getOceanNarrative,
   deactivateRecords, calculateRisk, calculateOcean, uploadPhotos, searchStudents,
   exportExcel,                                                      // ← NEW
 };

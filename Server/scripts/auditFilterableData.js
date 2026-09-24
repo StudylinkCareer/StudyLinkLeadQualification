@@ -34,7 +34,7 @@ const fs       = require('fs');
 // Inlined so this script has zero ES-module / cross-package coupling.
 // If you update formFields.js, update these too — or extract them to a
 // shared JSON file consumed by both.
-const STUDY_PLANS = ['Study Abroad', 'English Summer School', 'Study in Vietnam', 'Do not study'];
+const STUDY_PLANS = ['Study Abroad', 'English Summer School', 'Study in Vietnam', 'Do not study', 'Work', 'Settlement'];
 
 const LEAD_SOURCES = [
   'Databases', 'FB-Zalo-GG-TikTok ads', 'School outreach',

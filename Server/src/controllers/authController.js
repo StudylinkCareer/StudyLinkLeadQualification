@@ -14,6 +14,7 @@ const emailService = require('../services/emailService');
 const resendService = require('../services/resendService');
 const smsService = require('../services/smsService');
 const { searchDuplicates } = require('../services/dataService');
+const { bindStudent } = require('../middleware/studentOwnership');
 const { Pool } = require('pg');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -73,6 +74,10 @@ async function checkLogin(req, res, next) {
         _matchedBy: m._matchedBy || [],
         createdAt: m.createdAt,
       }));
+
+    // The caller looked these records up by their own email/phone; let this
+    // session touch them (enforced only when ENFORCE_STUDENT_OWNERSHIP=true).
+    bindStudent(req, ...safeMatches.map((m) => m.studentId));
 
     // ── Analyze scenario (only Active records) ──
     let scenario = 'no_match';
@@ -211,6 +216,7 @@ async function loginLookup(req, res, next) {
       .filter((m) => (m.status || 'Active') === 'Active')
       .map((m) => ({ studentId: m.studentId, fullName: m.fullName, email: m.email, phone: m.phone }));
 
+    bindStudent(req, ...safeMatches.map((m) => m.studentId));
     if (safeMatches.length === 0) return res.json({ success: true, found: false });
     if (safeMatches.length > 1)  return res.json({ success: true, found: 'multiple', matches: safeMatches });
     return res.json({ success: true, found: true, studentId: safeMatches[0].studentId, fullName: safeMatches[0].fullName });
@@ -286,24 +292,4 @@ async function logout(req, res) {
   });
 }
 
-async function qrLogin(req, res, next) {
-  try {
-    const { email } = req.body;
-    const cleanEmail = (email && email.trim()) ? email.trim().toLowerCase() : '';
-
-    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      return res.status(400).json({ success: false, error: 'Invalid email format' });
-    }
-
-    req.session.authenticated = true;
-    req.session.email = cleanEmail;
-    req.session.isCounselor = false;
-    delete req.session.studentId;
-
-    res.json({ success: true, email: cleanEmail });
-  } catch (err) {
-    next(err);
-  }
-}
-
-module.exports = { requestOTP, verifyOTP, checkSession, logout, qrLogin, checkLogin, loginLookup, otpChannels };
+module.exports = { requestOTP, verifyOTP, checkSession, logout, checkLogin, loginLookup, otpChannels };
