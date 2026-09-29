@@ -57,6 +57,16 @@ export const EVENT_ANALYTICS_PROFILES = new Set([
   'Manager', 'Director',
 ]);
 
+// Who may edit Marketing Events / the Marketing-only Event/Campaign fields
+// (Source of Lead restructure, 2026-09): Manager-Marketing, CEO, COO, and the
+// owner by email — deliberately narrower than isManagerOrAdmin (which would
+// let unrelated HR/Finance/Products/BizDev managers edit them too). Mirror of
+// authProfiles.js's isMarketingOrOwner.
+export const MARKETING_EDIT_PROFILES = new Set(['Manager, Marketing', 'CEO', 'COO']);
+const OWNER_EMAIL = 'huyanhnguyen2107@gmail.com';
+export const isMarketingOrOwner = (profile, email) =>
+  MARKETING_EDIT_PROFILES.has(profile) || (!!email && email.toLowerCase() === OWNER_EMAIL);
+
 export const isAdminProfile     = (x) => ADMIN_PROFILES.has(x);
 export const isManagerOrAdmin   = (x) => ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x);
 export const canManageTargets   = (x) => TARGETS_PROFILES.has(x);

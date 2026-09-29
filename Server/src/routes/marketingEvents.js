@@ -23,22 +23,24 @@
 //     on/off switch the old separate "Active"/Deactivate column used,
 //     merged into one control per the business's explicit request. The
 //     Active column + its Ngô Quốc Hoàng-only gate are gone — anyone who
-//     can edit events (requireMarketingRole) can Hide/un-Hide one.)
+//     can edit events (requireMarketingRole; narrowed 2026-09 to Marketing/
+//     CEO/COO/owner only, see below) can Hide/un-Hide one.)
 //   - else auto: before start → hidden ; start ≤ today ≤ end+1 → visible ;
 //     after end+1 → hidden.
 // meta JSONB still exists on the row but is unused now (was manualShowDate/
 // manualHideDate for the old single-day override) — left as dead schema,
 // no migration needed to drop it.
 //
-// Routes:
+// Routes (Marketing/CEO/COO/owner only unless noted — see requireMarketingRole,
+// narrowed 2026-09 from isManagerOrAdmin as part of the Source of Lead restructure):
 //   GET    /event-types  — PUBLIC. Flat Event Type list.
-//   POST   /event-types  — Admin/Mgr/Dir. Add (or reactivate) an Event Type.
+//   POST   /event-types  — Marketing/CEO/COO/owner. Add (or reactivate) an Event Type.
 //   GET    /taxonomy     — PUBLIC. (Legacy group→type; kept for current LQ.)
 //   GET    /public       — PUBLIC. Visible events (?eventType= optional).
-//   GET    /             — Admin/Mgr/Dir. All events (active + hidden).
+//   GET    /             — Marketing/CEO/COO/owner. All events (active + hidden).
 //   POST   /             — Create / reactivate.
 //   PUT    /:id          — Update type/name/labels/counsellor/dates.
-//   PATCH  /:id/active   — Admin/Mgr/Dir. Hide/un-Hide (permanent).
+//   PATCH  /:id/active   — Marketing/CEO/COO/owner. Hide/un-Hide (permanent).
 //   DELETE /:id          — Soft delete (same is_active flag as Hide).
 // ─────────────────────────────────────────────────────────────────────
 
@@ -51,11 +53,16 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-const { isManagerOrAdmin } = require('../utils/authProfiles');
+// Source of Lead restructure (2026-09): narrowed from isManagerOrAdmin to
+// Marketing/CEO/COO/owner only (Manager-Marketing, CEO, COO, or the owner by
+// email) — Event/Campaign fields are Marketing-only, so unrelated HR/Finance/
+// Products/BizDev managers must not be able to edit the event catalog either.
+const { isMarketingOrOwner } = require('../utils/authProfiles');
 function requireMarketingRole(req, res, next) {
   if (!req.session?.staffId) return res.status(401).json({ success: false, error: 'Not authenticated' });
-  // staffRole holds the auth PROFILE post-migration (Manager/Lead/CEO/COO/Admin profiles).
-  if (!isManagerOrAdmin(req.session.staffRole)) return res.status(403).json({ success: false, error: 'Insufficient role' });
+  if (!isMarketingOrOwner(req.session.staffRole, req.session.staffEmail)) {
+    return res.status(403).json({ success: false, error: 'Insufficient role' });
+  }
   next();
 }
 

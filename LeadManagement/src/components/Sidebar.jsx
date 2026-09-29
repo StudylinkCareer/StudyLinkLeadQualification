@@ -10,7 +10,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
-import { isManagerOrAdmin, canManageTargets, canViewEventAnalytics } from '../utils/roleProfiles';
+import { isManagerOrAdmin, canManageTargets, canViewEventAnalytics, isMarketingOrOwner } from '../utils/roleProfiles';
 import { useNavCollapse } from '../contexts/NavCollapseContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
@@ -131,7 +131,9 @@ export default function Sidebar() {
           )}
         </button>
 
-        {isManagerOrAdmin(staff?.position) && (
+        {/* Source of Lead restructure (2026-09): narrowed from isManagerOrAdmin to
+            Marketing/CEO/COO/owner only — Event/Campaign is Marketing-only. */}
+        {isMarketingOrOwner(staff?.position, staff?.email) && (
         <button
           className={`nav-item ${isActive('/marketing-events') ? 'active' : ''}`}
           onClick={() => navigate('/marketing-events')}
