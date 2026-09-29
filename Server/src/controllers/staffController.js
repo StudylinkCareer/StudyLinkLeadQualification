@@ -1228,7 +1228,16 @@ async function getStudent(req, res, next) {
 // ── Student Update ────────────────────────────────────────────
 async function updateStudent(req, res, next) {
   try {
+    const { isMarketingOrOwner, MARKETING_ONLY_STUDENT_FIELDS } = require('../utils/authProfiles');
     const role = req.session.staffRole;
+    // Marketing-only fields are stripped unconditionally — not covered by
+    // role_field_permissions (that table fails open for unseeded role strings, so
+    // it can't be the sole gate here; see the plan) — and deliberately OUTSIDE the
+    // `if (role)` guard below: a session with no role must not fall through to an
+    // unfiltered req.body and bypass this the way it bypasses canEditField.
+    if (!isMarketingOrOwner(role, req.session.staffEmail)) {
+      for (const key of MARKETING_ONLY_STUDENT_FIELDS) delete req.body[key];
+    }
     if (role) {
       const filteredBody = {};
       for (const key of Object.keys(req.body)) {

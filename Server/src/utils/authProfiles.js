@@ -56,13 +56,31 @@ const EVENT_ANALYTICS_PROFILES = new Set([
   'Manager', 'Director',
 ]);
 
+// Who may edit the Marketing-only fields introduced by the Source of Lead
+// restructure (Event/Campaign fields today; the events picker once Phase 5
+// lands): Manager-Marketing, the owner (Huy Anh), CEO, COO — explicitly NOT
+// the broader isManagerOrAdmin (that would let unrelated managers — HR,
+// Finance, Products, Business Development — edit Marketing-only fields).
+const MARKETING_EDIT_PROFILES = new Set(['Manager, Marketing', 'CEO', 'COO']);
+const OWNER_EMAIL = 'huyanhnguyen2107@gmail.com';
+
+// Single source of truth for which student fields are Marketing-only (Source of
+// Lead restructure) — imported by both staffController.js and studentController.js
+// so the two can never drift apart on which fields this applies to.
+const MARKETING_ONLY_STUDENT_FIELDS = ['campaignType', 'campaignName', 'campaignStart', 'campaignEnd'];
+
 function isAdminProfile(x)     { return ADMIN_PROFILES.has(x); }
 function isManagerOrAdmin(x)   { return ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x); }
 function canManageTargets(x)   { return TARGETS_PROFILES.has(x); }
 function canViewEventReports(x){ return EVENT_REPORT_PROFILES.has(x); }
 function canViewEventAnalytics(x){ return EVENT_ANALYTICS_PROFILES.has(x); }
+function isMarketingOrOwner(profile, email) {
+  return MARKETING_EDIT_PROFILES.has(profile) || (!!email && email.toLowerCase() === OWNER_EMAIL);
+}
 
 module.exports = {
   ADMIN_PROFILES, MANAGER_PROFILES, TARGETS_PROFILES, EVENT_REPORT_PROFILES, EVENT_ANALYTICS_PROFILES,
+  MARKETING_EDIT_PROFILES, MARKETING_ONLY_STUDENT_FIELDS,
   isAdminProfile, isManagerOrAdmin, canManageTargets, canViewEventReports, canViewEventAnalytics,
+  isMarketingOrOwner,
 };

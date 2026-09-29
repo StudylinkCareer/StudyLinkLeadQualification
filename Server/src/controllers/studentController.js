@@ -7,6 +7,7 @@ const { issueAdvanceTokens } = require('../services/eventQualification');
 const { calculateRiskScore } = require('../utils/riskCalculator');
 const { archetypeKey, archetypeNameEn } = require('../utils/oceanArchetypes');
 const { enforcing, bindStudent, ownsStudent, isOwnEmail } = require('../middleware/studentOwnership');
+const { MARKETING_ONLY_STUDENT_FIELDS } = require('../utils/authProfiles');
 const ExcelJS = require('exceljs');                                 // ← NEW
 const { Pool } = require('pg');                                     // ← NEW
 
@@ -65,10 +66,14 @@ async function appendRegistration(studentId, f = {}, db = pool) {
 
 async function register(req, res, next) {
   try {
+    // campaignType/campaignName/campaignStart/campaignEnd are deliberately NOT
+    // read here: Source of Lead restructure marks Event/Campaign Marketing-only
+    // (pre-created, never customer- or self-registration-set); no client sends
+    // them today either (confirmed dead — see rangeReport.js's own comment that
+    // these were empty on every real contract checked).
     const { email, phone, fullName, contactMediums, studyPlans, leadSource,
             yearOfBirth, residency, schoolEvent, socialConsent,
             preferredSocial, phoneCountryCode, contactMedium1,
-            campaignType, campaignName, campaignStart, campaignEnd,
             referralSource,
             sourceOfLead, source, sourceDetail, sourceUnverified,
             counsellor, eventId, existingStudentId } = req.body;
@@ -129,10 +134,6 @@ async function register(req, res, next) {
             contactDetails:   req.body.contactDetails || {},
             studyPlans:       studyPlans       || '',
             leadSource:       sourceOfLead     || leadSource || '',
-            campaignType:     campaignType     || '',
-            campaignName:     campaignName     || '',
-            campaignStart:    campaignStart    || null,
-            campaignEnd:      campaignEnd      || null,
             referralSource:   referralSource   || '',
             source:           source           || '',
             sourceDetail:     sourceDetail     || '',
@@ -239,6 +240,7 @@ const SERVER_OWNED_FIELDS = [
   'oceanNeuroticism', 'oceanOpenness',
 ];
 
+
 async function updateStudent(req, res, next) {
   try {
     const { id } = req.params;
@@ -250,6 +252,9 @@ async function updateStudent(req, res, next) {
     delete data.counselor;
     delete data.orderPhase;
     for (const k of SERVER_OWNED_FIELDS) delete data[k];
+    // Marketing-only (Source of Lead restructure): pre-created by Marketing, never
+    // set by a customer, regardless of staff-side field permissions.
+    for (const k of MARKETING_ONLY_STUDENT_FIELDS) delete data[k];
     const updated = await Student.update(id, data);
     await issueAdvanceTokens(pool, id);
     res.json({ success: true, data: updated });

@@ -33,7 +33,6 @@ const COLUMNS = [
   { db: 'confidence',          js: 'confidence' },
   { db: 'close_date',          js: 'closeDate' },
   { db: 'study_plans',         js: 'studyPlans' },
-  { db: 'lead_source',         js: 'leadSource' },
   { db: 'interaction',         js: 'interaction' },
   { db: 'destination_country', js: 'destinationCountry' },
   { db: 'timeline',            js: 'timeline' },
@@ -52,11 +51,6 @@ const COLUMNS = [
   { db: 'counseling_notes',    js: 'counselingNotes' },
   { db: 'case_officer_notes',  js: 'caseOfficerNotes' },
   { db: 'management_notes',    js: 'managementNotes' },
-  { db: 'campaign_type',       js: 'campaignType' },
-  { db: 'campaign_name',       js: 'campaignName' },
-  { db: 'campaign_start',      js: 'campaignStart' },
-  { db: 'campaign_end',        js: 'campaignEnd' },
-  { db: 'referral_source',     js: 'referralSource' },
   { db: 'mkt_channel',         js: 'mktChannel' },
   { db: 'mkt_attendance',      js: 'mktAttendance' },
   { db: 'mkt_type',            js: 'mktType' },
@@ -73,8 +67,6 @@ const COLUMNS = [
   { db: 'sl_referral_kind',    js: 'slReferralKind' },
   { db: 'sl_referral_who',     js: 'slReferralWho' },
   { db: 'database_source',     js: 'databaseSource' },
-  { db: 'source',              js: 'source' },
-  { db: 'source_detail',       js: 'sourceDetail' },
   { db: 'source_unverified',   js: 'sourceUnverified' },
   { db: 'office',              js: 'office' },
   { db: 'distribution_status', js: 'distributionStatus' },
@@ -93,7 +85,7 @@ const DB_TO_JS = Object.fromEntries(COLUMNS.map(c => [c.db, c.js]));
 const JS_TO_DB = Object.fromEntries(COLUMNS.map(c => [c.js, c.db]));
 
 // DATE columns — pg returns Date objects; convert to YYYY-MM-DD strings.
-const DATE_COLUMNS = new Set(['closeDate', 'campaignStart', 'campaignEnd', 'actualCloseDate', 'cancellationDate', 'assignedIn', 'assignedOut']);
+const DATE_COLUMNS = new Set(['closeDate', 'actualCloseDate', 'cancellationDate', 'assignedIn', 'assignedOut']);
 // Never writable through create/update (managed by DB / set on create only).
 // actualCloseDate/cancellationDate/assignedIn/assignedOut are owned by the leads lifecycle triggers.
 const READONLY = new Set(['leadId', 'studentId', 'createdAt', 'updatedAt', 'actualCloseDate', 'cancellationDate', 'assignedIn', 'assignedOut']);

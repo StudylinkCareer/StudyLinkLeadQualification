@@ -59,6 +59,7 @@ import GroupReport from './pages/GroupReport';
 import EventReport from './pages/EventReport';
 import ReferralSources from './pages/ReferralSources';
 import ReferenceData from './pages/ReferenceData';
+import SourceReclassification from './pages/SourceReclassification';
 import LeadDistribution from './pages/LeadDistribution';
 import DataCleanup from './pages/DataCleanup';
 import AdminMaintenance from './pages/AdminMaintenance';
@@ -180,6 +181,7 @@ export default function App() {
               <Route path="/reports/group"      element={<ProtectedLayout><GroupReport /></ProtectedLayout>} />
               <Route path="/reports/event"    element={<EventReportRoute><EventReport /></EventReportRoute>} />
               <Route path="/reference-data" element={<ProtectedLayout><ReferenceData /></ProtectedLayout>} />
+              <Route path="/source-reclassification" element={<ProtectedLayout><SourceReclassification /></ProtectedLayout>} />
               <Route path="/admin/cleanup"  element={<ProtectedLayout><DataCleanup /></ProtectedLayout>} />
               <Route path="/admin/maintenance" element={<ProtectedLayout><AdminMaintenance /></ProtectedLayout>} />
               <Route path="/admin/staff-targets" element={<ProtectedLayout><StaffTargets /></ProtectedLayout>} />

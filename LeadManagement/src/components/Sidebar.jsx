@@ -218,6 +218,15 @@ export default function Sidebar() {
         </button>
       )}
 
+        {isManagerOrAdmin(staff?.position) && (
+        <button
+          className={`nav-item ${isActive('/source-reclassification') ? 'active' : ''}`}
+          onClick={() => navigate('/source-reclassification')}
+        >
+          <FiShare2 size={16} /> {language === 'vi' ? 'Phân loại lại Nguồn' : 'Source Reclassification'}
+        </button>
+      )}
+
         {/* Layout variants — every user manages their own */}
         <button
           className={`nav-item ${isActive('/settings/columns') ? 'active' : ''}`}

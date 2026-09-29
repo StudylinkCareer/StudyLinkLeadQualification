@@ -25,14 +25,10 @@ const MODE_OPTIONS = [
 ];
 
 // Left-nav catalogue. Each leaf carries the category (+ subcategory) it edits.
+// Source of Lead restructure (2026-09): "Source of Lead" and "Source" are now a
+// fixed 5-value list that only changes via a migration, not staff self-service —
+// removed from here (the server also 403s writes to those two categories now).
 const CATALOG = [
-  { type: 'item', key: 'source_of_lead', label: 'Source of Lead', labelVi: 'Nguồn khách hàng',
-    category: 'source_of_lead', subcategory: null, showMode: true },
-  { type: 'group', label: 'Source', labelVi: 'Nguồn', items: [
-    { key: 'source:Databases',          label: 'Databases',          labelVi: 'Cơ sở dữ liệu',     category: 'source', subcategory: 'Databases' },
-    { key: 'source:On-line',            label: 'On-line',            labelVi: 'Trực tuyến',        category: 'source', subcategory: 'On-line' },
-    { key: 'source:Personal referrals', label: 'Personal referrals', labelVi: 'Giới thiệu cá nhân', category: 'source', subcategory: 'Personal referrals' },
-  ]},
   { type: 'item', key: 'b2b_type', label: 'B2B Type', labelVi: 'Loại B2B', category: 'b2b_type', subcategory: null },
   { type: 'group', label: 'B2B Party', labelVi: 'Đối tác B2B', items: [
     { key: 'b2b_party:Subagents',       label: 'Subagents',       labelVi: 'Sub-agent',           category: 'b2b_party', subcategory: 'Subagents' },
@@ -249,13 +245,16 @@ function ListEditor({ node, language }) {
   );
 }
 
+// Flattened once at module scope (CATALOG is static) so the default tab below
+// is never a key CATALOG doesn't actually contain.
+const FLAT_CATALOG = [];
+CATALOG.forEach(n => { if (n.type === 'group') n.items.forEach(i => FLAT_CATALOG.push(i)); else FLAT_CATALOG.push(n); });
+
 export default function ReferenceData() {
   const { language } = useLanguage();
-  const [activeKey, setActiveKey] = useState('source_of_lead');
+  const [activeKey, setActiveKey] = useState(FLAT_CATALOG[0]?.key);
 
-  // flatten to find the active node
-  const flat = [];
-  CATALOG.forEach(n => { if (n.type === 'group') n.items.forEach(i => flat.push(i)); else flat.push(n); });
+  const flat = FLAT_CATALOG;
   const node = flat.find(n => n.key === activeKey) || flat[0];
 
   const navBtn = (n) => {

@@ -27,7 +27,13 @@ function requireRole(req, res, next) {
   next();
 }
 
-const EDITABLE = new Set(['source_of_lead', 'source', 'b2b_type', 'b2b_party', 'attendance_status']);
+// Source of Lead restructure: source_of_lead and source are now a fixed 5-value
+// list that only changes via a migration, not a runtime admin screen — removed
+// from the WRITE whitelist (no replacement editor). They stay READABLE (below):
+// the new Source Reclassification tool (routes/sourceReclassification.js) still
+// needs to list them to populate its "reassign to" dropdowns.
+const EDITABLE = new Set(['b2b_type', 'b2b_party', 'attendance_status']);
+const READABLE = new Set([...EDITABLE, 'source_of_lead', 'source']);
 const norm  = (v) => { const s = (v ?? '').toString().trim(); return s === '' ? null : s; };
 const shape = (r) => ({
   id: r.id, code: r.code, labelEn: r.label_en || null, labelVi: r.label_vi || null,
@@ -64,6 +70,10 @@ router.get('/public/source-options', async (req, res) => {
     );
     const out = { sourceOfLead: [], source: {}, b2bType: [], b2bParty: {} };
     for (const r of rows) {
+      // Databases and B2B referral are staff-only (owner, 2026-09-28): a customer
+      // self-registering must never see or pick them, so they're dropped from this
+      // PUBLIC response entirely (not just hidden client-side).
+      if (r.category === 'source_of_lead' && r.meta && r.meta.hidden_from_customer_app) continue;
       const item = { code: r.code, labelEn: r.label_en, labelVi: r.label_vi };
       if (r.category === 'source_of_lead') {
         out.sourceOfLead.push({ ...item, mode: (r.meta && r.meta.mode) || 'list' });
@@ -85,7 +95,7 @@ router.get('/public/source-options', async (req, res) => {
 router.get('/', requireRole, async (req, res) => {
   const category    = norm(req.query.category);
   const subcategory = norm(req.query.subcategory);
-  if (!category || !EDITABLE.has(category)) return res.status(400).json({ success: false, error: 'Unknown list' });
+  if (!category || !READABLE.has(category)) return res.status(400).json({ success: false, error: 'Unknown list' });
   const conds = ['category = $1', 'is_active = true'], params = [category];
   if (subcategory) { params.push(subcategory); conds.push(`COALESCE(subcategory,'') = $${params.length}`); }
   try {
