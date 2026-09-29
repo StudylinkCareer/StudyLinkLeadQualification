@@ -180,7 +180,11 @@ const FILTER_CONFIG = [
   { colKey:'yearOfBirth',        label:'Year of Birth',   type:'multi',     filterKey:'yearOfBirth' },
   { colKey:'residency',          label:'Residency',       type:'multi',     filterKey:'residency' },
   //{ colKey:'schoolEvent',        label:'School/Event',    type:'multi',     filterKey:'schoolEvent' },
-  { colKey:'referralSource',     label:'Campaign/Event',  type:'multi',     filterKey:'referralSource' },
+  // Relabeled (Source of Lead restructure): this is the OLD free-text field being
+  // phased out via the Source Reclassification tool — "Campaign/Event" is now the
+  // real event link shown in the lead's Event Registrations section, so keeping
+  // that label here would make staff think this is the same field.
+  { colKey:'referralSource',     label:'Campaign/Event (legacy)', type:'multi', filterKey:'referralSource' },
   { colKey:'preferredSocial',    label:'Social Platform', type:'multi',     filterKey:'preferredSocial' },
   { colKey:'socialConsent',      label:'Connect With Us', type:'multi',     filterKey:'socialConsent' },
   // Self assessment

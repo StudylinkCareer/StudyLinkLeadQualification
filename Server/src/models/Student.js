@@ -99,7 +99,10 @@ const COLUMNS = [
   { db: 'ocean_openness',            js: 'oceanOpenness' },
   { db: 'ocean_narrative',           js: 'oceanNarrative' },
   { db: 'ocean_archetype',           js: 'oceanArchetype' },
-  { db: 'campaign_type',             js: 'campaignType' },
+  // campaign_type dropped from the table (Source of Lead restructure, Phase 7 —
+  // confirmed always-unused everywhere it was checked). campaign_name/start/end
+  // stay for now — Option A (Event Registrations) needs a full reporting cycle
+  // observed correct before those follow.
   { db: 'campaign_name',             js: 'campaignName' },
   { db: 'campaign_start',            js: 'campaignStart' },
   { db: 'campaign_end',              js: 'campaignEnd' },
@@ -277,7 +280,6 @@ async function create(data, db = pool) {
     oceanConscientiousness: data.oceanConscientiousness || null,
     oceanNeuroticism:       data.oceanNeuroticism       || null,
     oceanOpenness:          data.oceanOpenness          || null,
-    campaignType:           data.campaignType           || '',
     campaignName:           data.campaignName           || '',
     campaignStart:          data.campaignStart          || null,
     campaignEnd:            data.campaignEnd            || null,

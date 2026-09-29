@@ -1250,7 +1250,11 @@ export default function LeadDetail() {
   const countries    = useLookup('country');
   const countryOpts  = countries.map(c => c.code).filter(Boolean);
   const sourceOfLeadOpts = solItems.map(o => o.code);
-  const SOL_MODE = { 'Databases':'list', 'On-line':'list', 'Event/Campaign':'events', 'B2B referrals':'b2b', 'Personal referrals':'list_freetext' };
+  // Fallback only — the live lookup row's own meta.mode (set by the Source of Lead
+  // restructure migration) is checked FIRST in modeOf() below, so this map only
+  // matters if that meta is ever missing. 'Event/Campaign' is kept so a historical
+  // lead still holding that now-deactivated value doesn't fall through to '' mode.
+  const SOL_MODE = { 'Databases':'list', 'On-line':'list', 'Event/Campaign':'events', 'Third party event':'none', 'B2B referrals':'b2b', 'Personal referrals':'list_freetext' };
   const modeOf = (code) => ((solItems.find(o => o.code === code) || {}).meta || {}).mode || SOL_MODE[code] || '';
   const withCur = (opts, val) => opts ? [...new Set([...opts, val].filter(Boolean))] : undefined;
   const sourceOptsFor = (sol) => {
@@ -2252,8 +2256,13 @@ export default function LeadDetail() {
             {editMode ? (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                 <EditField label="Source of Lead"      name="leadSource"        value={d.leadSource}        onChange={updateEdit} options={withCur(sourceOfLeadOpts, d.leadSource)}/>
+                {/* Third party event (mode 'none') has no sub-field per the Source of
+                    Lead restructure — Source/Source detail only render for the modes
+                    that actually use them. */}
+                {modeOf(d.leadSource) !== 'none' && (<>
                 <EditField label="Source"              name="source"            value={d.source}            onChange={updateEdit} options={withCur(sourceOptsFor(d.leadSource), d.source)}/>
                 <EditField label="Source detail"       name="sourceDetail"      value={d.sourceDetail}      onChange={updateEdit} options={withCur(sourceDetailOptsFor(d.leadSource, d.source), d.sourceDetail)}/>
+                </>)}
                 <EditField label="Interaction"         name="interaction"       value={d.interaction}       onChange={updateEdit} options={INTERACTION_OPTS}/>
                 <EditField label="Budget"              name="budget"            value={d.budget}            onChange={updateEdit} options={BUDGET_OPTIONS}/>
                 <EditField label="Scholarship Demand"  name="scholarshipDemand" value={d.scholarshipDemand} onChange={updateEdit} options={SCHOLARSHIP_OPTS}/>
@@ -2268,8 +2277,10 @@ export default function LeadDetail() {
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                 <Field label="Source of Lead"      value={lead.leadSource}/>
+                {modeOf(lead.leadSource) !== 'none' && (<>
                 <Field label="Source"              value={lead.source}/>
                 <Field label="Source detail"       value={lead.sourceDetail}/>
+                </>)}
                 <Field label="Interaction"         value={lead.interaction}/>
                 <Field label="Budget"              value={lead.budget}/>
                 <Field label="Scholarship Demand"  value={lead.scholarshipDemand}/>

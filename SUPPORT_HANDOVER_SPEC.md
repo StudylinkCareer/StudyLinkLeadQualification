@@ -311,7 +311,7 @@ Guards are **not interchangeable** (`requireAuth` checks the client flag). `requ
 
 **Main resources + operations:** `leads` (create/view_list/view_detail/edit/delete/assign/recalculate/export), `sales` (create/read/update/delete), `staff` (view/edit/manage/delete/set_target), `reports` (view/activity/weekly/monthly), `events` (checkin_view/checkin/marketing_view/marketing), `followup` (view/manage), `notes` (write_counselor/write_presales/write_management), `refdata` (view/manage), `column_config` (manage), `distribution` (view/manage), `cleanse` (view/use), `maintenance` (view/use), `audit` (view).
 
-**⚠️ Hybrid gating.** Not everything is table-driven: `referenceData.js`, `referralSources.js`, `marketingEvents.js` hardcode `role ∈ {Admin,Manager,Director}`; `eventConsole.js`/`cleanup.js` use `isManagerOrAdmin`/`isAdminProfile`. `utils/authProfiles.js` classifies profiles into `ADMIN_PROFILES`/`MANAGER_PROFILES` (incl. legacy role names for rollback safety) because `session.staffRole` may hold either a new profile OR a legacy role depending on migration state.
+**⚠️ Hybrid gating.** Not everything is table-driven: `referenceData.js`, `referralSources.js` hardcode `role ∈ {Admin,Manager,Director}`; `sourceReclassification.js` (Phase 3, Source of Lead restructure) uses `isManagerOrAdmin`; `eventConsole.js`/`cleanup.js` use `isManagerOrAdmin`/`isAdminProfile`. `marketingEvents.js` uses the narrower `isMarketingOrOwner` (Manager-Marketing/CEO/COO/owner-by-email — deliberately NOT `isManagerOrAdmin`, narrowed 2026-09-29 so unrelated managers can't edit Marketing Events). `utils/authProfiles.js` classifies profiles into `ADMIN_PROFILES`/`MANAGER_PROFILES` (incl. legacy role names for rollback safety) because `session.staffRole` may hold either a new profile OR a legacy role depending on migration state.
 
 ### 5.5 Background services (`src/services/`)
 
@@ -416,9 +416,9 @@ The **Lead Management (LM) Console** is a Vite + React SPA that staff use to wor
 
 **7.7 Weekly Report (static)** — `/reports/weekly` (`FiFileText`), `WeeklyReport.jsx`. Weekly status report served from a **frozen Monday-08:00-VN snapshot**. Header = 5 Contracted KPI cards; rows: Contracted / Counselling Letters / Leads / Calls / Calls-by-day / Breakdown-by-mode. Right panel drills any metric into its lead list; footer = Recommendations panel. Managers pick a scope; header totals never change. **Gate:** none (always visible — not gated by `reports.view`).
 
-**7.8 Marketing Events** — `/marketing-events` (`FiCalendar`), `MarketingEvents.jsx`. Admin editor for the `events` table: event type (add-new inline), name, EN/VI labels, dedicated counsellor, dates, "hide from list" override; generates styled event QR codes. The dedicated counsellor pre-tags single-counsellor events on the LQ form. **Gate:** **role check** `['Admin','Manager','Director'].includes(staff.role)` (not `canDo`).
+**7.8 Marketing Events** — `/marketing-events` (`FiCalendar`), `MarketingEvents.jsx`. Admin editor for the `events` table: event type (add-new inline), name, EN/VI labels, dedicated counsellor, dates, "hide from list" override; generates styled event QR codes. The dedicated counsellor pre-tags single-counsellor events on the LQ form. **Gate:** **role check** `isMarketingOrOwner` — Manager-Marketing / CEO / COO / the owner's own account by email (narrowed 2026-09-29 from the broader Admin/Manager/Director check; HR/Finance/Products/BizDev managers no longer have access).
 
-**7.9 Reference Data** — `/reference-data` (`FiShare2`), `ReferenceData.jsx`. Left-nav editor over `/api/reference-data` whitelisted `lookup_values` categories: Source of Lead (with `mode`), Source ▸ Databases/On-line/Personal, B2B Type, B2B Party ▸ Subagents/Partners/School Outreach, Attendance Status. Add/edit/soft-delete. (Event/Campaign sources live on Marketing Events, not here.) **Gate:** **role check** `Admin/Manager/Director`.
+**7.9 Reference Data** — `/reference-data` (`FiShare2`), `ReferenceData.jsx`. Left-nav editor over `/api/reference-data` whitelisted `lookup_values` categories: B2B Type, B2B Party ▸ Subagents/Partners, Attendance Status. Add/edit/soft-delete. **Source of Lead and Source are NOT editable here** (removed 2026-09-29, Source of Lead restructure) — the 5-value Source of Lead list (Databases, On-line, Third party event, B2B referral, Personal referral) is now fixed by design and only changes via a code/migration change; legacy free-text values already on leads are handled by the separate **Source Reclassification** tool (`/source-reclassification`), not by adding new options here. (Event/Campaign as a field lives on the lead's Event Registrations, sourced from Marketing Events — not a Source of Lead value any more.) **Gate:** **role check** `Admin/Manager/Director`.
 
 **7.10 Column Settings** — `/settings/columns` (`FiLayout`), `ColumnLayoutSettings.jsx`. Per-user layout-variant manager for the Leads list: drag-drop column order (`@dnd-kit`), show/hide, category groups, save/star-as-default variants. Writes `{columnOrder, columnVisibility, columnSizing}`. **Gate:** none ("every user manages their own").
 
@@ -512,7 +512,9 @@ Migrations live in `Server/Migrations/` and are **run by hand**, not automatical
 | Task | Where |
 |------|-------|
 | Add a **counsellor** to the LQ dropdown | Set the staff member's `lq_selectable=true` (Staff admin / DB). The public feed is `/api/reference-data/public/counsellors`. |
-| Add a **Source of Lead / Source / B2B** option | Console → **Reference Data** (Admin/Manager/Director). |
+| Add a **B2B** (party/subagent) option | Console → **Reference Data** (Admin/Manager/Director). |
+| Reclassify a legacy **Source/Campaign** free-text value on old leads | Console → **Source Reclassification** (Admin/Manager/Director) — bulk-reassigns to one of the 5 fixed Source of Lead buckets. |
+| Add a new **Source of Lead** value (not a Reference Data task) | Fixed list of 5 by design — requires a code + migration change, not a console screen. |
 | Add / edit a **marketing event** | Console → **Marketing Events**. Dedicated counsellor here pre-tags the LQ form + QR. |
 | Reassign / **move a lead** across phases | Console → **Leads** (bulk "Move") or **Lead detail** right column (Phase mover + Staff Assignment). |
 | Reset a **staff password** | Console → **Staff** → key icon (needs `staff.manage`). |

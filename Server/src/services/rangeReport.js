@@ -327,7 +327,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
     `SELECT l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country,
             l.case_type, l.is_out_of_system, s.lead_source, s.source, s.source_detail,
             l.created_at AS lead_created_at, l.actual_close_date,
-            COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label,
+            COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label, solv.meta AS sol_meta,
             ev.campaign_names
        FROM leads l JOIN students s ON s.student_id = l.person_id
        LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
@@ -359,17 +359,24 @@ async function computeRangeReport(names, from, to, opts = {}) {
   //
   // Per-contract drilldown fields (2026-09, Hoàng's ask): the grouping key
   // above stays the clean, actively-maintained Source of Lead bucket, but
-  // each contract underneath it also carries the legacy source/source_detail
-  // pair as "specific source" (Nguồn cụ thể) — this is the exact free-text
-  // Monthly Report used to show as ITS single source label (e.g. "Database -
-  // Onshore" + "PTE LIFE"), so nothing is lost by grouping on the cleaner
-  // field above. Campaign comes from lead_events/events (the same link
-  // Marketing Activities counts leads through), not students.campaign_name/
-  // campaign_type — those free-text fields were empty on every August
-  // contract checked live; the event link is what's actually populated.
+  // each contract underneath it also carries source/source_detail as
+  // "specific source" (Nguồn cụ thể) — under the Source of Lead restructure
+  // (Plan B) these two columns now hold each bucket's real sub-field (Online
+  // channel, B2B partner + name, Personal referral category + referrer name),
+  // so the plain join below is still correct for 4 of the 5 buckets. The one
+  // exception is "Third party event" (mode:'none' — no sub-field is collected
+  // for it at all, same as LeadDetail.jsx's SOL_MODE), where source/source_detail
+  // can only hold stale pre-restructure data — suppressed to null there so old
+  // garbage doesn't surface as a fake "specific source". Campaign comes from
+  // lead_events/events (the same link Marketing Activities counts leads
+  // through), not students.campaign_name/campaign_type — those free-text
+  // fields were empty on every August contract checked live.
   const dayMs = 24 * 60 * 60 * 1000;
+  const NO_SUBFIELD_SOL = new Set(['Third party event']); // fallback if sol_meta.mode is unavailable
   const detailFor = (r) => {
-    const specificSource = [r.source, r.source_detail].filter(Boolean).join(' - ') || null;
+    const solMode = r.sol_meta?.mode;
+    const hasNoSubfield = solMode ? solMode === 'none' : NO_SUBFIELD_SOL.has(r.lead_source);
+    const specificSource = hasNoSubfield ? null : ([r.source, r.source_detail].filter(Boolean).join(' - ') || null);
     const leadCreatedAt = r.lead_created_at ? new Date(r.lead_created_at).toISOString() : null;
     const actualCloseDate = r.actual_close_date ? new Date(r.actual_close_date).toISOString() : null;
     const daysToClose = (leadCreatedAt && actualCloseDate)

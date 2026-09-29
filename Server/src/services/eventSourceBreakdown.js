@@ -21,15 +21,22 @@ const pool = new Pool({
 //   1. Channel (Facebook/Zalo/TikTok/...) from the event-registration record
 //   2. Referral (Sub-agent/Partner/Ex-client) + who — free text, shown as-is
 //   3. Per-registration source/source_detail mirror fields — UNLESS the
-//      Source-of-Lead picked was "Events" mode, in which case le.source is
-//      just the name of an event (usually THIS same event: the LQ app sets
-//      lead_events.event_id and the "source" event to the same picked value,
-//      so on-site registrants are tautologically "sourced from" the fair
-//      they're standing in). Showing that raw event name as if it were a
-//      channel like "FB ads" is meaningless noise, so it's collapsed to the
-//      Source-of-Lead lookup's own label instead (e.g. "Sự kiện / Event").
+//      Source-of-Lead picked has no sub-field to show at all:
+//        - "events" mode (the old, now-removed Event/Campaign SOL value):
+//          le.source is just the name of an event (usually THIS same event:
+//          the LQ app sets lead_events.event_id and the "source" event to the
+//          same picked value, so on-site registrants are tautologically
+//          "sourced from" the fair they're standing in). Showing that raw
+//          event name as if it were a channel like "FB ads" is meaningless
+//          noise, so it's collapsed to the Source-of-Lead lookup's own label
+//          instead (e.g. "Sự kiện / Event").
+//        - "none" mode (Source of Lead restructure, Plan B: "Third party
+//          event" is a standalone bucket with no sub-field at all) — same
+//          collapse, since there's nothing more specific to show and any
+//          non-empty source/source_detail here can only be stale data from
+//          before this value existed (e.g. old B2B "School Outreach" leads).
 //   4. Student-level fallback (older registrations captured before per-event
-//      attribution existed), same Events-mode collapse applied
+//      attribution existed), same mode collapse applied
 //   5. Unknown
 function resolveSourceLabel(row) {
   if (row.ev_heard_type === 'Channel' && row.ev_channel) {
@@ -42,11 +49,17 @@ function resolveSourceLabel(row) {
   if (row.le_sol_mode === 'events') {
     return row.le_sol_label || 'Event/Campaign';
   }
+  if (row.le_sol_mode === 'none') {
+    return row.le_sol_label || 'Third party event';
+  }
   const leSource = [row.le_source, row.le_source_detail].filter(Boolean).join(' - ');
   if (leSource) return leSource;
 
   if (row.s_sol_mode === 'events') {
     return row.s_sol_label || 'Event/Campaign';
+  }
+  if (row.s_sol_mode === 'none') {
+    return row.s_sol_label || 'Third party event';
   }
   const sSource = [row.s_lead_source || row.s_source, row.s_source_detail].filter(Boolean).join(' - ');
   if (sSource) return sSource;

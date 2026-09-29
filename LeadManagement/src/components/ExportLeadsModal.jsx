@@ -85,15 +85,10 @@ const FIELD_GROUPS = [
       { key: 'oceanOpenness',          label: 'Openness' },
     ],
   },
-  {
-    label: 'Campaign / Event',
-    fields: [
-      { key: 'campaignType',  label: 'Campaign Type' },
-      { key: 'campaignName',  label: 'Campaign Name' },
-      { key: 'campaignStart', label: 'Camp. Start' },
-      { key: 'campaignEnd',   label: 'Camp. End' },
-    ],
-  },
+  // "Campaign / Event" group removed (Source of Lead restructure): campaignType/
+  // campaignName/campaignStart/campaignEnd were confirmed dead — empty on every
+  // real contract checked (see rangeReport.js's own comment) — and are slated for
+  // removal in Phase 7. Nothing left to export.
 ];
 
 const ALL_FIELD_KEYS = FIELD_GROUPS.flatMap(g => g.fields.map(f => f.key));
@@ -110,8 +105,6 @@ const DATE_FIELD_OPTIONS = [
   { value: 'createdAt',     label: 'Created Date' },
   { value: 'updatedAt',     label: 'Last Updated' },
   { value: 'closeDate',     label: 'Projected close date' },
-  { value: 'campaignStart', label: 'Campaign Start' },
-  { value: 'campaignEnd',   label: 'Campaign End' },
 ];
 
 // ── Component ─────────────────────────────────────────────────
