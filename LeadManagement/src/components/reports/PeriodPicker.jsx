@@ -1,15 +1,17 @@
 // src/components/reports/PeriodPicker.jsx
 // -----------------------------------------------------------------------------
-// Shared weekly/monthly/yearly/custom-range period control for Individual
-// Report and Company Report (2026-08 Weekly/Monthly Report merge). No such
-// reusable date-range component existed before this — every prior report
-// page hand-rolled its own pair of <input type="date">s (confirmed during
-// planning). `value` / `onChange` carry exactly the shape the new
-// /api/reports/individual and /group endpoints expect as query params:
-//   { period: 'weekly',  weekStart: 'YYYY-MM-DD' }
-//   { period: 'monthly', month: 'YYYY-MM' }
-//   { period: 'yearly',  year: 'YYYY' }
-//   { period: 'custom',  from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
+// Shared weekly/monthly/quarterly/yearly/custom-range period control for
+// Individual Report and Company Report (2026-08 Weekly/Monthly Report merge;
+// Quarterly added 2026-09-30). No such reusable date-range component existed
+// before the original merge — every prior report page hand-rolled its own
+// pair of <input type="date">s (confirmed during planning). `value` /
+// `onChange` carry exactly the shape the new /api/reports/individual and
+// /group endpoints expect as query params:
+//   { period: 'weekly',    weekStart: 'YYYY-MM-DD' }
+//   { period: 'monthly',   month: 'YYYY-MM' }
+//   { period: 'quarterly', quarter: 'YYYY-Q#' }
+//   { period: 'yearly',    year: 'YYYY' }
+//   { period: 'custom',    from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
 //
 // The dropdown's displayed period type is tracked as its OWN local state
 // (`uiPeriod`), deliberately NOT derived from `value.period` — switching the
@@ -31,6 +33,7 @@
 // -----------------------------------------------------------------------------
 import { useState, useEffect } from 'react';
 import YearMonthPicker from './YearMonthPicker';
+import YearQuarterPicker from './YearQuarterPicker';
 
 const sel = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderRadius: 6, border: '1px solid var(--border,#e5e7eb)' };
 const btn = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderRadius: 6, border: '1px solid var(--border,#e5e7eb)', background: 'var(--bg-primary,#fff)', cursor: 'pointer' };
@@ -51,6 +54,10 @@ function currentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
+function currentQuarter() {
+  const d = new Date();
+  return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+}
 
 export default function PeriodPicker({ value, onChange, L }) {
   const [uiPeriod, setUiPeriod] = useState(value?.period || 'weekly');
@@ -66,9 +73,10 @@ export default function PeriodPicker({ value, onChange, L }) {
     // when switching in from another period type, so they fire immediately;
     // custom genuinely has nothing valid until both dates are picked, so it
     // waits for the explicit Apply click below instead.
-    if (p === 'weekly')  onChange({ period: p, weekStart: value?.period === 'weekly'  ? value.weekStart : mondayOf(new Date()) });
-    if (p === 'monthly') onChange({ period: p, month:     value?.period === 'monthly' ? value.month     : currentMonth() });
-    if (p === 'yearly')  onChange({ period: p, year:      value?.period === 'yearly'  ? value.year      : String(new Date().getFullYear()) });
+    if (p === 'weekly')    onChange({ period: p, weekStart: value?.period === 'weekly'    ? value.weekStart : mondayOf(new Date()) });
+    if (p === 'monthly')   onChange({ period: p, month:     value?.period === 'monthly'   ? value.month     : currentMonth() });
+    if (p === 'quarterly') onChange({ period: p, quarter:   value?.period === 'quarterly' ? value.quarter   : currentQuarter() });
+    if (p === 'yearly')    onChange({ period: p, year:      value?.period === 'yearly'    ? value.year      : String(new Date().getFullYear()) });
   }
 
   function commitYear() {
@@ -81,6 +89,7 @@ export default function PeriodPicker({ value, onChange, L }) {
       <select value={uiPeriod} onChange={e => setPeriod(e.target.value)} style={sel}>
         <option value="weekly">{L('Weekly', 'Theo tuần')}</option>
         <option value="monthly">{L('Monthly', 'Theo tháng')}</option>
+        <option value="quarterly">{L('Quarterly', 'Theo quý')}</option>
         <option value="yearly">{L('Yearly', 'Theo năm')}</option>
         <option value="custom">{L('Custom range', 'Tùy chọn')}</option>
       </select>
@@ -96,6 +105,9 @@ export default function PeriodPicker({ value, onChange, L }) {
       )}
       {uiPeriod === 'monthly' && value?.period === 'monthly' && (
         <YearMonthPicker value={value.month} onChange={month => onChange({ period: 'monthly', month })} L={L} />
+      )}
+      {uiPeriod === 'quarterly' && value?.period === 'quarterly' && (
+        <YearQuarterPicker value={value.quarter} onChange={quarter => onChange({ period: 'quarterly', quarter })} L={L} />
       )}
       {uiPeriod === 'yearly' && value?.period === 'yearly' && (
         <input type="number" min="2020" max="2100" value={yearDraft}

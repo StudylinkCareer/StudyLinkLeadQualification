@@ -1,6 +1,6 @@
 // src/pages/IndividualReport.jsx
 // -----------------------------------------------------------------------------
-// One staffer's performance over a weekly/monthly/yearly/custom period.
+// One staffer's performance over a weekly/monthly/quarterly/yearly/custom period.
 // Successor to Weekly Report's individual mode (2026-08 Weekly/Monthly
 // Report merge, planned with Hong Ha) — see SUPPORT_HANDOVER_SPEC / the
 // plan file for full background. V1: own-only for lower-level staff,

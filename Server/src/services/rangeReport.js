@@ -53,10 +53,11 @@ const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị
 /**
  * Resolves a period spec (from query params) into a half-open [from, to)
  * VN-anchored range, plus a bucket granularity for any "by X" breakdown.
- *   period='weekly'  + weekStart=YYYY-MM-DD  -> that VN week (Mon-Sun), bucket='day'
- *   period='monthly' + month=YYYY-MM         -> that VN month, bucket='day'
- *   period='yearly'  + year=YYYY             -> that VN year, bucket='month'
- *   period='custom'  + from=YYYY-MM-DD&to=YYYY-MM-DD -> that range (to inclusive),
+ *   period='weekly'    + weekStart=YYYY-MM-DD  -> that VN week (Mon-Sun), bucket='day'
+ *   period='monthly'   + month=YYYY-MM         -> that VN month, bucket='day'
+ *   period='quarterly' + quarter=YYYY-Q#       -> that VN quarter (Q1-Q4), bucket='week'
+ *   period='yearly'    + year=YYYY             -> that VN year, bucket='month'
+ *   period='custom'    + from=YYYY-MM-DD&to=YYYY-MM-DD -> that range (to inclusive),
  *     bucket='day' if <=31 days, 'week' if <=366 days, else 'month'
  */
 function resolvePeriod(query) {
@@ -74,6 +75,17 @@ function resolvePeriod(query) {
     const from = vnMidnightUTC(y, m - 1, 1);
     const to = vnMidnightUTC(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1);
     return { period, from, to, bucket: 'day' };
+  }
+  if (period === 'quarterly') {
+    if (!/^\d{4}-Q[1-4]$/.test(query.quarter || '')) throw new Error('quarter (YYYY-Q#) is required for period=quarterly');
+    const [y, q] = query.quarter.split('-Q').map(Number);
+    const startMonth = (q - 1) * 3; // Q1->0, Q2->3, Q3->6, Q4->9
+    const from = vnMidnightUTC(y, startMonth, 1);
+    const to = vnMidnightUTC(startMonth + 3 >= 12 ? y + 1 : y, (startMonth + 3) % 12, 1);
+    // ~91 days — daily would be too many bars for a chart (same call custom
+    // range makes for any span in this ballpark), so bucket weekly like a
+    // custom 3-month range would.
+    return { period, from, to, bucket: 'week' };
   }
   if (period === 'yearly') {
     if (!/^\d{4}$/.test(query.year || '')) throw new Error('year (YYYY) is required for period=yearly');
@@ -95,7 +107,7 @@ function resolvePeriod(query) {
     const bucket = spanDays <= 31 ? 'day' : spanDays <= 366 ? 'week' : 'month';
     return { period, from, to, bucket };
   }
-  throw new Error(`Unknown period '${period}' — expected weekly, monthly, yearly, or custom`);
+  throw new Error(`Unknown period '${period}' — expected weekly, monthly, quarterly, yearly, or custom`);
 }
 
 // VN calendar-date key for bucketing — 'day' -> YYYY-MM-DD, 'week' -> the VN

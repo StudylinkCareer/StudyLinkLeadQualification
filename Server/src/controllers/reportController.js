@@ -912,7 +912,7 @@ async function generateWeeklySnapshot(weekStart) {
 
 // ── Individual Report / Company Report (2026-08, planned with Hong Ha) ───
 // Successors to Weekly Report's individual mode / Monthly Report, both
-// generalized to weekly/monthly/yearly/custom periods via rangeReport.js.
+// generalized to weekly/monthly/quarterly/yearly/custom periods via rangeReport.js.
 //
 // V1 SCOPE NOTE: always computed live (no frozen-snapshot reuse yet for the
 // weekly preset — that's a deliberate deferral, not an oversight; the

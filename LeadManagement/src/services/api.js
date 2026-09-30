@@ -418,7 +418,7 @@ export const reportsAPI = {
   },
   // Individual Report / Company Report (2026-08) — `periodParams` is
   // whatever PeriodPicker's onChange produced: { period, weekStart } |
-  // { period, month } | { period, year } | { period, from, to }.
+  // { period, month } | { period, quarter } | { period, year } | { period, from, to }.
   individualReport: (periodParams, staffName) => {
     const qs = new URLSearchParams(periodParams);
     if (staffName) qs.set('staffName', staffName);

@@ -1,6 +1,6 @@
 // src/pages/GroupReport.jsx
 // -----------------------------------------------------------------------------
-// Company-wide performance over a weekly/monthly/yearly/custom period.
+// Company-wide performance over a weekly/monthly/quarterly/yearly/custom period.
 // Successor to Monthly Report (2026-08 Weekly/Monthly Report merge, planned
 // with Hong Ha). Hidden entirely from lower-level staff (server 403s;
 // nav-hidden too, see Sidebar.jsx).
