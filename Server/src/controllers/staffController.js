@@ -43,7 +43,17 @@ async function ensureActiveLeadForPhase(dbPool, studentId, toPhase) {
 // the delete cascade, the delete-preview, and the orphan sweep. (duplicate_reviews is
 // handled separately — its incoming_uid is a parked, not-yet-created person, so it
 // needs OR-matched_ids logic on delete and is NOT an orphan source.)
+//
+// note_drafts must come before student_notes: its completed_note_id FK to
+// student_notes has no ON DELETE rule (addNoteEditsAndDrafts.js), so deleting a
+// note that a completed draft points to fails with a FK violation unless the
+// draft row is gone first. It was missing from this list entirely until a real
+// prod delete hit exactly this — a student with a completed call-note draft
+// couldn't be deleted at all, and even without that FK, their drafts would have
+// been left as silent orphans (note_drafts.student_id has no FK enforcement of
+// its own, so nothing would have caught it).
 const STUDENT_CHILD_TABLES = [
+  { table: 'note_drafts',       key: 'student_id',        label: 'noteDrafts' },
   { table: 'event_desk_visits', key: 'student_unique_id', label: 'eventDeskVisits' },
   { table: 'event_attendees',   key: 'student_unique_id', label: 'eventAttendees' },
   { table: 'lead_events',       key: 'student_id',        label: 'leadEvents' },
