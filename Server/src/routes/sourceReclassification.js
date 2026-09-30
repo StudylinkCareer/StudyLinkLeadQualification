@@ -49,8 +49,20 @@ router.get('/legacy-values', requireRole, async (req, res) => {
       // admin never reviewed. One query per column (not per distinct value): with
       // "~100+" legacy values expected, per-value round trips would make this page
       // slow every time it's opened during the manual reclassification pass.
+      //
+      // Also selects the row's own `source` column (pre-restructure, this held a
+      // second, independent fact — e.g. source='WISE' + source_detail='<specific
+      // partner school>' — that Phase 2's merge deliberately did NOT fold into
+      // source_detail whenever source_detail was already non-empty, to avoid
+      // clobbering it). Without surfacing it here, a reviewer reassigning a
+      // source_detail legacy value has no way to see that co-occurring `source`
+      // fact at all, and it would silently disappear the moment they hit Apply
+      // (Apply overwrites this same column, but never touches `source` itself —
+      // it's simply left orphaned and pointing at a bucket the new value no
+      // longer matches). Surfacing it as `sourceBreakdown` lets a reviewer copy
+      // that fact into `targetSourceDetail` if it's still worth keeping.
       const { rows } = await pool.query(
-        `SELECT student_id, full_name, btrim(${column}) AS value, created_at
+        `SELECT student_id, full_name, btrim(${column}) AS value, source, created_at
            FROM students
           WHERE ${column} IS NOT NULL AND btrim(${column}) <> ''
           ORDER BY created_at DESC`
@@ -61,11 +73,23 @@ router.get('/legacy-values', requireRole, async (req, res) => {
         byValue.get(r.value).push(r);
       }
       for (const [value, group] of byValue) {
+        const sourceCounts = new Map();
+        for (const r of group) {
+          const key = (r.source || '').trim() || null; // null = no co-occurring source value
+          sourceCounts.set(key, (sourceCounts.get(key) || 0) + 1);
+        }
+        const sourceBreakdown = [...sourceCounts.entries()]
+          .map(([source, count]) => ({ source, count }))
+          .sort((a, b) => b.count - a.count);
         out.push({
           column,
           value,
           count: group.length,
           samples: group.slice(0, SAMPLE_LIMIT).map((s) => ({ studentId: s.student_id, fullName: s.full_name })),
+          // Present only when at least one row actually has a non-empty `source`
+          // — most legacy values will have none, and the UI shouldn't clutter
+          // those with a breakdown of just `[{ source: null, count: N }]`.
+          sourceBreakdown: sourceBreakdown.some((s) => s.source) ? sourceBreakdown : null,
         });
       }
     }

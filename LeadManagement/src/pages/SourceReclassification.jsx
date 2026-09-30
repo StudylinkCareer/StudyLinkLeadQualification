@@ -143,7 +143,28 @@ export default function SourceReclassification() {
               const subOpts = subOptionsFor(pick.targetLeadSource);
               return (
                 <tr key={key} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '10px 4px', maxWidth: 220, overflowWrap: 'anywhere' }}>{v.value}</td>
+                  <td style={{ padding: '10px 4px', maxWidth: 220, overflowWrap: 'anywhere' }}>
+                    {v.value}
+                    {v.sourceBreakdown && (
+                      <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {(language === 'vi' ? 'cũng có "source": ' : 'also has "source": ')}
+                        {v.sourceBreakdown.map((sb, i) => (
+                          <span key={sb.source || '(none)'}>
+                            {i > 0 && ', '}
+                            {sb.source ? (
+                              <button type="button" onClick={() => setPick(key, { targetSourceDetail: sb.source })}
+                                title={language === 'vi' ? 'Dùng làm "Nguồn con" mới' : 'Use as the new detail text'}
+                                style={{ border: 'none', background: 'none', padding: 0, color: 'var(--primary)', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}>
+                                {sb.source} ({sb.count})
+                              </button>
+                            ) : (
+                              <span>{language === 'vi' ? '(trống)' : '(empty)'} ({sb.count})</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: '10px 4px', color: 'var(--text-secondary)' }}>{COLUMN_LABEL[v.column]}</td>
                   <td style={{ padding: '10px 4px' }}>{v.count}</td>
                   <td style={{ padding: '10px 4px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
