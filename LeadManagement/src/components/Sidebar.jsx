@@ -160,28 +160,14 @@ export default function Sidebar() {
           </button>
         )}
 
-        {/* Weekly Report / Monthly Report (2026-09): disabled for everyone,
-            not deleted - superseded by Individual Report / Company Report
-            below, per Hong Ha's decision to retire these. Nav links stay
-            visible only for Huy Anh (position gate, not a role/scope change -
-            routes/pages/backend endpoints were never touched) so he can
-            still get to them himself without re-exposing them company-wide. */}
-        {staff?.position === 'Manager, Technical Support' && canViewReports && (
-          <button
-            className={`nav-item ${isActive('/reports/monthly') ? 'active' : ''}`}
-            onClick={() => navigate('/reports/monthly')}
-          >
-            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tháng' : 'Monthly Report'}
-          </button>
-        )}
-        {staff?.position === 'Manager, Technical Support' && (
-          <button
-            className={`nav-item ${isActive('/reports/weekly') ? 'active' : ''}`}
-            onClick={() => navigate('/reports/weekly')}
-          >
-            <FiFileText size={16} /> {language === 'vi' ? 'Báo cáo tuần (tĩnh)' : 'Weekly Report (static)'}
-          </button>
-        )}
+        {/* Weekly Report / Monthly Report (2026-09): nav links removed entirely
+            2026-09-30 at Huy Anh's own request (they'd been hidden from
+            everyone else already, kept visible only to him via a position
+            gate during the grace period — he no longer wants them in his own
+            view either). Routes/pages/backend endpoints untouched, same
+            "unlinked, not deleted" pattern used elsewhere (e.g. the old
+            Client Dashboard) — still reachable by direct URL if ever needed,
+            superseded by Individual Report / Company Report below. */}
 
         {canViewEventAnalytics(staff?.position) && (
           <button
@@ -192,8 +178,8 @@ export default function Sidebar() {
           </button>
         )}
 
-        {/* Individual/Group Report (2026-08 merge) — now the primary reports,
-            Weekly/Monthly Report above disabled in favor of these. */}
+        {/* Individual/Group Report (2026-08 merge) — the primary reports,
+            superseding the now-unlinked Weekly/Monthly Report above. */}
         {canViewIndividualReport && (
           <button
             className={`nav-item ${isActive('/reports/individual') ? 'active' : ''}`}
