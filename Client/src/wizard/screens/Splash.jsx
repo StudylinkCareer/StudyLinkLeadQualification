@@ -13,17 +13,22 @@ export default function Splash() {
   // Keep an event-QR link's parameters alive across the tap and any reload.
   useEffect(() => { captureQrParams(); }, []);
 
-  // Real-device report (2026-09-30, mobile Safari): a white gap below the
-  // splash art, even though the CSS's 100dvh computes a pixel-perfect fill in
-  // both Chromium and WebKit headless tests — no gap reproducible without a
-  // real dynamic toolbar. iOS Safari's dvh unit is known to not always
-  // reflow when its collapsible toolbar settles, effectively "sticking" to
-  // whatever value it computed at an earlier, different toolbar state.
-  // window.innerHeight has no such caching quirk — it's a live query — so
-  // this screen (the one place a scroll never happens, making a plain pixel
-  // height perfectly safe) measures it directly and keeps it in sync instead
-  // of trusting the CSS unit. `.wz-splash`'s own `min-height:100dvh` stays as
-  // the pre-hydration/no-JS fallback.
+  // Real-device report (2026-09-30, mobile Safari): the top of the art is cut
+  // off and a gray/white gap sits at the bottom EVEN AT REST — not just a
+  // transient overscroll-bounce flash — and the page is genuinely scrollable
+  // (confirmed: scrolling moves the art further, growing the gap). The CSS's
+  // 100dvh computed a pixel-perfect fill in both Chromium and WebKit headless
+  // tests, so this isn't the button's own sizing — it's `.wz-frame` (the
+  // parent) ALSO needing this fix: an earlier pass only pinned `.wz-splash`'s
+  // min-height, but `.wz-frame` still had its own separate `min-height:100dvh`
+  // via wizard.css, and a FLEX COLUMN parent with a plain min-height (not a
+  // fixed height) sizes to max(its own floor, child's size) — so if the
+  // parent's dvh reading is even slightly taller than the child's now-correct
+  // pixel height, the frame ends up taller than the viewport, the page
+  // becomes scrollable, and the extra space shows through as this gap.
+  // Pinning BOTH to the same live window.innerHeight — with `.wz-frame` at an
+  // EXACT height (not just a floor) — removes any way for the two to
+  // disagree, and removes the scrollability itself, not just its symptom.
   useEffect(() => {
     const update = () => setVh(window.innerHeight);
     update();
@@ -38,9 +43,9 @@ export default function Splash() {
   const go = () => navigate(status === 'ready' ? '/app/hub' : '/app/reg');
 
   return (
-    <div className="wz-frame">
+    <div className="wz-frame" style={vh ? { height: `${vh}px`, minHeight: `${vh}px` } : undefined}>
       <button type="button" className="wz-splash" onClick={go} aria-label={w('splashHint')}
-        style={vh ? { minHeight: `${vh}px` } : undefined}>
+        style={vh ? { height: `${vh}px`, minHeight: `${vh}px` } : undefined}>
         <span className="wz-splash-dots" aria-hidden="true"><i /><i /><i /></span>
       </button>
     </div>

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { WizardProvider, useWizard } from './context/WizardContext';
 import Splash from './screens/Splash';
@@ -20,6 +21,30 @@ function RequireStudent({ children }) {
 }
 
 export default function WizardApp() {
+  // Real-device report (2026-09-30): a gray/white gap appears around the
+  // splash art on iOS Safari, growing/shrinking as the page scrolls — the
+  // signature of Safari's overscroll/rubber-band bounce, which paints
+  // whatever's BEHIND the page content when you scroll past the top/bottom
+  // edge. html/body have no background of their own here (wizard.css scopes
+  // everything under .wz specifically so it can't leak into the legacy
+  // dashboard), so the browser's own default (white) shows through instead
+  // of the wizard's tint. Confirmed via research this is the standard fix
+  // for this exact class of bug (overscroll-behavior itself is NOT reliably
+  // supported on Safari, unlike an explicit root background). Set here
+  // (JS, mount/unmount) rather than in wizard.css's own scope, so it never
+  // touches the legacy routes. #f3efe9 = wizard.css's --wz-bg — keep in sync
+  // if that ever changes.
+  useEffect(() => {
+    const prevHtmlBg = document.documentElement.style.background;
+    const prevBodyBg = document.body.style.background;
+    document.documentElement.style.background = '#f3efe9';
+    document.body.style.background = '#f3efe9';
+    return () => {
+      document.documentElement.style.background = prevHtmlBg;
+      document.body.style.background = prevBodyBg;
+    };
+  }, []);
+
   return (
     <div className="wz">
       <WizardProvider>
