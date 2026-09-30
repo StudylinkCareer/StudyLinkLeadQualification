@@ -149,7 +149,7 @@ Same OA/app as the badge template (601036). Suggested content:
 > 📅 Thời gian: **{{event_time}}**
 > 📍 Địa điểm: **{{event_venue}}**
 > Mã đăng ký: **{{registration_code}}**
-> Button "Xem thẻ & kết quả" → `https://slcareerguidance.netlify.app/profile?t={{token}}`
+> Button "Xem thẻ & kết quả" → `https://studylinkindex.netlify.app/profile?t={{token}}`
 
 Params the server sends: `customer_name, event_name, stone_name, event_time,
 event_venue, registration_code, token` (time/venue come from

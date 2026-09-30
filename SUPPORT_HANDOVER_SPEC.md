@@ -27,7 +27,7 @@
 
 **StudyLink Lead Management System (LMS)** is a single application — **one GitHub monorepo** — that delivers **three capabilities** to StudyLink, an overseas-study consultancy operating in Vietnam:
 
-1. **The LQ App (Lead Qualification / customer intake)** — `Client/`, hosted at **`slcareerguidance.netlify.app`**. The public, customer-facing web app. Prospective students (and staff at events) register interest; it captures contact + study preferences, runs a **risk self-assessment** (producing a "Stone Tier" grade), a **15-question OCEAN personality assessment** (producing a Big-Five profile + career-fit archetype), and handles **event check-in** (desk kiosks, QR badges, profile completion).
+1. **The LQ App (Lead Qualification / customer intake)** — `Client/`, hosted at **`studylinkindex.netlify.app`** (canonical as of 2026-09-30; `slcareerguidance.netlify.app` is now the stale site — see §3.3). The public, customer-facing web app. Prospective students (and staff at events) register interest; it captures contact + study preferences, runs a **risk self-assessment** (producing a "Stone Tier" grade), a **15-question OCEAN personality assessment** (producing a Big-Five profile + career-fit archetype), and handles **event check-in** (desk kiosks, QR badges, profile completion).
 
 2. **The LM Console (Lead Management / staff)** — `LeadManagement/`, its own Netlify site. The internal staff app. Staff work the sales pipeline here: view/filter leads, move records across workflow **phases**, assign owners, run activity/weekly reports, manage marketing events + event check-in, run lead distribution, edit reference data, and administer staff. **Every sidebar menu is documented in §7.**
 
@@ -124,10 +124,10 @@ The **Client / LQ intake app builds to two separate Netlify sites**, both auto-d
 
 | Site | Status | Referenced by |
 |------|--------|---------------|
-| **`slcareerguidance.netlify.app`** | **CANONICAL** — the one LQ URL other systems point at | Backend CORS (`CORS_ORIGIN`); Zalo profile links (`Server/src/services/zaloService.js`); the console's `VITE_LQ_BASE_URL` for event QR/badges/Create-Sales button |
-| **`studylinkindex.netlify.app`** | **REDUNDANT DUPLICATE** — not referenced anywhere in code/config/CORS/Zalo; a leftover second site building the identical bundle. **Candidate for deletion.** | (none) |
+| **`studylinkindex.netlify.app`** | **CANONICAL as of 2026-09-30** (owner-confirmed) — the one LQ URL other systems should point at | Should be: Backend CORS (`CORS_ORIGIN`); the console's `VITE_LQ_BASE_URL` for event QR/badges/Create-Sales button |
+| **`slcareerguidance.netlify.app`** | **STALE** — was previously canonical (this doc said so until 2026-09-30); several places in code/docs still hardcode it, see below | Old references not yet swept: `Server/src/services/zaloService.js`'s comment (describes the **live, already-Zalo-approved** "Event Badge" ZNS template's fixed button URL — a template change on Zalo's side, not a code fix, if that URL is still `slcareerguidance`); `Attendance Management Documentation/Stone_Evaluation_Rollout.md`'s draft ZNS template proposal; `Server/scripts/zaloTest.js` |
 
-Because both build from `main` they stay byte-identical, which masks the redundancy. Before deleting `studylinkindex`, confirm no external QR codes / printed collateral / Zalo templates point at it (everything in this codebase targets `slcareerguidance`) and that it has no custom domain. The **console (LeadManagement)** is its own, third Netlify site.
+Because both sites build from the same `main` branch they stay byte-identical, so a broken CORS/env-var swap can be easy to miss visually. **Not yet confirmed in this session**: whether Railway's `CORS_ORIGIN` and the LeadManagement Netlify site's `VITE_LQ_BASE_URL` build var have actually been repointed at `studylinkindex`, and whether the live Zalo ZNS "Event Badge" template's button URL has been updated in the Zalo Business console — none of these three live outside this repo where an assistant can check them; verify directly. The **console (LeadManagement)** is its own, third Netlify site.
 
 ### 3.4 Git workflow & deploy steps
 
@@ -145,7 +145,7 @@ All secrets live in **gitignored `.env` files**. `.env` files present: `Server/.
 | Var | App(s) | Purpose | Configured in |
 |-----|--------|---------|---------------|
 | `VITE_API_URL` | Client, LeadManagement | Base URL of the Railway backend | Each Netlify site build env; dev via `.env` |
-| `VITE_LQ_BASE_URL` | LeadManagement only | Canonical LQ site URL — event QR codes, badge links, Create-Sales button. Prod = `https://slcareerguidance.netlify.app` | LeadManagement Netlify build env |
+| `VITE_LQ_BASE_URL` | LeadManagement only | Canonical LQ site URL — event QR codes, badge links, Create-Sales button. Should be `https://studylinkindex.netlify.app` as of 2026-09-30 (owner-confirmed) — **not verified this session whether the Railway/Netlify value actually matches yet** | LeadManagement Netlify build env |
 
 **Backend vars** (`process.env.*`, Railway service variables in prod / `Server/.env` in dev):
 
@@ -156,7 +156,7 @@ All secrets live in **gitignored `.env` files**. `.env` files present: `Server/.
 | `DATABASE_URL` | PostgreSQL connection string | Also read directly by every `Server/Migrations/*.js` script |
 | `SESSION_SECRET` | express-session signing secret | **Server refuses to boot in production if left at the dev default** |
 | `SESSION_MAX_AGE` | Session cookie lifetime (ms) | Default 86400000 (24h) |
-| `CORS_ORIGIN` | Comma-separated allowed origins (credentials on) | **Must include `https://slcareerguidance.netlify.app` + the console origin.** First place to look for CORS errors |
+| `CORS_ORIGIN` | Comma-separated allowed origins (credentials on) | **Must include `https://studylinkindex.netlify.app` + the console origin** (updated 2026-09-30 for the canonical-site swap — not verified this session whether Railway's actual value was updated to match). First place to look for CORS errors |
 | `REDIS_URL` | Redis session store | If unset in prod → MemoryStore (warned); dev → file store |
 | `PUBLIC_BASE_URL` | Backend's own public base for emailed badge-image URLs | Falls back to Railway URL |
 | `SMTP_*`, `GMAIL_*`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DRIVE_FOLDER_ID` | Email + Google Drive document storage | |
@@ -316,7 +316,7 @@ Guards are **not interchangeable** (`requireAuth` checks the client flag). `requ
 ### 5.5 Background services (`src/services/`)
 
 - **`emailService.js`** — GAS email relay (`GAS_SEND_OTP_URL`). `sendOTPEmail` (dormant — OTP bypassed), `sendEventQrEmail` (badge PNG), `sendRepLinkEmail` (desk sign-in link). No-ops to console if unset.
-- **`zaloService.js`** — Zalo/ZNS badge delivery via the StudyLink OA. Two methods (`ZALO_SEND_METHOD`): **ZNS** (approved template to a phone; the "View Badge" URL is fixed to `slcareerguidance.netlify.app/profile?t=<token>`) and **OA** (free-form to a follower). DB-persisted auto-refresh tokens (`zaloTokenManager`); **dormant** until configured (returns `{sent:false, reason:'zalo_not_configured'}`). `zaloDeliveryPoller` flips `accepted→delivered` (Zalo's webhook is geo-blocked from the US server IP, so status is **pulled**).
+- **`zaloService.js`** — Zalo/ZNS badge delivery via the StudyLink OA. Two methods (`ZALO_SEND_METHOD`): **ZNS** (approved template to a phone; the "View Badge" URL is fixed, inside the already-Zalo-approved template itself, to `slcareerguidance.netlify.app/profile?t=<token>` — **stale as of the 2026-09-30 canonical-site swap; changing it requires a template edit in the Zalo Business console, not a code change**) and **OA** (free-form to a follower). DB-persisted auto-refresh tokens (`zaloTokenManager`); **dormant** until configured (returns `{sent:false, reason:'zalo_not_configured'}`). `zaloDeliveryPoller` flips `accepted→delivered` (Zalo's webhook is geo-blocked from the US server IP, so status is **pulled**).
 - **`eventQualification.js`** — decides if a lead qualifies for an advance event QR; `issueAdvanceTokens` mints attendee tokens idempotently.
 - **`dataService.js`** — ⚠️ `checkCounselor(email)` **queries the local `staff` table directly** (`role ∈ {Counselor,Manager,Director,Admin}`) and **ignores `fullName`/`phone`** despite `authController` comments claiming GAS validates all three (stale comments). Also `searchDuplicates`, `searchStudents`.
 - **`otpService.js`** — fully implemented OTP generator/store, **dormant**.
@@ -328,7 +328,7 @@ Guards are **not interchangeable** (`requireAuth` checks the client flag). `requ
 
 ## 6. LQ App (Customer Intake)
 
-The customer-facing **intake** front end (Vite + React SPA, `react-router`, no Redux). Root `Client/`, deployed to `slcareerguidance.netlify.app`. Server calls go through `src/services/api.js` (`import.meta.env.VITE_API_URL || "/api"`, `credentials:'include'`); the event-desk API uses `Authorization: Bearer <token>`.
+The customer-facing **intake** front end (Vite + React SPA, `react-router`, no Redux). Root `Client/`, deployed to `studylinkindex.netlify.app` (canonical as of 2026-09-30). Server calls go through `src/services/api.js` (`import.meta.env.VITE_API_URL || "/api"`, `credentials:'include'`); the event-desk API uses `Authorization: Bearer <token>`.
 
 ### 6.1 App shell & routing (`src/main.jsx`, `src/App.jsx`)
 
@@ -484,7 +484,7 @@ Deployment is **`git push` to `main`** — Railway rebuilds the Server, Netlify 
 - **Coupled backend files ship together.** If you touch `studentController` + a model + a service, commit them in one commit (see the FK incident, §3.4 / §9). If using GitHub Desktop's file checkboxes, double-check you didn't leave a coupled file unstaged.
 - **Server changes require the Railway service to reload** (automatic on push; if running locally, restart the node process — a browser refresh won't reload backend code).
 - **Frontend changes** need a Netlify rebuild (automatic on push); locally, Vite HMR usually suffices, but hook-signature changes (adding a `useEffect`) may need a hard refresh (Ctrl+Shift+R).
-- After deploy, smoke-test the affected flow on the **canonical** site (`slcareerguidance.netlify.app` for LQ, the console site for LM).
+- After deploy, smoke-test the affected flow on the **canonical** site (`studylinkindex.netlify.app` for LQ, the console site for LM).
 
 ### 8.3 Inspecting the database (read-only)
 
@@ -545,7 +545,7 @@ Ranked roughly by importance. Most are intentional or low-risk but **you must kn
 
 1. **🔴 OTP is fully bypassed on the LQ login.** Any 6-digit code (auto-submitted `000000`) logs a customer in; no email is sent. Intentional (removed a flaky email dependency) but it means the LQ app has **no real login verification**. Re-enable via §8.5.
 2. **🔴 `/api/leads` has no per-lead access control yet.** Any authenticated staff member can read/write any lead via that router (documented TODO in `leadController.js`). The `/api/staff/*` lead endpoints *do* enforce scope; the gap is the `/api/leads` router. Terminal-status lock is enforced everywhere.
-3. **🟠 Redundant LQ Netlify site.** `studylinkindex.netlify.app` duplicates `slcareerguidance.netlify.app` (both auto-deploy from `main`). Delete `studylinkindex` after confirming no custom domain / external links (§3.3).
+3. **🟠 Redundant LQ Netlify site — flipped 2026-09-30.** `studylinkindex.netlify.app` is now the **canonical** site (owner-confirmed); `slcareerguidance.netlify.app` duplicates it and is the one now redundant (both auto-deploy from `main`). Several hardcoded references to the OLD canonical (`slcareerguidance`) have not been swept yet — see §3.3's table. Delete `slcareerguidance` only after confirming no custom domain / external links point at it, and after those remaining references are updated.
 5. **🟠 Hybrid RBAC.** Some gates are table-driven (`role_permissions`), others hardcode `role ∈ {Admin,Manager,Director}` (Reference Data, Referral Sources, Marketing Events) or role/position (Maintenance, Event Console, Deep Cleanse). `session.staffRole` may hold **either** a new profile **or** a legacy role depending on migration state — `utils/authProfiles.js` intentionally lists both. Console routes are auth-gated but not permission-gated at the router.
 6. **🟠 Staff referenced by name string**, not FK, in `order_assignments.staff_name` and the `leads`/`students` staff mirror columns. Duplicate / event-rep name rows require explicit workarounds (`syncOrderPhase`, `reconcileStaffSlots`). Renaming a staff member is not automatically propagated.
 7. **🟡 Vestigial columns on `students`.** The table physically carries ~46 legacy engagement columns (`lead_status`, `counselor`, `close_date`, …) from before the person/lead split. **Canonical engagement data of record is `leads`.** Some legacy paths still read the `students` mirror.
@@ -563,8 +563,8 @@ Ranked roughly by importance. Most are intentional or low-risk but **you must kn
 ## 10. Support Quick Reference
 
 **Production URLs**
-- LQ intake app (canonical): `https://slcareerguidance.netlify.app`
-- LQ duplicate (to be deleted): `https://studylinkindex.netlify.app`
+- LQ intake app (canonical as of 2026-09-30): `https://studylinkindex.netlify.app`
+- LQ duplicate (stale, to be deleted): `https://slcareerguidance.netlify.app`
 - LM console: its own Netlify site
 - Backend API: `https://studylinkleadqualification-production.up.railway.app`
 - GitHub: `github.com/StudylinkCareer/StudyLinkLeadQualification` (branch `main` = prod)

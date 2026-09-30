@@ -134,9 +134,14 @@ async function sendBadgeViaZns({ phone, name, eventName, registrationCode, token
   //   registration_code - the student's Sales ID (the "Mã đăng ký" identifier
   //                       that satisfies Zalo's transaction-reference rule)
   //   token             - the attendance token; the template's "View Badge"
-  //                       button URL is fixed as
+  //                       button URL is fixed (inside the template Zalo
+  //                       already approved) as
   //                       https://slcareerguidance.netlify.app/profile?t=<token>
   //                       so we pass ONLY the token here, not the whole URL.
+  //                       STALE as of the 2026-09-30 canonical-site swap
+  //                       (studylinkindex.netlify.app is now canonical) —
+  //                       fixing this needs a template edit in the Zalo
+  //                       Business console, not a code change here.
   const body = {
     phone: to,
     template_id: c.znsTemplateId,

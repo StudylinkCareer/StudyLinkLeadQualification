@@ -27,7 +27,7 @@ const zalo = require('../src/services/zaloService');
   }
 
   const token = 'TEST-TOKEN';
-  const profileUrl = `https://slcareerguidance.netlify.app/profile?t=${token}`;
+  const profileUrl = `https://studylinkindex.netlify.app/profile?t=${token}`;
   console.log(`Sending ${isOa ? 'OA message' : 'ZNS'} to ${target} ...`);
 
   const result = await zalo.sendEventBadge({
