@@ -6,6 +6,14 @@
   <meta name="zalo-platform-site-verification" content="UCNb6xBLVm1KqVK2rTjI6I-ewXt3tZ12CJOs" />
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- Without this, iOS Safari has no idea what color the status bar should
+       be and falls back to its own default gray — visible as a gray band
+       right above any full-bleed white content (e.g. the wizard splash
+       screen). White matches the splash and most other screens' top area;
+       screens with a dark-red header (Hub, Register, etc. — see wizard.css's
+       .wz-frame gradient) will still show a slight mismatch there, a smaller,
+       separate issue a later per-route dynamic theme-color could address. -->
+  <meta name="theme-color" content="#ffffff" />
   <title>StudyLink Index</title>
 </head>
 
