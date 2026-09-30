@@ -5,6 +5,21 @@ import { captureQrParams } from '../lib/qrParams';
 
 // Campaign splash: the whole screen is the tap target (the designer dropped the CTA).
 // The artwork is a flat image (text baked in) — Hoàng will supply an updated one.
+//
+// 2026-09-30: went through cover (crops whatever doesn't match the screen's
+// ratio — cropped the top logo) and contain (never crops, but leaves visible
+// letterbox gaps on a mismatched ratio — reported as "shrunken, gaps on all
+// sides") before landing here, at the owner's suggestion: crop NOTHING,
+// scale the image to the full screen WIDTH, and let the page scroll if the
+// resulting height (image's own aspect ratio × screen width) is taller than
+// the viewport — same as the image being embedded inline rather than as a
+// CSS background. A real <img> is required for this (a background-image
+// never affects its element's box height, so the earlier background-based
+// version had no way to become "taller than viewport" in the first place —
+// the container had to be told a height from outside; now the image tells
+// it). Landing on a phone shows the top (logo/headline/CTA) filling the
+// screen exactly as before; scrolling reveals the rest at full quality, no
+// crop, no gap, ever, regardless of screen ratio.
 export default function Splash() {
   const navigate = useNavigate();
   const { status, w } = useWizard();
@@ -13,22 +28,12 @@ export default function Splash() {
   // Keep an event-QR link's parameters alive across the tap and any reload.
   useEffect(() => { captureQrParams(); }, []);
 
-  // Real-device report (2026-09-30, mobile Safari): the top of the art is cut
-  // off and a gray/white gap sits at the bottom EVEN AT REST — not just a
-  // transient overscroll-bounce flash — and the page is genuinely scrollable
-  // (confirmed: scrolling moves the art further, growing the gap). The CSS's
-  // 100dvh computed a pixel-perfect fill in both Chromium and WebKit headless
-  // tests, so this isn't the button's own sizing — it's `.wz-frame` (the
-  // parent) ALSO needing this fix: an earlier pass only pinned `.wz-splash`'s
-  // min-height, but `.wz-frame` still had its own separate `min-height:100dvh`
-  // via wizard.css, and a FLEX COLUMN parent with a plain min-height (not a
-  // fixed height) sizes to max(its own floor, child's size) — so if the
-  // parent's dvh reading is even slightly taller than the child's now-correct
-  // pixel height, the frame ends up taller than the viewport, the page
-  // becomes scrollable, and the extra space shows through as this gap.
-  // Pinning BOTH to the same live window.innerHeight — with `.wz-frame` at an
-  // EXACT height (not just a floor) — removes any way for the two to
-  // disagree, and removes the scrollability itself, not just its symptom.
+  // Only a FLOOR now (min-height, not an exact height) — on a screen taller
+  // than the image's own rendered height (rare: the image's ratio is near
+  // the tall end of real devices already), this keeps the frame filling the
+  // viewport instead of leaving it short; on a shorter screen the image's
+  // own height naturally exceeds this floor and the page scrolls, which is
+  // now the intended behavior, not a bug to eliminate.
   useEffect(() => {
     const update = () => setVh(window.innerHeight);
     update();
@@ -43,9 +48,10 @@ export default function Splash() {
   const go = () => navigate(status === 'ready' ? '/app/hub' : '/app/reg');
 
   return (
-    <div className="wz-frame" style={vh ? { height: `${vh}px`, minHeight: `${vh}px` } : undefined}>
+    <div className="wz-frame" style={vh ? { minHeight: `${vh}px` } : undefined}>
       <button type="button" className="wz-splash" onClick={go} aria-label={w('splashHint')}
-        style={vh ? { height: `${vh}px`, minHeight: `${vh}px` } : undefined}>
+        style={vh ? { minHeight: `${vh}px` } : undefined}>
+        <img className="wz-splash-img" src="/wizard/splash.jpg" alt="" />
         <span className="wz-splash-dots" aria-hidden="true"><i /><i /><i /></span>
       </button>
     </div>

@@ -198,18 +198,16 @@
 .wz-center { display: flex; justify-content: center; }
 
 /* ── splash ── */
+/* Went through cover (crops on a mismatched screen ratio) and contain
+   (letterbox gaps on a mismatched ratio) before landing here: a real <img>
+   at full width, height auto, so nothing is ever cropped OR gapped — the
+   image is simply shown at its native aspect ratio, and the page scrolls if
+   that's taller than the screen. See Splash.jsx's header comment. */
 .wz-splash {
   position: relative; display: block; width: 100%; min-height: 100dvh; padding: 0; border: 0; cursor: pointer;
-  /* This image has a fixed aspect ratio; phone screens don't all share it, so
-     one of two things has to give: gaps (contain) or cropping (cover) on a
-     mismatched screen — there's no setting that guarantees neither. Back to
-     cover (no gaps, matches "fill the screen" over "never crop"), but
-     anchored to the TOP instead of center: any unavoidable crop on a
-     mismatched ratio now falls on the bottom's decorative confetti/podium,
-     never on the logo/headline/CTA button that center-cropping was cutting
-     into before. */
-  background: #f5e9e9 url('/wizard/splash.jpg') top / cover no-repeat;
+  background: #f5e9e9;
 }
+.wz-splash-img { display: block; width: 100%; height: auto; }
 .wz-splash-dots { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 40px); transform: translateX(-50%); display: flex; gap: 6px; }
 .wz-splash-dots i { width: 6px; height: 6px; border-radius: 50%; background: #e0a0a0; display: block; }
 .wz-splash-dots i:first-child { background: var(--wz-red); width: 18px; border-radius: 6px; }
