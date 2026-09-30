@@ -200,7 +200,12 @@
 /* ── splash ── */
 .wz-splash {
   position: relative; display: block; width: 100%; min-height: 100dvh; padding: 0; border: 0; cursor: pointer;
-  background: #f5e9e9 url('/wizard/splash.jpg') center / cover no-repeat;
+  /* contain, not cover: cover crops whatever doesn't fit the screen's exact
+     aspect ratio (the top logo on shorter phones, confirmed on real iOS
+     Safari) — contain guarantees the WHOLE image is always visible, full
+     stop, at the cost of a plain-color letterbox strip on mismatched
+     ratios instead. */
+  background: #f5e9e9 url('/wizard/splash.jpg') center / contain no-repeat;
 }
 .wz-splash-dots { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 40px); transform: translateX(-50%); display: flex; gap: 6px; }
 .wz-splash-dots i { width: 6px; height: 6px; border-radius: 50%; background: #e0a0a0; display: block; }
