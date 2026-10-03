@@ -388,7 +388,13 @@ async function computeRangeReport(names, from, to, opts = {}) {
   const detailFor = (r) => {
     const solMode = r.sol_meta?.mode;
     const hasNoSubfield = solMode ? solMode === 'none' : NO_SUBFIELD_SOL.has(r.lead_source);
-    const specificSource = hasNoSubfield ? null : ([r.source, r.source_detail].filter(Boolean).join(' - ') || null);
+    // Reported 2026-10-03: "Database - Onshore - Database - Onshore" — some
+    // rows have `source` and `source_detail` holding the identical text (seen
+    // in local data too, pre-dating the restructure), so the naive join
+    // duplicated it. Drop source_detail when it's the same string as source
+    // (case/whitespace-insensitive) instead of joining a value against itself.
+    const sameValue = r.source && r.source_detail && r.source.trim().toLowerCase() === r.source_detail.trim().toLowerCase();
+    const specificSource = hasNoSubfield ? null : ([r.source, sameValue ? null : r.source_detail].filter(Boolean).join(' - ') || null);
     const leadCreatedAt = r.lead_created_at ? new Date(r.lead_created_at).toISOString() : null;
     const actualCloseDate = r.actual_close_date ? new Date(r.actual_close_date).toISOString() : null;
     const daysToClose = (leadCreatedAt && actualCloseDate)
