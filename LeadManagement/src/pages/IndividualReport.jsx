@@ -29,11 +29,14 @@ const td = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderBottom: '1px s
 const NAME_COL = { key: 'fullName', label: 'Name' };
 const MODES = ['E-mail', 'Phone call', 'SMS', 'Zalo', 'WhatsApp', 'Messenger'];
 
+// Read a Date's LOCAL calendar fields directly — toISOString().slice(0,10)
+// converts to UTC first, which shifts a VN-local midnight back a day. See
+// PeriodPicker.jsx's header comment on this exact bug class.
 function mondayOf(d) {
   const dow = (d.getDay() + 6) % 7;
   const mon = new Date(d);
   mon.setDate(d.getDate() - dow);
-  return mon.toISOString().slice(0, 10);
+  return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
 }
 
 function bucketLabel(granularity, L) {

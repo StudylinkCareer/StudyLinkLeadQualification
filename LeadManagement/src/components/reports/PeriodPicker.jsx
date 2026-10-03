@@ -38,17 +38,28 @@ import YearQuarterPicker from './YearQuarterPicker';
 const sel = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderRadius: 6, border: '1px solid var(--border,#e5e7eb)' };
 const btn = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderRadius: 6, border: '1px solid var(--border,#e5e7eb)', background: 'var(--bg-primary,#fff)', cursor: 'pointer' };
 
+// Read a Date's LOCAL calendar fields directly — never round-trip through
+// toISOString().slice(0,10), which converts to UTC first. For a VN browser
+// (UTC+7), a Date built at local midnight serializes to 17:00 the PREVIOUS
+// day in UTC, so slicing it gives the wrong date — confirmed 2026-10-03 as
+// the cause of "previous week" showing Sun-Sat instead of Mon-Sun (shiftWeek
+// builds its date at exactly local midnight, so it hit this on every call;
+// mondayOf only avoided it by accident, inheriting new Date()'s current
+// time-of-day, which falls outside the danger window except before ~7am VN).
+function toYmdLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 // VN-local Monday of the week containing `d` (a Date), as YYYY-MM-DD.
 function mondayOf(d) {
   const dow = (d.getDay() + 6) % 7;
   const mon = new Date(d);
   mon.setDate(d.getDate() - dow);
-  return mon.toISOString().slice(0, 10);
+  return toYmdLocal(mon);
 }
 function shiftWeek(weekStart, deltaWeeks) {
   const d = new Date(weekStart + 'T00:00:00');
   d.setDate(d.getDate() + deltaWeeks * 7);
-  return d.toISOString().slice(0, 10);
+  return toYmdLocal(d);
 }
 function currentMonth() {
   const d = new Date();
