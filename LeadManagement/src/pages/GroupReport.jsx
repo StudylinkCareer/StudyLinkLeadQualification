@@ -365,6 +365,77 @@ function ContractSources({ sources, onOpen, L }) {
   );
 }
 
+// New Leads by Source (2026-10, Hồng Hà's request) — Marketing Activities
+// above only ever counts leads tied to a marketing EVENT; this is the
+// company-wide reconciliation Hà asked for: every lead entered into the app
+// this period, broken down by all 5 fixed Source-of-Lead buckets (online +
+// offline together), so a bucket with no leads this period still shows 0
+// instead of silently vanishing (her explicit ask). Same table+pie+drilldown
+// idiom as ContractSources, just without the contract-specific columns
+// (campaign/signed-date/days-to-close don't apply to a lead that hasn't
+// necessarily signed anything yet).
+function LeadsBySource({ sources, onOpen, L }) {
+  if (!sources || sources.length === 0) return null;
+  const total = sources.reduce((s, r) => s + r.count, 0);
+  const top = sources.slice(0, 7);
+  const restCount = sources.slice(7).reduce((s, r) => s + r.count, 0);
+  const pieData = restCount > 0 ? [...top, { source: L('Other', 'Khác'), count: restCount }] : top;
+
+  const openSource = (r) => {
+    const items = (r.items || []).map(it => ({
+      ...it,
+      createdAtDisplay: it.createdAt ? new Date(it.createdAt).toLocaleDateString() : '',
+    }));
+    onOpen && onOpen({
+      title: r.source,
+      cols: [
+        { key: 'fullName', label: L('Student', 'Học sinh') },
+        { key: 'specificSource', label: L('Specific source', 'Nguồn cụ thể') },
+        { key: 'createdAtDisplay', label: L('Lead-in date', 'Ngày nhập lead') },
+      ],
+      items,
+    });
+  };
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('New Leads by Source', 'Lead mới theo Nguồn')}</div>
+      <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div style={{ flex: '1 1 260px', minWidth: 240 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr><th style={th}>{L('Source', 'Nguồn')}</th><th style={{ ...th, textAlign: 'right' }}>{L('New leads', 'Lead mới')}</th></tr></thead>
+            <tbody>
+              {sources.map(r => (
+                <tr key={r.source} onClick={() => r.count > 0 && openSource(r)} style={{ cursor: onOpen && r.count > 0 ? 'pointer' : 'default' }}>
+                  <td style={td}>{r.source}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{r.count}</td>
+                </tr>
+              ))}
+              <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
+                <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{total}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {pieData.some(p => p.count > 0) && (
+          <div style={{ flex: '1 1 260px', minWidth: 240, height: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={pieData.filter(p => p.count > 0)} dataKey="count" nameKey="source" cx="50%" cy="50%" outerRadius={90} label={({ source, percent }) => `${source} ${(percent * 100).toFixed(0)}%`}>
+                  {pieData.filter(p => p.count > 0).map((entry, i) => <Cell key={entry.source} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                </Pie>
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: '0.7rem' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function GroupReport() {
   const { language } = useLanguage();
   const { push: pushTrail } = useNavTrail();
@@ -446,6 +517,7 @@ export default function GroupReport() {
             L={L}
           />
           <ContractSources sources={cw?.contractSources} onOpen={setDrill} L={L} />
+          <LeadsBySource sources={data.leadsBySource} onOpen={setDrill} L={L} />
           <MarketingActivities activities={data.marketingActivities} L={L} />
         </>
       )}

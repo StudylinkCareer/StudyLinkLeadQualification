@@ -585,8 +585,62 @@ async function marketingActivitiesForRange(from, to) {
   return activities;
 }
 
+// New Leads by Source (2026-10, Hồng Hà's request) — Marketing Activities
+// above only ever counted leads tied to a marketing EVENT (it's a report on
+// event performance, by design — Type/Cost Planned/Cost Actual don't apply
+// to a bucket like "Online"). This answers a different, company-wide
+// question Marketing Activities was never meant to: of every lead entered
+// into the app this period, which of the 5 fixed Source-of-Lead buckets did
+// it come through — online, offline, or otherwise — so the two totals can
+// actually be reconciled instead of 72 event leads silently standing in for
+// the whole period's intake. "New" = leads.created_at in range (the actual
+// person's record entering the pipeline), not lead_events.created_at (that's
+// event REGISTRATION timing, a different thing — Marketing Activities' own
+// scope). Every active source_of_lead bucket is always included, even at 0
+// (explicit ask: "nguồn nào có thì ghi số, nguồn nào = 0 thì thể hiện =0"),
+// company-wide only, same as marketingActivitiesForRange.
+async function leadsBySourceForRange(from, to) {
+  const [bucketsRes, rowsRes] = await Promise.all([
+    pool.query(
+      `SELECT code, COALESCE(label_vi, label_en, code) AS label, sort_order
+         FROM lookup_values WHERE category='source_of_lead' AND is_active=true
+        ORDER BY sort_order`
+    ),
+    pool.query(
+      `SELECT l.lead_id, l.person_id AS student_id, s.full_name, s.lead_source, s.source, s.source_detail,
+              l.created_at,
+              COALESCE(solv.label_vi, solv.label_en, solv.code) AS sol_label, solv.meta AS sol_meta
+         FROM leads l JOIN students s ON s.student_id = l.person_id
+         LEFT JOIN lookup_values solv ON solv.category = 'source_of_lead' AND solv.code = s.lead_source
+        WHERE l.created_at >= $1 AND l.created_at < $2`,
+      [from.toISOString(), to.toISOString()]
+    ),
+  ]);
+
+  const NO_SUBFIELD_SOL = new Set(['Third party event']);
+  const detailFor = (r) => {
+    const solMode = r.sol_meta?.mode;
+    const hasNoSubfield = solMode ? solMode === 'none' : NO_SUBFIELD_SOL.has(r.lead_source);
+    const sameValue = r.source && r.source_detail && r.source.trim().toLowerCase() === r.source_detail.trim().toLowerCase();
+    const specificSource = hasNoSubfield ? null : ([r.source, sameValue ? null : r.source_detail].filter(Boolean).join(' - ') || null);
+    return { leadId: r.lead_id, studentId: r.student_id, fullName: r.full_name, specificSource, createdAt: r.created_at ? new Date(r.created_at).toISOString() : null };
+  };
+
+  const byCode = new Map(bucketsRes.rows.map(b => [b.code, { source: b.label, code: b.code, count: 0, items: [] }]));
+  const unknown = { source: '(Unknown / not recorded)', code: null, count: 0, items: [] };
+  for (const r of rowsRes.rows) {
+    const target = (r.lead_source && byCode.get(r.lead_source)) || unknown;
+    target.count += 1;
+    target.items.push(detailFor(r));
+  }
+  const result = [...byCode.values()];
+  if (unknown.count > 0) result.push(unknown);
+  return result; // already in lookup sort_order, unknown (if any) last
+}
+
 module.exports = {
   resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange,
   contractTargetForRange, leadCounts, transfersToSalesForRange, marketingActivitiesForRange,
+  leadsBySourceForRange,
   CASE_TYPES, vnMidnightUTC, VN_MS,
 };
