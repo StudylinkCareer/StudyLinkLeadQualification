@@ -1163,6 +1163,18 @@ export default function LeadDetail() {
       alert(e.message || 'Failed to update status');
     }
   }
+  // Removes a single Event Registration row (the "lead_events" backend table
+  // already had a working DELETE endpoint; the UI just never exposed it —
+  // staff had no way to undo a wrong/accidental event tag on their own).
+  async function handleRegRemove(regId, eventName) {
+    if (!confirm(`Remove this event registration${eventName ? ` ("${eventName}")` : ''}? This cannot be undone.`)) return;
+    try {
+      await leadEventsAPI.remove(regId);
+      setRegistrations(rs => rs.filter(r => r.id !== regId));
+    } catch (e) {
+      alert(e.message || 'Failed to remove');
+    }
+  }
   // Load the event catalog once (Sales view only) so the "add event" picker has options.
   useEffect(() => {
     if (!isStudentView) return;
@@ -2173,13 +2185,19 @@ export default function LeadDetail() {
                         <td style={{ padding:'0.5rem' }}>{r.startDate || '\u2014'}</td>
                         <td style={{ padding:'0.5rem' }}>{r.endDate || '\u2014'}</td>
                         <td style={{ padding:'0.5rem' }}>
-                          <select value={r.status || ''} onChange={e => handleRegStatus(r.id, e.target.value)}
-                                  style={{ padding:'0.25rem 0.5rem', borderRadius:'4px', border:'1px solid var(--border)', fontSize:'0.8rem' }}>
-                            <option value="">Set status</option>
-                            <option value="Confirmed">Confirmed</option>
-                            <option value="Uncertain">Uncertain</option>
-                            <option value="Declined">Declined</option>
-                          </select>
+                          <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                            <select value={r.status || ''} onChange={e => handleRegStatus(r.id, e.target.value)}
+                                    style={{ padding:'0.25rem 0.5rem', borderRadius:'4px', border:'1px solid var(--border)', fontSize:'0.8rem' }}>
+                              <option value="">Set status</option>
+                              <option value="Confirmed">Confirmed</option>
+                              <option value="Uncertain">Uncertain</option>
+                              <option value="Declined">Declined</option>
+                            </select>
+                            <button type="button" onClick={() => handleRegRemove(r.id, r.name)} title="Remove this registration"
+                                    style={{ padding:'0.25rem 0.5rem', borderRadius:4, border:'1px solid var(--border)', background:'none', color:'var(--text-secondary)', fontSize:'0.8rem', cursor:'pointer' }}>
+                              ✕
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

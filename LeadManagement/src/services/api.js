@@ -217,6 +217,7 @@ export const leadEventsAPI = {
   add:          (body)       => request('POST', '/api/lead-events', body),
   update:       (id, body)   => request('PUT', `/api/lead-events/${id}`, body),
   updateStatus: (id, status) => request('PUT', `/api/lead-events/${id}`, { status }),
+  remove:       (id)         => request('DELETE', `/api/lead-events/${id}`),
 };
 
 // ── Event Management console (Phase 1: roster + check-in) ──────
