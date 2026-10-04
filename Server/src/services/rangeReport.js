@@ -498,18 +498,31 @@ async function contractTargetForRange(fullName, from, to) {
 // "as of right now" scoping Monthly Report's Team Performance table uses,
 // not week/month-bound) + New this period (assigned_in falls in [from,to)),
 // per name, for whichever assignment column applies ('counselor' for
-// Counsellors, 'presales' for Pre-Sales).
+// Counsellors, 'presales' for Pre-Sales). Also returns item-level drilldown
+// lists for both (2026-10, Hồng Hà's "click a number, see the list" ask) —
+// is_new computed SQL-side with the exact same assigned_in comparison the
+// aggregate COUNT used before, so the item lists and the counts can never
+// disagree (no separate JS-side date-boundary reasoning to drift from it).
 async function leadCounts(names, column, from, to) {
   if (!names.length) return new Map();
   const col = column === 'presales' ? 'presales' : 'counselor';
   const rows = (await pool.query(
-    `SELECT ${col} AS name, COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE assigned_in >= $1 AND assigned_in < $2)::int AS new_this_period
-       FROM leads WHERE ${col} = ANY($3)
-       GROUP BY ${col}`,
+    `SELECT l.${col} AS name, l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country,
+            (l.assigned_in >= $1 AND l.assigned_in < $2) AS is_new
+       FROM leads l JOIN students s ON s.student_id = l.person_id
+      WHERE l.${col} = ANY($3)`,
     [vnYmd(from), vnYmd(to), names]
   )).rows;
-  return new Map(rows.map(r => [r.name, { total: r.total, newThisPeriod: r.new_this_period }]));
+  const byName = new Map();
+  for (const r of rows) {
+    if (!byName.has(r.name)) byName.set(r.name, { total: 0, newThisPeriod: 0, totalItems: [], newItems: [] });
+    const bucket = byName.get(r.name);
+    const item = { leadId: r.lead_id, studentId: r.student_id, fullName: r.full_name, destinationCountry: r.destination_country };
+    bucket.total += 1;
+    bucket.totalItems.push(item);
+    if (r.is_new) { bucket.newThisPeriod += 1; bucket.newItems.push(item); }
+  }
+  return byName;
 }
 
 // "Khách chuyển" — leads whose `presales` field was cleared/changed away

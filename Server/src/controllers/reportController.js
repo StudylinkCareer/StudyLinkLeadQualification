@@ -1025,17 +1025,20 @@ async function groupReport(req, res, next) {
     // (counted as conversion-adjacent, same as the old page). No calls
     // volume here — that's Telesales below.
     const teamPerformance = counsellorRows.map(r => {
-      const lc = counselorLeadCounts.get(r.name) || { total: 0, newThisPeriod: 0 };
+      const lc = counselorLeadCounts.get(r.name) || { total: 0, newThisPeriod: 0, totalItems: [], newItems: [] };
       const c = r.data.contracted;
       return {
         fullName: r.name,
         totalLeads: lc.total, newThisPeriod: lc.newThisPeriod,
-        contracted: c.count, reversed: r.data.reversed.count,
+        totalLeadsItems: lc.totalItems, newThisPeriodItems: lc.newItems,
+        contracted: c.count, contractedItems: c.items,
+        reversed: r.data.reversed.count, reversedItems: r.data.reversed.items,
         convertPct: lc.total > 0 ? Math.round((c.count / lc.total) * 1000) / 10 : null,
         inSystemCount: c.inSystemCount, outSystemCount: c.outSystemCount,
         caseTypeBreakdown: c.caseTypeBreakdown,
         target: r.contractTarget?.total ?? null, // null = not applicable for this period type (see contractTargetForRange)
-        basicLetters: r.data.basicLetters.count, finalLetters: r.data.finalLetters.count,
+        basicLetters: r.data.basicLetters.count, basicLettersItems: r.data.basicLetters.items,
+        finalLetters: r.data.finalLetters.count, finalLettersItems: r.data.finalLetters.items,
       };
     });
 
@@ -1046,6 +1049,7 @@ async function groupReport(req, res, next) {
     const telesales = counsellorRows.map(r => ({
       fullName: r.name,
       newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
+      newLeadItems: r.data.calls.newLeadItems, ongoingItems: r.data.calls.ongoingItems, kbmItems: r.data.calls.kbmItems,
       totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
       target: counselorCallTarget.total,
     }));
@@ -1068,9 +1072,10 @@ async function groupReport(req, res, next) {
       return {
         fullName: r.name,
         newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
+        newLeadItems: r.data.calls.newLeadItems, ongoingItems: r.data.calls.ongoingItems, kbmItems: r.data.calls.kbmItems,
         totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
         target: r.callTarget,
-        meetings: r.data.meetings.count,
+        meetings: r.data.meetings.count, meetingsItems: r.data.meetings.items,
         transferred: transfers.length, transferredItems: transfers,
         contracted: r.data.contracted.count, contractedItems: r.data.contracted.items,
       };

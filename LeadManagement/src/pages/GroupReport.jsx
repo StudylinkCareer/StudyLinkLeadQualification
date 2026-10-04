@@ -54,7 +54,36 @@ function currentMonth() {
 // per calendar month; shows "—" for weekly/custom periods that don't line
 // up with whole months, rather than a fabricated prorated guess — see
 // rangeReport.js's contractTargetForRange).
-function TeamPerformanceTable({ rows, L }) {
+// Generic opener for a simple Student/Destination drilldown — every
+// TeamPerformanceTable column's item list shares this exact shape
+// ({studentId, fullName, destinationCountry}), so one helper covers all of
+// them instead of repeating the same cols array six times.
+function openPeopleDrill(onOpen, title, items, L) {
+  onOpen({
+    title,
+    cols: [
+      { key: 'fullName', label: L('Name', 'Tên') },
+      { key: 'destinationCountry', label: L('Destination', 'Điểm đến') },
+    ],
+    items: items || [],
+  });
+}
+
+// A <td> that's only clickable (underlined, pointer cursor) when onOpen is
+// provided AND there's something to show — matches CallsTable's existing
+// Transferred/Contracted click styling exactly, so the whole page reads as
+// one consistent "clickable number" idiom.
+function ClickableTd({ onOpen, onClick, value, bold, color, title }) {
+  const clickable = Boolean(onOpen) && Number(value) > 0;
+  return (
+    <td style={{ ...td, textAlign: 'right', fontWeight: bold ? 600 : 400, color, cursor: clickable ? 'pointer' : 'default', textDecoration: clickable ? 'underline' : 'none' }}
+      title={title} onClick={clickable ? onClick : undefined}>
+      {value}
+    </td>
+  );
+}
+
+function TeamPerformanceTable({ rows, onOpen, L }) {
   const totals = rows.reduce((a, r) => ({
     totalLeads: a.totalLeads + r.totalLeads, newThisPeriod: a.newThisPeriod + r.newThisPeriod,
     contracted: a.contracted + r.contracted, reversed: a.reversed + r.reversed,
@@ -86,9 +115,12 @@ function TeamPerformanceTable({ rows, L }) {
             {rows.map(r => (
               <tr key={r.fullName}>
                 <td style={{ ...td, fontWeight: 600 }}>{r.fullName}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.totalLeads}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.newThisPeriod}</td>
-                <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.contracted}</td>
+                <ClickableTd onOpen={onOpen} value={r.totalLeads}
+                  onClick={() => openPeopleDrill(onOpen, L('Total leads', 'Tổng lead') + ` — ${r.fullName}`, r.totalLeadsItems, L)} />
+                <ClickableTd onOpen={onOpen} value={r.newThisPeriod}
+                  onClick={() => openPeopleDrill(onOpen, L('New this period', 'Mới trong kỳ') + ` — ${r.fullName}`, r.newThisPeriodItems, L)} />
+                <ClickableTd onOpen={onOpen} value={r.contracted} bold
+                  onClick={() => openPeopleDrill(onOpen, L('Contracted', 'Ký HĐ') + ` — ${r.fullName}`, r.contractedItems, L)} />
                 <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }} title={r.target == null ? L('Contract target is monthly — not shown for this period type', 'Chỉ tiêu hợp đồng theo tháng — không hiển thị cho loại kỳ này') : ''}>
                   {r.target ?? '—'}
                 </td>
@@ -96,9 +128,12 @@ function TeamPerformanceTable({ rows, L }) {
                 <td style={{ ...td, textAlign: 'right' }}>{r.inSystemCount}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.outSystemCount}</td>
                 {CASE_TYPES.map(t => <td key={t} style={{ ...td, textAlign: 'right' }}>{r.caseTypeBreakdown?.[t] || 0}</td>)}
-                <td style={{ ...td, textAlign: 'right', color: r.reversed > 0 ? '#DC2626' : 'inherit' }}>{r.reversed}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.basicLetters}</td>
-                <td style={{ ...td, textAlign: 'right' }}>{r.finalLetters}</td>
+                <ClickableTd onOpen={onOpen} value={r.reversed} color={r.reversed > 0 ? '#DC2626' : 'inherit'}
+                  onClick={() => openPeopleDrill(onOpen, L('Reversed', 'Hủy') + ` — ${r.fullName}`, r.reversedItems, L)} />
+                <ClickableTd onOpen={onOpen} value={r.basicLetters}
+                  onClick={() => openPeopleDrill(onOpen, L('Basic Ltr', 'Thư CB') + ` — ${r.fullName}`, r.basicLettersItems, L)} />
+                <ClickableTd onOpen={onOpen} value={r.finalLetters}
+                  onClick={() => openPeopleDrill(onOpen, L('Final Ltr', 'Thư cuối') + ` — ${r.fullName}`, r.finalLettersItems, L)} />
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={13} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No staff in this group.', 'Không có nhân viên.')}</td></tr>}
@@ -161,14 +196,7 @@ function CallsTable({ title, rows, showMeetings, showTransferred, showContracted
   }
 
   function openContracted(r) {
-    onOpen({
-      title: L('Contracted', 'Ký HĐ') + ` — ${r.fullName}`,
-      cols: [
-        { key: 'fullName', label: L('Name', 'Tên') },
-        { key: 'destinationCountry', label: L('Destination', 'Điểm đến') },
-      ],
-      items: r.contractedItems || [],
-    });
+    openPeopleDrill(onOpen, L('Contracted', 'Ký HĐ') + ` — ${r.fullName}`, r.contractedItems, L);
   }
 
   return (
@@ -195,13 +223,19 @@ function CallsTable({ title, rows, showMeetings, showTransferred, showContracted
               return (
                 <tr key={r.fullName}>
                   <td style={{ ...td, fontWeight: 600 }}>{r.fullName}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{r.newLeads}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{r.ongoing}</td>
+                  <ClickableTd onOpen={onOpen} value={r.newLeads}
+                    onClick={() => openPeopleDrill(onOpen, L('New', 'Mới') + ` — ${r.fullName}`, r.newLeadItems, L)} />
+                  <ClickableTd onOpen={onOpen} value={r.ongoing}
+                    onClick={() => openPeopleDrill(onOpen, L('Ongoing', 'Theo dõi') + ` — ${r.fullName}`, r.ongoingItems, L)} />
                   <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.totalCalls}</td>
                   <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }}>{r.target}</td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: r.totalCalls >= r.target ? '#10B981' : '#DC2626' }}>{pct(r.totalCalls, r.target)}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{r.kbm}</td>
-                  {showMeetings && <td style={{ ...td, textAlign: 'right' }}>{r.meetings}</td>}
+                  <ClickableTd onOpen={onOpen} value={r.kbm}
+                    onClick={() => openPeopleDrill(onOpen, L('KBM', 'KBM') + ` — ${r.fullName}`, r.kbmItems, L)} />
+                  {showMeetings && (
+                    <ClickableTd onOpen={onOpen} value={r.meetings}
+                      onClick={() => openPeopleDrill(onOpen, L('Meetings', 'Cuộc gặp') + ` — ${r.fullName}`, r.meetingsItems, L)} />
+                  )}
                   {showTransferred && (
                     <td style={{ ...td, textAlign: 'right', cursor: transferClickable ? 'pointer' : 'default', textDecoration: transferClickable ? 'underline' : 'none' }}
                       onClick={transferClickable ? () => openTransferred(r) : undefined}>
@@ -505,8 +539,8 @@ export default function GroupReport() {
             <div style={{ ...card, flex: '1 1 200px' }}><BarChartCard title={L('Counselling Letters', 'Thư tư vấn')} bars={lettersBars} onOpen={setDrill} /></div>
             <div style={{ ...card, flex: '1 1 320px' }}><BarChartCard title={L('Calls', 'Cuộc gọi')} bars={callsBars} onOpen={setDrill} /></div>
           </div>
-          <TeamPerformanceTable rows={data.teamPerformance} L={L} />
-          <CallsTable title={L('Telesales (Counsellors)', 'Telesales (Tư vấn viên)')} rows={data.telesales} showMeetings={false} L={L} />
+          <TeamPerformanceTable rows={data.teamPerformance} onOpen={setDrill} L={L} />
+          <CallsTable title={L('Telesales (Counsellors)', 'Telesales (Tư vấn viên)')} rows={data.telesales} showMeetings={false} onOpen={setDrill} L={L} />
           <CallsTable
             title={L('Pre-sales', 'Pre-sales')}
             rows={data.presales}
