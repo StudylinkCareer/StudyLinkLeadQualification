@@ -173,6 +173,23 @@ router.put(
   reportCtrl.savePresalesWorkingHours
 );
 
+// ── Staff Off-Days (Staff Targets page) — same gating as the above ────
+router.get(
+  '/staff-off-days',
+  requireStaffAuth,
+  reportCtrl.staffOffDays
+);
+router.post(
+  '/staff-off-days',
+  requireStaffAuth,
+  reportCtrl.addStaffOffDay
+);
+router.delete(
+  '/staff-off-days/:id',
+  requireStaffAuth,
+  reportCtrl.removeStaffOffDay
+);
+
 // ── Sales + Marketing Monthly Report ─────────────────────────
 // Same broad-audience gate as notes-activity (Activity Report) — wider
 // audience than Event Report's CEO/COO+Managers-only gate, since this report

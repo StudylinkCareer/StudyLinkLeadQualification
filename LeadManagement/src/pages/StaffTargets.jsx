@@ -361,6 +361,132 @@ function UncontactableRosterList({ roster, L }) {
   );
 }
 
+// Staff Off-Days (2026-10, requested via cô Như / Hồng Hà) — pick an
+// employee, then log each date they're off (leave, training, a meeting)
+// with an optional note. TRACKING ONLY for now: this does not yet reduce
+// anyone's Call/Contract targets — that's a deliberately separate follow-up
+// once the deduction rule itself is confirmed (does a day off zero that
+// day's target entirely, or something finer?), since it touches live KPI
+// numbers across Team Performance/Telesales/Pre-sales and shouldn't be
+// guessed at. See addStaffOffDays.js's migration comment.
+const OFF_DAY_REASON_LABELS = {
+  leave:    ['Leave / Vacation', 'Nghỉ phép'],
+  training: ['Training', 'Đào tạo'],
+  meeting:  ['Meeting', 'Họp'],
+  other:    ['Other', 'Khác'],
+};
+
+function StaffOffDaysSection({ roster, L, language }) {
+  const [staffId, setStaffId] = useState('');
+  const [rows, setRows]       = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [newDate, setNewDate] = useState('');
+  const [newReason, setNewReason] = useState('leave');
+  const [newNote, setNewNote] = useState('');
+
+  function reload(id) {
+    if (!id) { setRows(null); return; }
+    setLoading(true);
+    reportsAPI.staffOffDays(id)
+      .then(r => setRows(r?.data || []))
+      .catch(() => setRows(null))
+      .finally(() => setLoading(false));
+  }
+  useEffect(() => { reload(staffId); }, [staffId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function addEntry() {
+    if (!staffId || !newDate) return;
+    reportsAPI.addStaffOffDay(Number(staffId), newDate, newReason, newNote.trim() || null)
+      .then(() => { setNewDate(''); setNewNote(''); reload(staffId); })
+      .catch(() => {});
+  }
+  function removeEntry(id) {
+    reportsAPI.removeStaffOffDay(id).then(() => reload(staffId)).catch(() => {});
+  }
+
+  const reasonLabel = (type) => L(...(OFF_DAY_REASON_LABELS[type] || OFF_DAY_REASON_LABELS.other));
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US') : '';
+
+  return (
+    <div>
+      <div style={{ marginBottom: '1rem' }}>
+        <h2 style={h2}>{L('Staff Off-Days', 'Ngày nghỉ / vắng mặt')}</h2>
+        <div style={sub}>
+          {L(
+            'Log each day a Counsellor or Pre-sales person is off — leave, training, a meeting — per person. Tracking only for now; this does not yet adjust anyone’s targets.',
+            'Ghi lại từng ngày Tư vấn viên hoặc Pre-sales nghỉ — nghỉ phép, đào tạo, họp — theo từng người. Hiện chỉ để theo dõi; chưa tự động trừ vào chỉ tiêu.'
+          )}
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>{L('Employee', 'Nhân viên')}</label>
+          <select value={staffId} onChange={e => setStaffId(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem', minWidth: 220 }}>
+            <option value="">{L('— Select staff —', '— Chọn nhân viên —')}</option>
+            {roster.map(s => <option key={s.id} value={s.id}>{s.fullName}{s.position ? ` (${s.position})` : ''}</option>)}
+          </select>
+        </div>
+
+        {!staffId && <div style={sub}>{L('Pick an employee above to see or add their off-days.', 'Chọn một nhân viên ở trên để xem hoặc thêm ngày nghỉ.')}</div>}
+
+        {staffId && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border,#e5e7eb)' }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#6b7280)', marginBottom: 2 }}>{L('Date', 'Ngày')}</div>
+                <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#6b7280)', marginBottom: 2 }}>{L('Reason', 'Lý do')}</div>
+                <select value={newReason} onChange={e => setNewReason(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem' }}>
+                  {Object.keys(OFF_DAY_REASON_LABELS).map(k => <option key={k} value={k}>{reasonLabel(k)}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#6b7280)', marginBottom: 2 }}>{L('Note (optional)', 'Ghi chú (tùy chọn)')}</div>
+                <input type="text" value={newNote} onChange={e => setNewNote(e.target.value)} placeholder={L('e.g. half-day, specific training name…', 'vd: nửa ngày, tên khóa đào tạo…')}
+                  style={{ padding: '0.35rem', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' }} />
+              </div>
+              <button className="btn" onClick={addEntry} disabled={!newDate}>+ {L('Add', 'Thêm')}</button>
+            </div>
+
+            {loading && !rows && <div style={sub}>{L('Loading…', 'Đang tải…')}</div>}
+            {rows && rows.length === 0 && <div style={sub}>{L('No off-days logged for this person yet.', 'Chưa có ngày nghỉ nào được ghi cho người này.')}</div>}
+            {rows && rows.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', maxWidth: 720 }}>
+                <thead>
+                  <tr>
+                    <th style={th}>{L('Date', 'Ngày')}</th>
+                    <th style={th}>{L('Reason', 'Lý do')}</th>
+                    <th style={th}>{L('Note', 'Ghi chú')}</th>
+                    <th style={th}>{L('Logged by', 'Người thêm')}</th>
+                    <th style={{ ...th, width: 40 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.id}>
+                      <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtDate(r.offDate)}</td>
+                      <td style={td}>{reasonLabel(r.reasonType)}</td>
+                      <td style={{ ...td, color: r.note ? 'inherit' : 'var(--text-secondary,#9ca3af)' }}>{r.note || '—'}</td>
+                      <td style={{ ...td, color: 'var(--text-secondary,#6b7280)', fontSize: '0.78rem' }}>{r.createdBy}</td>
+                      <td style={{ ...td, textAlign: 'center' }}>
+                        <span onClick={() => removeEntry(r.id)} title={L('Remove', 'Xóa')}
+                          style={{ cursor: 'pointer', color: 'var(--text-secondary,#9ca3af)' }}>×</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Daily Call Quotas — Counsellors only (2026-08 redesign: Pre-Sales moved to
 // PresalesHoursGrid below, hours-based instead of a role-wide call count).
 // Per-weekday New/Ongoing call targets, one row ("Counsellors"), now also
@@ -659,6 +785,12 @@ export default function StaffTargets() {
       <div style={{ marginTop: '2.5rem' }}>
         <SectionHeader>{L('Pre-sales Round-Robin', 'Xoay vòng Pre-sales')}</SectionHeader>
         <UncontactableRosterList roster={roster} L={L} />
+      </div>
+
+      {/* ── Attendance ────────────────────────────────────────────── */}
+      <div style={{ marginTop: '2.5rem' }}>
+        <SectionHeader>{L('Attendance', 'Chấm công')}</SectionHeader>
+        <StaffOffDaysSection roster={roster} L={L} language={language} />
       </div>
     </div>
   );

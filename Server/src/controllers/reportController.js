@@ -1715,6 +1715,83 @@ async function removeUncontactableRosterStaff(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Staff Off-Days (Staff Targets page) ───────────────────────────────
+// Tracks per-staff dates out (leave, training, meetings) — cô Như's ask,
+// 2026-10: Counsellor/Telesales targets should be reduced for days a staff
+// member is off. This is the TRACKING piece only (pick an employee, add
+// each off-day entry); deducting these from the actual target calculations
+// is a deliberately separate follow-up — see addStaffOffDays.js's header
+// comment. Same gating as the other Staff Targets page-only features.
+async function staffOffDays(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const staffId = req.query.staffId;
+    if (!staffId || !/^\d+$/.test(String(staffId))) {
+      return res.status(400).json({ success: false, error: 'staffId is required' });
+    }
+    const rows = (await pool.query(
+      `SELECT id, off_date, reason_type, note, created_by, created_at
+         FROM staff_off_days WHERE staff_id = $1
+        ORDER BY off_date DESC`,
+      [staffId]
+    )).rows;
+    res.json({ success: true, data: rows.map((r) => ({
+      id: r.id, offDate: r.off_date, reasonType: r.reason_type, note: r.note,
+      createdBy: r.created_by, createdAt: r.created_at,
+    })) });
+  } catch (err) { next(err); }
+}
+
+const OFF_DAY_REASON_TYPES = new Set(['leave', 'training', 'meeting', 'other']);
+
+async function addStaffOffDay(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const { staffId, offDate, reasonType, note } = req.body || {};
+    if (!staffId || !/^\d+$/.test(String(staffId))) {
+      return res.status(400).json({ success: false, error: 'staffId is required' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(offDate || ''))) {
+      return res.status(400).json({ success: false, error: 'offDate (YYYY-MM-DD) is required' });
+    }
+    const type = OFF_DAY_REASON_TYPES.has(reasonType) ? reasonType : 'leave';
+    const createdBy = req.session.staffName || req.session.staffEmail || 'unknown';
+    // ON CONFLICT: re-adding the same staff+date updates the reason/note
+    // instead of erroring — one row per calendar day per staff member.
+    const upsert = await pool.query(
+      `INSERT INTO staff_off_days (staff_id, off_date, reason_type, note, created_by)
+            VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (staff_id, off_date) DO UPDATE
+         SET reason_type = EXCLUDED.reason_type, note = EXCLUDED.note, created_by = EXCLUDED.created_by, created_at = now()
+       RETURNING id, off_date, reason_type, note, created_by, created_at`,
+      [staffId, offDate, type, note || null, createdBy]
+    );
+    const r = upsert.rows[0];
+    res.json({ success: true, data: {
+      id: r.id, offDate: r.off_date, reasonType: r.reason_type, note: r.note, createdBy: r.created_by, createdAt: r.created_at,
+    } });
+  } catch (err) { next(err); }
+}
+
+async function removeStaffOffDay(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const id = req.params.id;
+    if (!id || !/^\d+$/.test(String(id))) {
+      return res.status(400).json({ success: false, error: 'id is required' });
+    }
+    const del = await pool.query(`DELETE FROM staff_off_days WHERE id = $1 RETURNING id`, [id]);
+    if (del.rowCount === 0) return res.status(404).json({ success: false, error: 'Not found' });
+    res.json({ success: true, data: { id: Number(id), removed: true } });
+  } catch (err) { next(err); }
+}
+
 // Regenerate one week's snapshot on demand (admin "re-publish").
 async function regenerateWeeklySnapshot(req, res, next) {
   try {
@@ -1755,6 +1832,7 @@ module.exports = {
   callDayTargets, saveCallDayTarget,
   listUncontactableRoster, addUncontactableRosterStaff, removeUncontactableRosterStaff, setUncontactableSlotMode,
   presalesWorkingHours, savePresalesWorkingHours,
+  staffOffDays, addStaffOffDay, removeStaffOffDay,
   // Frozen Weekly Report: scheduler + manual re-publish + note freezing.
   generateWeeklySnapshot, vnWeekStart, regenerateWeeklySnapshot, lockRecommendationsBefore,
   // Exported for reuse by rangeReport.js (Individual/Group Report, 2026-08) —
