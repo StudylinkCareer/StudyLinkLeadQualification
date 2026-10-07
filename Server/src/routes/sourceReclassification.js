@@ -61,11 +61,20 @@ router.get('/legacy-values', requireRole, async (req, res) => {
       // it's simply left orphaned and pointing at a bucket the new value no
       // longer matches). Surfacing it as `sourceBreakdown` lets a reviewer copy
       // that fact into `targetSourceDetail` if it's still worth keeping.
+      // Skips students already handled (a log entry for this value whose target
+      // matches their current Source of Lead, since detail text is often kept
+      // as-is) and students still tagged Event/Campaign (handled separately).
       const { rows } = await pool.query(
-        `SELECT student_id, full_name, btrim(${column}) AS value, source, created_at
-           FROM students
-          WHERE ${column} IS NOT NULL AND btrim(${column}) <> ''
-          ORDER BY created_at DESC`
+        `SELECT s.student_id, s.full_name, btrim(s.${column}) AS value, s.source, s.created_at
+           FROM students s
+          WHERE s.${column} IS NOT NULL AND btrim(s.${column}) <> ''
+            AND s.lead_source IS DISTINCT FROM 'Event/Campaign'
+            AND NOT EXISTS (
+                  SELECT 1 FROM source_reclassification_log l
+                   WHERE l.source_column = $1 AND l.target_lead_source = s.lead_source
+                     AND btrim(s.${column}) IN (btrim(l.legacy_value), btrim(COALESCE(l.target_source_detail, ''))))
+          ORDER BY s.created_at DESC`,
+        [column]
       );
       const byValue = new Map();
       for (const r of rows) {
@@ -142,7 +151,7 @@ router.post('/assign', requireRole, async (req, res) => {
       // sub-field text (or cleared) — that's what makes re-running this a no-op.
       const upd = await client.query(
         `UPDATE students SET lead_source=$1, source=$2, ${column}=$3, updated_at=now()
-          WHERE btrim(${column}) = $4`,
+          WHERE btrim(${column}) = $4 AND lead_source IS DISTINCT FROM 'Event/Campaign'`,
         // referral_source is NOT NULL DEFAULT '' on students.
         [targetLeadSource, targetSource, targetSourceDetail ?? (column === 'referral_source' ? '' : null), String(value).trim()]
       );
