@@ -383,6 +383,7 @@ function StaffOffDaysSection({ roster, L, language }) {
   const [newDate, setNewDate] = useState('');
   const [newReason, setNewReason] = useState('leave');
   const [newNote, setNewNote] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   function reload(id) {
     if (!id) { setRows(null); return; }
@@ -396,12 +397,16 @@ function StaffOffDaysSection({ roster, L, language }) {
 
   function addEntry() {
     if (!staffId || !newDate) return;
+    setSaveError('');
     reportsAPI.addStaffOffDay(Number(staffId), newDate, newReason, newNote.trim() || null)
       .then(() => { setNewDate(''); setNewNote(''); reload(staffId); })
-      .catch(() => {});
+      .catch(err => setSaveError(err?.message || L('Could not save. Please try again.', 'Không lưu được. Vui lòng thử lại.')));
   }
   function removeEntry(id) {
-    reportsAPI.removeStaffOffDay(id).then(() => reload(staffId)).catch(() => {});
+    setSaveError('');
+    reportsAPI.removeStaffOffDay(id)
+      .then(() => reload(staffId))
+      .catch(err => setSaveError(err?.message || L('Could not remove. Please try again.', 'Không xóa được. Vui lòng thử lại.')));
   }
 
   const reasonLabel = (type) => L(...(OFF_DAY_REASON_LABELS[type] || OFF_DAY_REASON_LABELS.other));
@@ -450,6 +455,8 @@ function StaffOffDaysSection({ roster, L, language }) {
               </div>
               <button className="btn" onClick={addEntry} disabled={!newDate}>+ {L('Add', 'Thêm')}</button>
             </div>
+
+            {saveError && <div style={{ ...sub, color: '#b91c1c', marginTop: '-0.5rem', marginBottom: '1rem' }}>{saveError}</div>}
 
             {loading && !rows && <div style={sub}>{L('Loading…', 'Đang tải…')}</div>}
             {rows && rows.length === 0 && <div style={sub}>{L('No off-days logged for this person yet.', 'Chưa có ngày nghỉ nào được ghi cho người này.')}</div>}
