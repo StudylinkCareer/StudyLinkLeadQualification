@@ -143,7 +143,8 @@ router.post('/assign', requireRole, async (req, res) => {
       const upd = await client.query(
         `UPDATE students SET lead_source=$1, source=$2, ${column}=$3, updated_at=now()
           WHERE btrim(${column}) = $4`,
-        [targetLeadSource, targetSource, targetSourceDetail, String(value).trim()]
+        // referral_source is NOT NULL DEFAULT '' on students.
+        [targetLeadSource, targetSource, targetSourceDetail ?? (column === 'referral_source' ? '' : null), String(value).trim()]
       );
       await client.query(
         `INSERT INTO source_reclassification_log
