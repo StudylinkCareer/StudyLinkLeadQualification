@@ -34,6 +34,10 @@ function requireRole(req, res, next) {
 // needs to list them to populate its "reassign to" dropdowns.
 const EDITABLE = new Set(['b2b_type', 'b2b_party', 'attendance_status']);
 const READABLE = new Set([...EDITABLE, 'source_of_lead', 'source']);
+// Staff can add/rename/deactivate Databases sub-sources (WISE, YootEdu, ...). The
+// other Source of Lead values stay locked to migrations.
+const isEditable = (category, subcategory) =>
+  EDITABLE.has(category) || (category === 'source' && subcategory === 'Databases');
 const norm  = (v) => { const s = (v ?? '').toString().trim(); return s === '' ? null : s; };
 const shape = (r) => ({
   id: r.id, code: r.code, labelEn: r.label_en || null, labelVi: r.label_vi || null,
@@ -116,7 +120,7 @@ router.post('/', requireRole, async (req, res) => {
   const labelEn     = norm(req.body.labelEn);
   const labelVi     = norm(req.body.labelVi);
   const mode        = norm(req.body.mode);
-  if (!category || !EDITABLE.has(category)) return res.status(400).json({ success: false, error: 'Unknown list' });
+  if (!category || !isEditable(category, subcategory)) return res.status(400).json({ success: false, error: 'Unknown list' });
   if (!code) return res.status(400).json({ success: false, error: 'Name is required' });
   const meta = mode ? { mode } : {};
   try {
@@ -150,9 +154,9 @@ router.put('/:id', requireRole, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id' });
   try {
-    const ex = await pool.query(`SELECT category, meta FROM lookup_values WHERE id=$1`, [id]);
+    const ex = await pool.query(`SELECT category, subcategory, code, meta FROM lookup_values WHERE id=$1`, [id]);
     if (ex.rowCount === 0) return res.status(404).json({ success: false, error: 'Not found' });
-    if (!EDITABLE.has(ex.rows[0].category)) return res.status(403).json({ success: false, error: 'Not editable' });
+    if (!isEditable(ex.rows[0].category, ex.rows[0].subcategory)) return res.status(403).json({ success: false, error: 'Not editable' });
 
     const sets = [], vals = [];
     if (req.body.labelEn !== undefined) { vals.push(norm(req.body.labelEn)); sets.push(`label_en = $${vals.length}`); }
@@ -160,6 +164,9 @@ router.put('/:id', requireRole, async (req, res) => {
     if (req.body.code !== undefined) {
       const c = norm(req.body.code);
       if (!c) return res.status(400).json({ success: false, error: 'Name cannot be empty' });
+      if (ex.rows[0].category === 'source' && c !== ex.rows[0].code) {
+        return res.status(400).json({ success: false, error: 'Database names cannot be renamed, since leads already store them. Add the new name and deactivate the old one.' });
+      }
       vals.push(c); sets.push(`code = $${vals.length}`);
     }
     if (req.body.mode !== undefined) {
@@ -184,9 +191,9 @@ router.delete('/:id', requireRole, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id' });
   try {
-    const ex = await pool.query(`SELECT category FROM lookup_values WHERE id=$1`, [id]);
+    const ex = await pool.query(`SELECT category, subcategory FROM lookup_values WHERE id=$1`, [id]);
     if (ex.rowCount === 0) return res.status(404).json({ success: false, error: 'Not found' });
-    if (!EDITABLE.has(ex.rows[0].category)) return res.status(403).json({ success: false, error: 'Not editable' });
+    if (!isEditable(ex.rows[0].category, ex.rows[0].subcategory)) return res.status(403).json({ success: false, error: 'Not editable' });
     await pool.query(`UPDATE lookup_values SET is_active=false WHERE id=$1`, [id]);
     res.json({ success: true });
   } catch (err) {

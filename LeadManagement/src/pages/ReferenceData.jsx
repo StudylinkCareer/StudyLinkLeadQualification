@@ -25,10 +25,10 @@ const MODE_OPTIONS = [
 ];
 
 // Left-nav catalogue. Each leaf carries the category (+ subcategory) it edits.
-// Source of Lead restructure (2026-09): "Source of Lead" and "Source" are now a
-// fixed 5-value list that only changes via a migration, not staff self-service —
-// removed from here (the server also 403s writes to those two categories now).
+// "Source of Lead" stays a fixed list (changes via migration). Only the Databases
+// sub-sources are staff-editable here.
 const CATALOG = [
+  { type: 'item', key: 'source:Databases', label: 'Databases', labelVi: 'Cơ sở dữ liệu', category: 'source', subcategory: 'Databases' },
   { type: 'item', key: 'b2b_type', label: 'B2B Type', labelVi: 'Loại B2B', category: 'b2b_type', subcategory: null },
   { type: 'group', label: 'B2B Party', labelVi: 'Đối tác B2B', items: [
     { key: 'b2b_party:Subagents',       label: 'Subagents',       labelVi: 'Sub-agent',           category: 'b2b_party', subcategory: 'Subagents' },
