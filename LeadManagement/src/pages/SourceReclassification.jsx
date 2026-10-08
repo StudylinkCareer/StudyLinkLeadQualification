@@ -8,7 +8,7 @@
 // credentials style as ReferenceData.jsx.
 // ─────────────────────────────────────────────────────────────────────
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 const inputStyle = { width: '100%', padding: '8px 10px', borderRadius: 4, border: '1px solid var(--border)' };
@@ -27,11 +27,31 @@ export default function SourceReclassification() {
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState(null);
   const [picks, setPicks] = useState({}); // key -> { targetLeadSource, targetSource, targetSourceDetail }
+  const [expanded, setExpanded] = useState({}); // value key -> students[] | 'loading'
 
   const keyOf = (v) => `${v.column}::${v.value}`;
 
-  async function loadAll() {
-    setLoading(true);
+  async function loadStudents(v) {
+    const key = keyOf(v);
+    setExpanded((e) => ({ ...e, [key]: 'loading' }));
+    try {
+      const qs = new URLSearchParams({ column: v.column, value: v.value });
+      const j = await fetch(`/api/source-reclassification/legacy-values/students?${qs}`, { credentials: 'include' }).then((r) => r.json());
+      if (!j.success) throw new Error(j.error || 'Failed to load students');
+      setExpanded((e) => ({ ...e, [key]: j.data || [] }));
+    } catch (e) {
+      setError(e.message || 'Failed to load students');
+      setExpanded((e2) => { const n = { ...e2 }; delete n[key]; return n; });
+    }
+  }
+  function toggleStudents(v) {
+    const key = keyOf(v);
+    if (expanded[key]) setExpanded((e) => { const n = { ...e }; delete n[key]; return n; });
+    else loadStudents(v);
+  }
+
+  async function loadAll(silent) {
+    if (!silent) setLoading(true);
     try {
       const [legacy, sol, source, b2b] = await Promise.all([
         fetch('/api/source-reclassification/legacy-values', { credentials: 'include' }).then((r) => r.json()),
@@ -64,8 +84,9 @@ export default function SourceReclassification() {
     ? (language === 'vi' ? 'Tên đối tác' : 'Partner name')
     : (language === 'vi' ? 'Tên người giới thiệu' : 'Referrer name'));
 
-  async function apply(v) {
-    const key = keyOf(v);
+  // studentId set = this one student only (row stays open, list refreshes quietly).
+  async function apply(v, studentId) {
+    const key = studentId ? `${keyOf(v)}::${studentId}` : keyOf(v);
     const pick = picks[key] || {};
     if (!pick.targetLeadSource) { setError('Choose a Source of Lead first.'); return; }
     setBusyKey(key);
@@ -79,16 +100,64 @@ export default function SourceReclassification() {
           targetLeadSource: pick.targetLeadSource,
           targetSource: pick.targetSource || '',
           targetSourceDetail: pick.targetSourceDetail || '',
+          ...(studentId ? { studentId } : {}),
         }),
       });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'Failed to reassign');
-      await loadAll();
+      if (studentId) {
+        setExpanded((e) => ({ ...e, [keyOf(v)]: (Array.isArray(e[keyOf(v)]) ? e[keyOf(v)] : []).filter((s) => s.studentId !== studentId) }));
+        await loadAll(true);
+      } else {
+        setExpanded((e) => { const n = { ...e }; delete n[keyOf(v)]; return n; });
+        await loadAll();
+      }
     } catch (e) {
       setError(e.message || 'Failed to reassign');
     } finally {
       setBusyKey(null);
     }
+  }
+
+  // Plain render helper (not a component) so inputs keep focus while typing.
+  function targetCells(pickKey, onApply) {
+    const pick = picks[pickKey] || {};
+    const subOpts = subOptionsFor(pick.targetLeadSource);
+    const busy = busyKey === pickKey;
+    return (
+      <>
+        <td style={{ padding: '10px 4px' }}>
+          <select style={inputStyle} value={pick.targetLeadSource || ''}
+            onChange={(e) => setPick(pickKey, { targetLeadSource: e.target.value, targetSource: '', targetSourceDetail: '' })}>
+            <option value="">{language === 'vi' ? 'Chọn...' : 'Choose...'}</option>
+            {solOptions.map((o) => <option key={o.code} value={o.code}>{label(o)}</option>)}
+          </select>
+        </td>
+        <td style={{ padding: '10px 4px' }}>
+          {subOpts.length > 0 && (
+            <select style={inputStyle} value={pick.targetSource || ''}
+              onChange={(e) => setPick(pickKey, { targetSource: e.target.value })}>
+              <option value="">{language === 'vi' ? 'Không' : 'None'}</option>
+              {subOpts.map((o) => <option key={o.code} value={o.code}>{label(o)}</option>)}
+            </select>
+          )}
+        </td>
+        <td style={{ padding: '10px 4px' }}>
+          {needsDetailFor(pick.targetLeadSource) && (
+            <input style={inputStyle} placeholder={detailLabel(pick.targetLeadSource)}
+              value={pick.targetSourceDetail || ''}
+              onChange={(e) => setPick(pickKey, { targetSourceDetail: e.target.value })} />
+          )}
+        </td>
+        <td style={{ padding: '10px 4px' }}>
+          <button onClick={onApply} disabled={busy || !pick.targetLeadSource}
+            style={{ padding: '6px 12px', borderRadius: 4, border: 'none', background: 'var(--primary)', color: 'white',
+                     fontWeight: 600, cursor: (busy || !pick.targetLeadSource) ? 'not-allowed' : 'pointer' }}>
+            {busy ? (language === 'vi' ? 'Đang lưu...' : 'Applying...') : (language === 'vi' ? 'Áp dụng' : 'Apply')}
+          </button>
+        </td>
+      </>
+    );
   }
 
   const total = values.length;
@@ -139,10 +208,10 @@ export default function SourceReclassification() {
           <tbody>
             {values.map((v) => {
               const key = keyOf(v);
-              const pick = picks[key] || {};
-              const subOpts = subOptionsFor(pick.targetLeadSource);
+              const students = expanded[key];
               return (
-                <tr key={key} style={{ borderBottom: '1px solid var(--border)' }}>
+                <Fragment key={key}>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '10px 4px', maxWidth: 220, overflowWrap: 'anywhere' }}>
                     {v.value}
                     {v.sourceBreakdown && (
@@ -169,38 +238,60 @@ export default function SourceReclassification() {
                   <td style={{ padding: '10px 4px' }}>{v.count}</td>
                   <td style={{ padding: '10px 4px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
                     {v.samples.map((s) => s.fullName || s.studentId).join(', ')}
+                    <div>
+                      <button type="button" onClick={() => toggleStudents(v)}
+                        style={{ marginTop: 4, border: 'none', background: 'none', padding: 0, color: 'var(--primary)', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}>
+                        {students
+                          ? (language === 'vi' ? 'Ẩn danh sách' : 'Hide students')
+                          : (language === 'vi' ? `Xem từng khách (${v.count})` : `Review each student (${v.count})`)}
+                      </button>
+                    </div>
                   </td>
-                  <td style={{ padding: '10px 4px' }}>
-                    <select style={inputStyle} value={pick.targetLeadSource || ''}
-                      onChange={(e) => setPick(key, { targetLeadSource: e.target.value, targetSource: '', targetSourceDetail: '' })}>
-                      <option value="">{language === 'vi' ? 'Chọn...' : 'Choose...'}</option>
-                      {solOptions.map((o) => <option key={o.code} value={o.code}>{label(o)}</option>)}
-                    </select>
-                  </td>
-                  <td style={{ padding: '10px 4px' }}>
-                    {subOpts.length > 0 && (
-                      <select style={inputStyle} value={pick.targetSource || ''}
-                        onChange={(e) => setPick(key, { targetSource: e.target.value })}>
-                        <option value="">{language === 'vi' ? 'Không' : 'None'}</option>
-                        {subOpts.map((o) => <option key={o.code} value={o.code}>{label(o)}</option>)}
-                      </select>
-                    )}
-                  </td>
-                  <td style={{ padding: '10px 4px' }}>
-                    {needsDetailFor(pick.targetLeadSource) && (
-                      <input style={inputStyle} placeholder={detailLabel(pick.targetLeadSource)}
-                        value={pick.targetSourceDetail || ''}
-                        onChange={(e) => setPick(key, { targetSourceDetail: e.target.value })} />
-                    )}
-                  </td>
-                  <td style={{ padding: '10px 4px' }}>
-                    <button onClick={() => apply(v)} disabled={busyKey === key || !pick.targetLeadSource}
-                      style={{ padding: '6px 12px', borderRadius: 4, border: 'none', background: 'var(--primary)', color: 'white',
-                               fontWeight: 600, cursor: (busyKey === key || !pick.targetLeadSource) ? 'not-allowed' : 'pointer' }}>
-                      {busyKey === key ? (language === 'vi' ? 'Đang lưu...' : 'Applying...') : (language === 'vi' ? 'Áp dụng' : 'Apply')}
-                    </button>
-                  </td>
+                  {targetCells(key, () => apply(v))}
                 </tr>
+                {students && (
+                  <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                    <td colSpan={8} style={{ padding: '4px 0 12px 24px', background: 'var(--bg-secondary)' }}>
+                      {students === 'loading' ? (
+                        <div style={{ padding: 12, color: 'var(--text-secondary)' }}>{language === 'vi' ? 'Đang tải...' : 'Loading...'}</div>
+                      ) : students.length === 0 ? (
+                        <div style={{ padding: 12, color: 'var(--text-secondary)' }}>{language === 'vi' ? 'Đã xử lý hết.' : 'All students handled.'}</div>
+                      ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                          <thead>
+                            <tr style={{ textAlign: 'left', color: 'var(--text-secondary)' }}>
+                              <th style={{ padding: '6px 4px' }}>{language === 'vi' ? 'Khách' : 'Student'}</th>
+                              <th style={{ padding: '6px 4px' }}>{language === 'vi' ? 'Sự kiện' : 'Events'}</th>
+                              <th style={{ padding: '6px 4px' }}>{language === 'vi' ? 'Thông tin khác' : 'Other info'}</th>
+                              <th style={{ padding: '6px 4px', width: 170 }}>{language === 'vi' ? 'Nguồn khách hàng mới' : 'New Source of Lead'}</th>
+                              <th style={{ padding: '6px 4px', width: 160 }}>{language === 'vi' ? 'Nguồn con' : 'Sub-value'}</th>
+                              <th style={{ padding: '6px 4px', width: 170 }}></th>
+                              <th style={{ padding: '6px 4px', width: 90 }}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {students.map((s) => {
+                              const other = [s.source, v.column === 'source_detail' ? s.referralSource : s.sourceDetail]
+                                .map((x) => (x || '').trim()).filter((x) => x && x !== v.value);
+                              return (
+                                <tr key={s.studentId} style={{ borderTop: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '8px 4px' }}>
+                                    <a href={`/students/${s.studentId}`} target="_blank" rel="noreferrer">{s.fullName || s.studentId}</a>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{s.studentId}</div>
+                                  </td>
+                                  <td style={{ padding: '8px 4px', color: 'var(--text-secondary)' }}>{s.events || '—'}</td>
+                                  <td style={{ padding: '8px 4px', color: 'var(--text-secondary)' }}>{[...new Set(other)].join(' · ') || '—'}</td>
+                                  {targetCells(`${key}::${s.studentId}`, () => apply(v, s.studentId))}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

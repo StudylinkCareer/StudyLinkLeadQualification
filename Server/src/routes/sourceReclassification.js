@@ -36,6 +36,22 @@ function requireRole(req, res, next) {
 const COLUMNS = new Set(['source_detail', 'referral_source']);
 const SAMPLE_LIMIT = 5;
 
+// Event/Campaign students stay off this page, except those registered to
+// StudyLink's own Fair First Date 18.7.2026 (events.id 36), which staff
+// reclassify here by hand.
+const FAIR_FIRST_DATE_EVENT_ID = 36;
+const INCLUDABLE = `(s.lead_source IS DISTINCT FROM 'Event/Campaign'
+  OR EXISTS (SELECT 1 FROM lead_events le WHERE le.student_id = s.student_id AND le.event_id = ${FAIR_FIRST_DATE_EVENT_ID}))`;
+
+// Still needs review: includable, and not already handled (a log entry for this
+// value whose target matches the student's current Source of Lead, since the
+// detail text is often kept as-is). $1 must be the column name.
+const PENDING = (column) => `${INCLUDABLE}
+  AND NOT EXISTS (
+        SELECT 1 FROM source_reclassification_log l
+         WHERE l.source_column = $1 AND l.target_lead_source = s.lead_source
+           AND btrim(s.${column}) IN (btrim(l.legacy_value), btrim(COALESCE(l.target_source_detail, ''))))`;
+
 // ── GET /legacy-values ────────────────────────────────────────────────
 // One row per distinct (column, value) still in use, with a count and a
 // few sample students so a reviewer can tell what the value actually means.
@@ -63,16 +79,12 @@ router.get('/legacy-values', requireRole, async (req, res) => {
       // that fact into `targetSourceDetail` if it's still worth keeping.
       // Skips students already handled (a log entry for this value whose target
       // matches their current Source of Lead, since detail text is often kept
-      // as-is) and students still tagged Event/Campaign (handled separately).
+      // as-is) and Event/Campaign students outside INCLUDABLE.
       const { rows } = await pool.query(
         `SELECT s.student_id, s.full_name, btrim(s.${column}) AS value, s.source, s.created_at
            FROM students s
           WHERE s.${column} IS NOT NULL AND btrim(s.${column}) <> ''
-            AND s.lead_source IS DISTINCT FROM 'Event/Campaign'
-            AND NOT EXISTS (
-                  SELECT 1 FROM source_reclassification_log l
-                   WHERE l.source_column = $1 AND l.target_lead_source = s.lead_source
-                     AND btrim(s.${column}) IN (btrim(l.legacy_value), btrim(COALESCE(l.target_source_detail, ''))))
+            AND ${PENDING(column)}
           ORDER BY s.created_at DESC`,
         [column]
       );
@@ -105,7 +117,8 @@ router.get('/legacy-values', requireRole, async (req, res) => {
     out.sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
     // Already-reclassified values (both columns cleared for every student that had
     // them) still show progress: how many distinct values have been handled so far.
-    const done = await pool.query(`SELECT COUNT(DISTINCT (source_column, legacy_value)) AS n FROM source_reclassification_log`);
+    const done = await pool.query(
+      `SELECT COUNT(DISTINCT (source_column, legacy_value)) AS n FROM source_reclassification_log WHERE student_id IS NULL`);
     res.json({ success: true, data: { values: out, reclassifiedCount: Number(done.rows[0].n) } });
   } catch (err) {
     console.error('[sourceReclassification] legacy-values failed:', err);
@@ -113,15 +126,44 @@ router.get('/legacy-values', requireRole, async (req, res) => {
   }
 });
 
+// ── GET /legacy-values/students?column=&value= ────────────────────────
+// Every student still pending under one legacy value, for per-student review.
+router.get('/legacy-values/students', requireRole, async (req, res) => {
+  const column = req.query.column;
+  const value = String(req.query.value || '').trim();
+  if (!COLUMNS.has(column)) return res.status(400).json({ success: false, error: 'Invalid column' });
+  if (!value) return res.status(400).json({ success: false, error: 'value is required' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.student_id, s.full_name, s.phone, s.source, s.source_detail, s.referral_source, s.created_at,
+              (SELECT string_agg(DISTINCT COALESCE(e.name, le.source), ', ')
+                 FROM lead_events le LEFT JOIN events e ON e.id = le.event_id
+                WHERE le.student_id = s.student_id) AS events
+         FROM students s
+        WHERE btrim(s.${column}) = $2 AND ${PENDING(column)}
+        ORDER BY s.created_at DESC`,
+      [column, value]);
+    res.json({ success: true, data: rows.map((r) => ({
+      studentId: r.student_id, fullName: r.full_name, phone: r.phone, source: r.source,
+      sourceDetail: r.source_detail, referralSource: r.referral_source, createdAt: r.created_at, events: r.events,
+    })) });
+  } catch (err) {
+    console.error('[sourceReclassification] students failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load students' });
+  }
+});
+
 // ── POST /assign ──────────────────────────────────────────────────────
 // Body: { column: 'source_detail'|'referral_source', value: <legacy string>,
 //         targetLeadSource: <source_of_lead code>, targetSource?: <sub-value code>,
-//         targetSourceDetail?: <typed text — partner name / referrer name> }
+//         targetSourceDetail?: <typed text — partner name / referrer name>,
+//         studentId?: <only this student; keeps their text if no detail given> }
 router.post('/assign', requireRole, async (req, res) => {
   const { column, value } = req.body || {};
   const targetLeadSource = (req.body.targetLeadSource || '').trim();
   const targetSource = (req.body.targetSource || '').trim() || null;
   const targetSourceDetail = (req.body.targetSourceDetail || '').trim() || null;
+  const studentId = (req.body.studentId || '').toString().trim() || null;
 
   if (!COLUMNS.has(column)) return res.status(400).json({ success: false, error: 'Invalid column' });
   if (!value || !String(value).trim()) return res.status(400).json({ success: false, error: 'value is required' });
@@ -149,18 +191,26 @@ router.post('/assign', requireRole, async (req, res) => {
       await client.query('BEGIN');
       // Whichever column held the legacy value gets overwritten with the new
       // sub-field text (or cleared) — that's what makes re-running this a no-op.
-      const upd = await client.query(
-        `UPDATE students SET lead_source=$1, source=$2, ${column}=$3, updated_at=now()
-          WHERE btrim(${column}) = $4 AND lead_source IS DISTINCT FROM 'Event/Campaign'`,
-        // referral_source is NOT NULL DEFAULT '' on students.
-        [targetLeadSource, targetSource, targetSourceDetail ?? (column === 'referral_source' ? '' : null), String(value).trim()]
-      );
+      const upd = studentId
+        ? await client.query(
+            `UPDATE students s SET lead_source=$1, source=$2, ${column}=COALESCE($3, s.${column}), updated_at=now()
+              WHERE btrim(s.${column}) = $4 AND s.student_id = $5 AND ${INCLUDABLE}`,
+            [targetLeadSource, targetSource, targetSourceDetail, String(value).trim(), studentId])
+        : await client.query(
+            `UPDATE students s SET lead_source=$1, source=$2, ${column}=$3, updated_at=now()
+              WHERE btrim(s.${column}) = $4 AND ${INCLUDABLE}`,
+            // referral_source is NOT NULL DEFAULT '' on students.
+            [targetLeadSource, targetSource, targetSourceDetail ?? (column === 'referral_source' ? '' : null), String(value).trim()]);
+      if (studentId && upd.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ success: false, error: 'That student no longer has this value. Refresh and try again.' });
+      }
       await client.query(
         `INSERT INTO source_reclassification_log
-           (source_column, legacy_value, target_lead_source, target_source, target_source_detail, leads_affected, applied_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+           (source_column, legacy_value, target_lead_source, target_source, target_source_detail, leads_affected, applied_by, student_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [column, value, targetLeadSource, targetSource, targetSourceDetail, upd.rowCount,
-         req.session.staffName || req.session.staffEmail || 'unknown']
+         req.session.staffName || req.session.staffEmail || 'unknown', studentId]
       );
       await client.query('COMMIT');
       res.json({ success: true, data: { studentsAffected: upd.rowCount } });
