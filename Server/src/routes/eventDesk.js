@@ -4,6 +4,9 @@
 // Rep opens ?rep=<event_login_token>, enters PIN → signed Bearer token.
 // Then signs into a desk, scans a student (NAME ONLY), and logs a visit:
 // a stamped note segment under the event topic + an event_desk_visits row.
+// Flow-aware (events.meta.checkinFlow): 'onsite' events let the desk complete
+// a student's gem (POST /qualify), take notes without one, and mark attendance
+// on the first scan. Every scan returns the student's booth history.
 // ─────────────────────────────────────────────────────────────────────
 
 const express  = require('express');
@@ -12,7 +15,8 @@ const { Pool } = require('pg');
 const config   = require('../config');
 const StudentNote = require('../models/StudentNote');
 const { isStoneTier } = require('../utils/stoneContent');
-const { checkStudent, overlayLeadQualFields } = require('../services/eventQualification');
+const { checkStudent, overlayLeadQualFields, checkinFlowOf, ONSITE_FLOW } = require('../services/eventQualification');
+const { PROFILE_EXCLUDE, persistQualificationFields, recalcStone, buildCheckinFields } = require('../services/eventProfile');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -222,103 +226,242 @@ function stampLine(repName, institutionName) {
 // the currently-required qualification fields (admin-configurable), minus the
 // contact identifiers. Display-only context for the booth operator; email,
 // phone and Zalo (preferred_social) NEVER leave this endpoint.
-const LOOKUP_EXCLUDE = ['email', 'phone', 'preferred_social'];
+const LOOKUP_EXCLUDE = PROFILE_EXCLUDE;
 function _present(v) { return v !== null && v !== undefined && String(v).trim() !== ''; }
+
+// The rep's event: its name (= the note topic) and check-in flow.
+async function loadEvent(eventId) {
+  const r = await pool.query(`SELECT name, meta FROM events WHERE id = $1`, [eventId]);
+  const row = r.rows[0];
+  return { name: row ? row.name : `Event ${eventId}`, flow: checkinFlowOf(row && row.meta) };
+}
+
+// Scanned token → the student row, only if they are on the rep's event.
+async function resolveAttendee(code, eventId) {
+  const r = await pool.query(
+    `SELECT s.*
+       FROM event_attendees ea
+       JOIN students s ON s.student_id = ea.student_unique_id
+      WHERE ea.attendance_token = $1 AND ea.event_id = $2
+      LIMIT 1`,
+    [code, eventId]
+  );
+  return r.rows[0] || null;
+}
+
+// event_desk_visits.note_text arrives with migrations/addDeskVisitNoteText.js.
+// Until it has run, visits are still saved — just without their text in the
+// history. Only a positive answer is cached, so running the migration needs
+// no restart.
+let _hasNoteText = false;
+async function hasVisitNoteText() {
+  if (_hasNoteText) return true;
+  const r = await pool.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'event_desk_visits' AND column_name = 'note_text' LIMIT 1`);
+  _hasNoteText = r.rowCount > 0;
+  return _hasNoteText;
+}
+
+// Every booth visit this student has had at this event, newest first, so the
+// next booth doesn't re-ask and the rep can see their own note landed.
+async function loadHistory(eventId, studentId) {
+  const withText = await hasVisitNoteText();
+  const r = await pool.query(
+    `SELECT v.id, v.visited_at, v.rep_rating, v.institution_id,
+            i.name AS institution_name, st.full_name AS rep_name
+            ${withText ? ', v.note_text' : ''}
+       FROM event_desk_visits v
+       LEFT JOIN institutions i ON i.id = v.institution_id
+       LEFT JOIN staff st       ON st.id = v.recorded_by
+      WHERE v.event_id = $1 AND v.student_unique_id = $2
+      ORDER BY v.visited_at DESC`,
+    [eventId, studentId]
+  );
+  return r.rows.map((x) => ({
+    id: x.id,
+    visitedAt: x.visited_at,
+    institutionId: x.institution_id,
+    institutionName: x.institution_name || '',
+    repName: x.rep_name || '',
+    rating: x.rep_rating,
+    note: withText ? (x.note_text || '') : null,
+  }));
+}
+
+// Everything the desk page shows after a scan (or after completing the gem).
+async function buildScanPayload(row, ev, eventId) {
+  // Overlay the lead-stored qualification fields (destination_country,
+  // timeline, …): the lead is their source of truth; the students-table
+  // copies are stale pre-split leftovers.
+  const student = await overlayLeadQualFields(pool, row);
+
+  // Currently-required fields, minus contact identifiers, in VIETNAMESE:
+  // field labels prefer event_qualification_fields.label_vi (when the column
+  // exists), and stored codes are translated via lookup_values.label_vi —
+  // the same resolution the student-facing questionnaire uses. Read live so
+  // toggling fields in the Qualification tab changes the scan automatically.
+  const FIELD_LOOKUP_CATEGORY = { residency: 'vietnam_province', destination_country: 'country' };
+  let profile = [];
+  const labelByKey = {};   // field_key -> Vietnamese label (for the missing-fields list)
+  try {
+    const hasQfVi = (await pool.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_name='event_qualification_fields' AND column_name='label_vi' LIMIT 1`)).rowCount > 0;
+    const labelExpr = hasQfVi ? `COALESCE(NULLIF(label_vi, ''), label)` : `label`;
+    const qf = await pool.query(
+      `SELECT field_key, ${labelExpr} AS label FROM event_qualification_fields
+        WHERE is_required = true ORDER BY sort_order`
+    );
+    for (const f of qf.rows) {
+      labelByKey[f.field_key] = f.label;
+      if (LOOKUP_EXCLUDE.includes(f.field_key) || !_present(student[f.field_key])) continue;
+      const raw = String(student[f.field_key]).trim();
+      let value = raw;
+      try {
+        const lv = await pool.query(
+          `SELECT COALESCE(NULLIF(label_vi, ''), NULLIF(label_en, ''), code) AS label
+             FROM lookup_values
+            WHERE category = $1 AND code = $2 AND is_active = true
+            LIMIT 1`,
+          [FIELD_LOOKUP_CATEGORY[f.field_key] || f.field_key, raw]
+        );
+        if (lv.rowCount) value = lv.rows[0].label;
+      } catch (_) { /* keep the raw value */ }
+      profile.push({ label: f.label, value });
+    }
+  } catch (e) {
+    console.error('[event-desk] lookup profile:', e.message);   // non-fatal
+  }
+
+  // Gate: has the student FULLY completed the questionnaire? Same canonical
+  // check as check-in (checkStudent overlays the lead-stored fields),
+  // evaluated LIVE on every scan so later edits/deletions are respected.
+  //   classic — incomplete students get a blocking "guide them back to
+  //             registration" pop-up and their questionnaire data is withheld.
+  //   onsite  — the booth completes the missing questions itself: the
+  //             missing fields come back as a fillable form.
+  let profileComplete = true, missing = [], missingKeys = new Set();
+  try {
+    const gate = await checkStudent(pool, student);
+    profileComplete = gate.qualified;
+    if (!profileComplete) {
+      // Translate missing field_keys to the questionnaire's labels. Special
+      // entries like "year_of_birth (out of range)" resolve via their first
+      // token; anything unmapped falls back to the raw key.
+      missingKeys = new Set((gate.missing || []).map((k) => String(k).split(' ')[0]));
+      missing = (gate.missing || []).map((k) => {
+        const key = String(k).split(' ')[0];
+        return labelByKey[key] || k;
+      });
+    }
+  } catch (_) {}
+
+  let fields = [];
+  if (!profileComplete) {
+    if (ev.flow === ONSITE_FLOW) {
+      try {
+        const all = await buildCheckinFields(pool, row, 'vi');
+        fields = all.filter((f) => missingKeys.has(f.fieldKey) && !LOOKUP_EXCLUDE.includes(f.fieldKey));
+      } catch (e) {
+        console.error('[event-desk] lookup fields:', e.message);
+      }
+    } else {
+      profile = [];
+    }
+  }
+
+  let history = [];
+  try { history = await loadHistory(eventId, row.student_id); }
+  catch (e) { console.error('[event-desk] history:', e.message); }
+
+  // Name + stone + required profile only — email/phone/Zalo never leave
+  // this endpoint. The stone tier is fine to show reps: it's already
+  // visible to them in the centre of the badge QR they just scanned.
+  return {
+    studentUniqueId: row.student_id,
+    fullName: row.full_name,
+    stoneTier: isStoneTier(row.stone_tier) ? row.stone_tier : '',
+    flow: ev.flow,
+    profileComplete,
+    missing,
+    profile,
+    fields,
+    history,
+  };
+}
 
 router.post('/lookup', requireRep, async (req, res) => {
   const code = (req.body.attendanceToken || req.body.code || '').trim();
   if (!code) return res.status(400).json({ success: false, error: 'Nothing scanned' });
   try {
-    const r = await pool.query(
-      `SELECT s.*
-         FROM event_attendees ea
-         JOIN students s ON s.student_id = ea.student_unique_id
-        WHERE ea.attendance_token = $1 AND ea.event_id = $2
-        LIMIT 1`,
-      [code, req.rep.event_id]
-    );
-    if (r.rowCount === 0) {
+    const row = await resolveAttendee(code, req.rep.event_id);
+    if (!row) {
       return res.status(404).json({ success: false, error: 'Not recognised — is the student checked in?' });
     }
-    // Overlay the lead-stored qualification fields (destination_country,
-    // timeline, …): the lead is their source of truth; the students-table
-    // copies are stale pre-split leftovers.
-    const student = await overlayLeadQualFields(pool, r.rows[0]);
+    const ev = await loadEvent(req.rep.event_id);
 
-    // Currently-required fields, minus contact identifiers, in VIETNAMESE:
-    // field labels prefer event_qualification_fields.label_vi (when the column
-    // exists), and stored codes are translated via lookup_values.label_vi —
-    // the same resolution the student-facing questionnaire uses. Read live so
-    // toggling fields in the Qualification tab changes the scan automatically.
-    const FIELD_LOOKUP_CATEGORY = { residency: 'vietnam_province', destination_country: 'country' };
-    let profile = [];
-    const labelByKey = {};   // field_key -> Vietnamese label (for the missing-fields list)
-    try {
-      const hasQfVi = (await pool.query(
-        `SELECT 1 FROM information_schema.columns
-          WHERE table_name='event_qualification_fields' AND column_name='label_vi' LIMIT 1`)).rowCount > 0;
-      const labelExpr = hasQfVi ? `COALESCE(NULLIF(label_vi, ''), label)` : `label`;
-      const qf = await pool.query(
-        `SELECT field_key, ${labelExpr} AS label FROM event_qualification_fields
-          WHERE is_required = true ORDER BY sort_order`
-      );
-      for (const f of qf.rows) {
-        labelByKey[f.field_key] = f.label;
-        if (LOOKUP_EXCLUDE.includes(f.field_key) || !_present(student[f.field_key])) continue;
-        const raw = String(student[f.field_key]).trim();
-        let value = raw;
-        try {
-          const lv = await pool.query(
-            `SELECT COALESCE(NULLIF(label_vi, ''), NULLIF(label_en, ''), code) AS label
-               FROM lookup_values
-              WHERE category = $1 AND code = $2 AND is_active = true
-              LIMIT 1`,
-            [FIELD_LOOKUP_CATEGORY[f.field_key] || f.field_key, raw]
-          );
-          if (lv.rowCount) value = lv.rows[0].label;
-        } catch (_) { /* keep the raw value */ }
-        profile.push({ label: f.label, value });
-      }
-    } catch (e) {
-      console.error('[event-desk] lookup profile:', e.message);   // non-fatal
+    // On-site flow has no reception check-in: being scanned at a booth is
+    // what proves the student is here. First scan wins; never overwritten.
+    if (ev.flow === ONSITE_FLOW) {
+      await pool.query(
+        `UPDATE event_attendees
+            SET attended_at   = NOW(),
+                checked_in_by = COALESCE(checked_in_by, $3),
+                updated_at    = NOW()
+          WHERE attendance_token = $1 AND event_id = $2 AND attended_at IS NULL`,
+        [code, req.rep.event_id, req.rep.id]
+      ).catch((e) => console.error('[event-desk] mark attended:', e.message));
     }
 
-    // Gate: the scanner note view only opens for students who have FULLY
-    // completed the questionnaire — same canonical check as check-in
-    // (checkStudent overlays the lead-stored fields), evaluated LIVE on every
-    // scan so later edits/deletions are always respected. Incomplete students
-    // get a blocking "guide them back to registration" pop-up on the desk
-    // page, and their questionnaire data is withheld.
-    let profileComplete = true, missing = [];
-    try {
-      const gate = await checkStudent(pool, student);
-      profileComplete = gate.qualified;
-      if (!profileComplete) {
-        // Translate missing field_keys to the questionnaire's labels. Special
-        // entries like "year_of_birth (out of range)" resolve via their first
-        // token; anything unmapped falls back to the raw key.
-        missing = (gate.missing || []).map((k) => {
-          const key = String(k).split(' ')[0];
-          return labelByKey[key] || k;
-        });
-      }
-    } catch (_) {}
-    if (!profileComplete) profile = [];
-
-    // Name + stone + required profile only — email/phone/Zalo never leave
-    // this endpoint. The stone tier is fine to show reps: it's already
-    // visible to them in the centre of the badge QR they just scanned.
-    res.json({ success: true, data: {
-      studentUniqueId: student.student_id,
-      fullName: student.full_name,
-      stoneTier: isStoneTier(student.stone_tier) ? student.stone_tier : '',
-      profileComplete,
-      missing,
-      profile,
-    } });
+    res.json({ success: true, data: await buildScanPayload(row, ev, req.rep.event_id) });
   } catch (err) {
     console.error('[event-desk] lookup:', err);
     res.status(500).json({ success: false, error: 'Lookup failed' });
+  }
+});
+
+// ── POST /qualify ── on-site flow only: the booth fills in the student's
+// missing gem questions. Saves them (lead fields to the lead), recalculates
+// the stone once the questionnaire is complete, and returns the refreshed
+// scan payload. Body: { attendanceToken, fields: { field_key: value } }.
+router.post('/qualify', requireRep, async (req, res) => {
+  const code = (req.body.attendanceToken || '').trim();
+  const incoming = (req.body.fields && typeof req.body.fields === 'object') ? req.body.fields : null;
+  if (!code)     return res.status(400).json({ success: false, error: 'Nothing scanned' });
+  if (!incoming) return res.status(400).json({ success: false, error: 'No answers submitted' });
+  try {
+    const ev = await loadEvent(req.rep.event_id);
+    if (ev.flow !== ONSITE_FLOW) {
+      return res.status(403).json({ success: false, error: 'This event does not allow completing profiles at the desk' });
+    }
+    const row = await resolveAttendee(code, req.rep.event_id);
+    if (!row) return res.status(404).json({ success: false, error: 'Student is not on this event' });
+
+    const cat = await pool.query(`SELECT field_key FROM event_qualification_fields`);
+    const allowed = new Set(cat.rows.map((x) => x.field_key).filter((k) => !PROFILE_EXCLUDE.includes(k)));
+    const saved = await persistQualificationFields(pool, row.student_id, incoming, allowed);
+    if (!saved) return res.status(400).json({ success: false, error: 'Nothing to save' });
+
+    // Only a COMPLETE questionnaire earns a stone — a partial one would be
+    // scored on missing answers.
+    let evaluation = null;
+    try {
+      const fresh = (await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [row.student_id])).rows[0];
+      if ((await checkStudent(pool, fresh)).qualified) {
+        const risk = await recalcStone(pool, row.student_id);
+        if (risk && isStoneTier(risk.stoneTier)) evaluation = { tier: risk.stoneTier, score: risk.totalScore };
+      }
+    } catch (e) {
+      console.error('[event-desk] qualify recalc:', e.message);   // answers are saved regardless
+    }
+
+    const after = (await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [row.student_id])).rows[0];
+    const data = await buildScanPayload(after, ev, req.rep.event_id);
+    res.json({ success: true, data: { ...data, evaluation } });
+  } catch (err) {
+    console.error('[event-desk] qualify:', err);
+    res.status(500).json({ success: false, error: 'Failed to save the answers' });
   }
 });
 
@@ -352,26 +495,30 @@ router.post('/visit', requireRep, async (req, res) => {
     );
     if (att.rowCount === 0) return res.status(404).json({ success: false, error: 'Student is not on this event' });
 
-    // 2b. SERVER-SIDE gate (mirrors the scan gate): the questionnaire must be
-    // fully complete AT SAVE TIME. This blocks stale kiosk tabs (old client
-    // code that ignores profileComplete) and any later field deletions.
-    try {
-      const sres = await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [studentUniqueId]);
-      if (sres.rowCount === 0) return res.status(404).json({ success: false, error: 'Student not found' });
-      const gate = await checkStudent(pool, sres.rows[0]);
-      if (!gate.qualified) {
-        return res.status(409).json({
-          success: false,
-          error: 'Student has not completed his profile — please ask one of the support staff to guide him back to registration.',
-        });
+    const ev = await loadEvent(req.rep.event_id);
+
+    // 2b. SERVER-SIDE gate (mirrors the scan gate), classic flow only: the
+    // questionnaire must be fully complete AT SAVE TIME. This blocks stale
+    // kiosk tabs (old client code that ignores profileComplete) and any later
+    // field deletions. The on-site flow takes notes with or without a gem.
+    if (ev.flow !== ONSITE_FLOW) {
+      try {
+        const sres = await pool.query(`SELECT * FROM students WHERE student_id = $1 LIMIT 1`, [studentUniqueId]);
+        if (sres.rowCount === 0) return res.status(404).json({ success: false, error: 'Student not found' });
+        const gate = await checkStudent(pool, sres.rows[0]);
+        if (!gate.qualified) {
+          return res.status(409).json({
+            success: false,
+            error: 'Student has not completed his profile — please ask one of the support staff to guide him back to registration.',
+          });
+        }
+      } catch (gateErr) {
+        console.error('[event-desk] visit gate:', gateErr.message);   // fail open on infra error
       }
-    } catch (gateErr) {
-      console.error('[event-desk] visit gate:', gateErr.message);   // fail open on infra error
     }
 
     // 3. topic = the event's name (e.g. "Fair First Date 18.7.2026").
-    const ev = await pool.query(`SELECT name FROM events WHERE id = $1`, [req.rep.event_id]);
-    const topic = ev.rows[0] ? ev.rows[0].name : `Event ${req.rep.event_id}`;
+    const topic = ev.name;
 
     // 3b. Attach to the student's lead so the note lives ONLY at the lead level
     // (LeadDetail reads lead-scoped notes). Prefer an OPEN lead; if none is open,
@@ -419,15 +566,23 @@ router.post('/visit', requireRep, async (req, res) => {
       });
     }
 
-    // 6. structured visit record (institution-level data + the rep's rating).
+    // 6. structured visit record (institution-level data + the rep's rating,
+    // plus this visit's own note text for the desk history once migrated).
+    const withText = await hasVisitNoteText();
     await pool.query(
       `INSERT INTO event_desk_visits
-         (event_id, institution_id, desk_session_id, student_unique_id, recorded_by, rep_rating, note_id, visited_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-      [req.rep.event_id, desk.institution_id, desk.id, studentUniqueId, req.rep.id, repRating, noteRow.id]
+         (event_id, institution_id, desk_session_id, student_unique_id, recorded_by, rep_rating, note_id, visited_at
+          ${withText ? ', note_text' : ''})
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() ${withText ? ', $8' : ''})`,
+      [req.rep.event_id, desk.institution_id, desk.id, studentUniqueId, req.rep.id, repRating, noteRow.id,
+       ...(withText ? [noteText] : [])]
     );
 
-    res.json({ success: true, data: { noteId: noteRow.id, institutionName: desk.institution_name } });
+    let history = [];
+    try { history = await loadHistory(req.rep.event_id, studentUniqueId); }
+    catch (e) { console.error('[event-desk] history:', e.message); }
+
+    res.json({ success: true, data: { noteId: noteRow.id, institutionName: desk.institution_name, history } });
   } catch (err) {
     console.error('[event-desk] visit:', err);
     res.status(500).json({ success: false, error: 'Failed to save visit' });

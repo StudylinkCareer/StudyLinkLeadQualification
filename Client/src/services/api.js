@@ -72,6 +72,10 @@ export const studentAPI = {
   completeJourney: (id) => api.post(`/students/${encodeURIComponent(id)}/complete-journey`),
   // Read-only narrative text for the stored OCEAN scores, in the requested language.
   oceanNarrative: (id, language = 'en') => api.get(`/students/${encodeURIComponent(id)}/ocean-narrative?language=${language}`),
+  // On-site event check-in: the student's event QR passes, and the send (e-mail +
+  // Zalo) of a badge rendered here. The server skips channels already sent.
+  eventPasses: (id) => api.get(`/students/${encodeURIComponent(id)}/event-passes`),
+  sendEventPass: (id, eventId, badgePng) => api.post(`/students/${encodeURIComponent(id)}/event-passes/${encodeURIComponent(eventId)}/send`, { badgePng }),
 };
 
 export const documentAPI = {
@@ -121,6 +125,8 @@ export const eventDeskAPI = {
   signInDesk:  (auth, institutionId)=> deskRequest('POST', '/sign-in-desk', { institutionId }, auth),
   signOutDesk: (auth)               => deskRequest('POST', '/sign-out-desk', {}, auth),
   lookup:      (auth, code)         => deskRequest('POST', '/lookup', { attendanceToken: code }, auth),
+  // On-site flow: save the student's missing gem answers (recalculates the stone).
+  qualify:     (auth, code, fields) => deskRequest('POST', '/qualify', { attendanceToken: code, fields }, auth),
   visit:       (auth, body)         => deskRequest('POST', '/visit', body, auth),
 };
 

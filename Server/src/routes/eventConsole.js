@@ -27,9 +27,10 @@ const express = require('express');
 const crypto  = require('crypto');
 const path    = require('path');
 const { Pool } = require('pg');
-const { clearQualificationCache, checkStudent, overlayLeadQualFields } = require('../services/eventQualification');
-const { sendEventQrEmail, sendStoneResultEmail, sendRepLinkEmail } = require('../services/emailService');
-const { sendEventBadge, sendEventFollowup, sendStoneResult } = require('../services/zaloService');
+const { clearQualificationCache, checkStudent } = require('../services/eventQualification');
+const { sendStoneResultEmail, sendRepLinkEmail } = require('../services/emailService');
+const { DeliveryError, emailBadge, zaloBadge } = require('../services/eventBadgeDelivery');
+const { sendEventFollowup, sendStoneResult } = require('../services/zaloService');
 const { sendFollowupEmail } = require('../services/resendService');
 const zaloDeliveryPoller = require('../services/zaloDeliveryPoller');
 const { stoneContent, isStoneTier } = require('../utils/stoneContent');
@@ -38,66 +39,11 @@ const { stoneContent, isStoneTier } = require('../utils/stoneContent');
 const publicBase = () => (process.env.PUBLIC_BASE_URL
   || 'https://studylinkleadqualification-production.up.railway.app').replace(/\/+$/, '');
 
-// Engagement qualification fields collected at check-in belong to the lead, not the
-// person; everything else stays on students.
-const LEAD_QUAL_FIELDS = new Set(['destination_country', 'major', 'process_application', 'study_plans', 'timeline']);
-
-// Persist whitelisted qualification answers, routing engagement fields to the
-// student's representative lead (prefer an open lead) and person fields to students.
-async function persistQualificationFields(db, studentId, incoming, allowed) {
-  const sSets = [], sVals = [], lSets = [], lVals = [];
-  let si = 1, li = 1;
-  for (const [k, v] of Object.entries(incoming)) {
-    if (!allowed.has(k)) continue;
-    const val = v === '' ? null : v;
-    if (LEAD_QUAL_FIELDS.has(k)) { lSets.push(`${k} = $${li++}`); lVals.push(val); }
-    else                        { sSets.push(`${k} = $${si++}`); sVals.push(val); }
-  }
-  if (sSets.length) {
-    sVals.push(studentId);
-    await db.query(`UPDATE students SET ${sSets.join(', ')}, updated_at = NOW() WHERE student_id = $${sVals.length}`, sVals);
-  }
-  if (lSets.length) {
-    lVals.push(studentId);
-    await db.query(
-      `UPDATE leads SET ${lSets.join(', ')}, updated_at = NOW()
-        WHERE lead_id = (SELECT lead_id FROM leads WHERE person_id = $${lVals.length}
-                          ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id DESC
-                          LIMIT 1)`, lVals);
-  }
-  return sSets.length + lSets.length;
-}
-
-// Recalculate the questionnaire evaluation (risk score → stone tier) and
-// persist it on the student. Mirrors staffController.calculateRisk: post-split,
-// two scored fields live ONLY on the lead (destination_country, timeline), so
-// overlay them from the first active lead before scoring. Returns the
-// riskResult ({ totalScore, stoneTier, ... }) or null if the student is gone.
-async function recalcStone(studentId) {
-  const Student = require('../models/Student');
-  const { calculateRiskScore } = require('../utils/riskCalculator');
-  const result = await Student.findById(studentId);
-  if (!result) return null;
-
-  const leadRow = (await pool.query(
-    `SELECT destination_country, timeline
-       FROM leads WHERE person_id = $1
-      ORDER BY (lead_status NOT IN ('Contracted','Lost','Archived')) DESC, lead_id ASC
-      LIMIT 1`,
-    [studentId]
-  )).rows[0] || {};
-
-  const riskInput = { ...result.data };
-  if (leadRow.destination_country) riskInput.destinationCountry = leadRow.destination_country;
-  if (leadRow.timeline)            riskInput.timeline           = leadRow.timeline;
-
-  const riskResult = calculateRiskScore(riskInput);
-  await Student.update(studentId, {
-    riskScore: String(riskResult.totalScore),
-    stoneTier: riskResult.stoneTier,
-  });
-  return riskResult;
-}
+// Questionnaire helpers (shared with the Event Desk on-site flow).
+const eventProfile = require('../services/eventProfile');
+const { persistQualificationFields, PROFILE_EXCLUDE } = eventProfile;
+const recalcStone        = (studentId) => eventProfile.recalcStone(pool, studentId);
+const buildCheckinFields = (student, lang) => eventProfile.buildCheckinFields(pool, student, lang);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -754,65 +700,6 @@ async function listQualificationFields() {
   return r.rows;
 }
 
-// field_key → lookup_values.category. Most are identity; these two differ.
-const FIELD_LOOKUP_CATEGORY = { residency: 'vietnam_province', destination_country: 'country' };
-function lookupCategoryFor(k) { return FIELD_LOOKUP_CATEGORY[k] || k; }
-
-// Build the streamlined check-in form descriptor for a student: one entry per
-// CURRENTLY-required field, with options pulled from lookup_values (select) or
-// type 'text' when no list exists. Reads config live, so it tracks the toggles.
-async function buildCheckinFields(student, lang = 'en') {
-  // Lead-stored qualification fields must come from the LEAD (their source of
-  // truth) — the students-table copies are stale pre-split leftovers. This
-  // keeps the profile page and check-in form honest about deleted values.
-  student = await overlayLeadQualFields(pool, student);
-  const vi = lang === 'vi';
-  // Question label: use the Vietnamese column when available (added later), else
-  // fall back to the English label. Guarded with to_regclass-free COALESCE on a
-  // column that may not exist yet, so this stays safe pre-migration: we only add
-  // `label_vi` to the SELECT if the column exists.
-  const hasQfVi = vi && (await pool.query(
-    `SELECT 1 FROM information_schema.columns
-      WHERE table_name='event_qualification_fields' AND column_name='label_vi' LIMIT 1`)).rowCount > 0;
-  const labelExpr = hasQfVi ? `COALESCE(NULLIF(label_vi, ''), label)` : `label`;
-  const qf = await pool.query(
-    `SELECT field_key, ${labelExpr} AS label FROM event_qualification_fields
-      WHERE is_required = true ORDER BY sort_order`
-  );
-  const out = [];
-  for (const f of qf.rows) {
-    // Option labels: Vietnamese when asked for (label_vi already exists on
-    // lookup_values), falling back to English then the code.
-    const optLabel = vi
-      ? `COALESCE(NULLIF(label_vi, ''), NULLIF(label_en, ''), code)`
-      : `COALESCE(NULLIF(label_en, ''), code)`;
-    const lv = await pool.query(
-      `SELECT code, ${optLabel} AS label
-         FROM lookup_values
-        WHERE category = $1 AND is_active = true
-        ORDER BY sort_order, label_en`,
-      [lookupCategoryFor(f.field_key)]
-    );
-    const options = lv.rows.map((x) => ({ value: x.code, label: x.label }));
-    const value = student[f.field_key] != null ? String(student[f.field_key]) : '';
-    // A stored value from outside the pickable lookup list (e.g. the
-    // system-stamped lead_source 'Event/Campaign') must still display —
-    // a <select> whose value has no matching option renders blank. Surface
-    // it as an extra option at the top instead.
-    if (value && options.length && !options.some((o) => o.value === value)) {
-      options.unshift({ value, label: value });
-    }
-    out.push({
-      fieldKey: f.field_key,
-      label: f.label,
-      type: options.length ? 'select' : 'text',
-      options,
-      value,
-    });
-  }
-  return out;
-}
-
 // ── GET /events/:id/desk-sessions ── assignment audit log for the Reps tab:
 // every kiosk desk sign-in/switch (rep name, institution, in/out times),
 // newest first.
@@ -923,7 +810,6 @@ router.get('/events/:id/checkin-fields/:studentId', requireStaffAuth, async (req
 // registered student answer the qualification questions before the event so
 // booths don't re-ask. Qualification fields only; contact details are never
 // editable here.
-const PROFILE_EXCLUDE = ['email', 'phone', 'preferred_social'];
 
 // GET /profile/:token — questions + the student's current answers.
 router.get('/profile/:token', async (req, res) => {
@@ -1202,117 +1088,28 @@ router.post('/events/:id/issue-token/:studentId', requireStaffAuth, async (req, 
 
 // POST /email-badge -- email a rendered registration badge to a student.
 // The badge PNG is rendered client-side (shared badgeRenderer) and posted here
-// as base64. We resolve the real (unmasked) email from the students row unless
-// an override is supplied, send via the GAS relay, and stamp the attendee row.
-// Body: { studentId, eventId, badgePng (base64, no data: prefix), email? (override), badgeUrl? }
+// as base64. Any registrant can be sent their badge + form (qualification is
+// enforced at check-in, not here); a token is minted if they have none yet.
+// Body: { studentId, eventId, badgePng (base64, no data: prefix), email? (override), badgeUrl?, baseUrl? }
 router.post('/email-badge', requireStaffAuth, async (req, res) => {
-  const studentId      = String(req.body.studentId || '').trim();
-  const eventId       = parseInt(req.body.eventId, 10);
-  const badgePng      = String(req.body.badgePng || '').trim();
-  const overrideEmail = String(req.body.email || '').trim();
-  const badgeUrl      = String(req.body.badgeUrl || '').trim();
+  const studentId = String(req.body.studentId || '').trim();
+  const eventId   = parseInt(req.body.eventId, 10);
+  const badgePng  = String(req.body.badgePng || '').trim();
 
   if (!studentId || isNaN(eventId) || !badgePng) {
     return res.status(400).json({ success: false, error: 'studentId, eventId and badgePng are required' });
   }
 
   try {
-    // Mint an advance token if this student doesn't have one yet — any
-    // registrant can be sent their badge + form (qualification is enforced at
-    // check-in, not here). Idempotent: keeps an existing token via COALESCE.
-    const mintToken = crypto.randomUUID();
-    const att = await pool.query(
-      `INSERT INTO event_attendees
-              (event_id, student_unique_id, registered_at, attendance_token)
-            VALUES ($1, $2, NOW(), $3)
-       ON CONFLICT (event_id, student_unique_id) DO UPDATE
-            SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
-                updated_at       = NOW()
-       RETURNING attendance_token`,
-      [eventId, studentId, mintToken]
-    );
-
-    // Real (unmasked) name + email straight from the students row. The full row
-    // rides along: stone_tier drives the stone banner, and the qualification
-    // gate (checkStudent) decides which questionnaire copy the e-mail shows
-    // ("please complete" vs "review/update your answers").
-    const sres = await pool.query(
-      `SELECT * FROM students WHERE student_id = $1 LIMIT 1`,
-      [studentId]
-    );
-    if (sres.rowCount === 0) {
-      return res.status(404).json({ success: false, error: 'Student not found' });
-    }
-    const studentName = sres.rows[0].full_name || '';
-    const recipient   = overrideEmail || String(sres.rows[0].email || '').trim();
-    if (!recipient) {
-      return res.status(400).json({ success: false, error: 'No email address on file; provide one to send to' });
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
-      return res.status(400).json({ success: false, error: 'That email address looks invalid - please check it.' });
-    }
-
-    const ev = await pool.query(`SELECT name FROM events WHERE id = $1 LIMIT 1`, [eventId]);
-    const eventName = ev.rowCount ? (ev.rows[0].name || '') : '';
-
-    // Public URL where Gmail will fetch the badge image when the student opens
-    // the email. Token is an unguessable UUID, so the route can be public.
-    const attToken = att.rows[0].attendance_token;
-    const PUBLIC_BASE = publicBase();
-    // Hosted badge URL only on PROD (?v busts mail-proxy caches when the badge
-    // is later re-rendered with the stone). On dev the URL would point at PROD
-    // with a dev-only token, so we send no URL — the GAS relay then falls back
-    // to attaching the PNG inline, keeping dev e-mails testable.
-    const badgeImageUrl = process.env.NODE_ENV === 'production'
-      ? `${PUBLIC_BASE}/api/event-console/badge-image/${attToken}?v=${Date.now()}`
-      : '';
-
-    // Stone banner content (null when unscored -> e-mail renders as before).
-    const stone = stoneContent(sres.rows[0].stone_tier, 'vi', PUBLIC_BASE);
-
-    // Has the student answered every required questionnaire field?
-    let questionnaireComplete = false;
-    try { questionnaireComplete = (await checkStudent(pool, sres.rows[0])).qualified; } catch (_) {}
-
-    // Public "Know you better" form link — pre-fills known fields, lets the
-    // student complete the rest, Submit writes back to their lead. Base URL is
-    // the LQ/Client host, supplied by the caller (mirrors the rep-link route).
-    const lqBase = String(req.body.baseUrl || '').trim().replace(/\/+$/, '');
-    const profileUrl = /^https?:\/\//i.test(lqBase)
-      ? `${lqBase}/profile?t=${encodeURIComponent(attToken)}`
-      : '';
-
-    // Store the rendered badge BEFORE sending: the e-mail shows it via the
-    // public /badge-image/:token URL (no attachment -> mail clients can't
-    // render a duplicate thumbnail of it at the end of the message).
-    await pool.query(
-      `UPDATE event_attendees
-          SET badge_png = $3, updated_at = NOW()
-        WHERE event_id = $1 AND student_unique_id = $2`,
-      [eventId, studentId, badgePng]
-    );
-
-    await sendEventQrEmail(recipient, {
-      name: studentName,
-      eventName,
-      badgeUrl,
-      badgeImageUrl,
-      badgePngBase64: badgePng,   // legacy fallback while the old GAS template is live
-      profileUrl,
-      stone,
-      questionnaireComplete,
+    const data = await emailBadge(pool, {
+      eventId, studentId, badgePng,
+      email:    String(req.body.email || '').trim(),
+      baseUrl:  req.body.baseUrl,
+      badgeUrl: String(req.body.badgeUrl || '').trim(),
     });
-
-    const upd = await pool.query(
-      `UPDATE event_attendees
-          SET badge_emailed_at = NOW(), badge_emailed_to = $3, updated_at = NOW()
-        WHERE event_id = $1 AND student_unique_id = $2
-        RETURNING badge_emailed_at, badge_emailed_to`,
-      [eventId, studentId, recipient]
-    );
-
-    res.json({ success: true, data: upd.rows[0] || { badge_emailed_to: recipient } });
+    res.json({ success: true, data });
   } catch (err) {
+    if (err instanceof DeliveryError) return res.status(err.status).json({ success: false, error: err.message });
     console.error('[event-console] email-badge:', err);
     res.status(500).json({ success: false, error: 'Failed to email badge' });
   }
@@ -1333,82 +1130,17 @@ router.post('/zalo-badge', requireStaffAuth, async (req, res) => {
   }
 
   try {
-    const mintToken = crypto.randomUUID();
-    const att = await pool.query(
-      `INSERT INTO event_attendees
-              (event_id, student_unique_id, registered_at, attendance_token)
-            VALUES ($1, $2, NOW(), $3)
-       ON CONFLICT (event_id, student_unique_id) DO UPDATE
-            SET attendance_token = COALESCE(event_attendees.attendance_token, EXCLUDED.attendance_token),
-                updated_at       = NOW()
-       RETURNING attendance_token`,
-      [eventId, studentId, mintToken]
-    );
-
-    const sres = await pool.query(
-      `SELECT full_name, phone FROM students WHERE student_id = $1 LIMIT 1`,
-      [studentId]
-    );
-    if (sres.rowCount === 0) {
-      return res.status(404).json({ success: false, error: 'Student not found' });
-    }
-    const studentName = sres.rows[0].full_name || '';
-    const phone       = String(sres.rows[0].phone || '').trim();
-
-    const ev = await pool.query(`SELECT name FROM events WHERE id = $1 LIMIT 1`, [eventId]);
-    const eventName = ev.rowCount ? (ev.rows[0].name || '') : '';
-
-    const attToken = att.rows[0].attendance_token;
-    const lqBase = String(req.body.baseUrl || '').trim().replace(/\/+$/, '');
-    const profileUrl = /^https?:\/\//i.test(lqBase)
-      ? `${lqBase}/profile?t=${encodeURIComponent(attToken)}`
-      : '';
-
-    const result = await sendEventBadge({
-      method,
-      phone,
-      name: studentName,
-      eventName,
-      profileUrl,                  // used by the OA free-form path
-      registrationCode: studentId, // ZNS "Mã đăng ký" (Sales ID)
-      token: attToken,             // ZNS button URL: /profile?t=<token>
-    });
-
+    const result = await zaloBadge(pool, { eventId, studentId, baseUrl: req.body.baseUrl, method });
     if (!result.sent) {
-      console.warn('[event-console] zalo-badge NOT SENT:', JSON.stringify({ reason: result.reason, detail: result.detail, raw: result.raw }));
-      const why = result.detail || result.reason || 'error';
-      await pool.query(
-        `UPDATE event_attendees
-            SET badge_zalo_status = 'failed', badge_zalo_error = $3, updated_at = NOW()
-          WHERE event_id = $1 AND student_unique_id = $2`,
-        [eventId, studentId, why]
-      ).catch((e) => console.error('[event-console] zalo-badge status(fail) write:', e.message));
       return res.status(200).json({
         success: false,
         error: result.detail || 'Could not send via Zalo',
         reason: result.reason,
       });
     }
-
-    // Zalo accepted it. Capture the message id so Phase 2 (delivery webhook) can
-    // match the "user received" event back to this attendee.
-    const msgId = (result.raw && result.raw.data && (result.raw.data.msg_id || result.raw.data.message_id)) || null;
-    const upd = await pool.query(
-      `UPDATE event_attendees
-          SET badge_zalo_sent_at      = NOW(),
-              badge_zalo_status       = 'accepted',
-              badge_zalo_msg_id       = $3,
-              badge_zalo_error        = NULL,
-              badge_zalo_delivered_at = NULL,
-              updated_at              = NOW()
-        WHERE event_id = $1 AND student_unique_id = $2
-        RETURNING badge_zalo_sent_at, badge_zalo_msg_id`,
-      [eventId, studentId, msgId]
-    );
-
-    console.log('[event-console] zalo-badge SENT:', JSON.stringify({ to: result.to, msgId }));
-    res.json({ success: true, data: upd.rows[0] || { badge_zalo_sent_at: new Date().toISOString(), badge_zalo_msg_id: msgId } });
+    res.json({ success: true, data: result.data });
   } catch (err) {
+    if (err instanceof DeliveryError) return res.status(err.status).json({ success: false, error: err.message });
     console.error('[event-console] zalo-badge:', err);
     res.status(500).json({ success: false, error: 'Failed to send Zalo badge' });
   }

@@ -82,6 +82,10 @@ const vi = {
   giftHl: '"KU-TE"',
   gift2: ' từ StudyLink nhé! 🎁',
   comingSoon: 'Bước này đang được hoàn thiện. Vui lòng quay lại sau.',
+  passTitle: 'Mã QR tham dự sự kiện',
+  passHint: 'Đưa mã này cho nhân viên StudyLink tại các quầy trường để được tư vấn.',
+  passSentVia: 'Mã đã được gửi cho bạn qua',
+  passSave: 'Nhấn giữ hình để lưu mã về điện thoại.',
 
   // Step 1 — Chân dung bản mệnh
   next: 'Tiếp Tục',
@@ -240,6 +244,10 @@ const en = {
   giftHl: '"KU-TE"',
   gift2: ' gift from StudyLink! 🎁',
   comingSoon: 'This step is being finished. Please check back soon.',
+  passTitle: 'Your event QR code',
+  passHint: 'Show this code to the StudyLink staff at each school desk to get advice.',
+  passSentVia: 'We also sent it to you via',
+  passSave: 'Press and hold the image to save it to your phone.',
 
   next: 'Continue',
   s1Title: 'YOUR PORTRAIT',

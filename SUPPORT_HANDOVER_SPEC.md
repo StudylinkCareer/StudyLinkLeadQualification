@@ -381,6 +381,10 @@ The connected-unit ownership rule is applied server-side at `POST /students/regi
 - **`DeskPage.jsx`** (`/desk`) — public mobile rep check-in desk (Bearer-token): PIN sign-in → pick desk → scan student QR → name only + note + optional 1–10 rating → `eventDeskAPI.visit`. No LM login.
 - **`BadgePage.jsx`** (`/badge/:token`) — public full-screen registration badge; renders a QR PNG client-side; QR encodes the bare token the desk scanner resolves.
 - **`ProfilePage.jsx`** (`/profile?t=`) — public, token-gated Vietnamese "Know you better" self-service form; writes answers back to the lead via `profileAPI.save`.
+- **Per-event check-in flow** (`events.meta.checkinFlow`, set with `Server/src/migrations/setEventCheckinFlow.js --event <id> --flow onsite|classic`; helper `checkinFlowOf()` in `services/eventQualification.js`). The desk shows every scanned student's booth history for the event (all desks, newest first, from `event_desk_visits.note_text`; needs `migrations/addDeskVisitNoteText.js`, older visits show without text) and stays on the student after a save.
+  - **classic** (default; the Fair First Date 18.7.2026 flow): QR token only once the gem questionnaire is complete, reception check-in in the console, booths blocked from notes until the gem exists.
+  - **onsite** (for venues that only allow collecting data at the event): token minted at the basic registration; the wizard Hub (`wizard/components/EventPassCard.jsx`) renders the badge, shows it and sends it once by e-mail + Zalo (`GET/POST /students/:id/event-passes…`, `controllers/eventPassController.js`); booths complete the missing gem questions on the desk (`POST /event-desk/qualify`, stone scored only when complete, result sent via `/profile/:token/badge`); notes allowed with or without a gem; the first booth scan sets `attended_at`.
+  - Shared helpers: `services/eventProfile.js` (questionnaire form/persist/stone) and `services/eventBadgeDelivery.js` (badge e-mail/Zalo, also behind the console's Email/Zalo badge buttons).
 
 ### 6.7 LQ findings / gotchas
 

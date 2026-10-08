@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useWizard } from '../context/WizardContext';
 import { Screen } from '../layout/Shell';
 import { NavButton } from '../components/ui';
+import EventPassCard from '../components/EventPassCard';
 import { IconArrowRight, IconBarChart, IconCertificate, IconUser } from '../components/Icons';
 
 const STEPS = [
@@ -40,6 +41,8 @@ export default function Hub() {
           <p className="wz-thanks"><b>StudyLink</b>{w('thanks1')}</p>
         )}
       </div>
+
+      <EventPassCard />
 
       <p className="wz-bubble">{w(`bubble${cur}`)}</p>
 

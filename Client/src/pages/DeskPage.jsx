@@ -4,11 +4,17 @@
 // Flow: enter PIN → (auto desk for institution reps / pick desk for roving SL
 // staff) → scan student QR → see NAME ONLY → write a note + optional 1–10
 // rating → saved as a stamped segment under the event topic. No LM login.
+// Every scan also shows the student's booth history at this event (all
+// desks), so reps don't re-ask and can see their own note landed.
+// On-site events (events.meta.checkinFlow = 'onsite') don't block students
+// without a gem: the rep completes the missing questions right here.
 // ─────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { eventDeskAPI } from '../services/api';
+import { eventDeskAPI, profileAPI } from '../services/api';
 import InlineQrScanner from '../components/Camera/InlineQrScanner';
+import { renderBadgePng, dataUrlToBase64 } from '../utils/badgeRenderer';
+import { STONE_GLYPHS } from '../utils/stoneGlyphs';
 import quartzImg   from '../Assets/Stones/quartz.png';
 import agateImg    from '../Assets/Stones/agate.png';
 import sapphireImg from '../Assets/Stones/sapphire.png';
@@ -42,7 +48,11 @@ export default function DeskPage() {
   );
   const [desk, setDesk]   = useState(null);      // { institutionId, institutionName }
   const [desks, setDesks] = useState([]);
-  const [student, setStudent] = useState(null);  // { studentUniqueId, fullName }
+  const [student, setStudent] = useState(null);  // { studentUniqueId, fullName, flow, history, fields, ... }
+  const [code, setCode]   = useState('');        // the scanned attendance token
+  const [answers, setAnswers] = useState({});    // on-site gem form: field_key -> value
+  const [gemOpen, setGemOpen] = useState(true);  // on-site gem form shown (vs "skip, note first")
+  const [justSaved, setJustSaved] = useState(false);
   const [note, setNote]   = useState('');
   const [rating, setRating] = useState('');
   const [busy, setBusy]   = useState(false);
@@ -136,27 +146,63 @@ export default function DeskPage() {
     finally { setBusy(false); }
   };
 
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+  const openStudent = (data) => {
+    setStudent(data);
+    const init = {};
+    (data.fields || []).forEach((f) => { init[f.fieldKey] = f.value || ''; });
+    setAnswers(init);
+  };
+
   const onScan = useCallback(async (decodedText) => {
     setError('');
     try {
       const res = await eventDeskAPI.lookup(auth, decodedText);
-      setStudent(res.data);
+      setCode(decodedText);
+      setGemOpen(true);
+      setJustSaved(false);
+      openStudent(res.data);
     } catch (e) { setError(e.message || 'Not recognised'); }
   }, [auth]);
+
+  // On-site flow: save the gem answers. Once complete the server scores the
+  // stone; we then re-render the badge with the stone in the QR centre and
+  // post it to the student's profile, which e-mails/Zalos them the result.
+  const saveGem = async () => {
+    const filled = Object.fromEntries(Object.entries(answers).filter(([, v]) => String(v || '').trim() !== ''));
+    if (!Object.keys(filled).length) { setError('Vui lòng chọn ít nhất một câu trả lời.'); return; }
+    setBusy(true); setError('');
+    try {
+      const res = await eventDeskAPI.qualify(auth, code, filled);
+      const d = res.data;
+      openStudent(d);
+      if (d.evaluation && d.evaluation.tier) {
+        showToast(`Đã tính Hạng Đá · ${d.evaluation.tier}`);
+        const token = code;
+        renderBadgePng({ data: token, title: d.fullName, ...(STONE_GLYPHS[d.evaluation.tier] ? { logoUrl: STONE_GLYPHS[d.evaluation.tier] } : {}) })
+          .then((url) => profileAPI.saveBadge(token, dataUrlToBase64(url)))
+          .catch(() => { /* the stone is saved either way; only the result message is skipped */ });
+      } else {
+        showToast('Đã lưu câu trả lời');
+      }
+    } catch (e) { setError(e.message || 'Không lưu được câu trả lời'); }
+    finally { setBusy(false); }
+  };
 
   const saveVisit = async () => {
     if (!note.trim()) { setError('Vui lòng nhập ghi chú trước khi lưu.'); return; }
     setBusy(true); setError('');
     try {
-      await eventDeskAPI.visit(auth, { studentUniqueId: student.studentUniqueId, note: note.trim(), repRating: rating || null });
-      setToast(`Đã lưu · ${student.fullName}`);
-      setStudent(null); setNote(''); setRating('');
-      setTimeout(() => setToast(''), 2500);
+      const res = await eventDeskAPI.visit(auth, { studentUniqueId: student.studentUniqueId, note: note.trim(), repRating: rating || null });
+      // Stay on the student: the refreshed history shows the note just saved.
+      setStudent((s) => ({ ...s, history: (res.data && res.data.history) || s.history }));
+      setNote(''); setRating(''); setJustSaved(true);
     } catch (e) { setError(e.message || 'Failed to save'); }
     finally { setBusy(false); }
   };
 
-  const cancelStudent = () => { setStudent(null); setNote(''); setRating(''); setError(''); };
+  const cancelStudent = () => { setStudent(null); setCode(''); setAnswers({}); setNote(''); setRating(''); setError(''); setJustSaved(false); };
 
   const switchDesk = () => { setStudent(null); setPhase('pickDesk'); loadDesks(auth); };
   const signOut = async () => {
@@ -254,9 +300,9 @@ export default function DeskPage() {
         </div>
       )}
 
-      {/* Incomplete questionnaire → blocking pop-up: the note view never
-          opens; the rep sends the student back to registration instead. */}
-      {student && student.profileComplete === false && (
+      {/* Classic flow, incomplete questionnaire → blocking pop-up: the note
+          view never opens; the rep sends the student back to registration. */}
+      {student && student.profileComplete === false && student.flow !== 'onsite' && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 14, padding: 22, maxWidth: 420, width: '100%', textAlign: 'center' }}>
             <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{student.fullName}</div>
@@ -282,7 +328,7 @@ export default function DeskPage() {
         </div>
       )}
 
-      {student && student.profileComplete !== false && (
+      {student && (student.profileComplete !== false || student.flow === 'onsite') && (
         <div style={card}>
           {/* Questionnaire title + the student's stone (image + name), kept on
               ONE row even on phone widths: the chip never shrinks or wraps,
@@ -303,6 +349,52 @@ export default function DeskPage() {
           <div style={label}>Học sinh</div>
           <div style={{ fontSize: 22, fontWeight: 800, margin: '4px 0 14px' }}>{student.fullName}</div>
 
+          {/* On-site flow, no gem yet: the rep completes the missing
+              questions here (or skips to the note and comes back). */}
+          {student.flow === 'onsite' && student.profileComplete === false && (
+            gemOpen ? (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '12px 14px', margin: '0 0 16px' }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#92400e', marginBottom: 4 }}>Chưa có Hạng Đá</div>
+                <div style={{ fontSize: 13, color: '#92400e', marginBottom: 12, lineHeight: 1.5 }}>
+                  Hỏi học sinh {student.fields.length} câu còn thiếu để ra Hạng Đá. Kết quả sẽ được gửi cho học sinh qua e-mail/Zalo.
+                </div>
+                {student.fields.length === 0 && (
+                  <div style={{ fontSize: 13, color: '#b91c1c', marginBottom: 12 }}>
+                    Thông tin còn thiếu không thể điền tại quầy: {student.missing.join(', ')}
+                  </div>
+                )}
+                {student.fields.map((f) => (
+                  <div key={f.fieldKey} style={{ marginBottom: 12 }}>
+                    <label style={{ ...label, display: 'block', color: '#374151', marginBottom: 4 }}>{f.label}</label>
+                    {f.type === 'select' ? (
+                      <select style={{ ...input, background: '#fff' }} value={answers[f.fieldKey] || ''}
+                        onChange={(e) => setAnswers((a) => ({ ...a, [f.fieldKey]: e.target.value }))}>
+                        <option value="">Chọn...</option>
+                        {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    ) : (
+                      <input style={input} value={answers[f.fieldKey] || ''}
+                        onChange={(e) => setAnswers((a) => ({ ...a, [f.fieldKey]: e.target.value }))} />
+                    )}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {student.fields.length > 0 && (
+                    <button style={{ ...btn, background: '#c8102e', opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={saveGem}>
+                      {busy ? 'Đang lưu…' : 'Lưu & tính Hạng Đá'}
+                    </button>
+                  )}
+                  <button style={{ ...btnGhost, flexShrink: 0 }} onClick={() => setGemOpen(false)}>Bỏ qua</button>
+                </div>
+              </div>
+            ) : (
+              <button style={{ ...btnGhost, width: '100%', margin: '0 0 16px', background: '#fffbeb', borderColor: '#fde68a', color: '#92400e', fontWeight: 700 }}
+                onClick={() => setGemOpen(true)}>
+                Chưa có Hạng Đá · Hoàn thành ngay ({student.fields.length} câu)
+              </button>
+            )
+          )}
+
           {student.profile && student.profile.length > 0 ? (
             <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '8px 12px', margin: '0 0 16px' }}>
               {student.profile.map((f, i) => (
@@ -312,19 +404,32 @@ export default function DeskPage() {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : student.flow !== 'onsite' && (
             <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 12px', margin: '0 0 16px', fontSize: 13, color: '#92400e' }}>
               Học sinh chưa trả lời bảng câu hỏi — mời bạn ấy mở liên kết trên thẻ để hoàn thành.
             </div>
           )}
 
+          <HistoryList history={student.history || []} highlightFirst={justSaved} />
+
+          {justSaved ? (
+            <div>
+              <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '12px 14px', borderRadius: 10, marginBottom: 12, fontSize: 15, fontWeight: 700 }}>
+                ✓ Đã lưu ghi chú cho {student.fullName}
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button style={btn} onClick={cancelStudent}>Quét học sinh tiếp theo</button>
+                <button style={{ ...btnGhost, flexShrink: 0 }} onClick={() => setJustSaved(false)}>Thêm ghi chú</button>
+              </div>
+            </div>
+          ) : (<>
           <label style={label}>Ghi chú</label>
           <textarea
             style={{ ...input, marginTop: 6, marginBottom: 14, minHeight: 120, resize: 'vertical' }}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Bạn đã trao đổi những gì tại bàn tư vấn?"
-            autoFocus
+            autoFocus={student.profileComplete !== false}
           />
 
           <label style={label}>Mức độ quan tâm (không bắt buộc, 1–10)</label>
@@ -347,6 +452,46 @@ export default function DeskPage() {
             <button style={{ ...btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={saveVisit}>{busy ? 'Đang lưu…' : 'Lưu ghi chú'}</button>
             <button style={{ ...btnGhost, flexShrink: 0 }} onClick={cancelStudent}>Hủy</button>
           </div>
+          </>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The student's booth visits at this event, newest first (all desks). The
+// rep's own just-saved note is the first entry and gets highlighted.
+function HistoryList({ history, highlightFirst }) {
+  const time = (t) => {
+    try { return new Date(t).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); }
+    catch { return ''; }
+  };
+  return (
+    <div style={{ margin: '0 0 16px' }}>
+      <div style={{ ...label, marginBottom: 6 }}>Lịch sử tư vấn tại sự kiện ({history.length})</div>
+      {history.length === 0 ? (
+        <div style={{ fontSize: 13, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 12px' }}>
+          Chưa có quầy nào ghi chú cho học sinh này.
+        </div>
+      ) : (
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, maxHeight: 320, overflowY: 'auto' }}>
+          {history.map((h, i) => {
+            const fresh = highlightFirst && i === 0;
+            return (
+              <div key={h.id} style={{ padding: '10px 12px', borderTop: i ? '1px solid #eef0f2' : 'none', background: fresh ? '#ecfdf5' : '#fff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13 }}>
+                  <span style={{ fontWeight: 700, color: '#111827' }}>{h.institutionName || 'Quầy'}</span>
+                  <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>{fresh ? '✓ Vừa lưu · ' : ''}{time(h.visitedAt)}</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 4px' }}>
+                  {h.repName}{h.rating != null ? ` · Quan tâm ${h.rating}/10` : ''}
+                </div>
+                {h.note != null && (
+                  <div style={{ fontSize: 14, color: '#374151', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{h.note || '—'}</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

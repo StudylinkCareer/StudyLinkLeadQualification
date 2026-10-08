@@ -26,6 +26,19 @@ const YOB_MIN = 1980;
 const YOB_MAX = 2018;
 const REQUIRE_SELF_ASSESSMENT = false; // OCEAN optional; flip to true to enforce
 
+// ── Per-event check-in flow (events.meta.checkinFlow) ────────────────
+//   'classic' (default) — Fair First Date 18.7.2026: the QR is issued once the
+//       questionnaire is complete, reception checks people in, and booths only
+//       open the note view for students who already have a gem.
+//   'onsite' — data may only be collected AT the event: the QR is issued (and
+//       auto-sent) straight after the basic registration, booth staff complete
+//       the gem questions after scanning, and the scan marks attendance.
+// Set with: node src/migrations/setEventCheckinFlow.js --event <id> --flow onsite
+const ONSITE_FLOW = 'onsite';
+function checkinFlowOf(meta) {
+  return meta && typeof meta === 'object' && meta.checkinFlow === ONSITE_FLOW ? ONSITE_FLOW : 'classic';
+}
+
 // ── Cached load of the required field_keys from the config table ──────
 let _cache = null;            // { fields: string[], at: number }
 const CACHE_MS = 60 * 1000;   // short TTL covers multi-instance; busted on save
@@ -132,10 +145,12 @@ async function checkStudent(pool, student, options = {}) {
 }
 
 // ── Advance token issuance ───────────────────────────────────────────
-// Mint advance event QR tokens for a qualified, registered student. For each
-// FUTURE Exhibition/Fair the student is registered for (lead_events) that has
-// no event_attendees row yet, if they pass the gate, insert a row with a token
-// and attended_at = NULL ("QR issued"). Never overwrites an existing row.
+// Mint advance event QR tokens for a registered student. For each FUTURE
+// Exhibition/Fair the student is registered for (lead_events) that has no
+// event_attendees row yet, insert a row with a token and attended_at = NULL
+// ("QR issued"). Classic events require the student to pass the gate first;
+// on-site events (checkinFlow = 'onsite') issue the QR on registration alone.
+// Never overwrites an existing row.
 // Resilient: never throws. Returns [{ eventId, token }] for delivery (2.3e).
 async function issueAdvanceTokens(pool, studentUniqueId) {
   try {
@@ -147,7 +162,6 @@ async function issueAdvanceTokens(pool, studentUniqueId) {
     const student = sres.rows[0];
 
     const { qualified } = await checkStudent(pool, student);
-    if (!qualified) return [];
 
     const evs = await pool.query(
       `SELECT DISTINCT le.event_id
@@ -159,8 +173,9 @@ async function issueAdvanceTokens(pool, studentUniqueId) {
           AND le.event_id IS NOT NULL
           AND e.event_type = $2
           AND COALESCE(e.end_date, e.start_date) >= CURRENT_DATE
-          AND ea.id IS NULL`,
-      [uid, FAIR_TYPE]
+          AND ea.id IS NULL
+          AND ($3::boolean OR e.meta->>'checkinFlow' = $4)`,
+      [uid, FAIR_TYPE, qualified, ONSITE_FLOW]
     );
 
     const minted = [];
@@ -191,5 +206,7 @@ module.exports = {
   checkStudent,
   overlayLeadQualFields,
   issueAdvanceTokens,
+  checkinFlowOf,
+  ONSITE_FLOW,
   REQUIRED_FALLBACK,
 };

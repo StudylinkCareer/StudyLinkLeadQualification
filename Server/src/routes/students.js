@@ -3,12 +3,15 @@
 // CHANGES (2026-09, wizard): requireOwnStudent on every :id route (no-op unless
 // ENFORCE_STUDENT_OWNERSHIP=true); new PUT /:id/qualification and
 // POST /:id/complete-journey.
+// CHANGES (2026-10, on-site event check-in): GET /:id/event-passes and
+// POST /:id/event-passes/:eventId/send (QR sent right after registration).
 
 const express = require('express');
 const router = express.Router();
 const { requireAuth, requireCounselor } = require('../middleware/authMiddleware');
 const { requireOwnStudent } = require('../middleware/studentOwnership');
 const studentController = require('../controllers/studentController');
+const eventPassController = require('../controllers/eventPassController');
 
 router.post('/register', requireAuth, studentController.register);
 router.post('/:id/add-registration', requireAuth, requireOwnStudent, studentController.addRegistration);
@@ -24,5 +27,7 @@ router.post('/:id/calculate-risk', requireAuth, requireOwnStudent, studentContro
 router.post('/:id/calculate-ocean', requireAuth, requireOwnStudent, studentController.calculateOcean);
 router.get('/:id/ocean-narrative', requireAuth, requireOwnStudent, studentController.getOceanNarrative);
 router.post('/:id/upload-photos', requireAuth, requireOwnStudent, studentController.uploadPhotos);
+router.get('/:id/event-passes', requireAuth, requireOwnStudent, eventPassController.listEventPasses);
+router.post('/:id/event-passes/:eventId/send', requireAuth, requireOwnStudent, eventPassController.sendEventPass);
 
 module.exports = router;

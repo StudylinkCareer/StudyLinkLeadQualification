@@ -197,6 +197,18 @@
 .wz-gift p { margin: 0; }
 .wz-center { display: flex; justify-content: center; }
 
+/* ── hub: on-site event QR pass ── */
+.wz-pass {
+  margin: 0 0 16px; padding: 16px; background: #fff; border: 2px solid var(--wz-red);
+  border-radius: 16px; text-align: center;
+}
+.wz-pass-title { margin: 0; font-size: 18px; font-weight: 800; color: var(--wz-red-deep); }
+.wz-pass-event { margin: 4px 0 10px; font-size: 14px; color: var(--wz-muted); }
+.wz-pass-qr { display: block; width: 240px; max-width: 80%; height: auto; margin: 0 auto; }
+.wz-pass-qr--loading { aspect-ratio: 1; display: grid; place-items: center; color: var(--wz-muted); font-size: 14px; }
+.wz-pass-hint { margin: 10px 0 4px; font-size: 14px; font-weight: 600; line-height: 1.5; }
+.wz-pass-sent { margin: 0; font-size: 13px; color: var(--wz-green); }
+
 /* ── splash ── */
 /* Went through cover (crops on a mismatched screen ratio) and contain
    (letterbox gaps on a mismatched ratio) before landing here: a real <img>
