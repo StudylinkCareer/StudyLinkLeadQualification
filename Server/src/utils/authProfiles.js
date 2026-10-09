@@ -78,9 +78,21 @@ function isMarketingOrOwner(profile, email) {
   return MARKETING_EDIT_PROFILES.has(profile) || (!!email && email.toLowerCase() === OWNER_EMAIL);
 }
 
+// Source Reclassification: named people only (owner request, 2026-10), not a role.
+// Mirror in LeadManagement/src/utils/roleProfiles.js.
+const RECLASSIFICATION_EMAILS = new Set([
+  'marketing@studylink.org',  // Ngô Quốc Hoàng
+  'data@studylink.org',       // Mạch Nguyễn Phi Vân
+  'ha.nguyen@studylink.org',  // Nguyễn Hồng Hà
+  OWNER_EMAIL,
+]);
+function canReclassifySources(email) {
+  return !!email && RECLASSIFICATION_EMAILS.has(email.toLowerCase());
+}
+
 module.exports = {
   ADMIN_PROFILES, MANAGER_PROFILES, TARGETS_PROFILES, EVENT_REPORT_PROFILES, EVENT_ANALYTICS_PROFILES,
   MARKETING_EDIT_PROFILES, MARKETING_ONLY_STUDENT_FIELDS,
   isAdminProfile, isManagerOrAdmin, canManageTargets, canViewEventReports, canViewEventAnalytics,
-  isMarketingOrOwner,
+  isMarketingOrOwner, canReclassifySources,
 };

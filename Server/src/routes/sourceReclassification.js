@@ -26,10 +26,10 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-const { isManagerOrAdmin } = require('../utils/authProfiles');
+const { canReclassifySources } = require('../utils/authProfiles');
 function requireRole(req, res, next) {
   if (!req.session?.staffId) return res.status(401).json({ success: false, error: 'Not authenticated' });
-  if (!isManagerOrAdmin(req.session.staffRole)) return res.status(403).json({ success: false, error: 'Insufficient role' });
+  if (!canReclassifySources(req.session.staffEmail)) return res.status(403).json({ success: false, error: 'Not authorised' });
   next();
 }
 

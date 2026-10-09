@@ -67,6 +67,12 @@ const OWNER_EMAIL = 'huyanhnguyen2107@gmail.com';
 export const isMarketingOrOwner = (profile, email) =>
   MARKETING_EDIT_PROFILES.has(profile) || (!!email && email.toLowerCase() === OWNER_EMAIL);
 
+// Source Reclassification: named people only. Mirror of authProfiles.js.
+const RECLASSIFICATION_EMAILS = new Set([
+  'marketing@studylink.org', 'data@studylink.org', 'ha.nguyen@studylink.org', OWNER_EMAIL,
+]);
+export const canReclassifySources = (email) => !!email && RECLASSIFICATION_EMAILS.has(email.toLowerCase());
+
 export const isAdminProfile     = (x) => ADMIN_PROFILES.has(x);
 export const isManagerOrAdmin   = (x) => ADMIN_PROFILES.has(x) || MANAGER_PROFILES.has(x);
 export const canManageTargets   = (x) => TARGETS_PROFILES.has(x);
