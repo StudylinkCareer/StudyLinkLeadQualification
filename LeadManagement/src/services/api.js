@@ -463,8 +463,13 @@ export const reportsAPI = {
   savePresalesWorkingHours:  (staffId, month, dayOfWeek, hours) =>
     request('PUT', '/api/reports/presales-working-hours', { staffId, month, dayOfWeek, hours }),
   staffOffDays:    (staffId) => request('GET', `/api/reports/staff-off-days?staffId=${staffId}`),
-  addStaffOffDay:  (staffId, offDate, reasonType, note) =>
-    request('POST', '/api/reports/staff-off-days', { staffId, offDate, reasonType, note }),
+  staffOffDaysNeedingHours: () => request('GET', '/api/reports/staff-off-days/needing-hours'),
+  // hoursOff null = full day
+  addStaffOffDay:  (staffId, offDate, reasonType, note, hoursOff = null) =>
+    request('POST', '/api/reports/staff-off-days', { staffId, offDate, reasonType, note, hoursOff }),
+  callHourRates:     (month) => request('GET', `/api/reports/call-hour-rates?month=${month}`),
+  saveCallHourRates: (month, newPerHour, ongoingPerHour) =>
+    request('PUT', '/api/reports/call-hour-rates', { month, newPerHour, ongoingPerHour }),
   removeStaffOffDay: (id) => request('DELETE', `/api/reports/staff-off-days/${id}`),
 
   // ── Sales + Marketing Monthly Report ──

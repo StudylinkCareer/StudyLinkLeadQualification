@@ -138,6 +138,10 @@ router.put(
   reportCtrl.saveCallDayTarget
 );
 
+// ── Counsellor hourly call rates (replaces Daily Call Quotas for Individual/Company Report) ──
+router.get('/call-hour-rates', requireStaffAuth, reportCtrl.callHourRates);
+router.put('/call-hour-rates', requireStaffAuth, reportCtrl.saveCallHourRates);
+
 // ── Uncontactable → Pre-sales auto-transfer roster ────────────────────
 // Same gating as Call/Monthly Targets above.
 router.get(
@@ -179,6 +183,7 @@ router.get(
   requireStaffAuth,
   reportCtrl.staffOffDays
 );
+router.get('/staff-off-days/needing-hours', requireStaffAuth, reportCtrl.staffOffDaysNeedingHours);
 router.post(
   '/staff-off-days',
   requireStaffAuth,

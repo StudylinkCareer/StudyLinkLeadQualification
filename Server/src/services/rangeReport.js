@@ -135,44 +135,62 @@ function monthKeyOf(ms) {
   return `${vn.getUTCFullYear()}-${String(vn.getUTCMonth() + 1).padStart(2, '0')}-01`;
 }
 
-// Same hardcoded fallback as reportController.js's CALL_TARGETS — used only
-// if NO month has ever been configured in call_day_targets at all.
-const COUNSELOR_DEFAULT = { new: [10, 10, 10, 10, 10, 5, 0], ongoing: [5, 5, 5, 5, 5, 2, 0] };
+// Hourly targets (2026-10): every Counsellor and Pre-sales workday is 8h
+// Mon-Fri and 4h Saturday. A day's target scales with the share of that day
+// actually worked; hours logged in staff_off_days reduce it.
+const WORKDAY_HOURS = [8, 8, 8, 8, 8, 4, 0]; // 0=Mon..6=Sun
+const DEFAULT_HOUR_RATES = { new: 1.25, ongoing: 0.625 }; // 10/8 and 5/8 calls per hour
+
+// Share (0..1) of each VN day in [from, to) this person worked, keyed by
+// YYYY-MM-DD; days with no off-day entry are absent (= 1). A full-day entry
+// gives 0; "hours unknown" entries deduct nothing until re-entered.
+async function workedShareByDay(fullName, from, to) {
+  const share = new Map();
+  if (!fullName) return share;
+  const rows = (await pool.query(
+    `SELECT to_char(o.off_date,'YYYY-MM-DD') AS d, o.hours_off, o.hours_unknown
+       FROM staff_off_days o JOIN staff s ON s.id = o.staff_id
+      WHERE s.full_name = $1 AND o.off_date >= $2::date AND o.off_date < $3::date`,
+    [fullName, vnYmd(from), vnYmd(to)])).rows;
+  for (const r of rows) {
+    if (r.hours_unknown) continue;
+    if (r.hours_off == null) { share.set(r.d, 0); continue; }
+    const [y, m, d] = r.d.split('-').map(Number);
+    const scheduled = WORKDAY_HOURS[(new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7];
+    share.set(r.d, scheduled > 0 ? Math.max(0, (scheduled - Number(r.hours_off)) / scheduled) : 1);
+  }
+  return share;
+}
 
 /**
- * Counsellors' role-wide daily New/Ongoing target, summed across every
- * calendar day in [from, to) — same "copy forward the most recent earlier
- * month" semantics as reportController.js's loadDayTargets() (Weekly
- * Report), just totalled over an arbitrary range instead of exactly 7 days.
- * Same for every counsellor (role-wide), so callers compute this ONCE per
- * report, not once per person.
+ * One Counsellor's New/Ongoing call target, summed across every calendar day
+ * in [from, to): hours worked that day (WORKDAY_HOURS minus logged time off)
+ * x the per-hour rates in call_hour_rates (copy-forward from the most recent
+ * earlier month). `fullName` null = the full-schedule target, no time off.
  */
 // `granularity` ('day'/'week'/'month', matching computeRangeReport's own
 // bucket choice) also returns a per-bucket breakdown for a "Calls by X"
 // table with target columns — omit it to skip that work when only the
 // grand total is needed (e.g. Company Report's StaffTable row).
-async function counselorTargetForRange(from, to, granularity = null) {
-  const rows = (await pool.query(
-    `SELECT to_char(month,'YYYY-MM-01') AS month, day_of_week, new_target, ongoing_target
-       FROM call_day_targets WHERE role = 'Counselor' ORDER BY month`
-  )).rows;
-  const byMonth = new Map();
-  for (const r of rows) {
-    if (!byMonth.has(r.month)) byMonth.set(r.month, [null, null, null, null, null, null, null]);
-    byMonth.get(r.month)[r.day_of_week] = { new: r.new_target, ongoing: r.ongoing_target };
-  }
-  const months = [...byMonth.keys()].sort();
-  function forDay(monthKey, dow) {
+async function counselorTargetForRange(fullName, from, to, granularity = null) {
+  const [rateRows, share] = await Promise.all([
+    pool.query(`SELECT to_char(month,'YYYY-MM-01') AS month, new_per_hour, ongoing_per_hour FROM call_hour_rates ORDER BY month`),
+    workedShareByDay(fullName, from, to),
+  ]);
+  const months = rateRows.rows.map(r => ({ month: r.month, new: Number(r.new_per_hour), ongoing: Number(r.ongoing_per_hour) }));
+  function rateFor(monthKey) {
     let best = null;
-    for (const m of months) { if (m <= monthKey) best = m; else break; }
-    const row = best ? byMonth.get(best)[dow] : null;
-    return row || { new: COUNSELOR_DEFAULT.new[dow], ongoing: COUNSELOR_DEFAULT.ongoing[dow] };
+    for (const m of months) { if (m.month <= monthKey) best = m; else break; }
+    return best || DEFAULT_HOUR_RATES;
   }
-  let totalNew = 0, totalOngoing = 0;
+  let totalNew = 0, totalOngoing = 0, hoursWorked = 0;
   const bucketMap = granularity ? new Map() : null;
   for (let ms = from.getTime(); ms < to.getTime(); ms += 86400000) {
-    const t = forDay(monthKeyOf(ms), dowOf(ms));
-    totalNew += t.new; totalOngoing += t.ongoing;
+    const dayKey = bucketKeyOf(ms, 'day');
+    const hours = WORKDAY_HOURS[dowOf(ms)] * (share.has(dayKey) ? share.get(dayKey) : 1);
+    const rate = rateFor(monthKeyOf(ms));
+    const t = { new: hours * rate.new, ongoing: hours * rate.ongoing };
+    totalNew += t.new; totalOngoing += t.ongoing; hoursWorked += hours;
     if (bucketMap) {
       const key = bucketKeyOf(ms, granularity);
       if (!bucketMap.has(key)) bucketMap.set(key, { bucket: key, new: 0, ongoing: 0 });
@@ -180,24 +198,28 @@ async function counselorTargetForRange(from, to, granularity = null) {
       b.new += t.new; b.ongoing += t.ongoing;
     }
   }
-  const result = { new: totalNew, ongoing: totalOngoing, total: totalNew + totalOngoing };
+  const result = { new: totalNew, ongoing: totalOngoing, total: totalNew + totalOngoing, hoursWorked };
   if (bucketMap) result.byBucket = [...bucketMap.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
   return result;
 }
 
 /**
- * One Pre-Sales person's own daily hours x 8, summed across every calendar
+ * One Pre-Sales person's own calling hours x 8, summed across every calendar
  * day in [from, to) — combined New+Ongoing target (no split, per Hong Ha).
- * Same copy-forward-per-month semantics as the round-robin's capacity calc
- * (uncontactableTransfer.js pickNextPresales), per-individual not role-wide.
+ * Calling hours (presales_working_hours, copy-forward per month) are part of
+ * an 8h workday; time off shrinks them by the share of that workday missed
+ * (e.g. 3 calling hours, 4h off an 8h day -> 1.5).
  */
 async function presalesTargetForRange(fullName, from, to, granularity = null) {
-  const rows = (await pool.query(
-    `SELECT to_char(wh.month,'YYYY-MM-01') AS month, wh.day_of_week, wh.hours
-       FROM presales_working_hours wh JOIN staff s ON s.id = wh.staff_id
-      WHERE s.full_name = $1 ORDER BY wh.month`,
-    [fullName]
-  )).rows;
+  const [hourRows, share] = await Promise.all([
+    pool.query(
+      `SELECT to_char(wh.month,'YYYY-MM-01') AS month, wh.day_of_week, wh.hours
+         FROM presales_working_hours wh JOIN staff s ON s.id = wh.staff_id
+        WHERE s.full_name = $1 ORDER BY wh.month`,
+      [fullName]),
+    workedShareByDay(fullName, from, to),
+  ]);
+  const rows = hourRows.rows;
   const byMonth = new Map();
   for (const r of rows) {
     if (!byMonth.has(r.month)) byMonth.set(r.month, [0, 0, 0, 0, 0, 0, 0]);
@@ -212,7 +234,8 @@ async function presalesTargetForRange(fullName, from, to, granularity = null) {
   let totalHours = 0;
   const bucketMap = granularity ? new Map() : null;
   for (let ms = from.getTime(); ms < to.getTime(); ms += 86400000) {
-    const h = hoursForDay(monthKeyOf(ms), dowOf(ms));
+    const dayKey = bucketKeyOf(ms, 'day');
+    const h = hoursForDay(monthKeyOf(ms), dowOf(ms)) * (share.has(dayKey) ? share.get(dayKey) : 1);
     totalHours += h;
     if (bucketMap) {
       const key = bucketKeyOf(ms, granularity);

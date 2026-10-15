@@ -43,6 +43,8 @@ const td = { padding: '0.4rem 0.6rem', fontSize: '0.85rem', borderBottom: '1px s
 const CASE_TYPES = ['Du học', 'Du học hè', 'Thị thực Du lịch', 'Thị thực Khác'];
 const PIE_COLORS = ['#2563eb', '#8b5cf6', '#f59e0b', '#10B981', '#DC2626', '#0891B2', '#D97706'];
 const pct = (actual, target) => (target > 0 ? `${Math.round((actual / target) * 100)}%` : '—');
+// Hourly call targets can be fractional: show one decimal.
+const r1 = (n) => (n == null ? n : Math.round(n * 10) / 10);
 
 function currentMonth() {
   const d = new Date();
@@ -228,7 +230,7 @@ function CallsTable({ title, rows, showMeetings, showTransferred, showContracted
                   <ClickableTd onOpen={onOpen} value={r.ongoing}
                     onClick={() => openPeopleDrill(onOpen, L('Ongoing', 'Theo dõi') + ` — ${r.fullName}`, r.ongoingItems, L)} />
                   <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.totalCalls}</td>
-                  <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }}>{r.target}</td>
+                  <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }}>{r1(r.target)}</td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: r.totalCalls >= r.target ? '#10B981' : '#DC2626' }}>{pct(r.totalCalls, r.target)}</td>
                   <ClickableTd onOpen={onOpen} value={r.kbm}
                     onClick={() => openPeopleDrill(onOpen, L('KBM', 'KBM') + ` — ${r.fullName}`, r.kbmItems, L)} />
@@ -257,7 +259,7 @@ function CallsTable({ title, rows, showMeetings, showTransferred, showContracted
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.newLeads}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.ongoing}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.totalCalls}</td>
-              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.target}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{r1(totals.target)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{pct(totals.totalCalls, totals.target)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.kbm}</td>
               {showMeetings && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.meetings}</td>}

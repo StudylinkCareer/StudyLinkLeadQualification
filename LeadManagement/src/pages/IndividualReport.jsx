@@ -51,6 +51,9 @@ function bucketLabel(granularity, L) {
 // spine when available (covers every day in range, even at 0), so the table
 // never has gaps — falls back to calls.byBucket alone when the staffer is
 // neither a Counsellor nor Pre-Sales (no target concept applies).
+// Hourly targets can be fractional (e.g. 2.5 Ongoing on a Saturday): one decimal.
+const r1 = (n) => (n == null ? n : Math.round(n * 10) / 10);
+
 function CallsByBucket({ data, L }) {
   const actualByKey = new Map(data.calls.byBucket.map(b => [b.bucket, b]));
   const targetByKey = new Map((data.callTarget?.byBucket || []).map(b => [b.bucket, b]));
@@ -63,7 +66,7 @@ function CallsByBucket({ data, L }) {
     const t = targetByKey.get(k);
     return {
       bucket: k, newLeads: a.newLeads, ongoing: a.ongoing, total: a.newLeads + a.ongoing,
-      targetNew: t?.new, targetOngoing: t?.ongoing, target: isCounselor ? (t ? t.new + t.ongoing : undefined) : t?.total,
+      targetNew: r1(t?.new), targetOngoing: r1(t?.ongoing), target: r1(isCounselor ? (t ? t.new + t.ongoing : undefined) : t?.total),
     };
   });
 
@@ -275,7 +278,7 @@ export default function IndividualReport() {
   // presalesTargetForRange — never a second, divergent calculation).
   const callsKpiBars = data?.callTarget ? [
     { key: 'actual', label: L('Actual', 'Thực tế'), value: totalCalls, color: totalCalls >= data.callTarget.total ? '#10B981' : '#DC2626' },
-    { key: 'target', label: L('Target', 'Chỉ tiêu'), value: data.callTarget.total, color: '#e5e7eb' },
+    { key: 'target', label: L('Target', 'Chỉ tiêu'), value: r1(data.callTarget.total), color: '#e5e7eb' },
   ] : [];
 
   return (

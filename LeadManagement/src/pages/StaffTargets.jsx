@@ -43,8 +43,8 @@
 // columns, plus a rightmost TOTAL column aggregating target across all
 // tracked staff per month (and a YTD total in the corner). Click a target
 // cell to edit it inline. Target-only — actual counts are shown in Weekly
-// Report / Monthly Report instead, not here. The Daily Call Quotas grid is
-// its own shape (role x weekday, no roster) — see DailyCallQuotaGrid below.
+// Report / Monthly Report instead, not here. Counsellor call targets are an
+// hourly rate instead — see CounsellorRateEditor below.
 // -----------------------------------------------------------------------------
 
 import { useState, useEffect, useRef } from 'react';
@@ -362,13 +362,11 @@ function UncontactableRosterList({ roster, L }) {
 }
 
 // Staff Off-Days (2026-10, requested via cô Như / Hồng Hà) — pick an
-// employee, then log each date they're off (leave, training, a meeting)
-// with an optional note. TRACKING ONLY for now: this does not yet reduce
-// anyone's Call/Contract targets — that's a deliberately separate follow-up
-// once the deduction rule itself is confirmed (does a day off zero that
-// day's target entirely, or something finer?), since it touches live KPI
-// numbers across Team Performance/Telesales/Pre-sales and shouldn't be
-// guessed at. See addStaffOffDays.js's migration comment.
+// employee, then log each date they're off, as a full day or hours off.
+// Hours off reduce that day's call target by the share of the workday
+// missed (8h Mon-Fri, 4h Sat) — see rangeReport.js workedShareByDay.
+// Entries logged as "half day" before hours existed are flagged until
+// re-entered with real hours.
 const OFF_DAY_REASON_LABELS = {
   leave:    ['Leave / Vacation', 'Nghỉ phép'],
   training: ['Training', 'Đào tạo'],
@@ -383,9 +381,13 @@ function StaffOffDaysSection({ roster, L, language }) {
   const [newDate, setNewDate] = useState('');
   const [newReason, setNewReason] = useState('leave');
   const [newNote, setNewNote] = useState('');
+  const [fullDay, setFullDay] = useState(true);
+  const [newHours, setNewHours] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [needing, setNeeding] = useState([]);
 
   function reload(id) {
+    reportsAPI.staffOffDaysNeedingHours().then(r => setNeeding(r?.data || [])).catch(() => {});
     if (!id) { setRows(null); return; }
     setLoading(true);
     reportsAPI.staffOffDays(id)
@@ -395,12 +397,19 @@ function StaffOffDaysSection({ roster, L, language }) {
   }
   useEffect(() => { reload(staffId); }, [staffId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const hoursValid = fullDay || (Number(newHours) >= 0.5 && Number(newHours) <= 8);
+
   function addEntry() {
-    if (!staffId || !newDate) return;
+    if (!staffId || !newDate || !hoursValid) return;
     setSaveError('');
-    reportsAPI.addStaffOffDay(Number(staffId), newDate, newReason, newNote.trim() || null)
-      .then(() => { setNewDate(''); setNewNote(''); reload(staffId); })
+    reportsAPI.addStaffOffDay(Number(staffId), newDate, newReason, newNote.trim() || null, fullDay ? null : Number(newHours))
+      .then(() => { setNewDate(''); setNewNote(''); setNewHours(''); setFullDay(true); reload(staffId); })
       .catch(err => setSaveError(err?.message || L('Could not save. Please try again.', 'Không lưu được. Vui lòng thử lại.')));
+  }
+  // Prefill the form from a flagged entry; saving the same date replaces it.
+  function fixEntry(r) {
+    setNewDate(r.offDate); setNewReason(r.reasonType); setNewNote(r.note || '');
+    setFullDay(false); setNewHours('');
   }
   function removeEntry(id) {
     setSaveError('');
@@ -410,7 +419,12 @@ function StaffOffDaysSection({ roster, L, language }) {
   }
 
   const reasonLabel = (type) => L(...(OFF_DAY_REASON_LABELS[type] || OFF_DAY_REASON_LABELS.other));
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US') : '';
+  // offDate is a plain YYYY-MM-DD; format it without a Date round-trip (no timezone shift).
+  const fmtDate = (d) => { if (!d) return ''; const [y, m, dd] = String(d).slice(0, 10).split('-'); return language === 'vi' ? `${dd}/${m}/${y}` : `${m}/${dd}/${y}`; };
+  const hoursLabel = (r) => r.hoursUnknown
+    ? null
+    : r.hoursOff == null ? L('Full day', 'Cả ngày') : `${r.hoursOff} ${L('h', 'giờ')}`;
+  const needingNames = [...new Set(needing.map(n => n.fullName))];
 
   return (
     <div>
@@ -418,11 +432,26 @@ function StaffOffDaysSection({ roster, L, language }) {
         <h2 style={h2}>{L('Staff Off-Days', 'Ngày nghỉ / vắng mặt')}</h2>
         <div style={sub}>
           {L(
-            'Log each day a Counsellor or Pre-sales person is off — leave, training, a meeting — per person. Tracking only for now; this does not yet adjust anyone’s targets.',
-            'Ghi lại từng ngày Tư vấn viên hoặc Pre-sales nghỉ — nghỉ phép, đào tạo, họp — theo từng người. Hiện chỉ để theo dõi; chưa tự động trừ vào chỉ tiêu.'
+            'Log time off per person, as a full day or hours. It lowers that day’s call target by the share of the workday missed (8h Mon–Fri, 4h Sat).',
+            'Ghi thời gian nghỉ của từng người, theo cả ngày hoặc số giờ. Chỉ tiêu cuộc gọi của ngày đó sẽ giảm theo tỉ lệ thời gian nghỉ trên ngày làm việc (8 giờ T2–T6, 4 giờ T7).'
           )}
         </div>
       </div>
+
+      {needing.length > 0 && (
+        <div style={{ ...card, background: '#fffbeb', borderColor: '#fcd34d', marginBottom: '1rem' }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>
+            {L(`${needing.length} entries need hours`, `${needing.length} ngày nghỉ cần nhập số giờ`)}
+          </div>
+          <div style={{ ...sub, color: '#92400e' }}>
+            {L(
+              'These were logged as "half day" before hours existed, so they don’t reduce any target yet. Open each person and press "Enter hours".',
+              'Các ngày này được ghi "half day" khi chưa có số giờ, nên chưa trừ vào chỉ tiêu. Chọn từng người và bấm "Nhập giờ".'
+            )}
+            {' '}{needingNames.join(', ')}
+          </div>
+        </div>
+      )}
 
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
@@ -448,12 +477,29 @@ function StaffOffDaysSection({ roster, L, language }) {
                   {Object.keys(OFF_DAY_REASON_LABELS).map(k => <option key={k} value={k}>{reasonLabel(k)}</option>)}
                 </select>
               </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#6b7280)', marginBottom: 2 }}>{L('Time off', 'Thời gian nghỉ')}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <label style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                    <input type="checkbox" checked={fullDay} onChange={e => setFullDay(e.target.checked)} />
+                    {L('Full day', 'Cả ngày')}
+                  </label>
+                  {!fullDay && (
+                    <>
+                      <input type="number" min="0.5" max="8" step="0.5" value={newHours} onChange={e => setNewHours(e.target.value)}
+                        placeholder="2" aria-label={L('Hours off', 'Số giờ nghỉ')}
+                        style={{ width: 56, padding: '0.35rem', fontSize: '0.85rem' }} />
+                      <span style={{ fontSize: '0.85rem' }}>{L('hours', 'giờ')}</span>
+                    </>
+                  )}
+                </div>
+              </div>
               <div style={{ flex: '1 1 160px' }}>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#6b7280)', marginBottom: 2 }}>{L('Note (optional)', 'Ghi chú (tùy chọn)')}</div>
-                <input type="text" value={newNote} onChange={e => setNewNote(e.target.value)} placeholder={L('e.g. half-day, specific training name…', 'vd: nửa ngày, tên khóa đào tạo…')}
+                <input type="text" value={newNote} onChange={e => setNewNote(e.target.value)} placeholder={L('e.g. public holiday, training name…', 'vd: nghỉ lễ, tên khóa đào tạo…')}
                   style={{ padding: '0.35rem', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' }} />
               </div>
-              <button className="btn" onClick={addEntry} disabled={!newDate}>+ {L('Add', 'Thêm')}</button>
+              <button className="btn" onClick={addEntry} disabled={!newDate || !hoursValid}>+ {L('Add', 'Thêm')}</button>
             </div>
 
             {saveError && <div style={{ ...sub, color: '#b91c1c', marginTop: '-0.5rem', marginBottom: '1rem' }}>{saveError}</div>}
@@ -465,6 +511,7 @@ function StaffOffDaysSection({ roster, L, language }) {
                 <thead>
                   <tr>
                     <th style={th}>{L('Date', 'Ngày')}</th>
+                    <th style={th}>{L('Time off', 'Thời gian nghỉ')}</th>
                     <th style={th}>{L('Reason', 'Lý do')}</th>
                     <th style={th}>{L('Note', 'Ghi chú')}</th>
                     <th style={th}>{L('Logged by', 'Người thêm')}</th>
@@ -475,6 +522,15 @@ function StaffOffDaysSection({ roster, L, language }) {
                   {rows.map(r => (
                     <tr key={r.id}>
                       <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtDate(r.offDate)}</td>
+                      <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                        {r.hoursUnknown ? (
+                          <button type="button" onClick={() => fixEntry(r)}
+                            title={L('Logged as "half day" — enter the real hours', 'Đã ghi "half day" — nhập số giờ thực tế')}
+                            style={{ border: '1px solid #fcd34d', background: '#fffbeb', color: '#92400e', borderRadius: 4, padding: '2px 8px', fontSize: '0.78rem', cursor: 'pointer' }}>
+                            ⚠ {L('Enter hours', 'Nhập giờ')}
+                          </button>
+                        ) : hoursLabel(r)}
+                      </td>
                       <td style={td}>{reasonLabel(r.reasonType)}</td>
                       <td style={{ ...td, color: r.note ? 'inherit' : 'var(--text-secondary,#9ca3af)' }}>{r.note || '—'}</td>
                       <td style={{ ...td, color: 'var(--text-secondary,#6b7280)', fontSize: '0.78rem' }}>{r.createdBy}</td>
@@ -510,104 +566,68 @@ function currentMonthLabel() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function DailyCallQuotaGrid({ L, language }) {
-  const [month, setMonth]       = useState(currentMonthLabel());
-  const [data, setData]         = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [editDay, setEditDay]   = useState(null); // day index being edited
-  const [editNew,     setEditNew]     = useState('');
-  const [editOngoing, setEditOngoing] = useState('');
-  const skipBlurRef = useRef(false);
+// Counsellor call rate per worked hour (2026-10, replaces the per-weekday
+// grid for Individual/Company Report): target = hours worked x rate, so 8h
+// = 10 New / 5 Ongoing and a 4h Saturday = 5 / 2.5 at the default rates.
+const fmt1 = (n) => Math.round(Number(n || 0) * 10) / 10;
+
+function CounsellorRateEditor({ L }) {
+  const [month, setMonth]   = useState(currentMonthLabel());
+  const [data, setData]     = useState(null);
+  const [newRate, setNewRate] = useState('');
+  const [ongRate, setOngRate] = useState('');
+  const [msg, setMsg]       = useState('');
 
   function reload() {
-    setLoading(true);
-    reportsAPI.callDayTargets(month)
-      .then(r => setData(r?.data || null))
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
+    reportsAPI.callHourRates(month)
+      .then(r => { const d = r?.data; setData(d); setNewRate(String(d?.newPerHour ?? '')); setOngRate(String(d?.ongoingPerHour ?? '')); })
+      .catch(() => setData(null));
   }
-  useEffect(() => { reload(); }, [month]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(); setMsg(''); }, [month]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function save(day) {
-    const n = Number(editNew) || 0, o = Number(editOngoing) || 0;
-    reportsAPI.saveCallDayTarget(month, day, n, o)
-      .then(() => { setEditDay(null); reload(); })
-      .catch(() => setEditDay(null));
+  function save() {
+    setMsg('');
+    reportsAPI.saveCallHourRates(month, Number(newRate), Number(ongRate))
+      .then(() => { setMsg(L('Saved.', 'Đã lưu.')); reload(); })
+      .catch(err => setMsg(err?.message || L('Could not save.', 'Không lưu được.')));
   }
 
-  const cells = data?.cells || {};
-  const dayLabels = language === 'vi' ? DAY_LABELS_VI : DAY_LABELS_EN;
+  const n = Number(newRate) || 0, o = Number(ongRate) || 0;
+  const inherited = data && data.setInMonth && data.setInMonth !== month;
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
         <div>
-          <h2 style={h2}>{L('Daily Call Quotas (Counsellors)', 'Định mức cuộc gọi theo ngày (Tư vấn viên)')}</h2>
+          <h2 style={h2}>{L('Counsellor Call Rate', 'Định mức cuộc gọi Tư vấn viên')}</h2>
           <div style={sub}>
             {L(
-              'Per-weekday New / Ongoing call targets, role-wide across all counsellors. A month with no values yet copies forward the last configured month. Click a cell to edit (New × Ongoing).',
-              'Định mức cuộc gọi Mới / Đang xử lý theo từng ngày, áp dụng chung cho mọi tư vấn viên. Tháng chưa đặt sẽ dùng lại giá trị của tháng gần nhất đã đặt. Nhấn vào ô để sửa (Mới × Đang xử lý).'
+              'Calls per worked hour, the same for every counsellor. Each person’s target is their hours worked (8h Mon–Fri, 4h Sat, minus time off) × these rates. A month with no rate set uses the last one set.',
+              'Số cuộc gọi trên mỗi giờ làm việc, áp dụng chung cho mọi tư vấn viên. Chỉ tiêu của từng người = số giờ làm (8 giờ T2–T6, 4 giờ T7, trừ thời gian nghỉ) × định mức này. Tháng chưa đặt sẽ dùng định mức gần nhất.'
             )}
           </div>
         </div>
         <YearMonthPicker value={month} onChange={setMonth} L={L} />
       </div>
-
       <div style={card}>
-        {loading && !data && <div style={sub}>{L('Loading…', 'Đang tải…')}</div>}
-        {data && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
-              <thead>
-                <tr>
-                  <th style={{ ...th, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{L('Role', 'Vai trò')}</th>
-                  {dayLabels.map(d => <th key={d} style={{ ...th, textAlign: 'right', whiteSpace: 'nowrap' }}>{d}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{L('Counsellors', 'Tư vấn viên')}</td>
-                  {[0, 1, 2, 3, 4, 5, 6].map(day => {
-                    const c = cells[day] || { newTarget: 0, ongoingTarget: 0 };
-                    const editing = editDay === day;
-                    return (
-                      <td key={day} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {editing ? (
-                          <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
-                            <input type="number" min="0" step="1" value={editNew} autoFocus
-                              onChange={e => setEditNew(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter')  { skipBlurRef.current = true; save(day); }
-                                if (e.key === 'Escape') { skipBlurRef.current = true; setEditDay(null); }
-                              }}
-                              title={L('New', 'Mới')}
-                              style={{ width: 32, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
-                            <span style={{ color: 'var(--text-secondary,#9ca3af)' }}>/</span>
-                            <input type="number" min="0" step="1" value={editOngoing}
-                              onChange={e => setEditOngoing(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter')  { skipBlurRef.current = true; save(day); }
-                                if (e.key === 'Escape') { skipBlurRef.current = true; setEditDay(null); }
-                              }}
-                              onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } save(day); }}
-                              title={L('Ongoing', 'Đang xử lý')}
-                              style={{ width: 32, padding: '2px 3px', fontSize: '0.8rem', textAlign: 'right' }} />
-                          </span>
-                        ) : (
-                          <span onClick={() => { setEditDay(day); setEditNew(String(c.newTarget)); setEditOngoing(String(c.ongoingTarget)); }}
-                            title={L('Click to edit New / Ongoing targets', 'Nhấn để sửa chỉ tiêu Mới / Đang xử lý')}
-                            style={{ cursor: 'pointer', fontWeight: 600 }}>
-                            {c.newTarget} / {c.ongoingTarget}
-                          </span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: '0.85rem' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#6b7280)', marginBottom: 2 }}>{L('New per hour', 'Mới / giờ')}</div>
+            <input type="number" min="0" step="0.005" value={newRate} onChange={e => setNewRate(e.target.value)} style={{ width: 90, padding: '0.35rem' }} />
+          </label>
+          <label style={{ fontSize: '0.85rem' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#6b7280)', marginBottom: 2 }}>{L('Ongoing per hour', 'Đang xử lý / giờ')}</div>
+            <input type="number" min="0" step="0.005" value={ongRate} onChange={e => setOngRate(e.target.value)} style={{ width: 90, padding: '0.35rem' }} />
+          </label>
+          <button className="btn" onClick={save}>{L('Save for this month', 'Lưu cho tháng này')}</button>
+          {msg && <span style={sub}>{msg}</span>}
+        </div>
+        <div style={{ ...sub, marginTop: '0.75rem' }}>
+          {L('Full day (8h)', 'Cả ngày (8 giờ)')}: <strong>{fmt1(n * 8)} / {fmt1(o * 8)}</strong>
+          {' · '}{L('Saturday (4h)', 'Thứ 7 (4 giờ)')}: <strong>{fmt1(n * 4)} / {fmt1(o * 4)}</strong>
+          {' '}({L('New / Ongoing', 'Mới / Đang xử lý')})
+          {inherited && <> · {L(`using the rate set in ${data.setInMonth}`, `đang dùng định mức đặt từ ${data.setInMonth}`)}</>}
+        </div>
       </div>
     </div>
   );
@@ -658,8 +678,8 @@ function PresalesHoursGrid({ L, language }) {
           <h2 style={h2}>{L('Pre-sales Working Hours', 'Giờ làm việc Pre-sales')}</h2>
           <div style={sub}>
             {L(
-              'Hours worked per person, per weekday — sets each person’s own Calls-KPI target (hours × 8, combined New+Ongoing) and feeds the weighted round-robin above. Click a cell to edit.',
-              'Số giờ làm việc của từng người theo mỗi ngày trong tuần — quyết định chỉ tiêu cuộc gọi của người đó (giờ × 8, gộp Mới+Đang xử lý) và tỉ lệ xoay vòng có trọng số ở trên. Nhấn vào ô để sửa.'
+              'Calling hours per person, per weekday, within their 8h workday (4h Sat) — sets each person’s Calls-KPI target (hours × 8, combined New+Ongoing; time off reduces it proportionally) and feeds the weighted round-robin above. Click a cell to edit.',
+              'Số giờ gọi điện của từng người theo mỗi ngày, trong ngày làm việc 8 giờ (T7: 4 giờ) — quyết định chỉ tiêu cuộc gọi (giờ × 8, gộp Mới+Đang xử lý; thời gian nghỉ trừ theo tỉ lệ) và tỉ lệ xoay vòng có trọng số ở trên. Nhấn vào ô để sửa.'
             )}
           </div>
         </div>
@@ -781,7 +801,7 @@ export default function StaffTargets() {
           grids below (day-of-week + per-individual granularity). */}
       <div style={{ marginTop: '2.5rem' }}>
         <SectionHeader>{L('Call Targets', 'Chỉ tiêu Cuộc gọi')}</SectionHeader>
-        <DailyCallQuotaGrid L={L} language={language} />
+        <CounsellorRateEditor L={L} />
 
         <div style={{ marginTop: '1.5rem' }}>
           <PresalesHoursGrid L={L} language={language} />

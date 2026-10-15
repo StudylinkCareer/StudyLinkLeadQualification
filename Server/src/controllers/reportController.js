@@ -951,7 +951,7 @@ async function individualReport(req, res, next) {
       membersAsAt([staffName], from.toISOString()),
       membersAsAt([staffName], to.toISOString()),
       rangeReport.computeRangeReport([staffName], from, to, { bucket }),
-      isCounselor ? rangeReport.counselorTargetForRange(from, to, bucket)
+      isCounselor ? rangeReport.counselorTargetForRange(staffName, from, to, bucket)
         : isPresales ? rangeReport.presalesTargetForRange(staffName, from, to, bucket)
         : Promise.resolve(null),
     ]);
@@ -999,9 +999,8 @@ async function groupReport(req, res, next) {
     // one call per person each — two genuinely different "target" concepts,
     // never merged under one ambiguous column (found while porting, see
     // rangeReport.js's contractTargetForRange comment).
-    const [companyWide, counselorCallTarget, counselorLeadCounts, transfersByName, marketingActivities, leadsBySource, ...perStaff] = await Promise.all([
+    const [companyWide, counselorLeadCounts, transfersByName, marketingActivities, leadsBySource, ...perStaff] = await Promise.all([
       rangeReport.computeRangeReport(allNames, from, to, { bucket }),
-      rangeReport.counselorTargetForRange(from, to),
       rangeReport.leadCounts(counsellorNames, 'counselor', from, to),
       rangeReport.transfersToSalesForRange(presalesNames, from, to),
       rangeReport.marketingActivitiesForRange(from, to),
@@ -1009,7 +1008,8 @@ async function groupReport(req, res, next) {
       ...counsellorNames.map(name => Promise.all([
         rangeReport.computeRangeReport([name], from, to, { bucket }),
         rangeReport.contractTargetForRange(name, from, to),
-      ]).then(([d, contractTarget]) => ({ name, role: 'Counselor', data: d, contractTarget }))),
+        rangeReport.counselorTargetForRange(name, from, to),
+      ]).then(([d, contractTarget, callTarget]) => ({ name, role: 'Counselor', data: d, contractTarget, callTarget: callTarget.total }))),
       ...presalesNames.map(name => Promise.all([
         rangeReport.computeRangeReport([name], from, to, { bucket }),
         rangeReport.presalesTargetForRange(name, from, to),
@@ -1045,13 +1045,13 @@ async function groupReport(req, res, next) {
     // Telesales — calls ACTIVITY metrics, same shape as the Pre-sales table
     // below (that's the whole point of the original split: "so counselor
     // calls read as their own report, mirroring Pre-Sales"). Calls target
-    // is role-wide (counselorCallTarget, same number for every row here).
+    // is per person: hours worked x hourly rate, net of their time off.
     const telesales = counsellorRows.map(r => ({
       fullName: r.name,
       newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
       newLeadItems: r.data.calls.newLeadItems, ongoingItems: r.data.calls.ongoingItems, kbmItems: r.data.calls.kbmItems,
       totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
-      target: counselorCallTarget.total,
+      target: r.callTarget,
     }));
 
     // Pre-sales — same original column set as old Monthly Report: New,
@@ -1557,6 +1557,51 @@ async function saveCallDayTarget(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Counsellor hourly call rates (Staff Targets page) ─────────────────────
+// Calls per worked hour (rangeReport.counselorTargetForRange). GET resolves
+// the requested month copy-forward, same as the other target grids.
+async function callHourRates(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const mm = String(req.query.month || '');
+    if (!/^\d{4}-\d{2}$/.test(mm)) return res.status(400).json({ success: false, error: 'month (YYYY-MM) is required' });
+    const r = (await pool.query(
+      `SELECT to_char(month,'YYYY-MM') AS month, new_per_hour, ongoing_per_hour, updated_by, updated_at
+         FROM call_hour_rates WHERE month <= ($1 || '-01')::date ORDER BY month DESC LIMIT 1`, [mm])).rows[0];
+    res.json({ success: true, data: {
+      month: mm,
+      newPerHour: r ? Number(r.new_per_hour) : 1.25,
+      ongoingPerHour: r ? Number(r.ongoing_per_hour) : 0.625,
+      setInMonth: r ? r.month : null, updatedBy: r ? r.updated_by : null, updatedAt: r ? r.updated_at : null,
+    } });
+  } catch (err) { next(err); }
+}
+
+async function saveCallHourRates(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const { month, newPerHour, ongoingPerHour } = req.body || {};
+    const mm = String(month || '');
+    if (!/^\d{4}-\d{2}$/.test(mm)) return res.status(400).json({ success: false, error: 'month must be YYYY-MM' });
+    const n = Number(newPerHour), o = Number(ongoingPerHour);
+    if (!Number.isFinite(n) || n < 0 || !Number.isFinite(o) || o < 0) {
+      return res.status(400).json({ success: false, error: 'rates must be non-negative numbers' });
+    }
+    const updatedBy = req.session.staffName || req.session.staffEmail || 'unknown';
+    await pool.query(
+      `INSERT INTO call_hour_rates (month, new_per_hour, ongoing_per_hour, updated_by, updated_at)
+       VALUES (($1 || '-01')::date, $2, $3, $4, now())
+       ON CONFLICT (month) DO UPDATE SET new_per_hour = EXCLUDED.new_per_hour,
+         ongoing_per_hour = EXCLUDED.ongoing_per_hour, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [mm, n, o, updatedBy]);
+    res.json({ success: true, data: { month: mm, newPerHour: n, ongoingPerHour: o } });
+  } catch (err) { next(err); }
+}
+
 // ── Uncontactable → Pre-sales auto-transfer roster ────────────────────────
 // The round-robin pool (see uncontactableTransfer.js). `received` is how
 // many transfers each person has gotten so far — shown so it's visible the
@@ -1732,48 +1777,73 @@ async function staffOffDays(req, res, next) {
       return res.status(400).json({ success: false, error: 'staffId is required' });
     }
     const rows = (await pool.query(
-      `SELECT id, off_date, reason_type, note, created_by, created_at
+      `SELECT id, to_char(off_date,'YYYY-MM-DD') AS off_date, reason_type, note, hours_off, hours_unknown, created_by, created_at
          FROM staff_off_days WHERE staff_id = $1
         ORDER BY off_date DESC`,
       [staffId]
     )).rows;
-    res.json({ success: true, data: rows.map((r) => ({
-      id: r.id, offDate: r.off_date, reasonType: r.reason_type, note: r.note,
-      createdBy: r.created_by, createdAt: r.created_at,
-    })) });
+    res.json({ success: true, data: rows.map(offDayRow) });
   } catch (err) { next(err); }
 }
 
 const OFF_DAY_REASON_TYPES = new Set(['leave', 'training', 'meeting', 'other']);
+// hoursOff null = full day off.
+const offDayRow = (r) => ({
+  id: r.id, offDate: r.off_date, reasonType: r.reason_type, note: r.note,
+  hoursOff: r.hours_off == null ? null : Number(r.hours_off), hoursUnknown: !!r.hours_unknown,
+  createdBy: r.created_by, createdAt: r.created_at,
+});
+
+// Entries Như still needs to re-enter with real hours (logged as "half day"
+// before hours existed) — across all staff, for the Staff Targets banner.
+async function staffOffDaysNeedingHours(req, res, next) {
+  try {
+    if (!canAccessStaffTargetsPageOnly(req)) {
+      return res.status(403).json({ success: false, error: 'Not authorised' });
+    }
+    const rows = (await pool.query(
+      `SELECT o.staff_id, s.full_name, to_char(o.off_date,'YYYY-MM-DD') AS off_date, o.note
+         FROM staff_off_days o JOIN staff s ON s.id = o.staff_id
+        WHERE o.hours_unknown ORDER BY s.full_name, o.off_date`)).rows;
+    res.json({ success: true, data: rows.map(r => ({ staffId: r.staff_id, fullName: r.full_name, offDate: r.off_date, note: r.note })) });
+  } catch (err) { next(err); }
+}
 
 async function addStaffOffDay(req, res, next) {
   try {
     if (!canAccessStaffTargetsPageOnly(req)) {
       return res.status(403).json({ success: false, error: 'Not authorised' });
     }
-    const { staffId, offDate, reasonType, note } = req.body || {};
+    const { staffId, offDate, reasonType, note, hoursOff } = req.body || {};
     if (!staffId || !/^\d+$/.test(String(staffId))) {
       return res.status(400).json({ success: false, error: 'staffId is required' });
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(offDate || ''))) {
       return res.status(400).json({ success: false, error: 'offDate (YYYY-MM-DD) is required' });
     }
+    // hoursOff omitted/null = full day; otherwise half-hour steps up to 8.
+    let hours = null;
+    if (hoursOff != null && hoursOff !== '') {
+      hours = Number(hoursOff);
+      if (!Number.isFinite(hours) || hours <= 0 || hours > 8 || Math.round(hours * 2) !== hours * 2) {
+        return res.status(400).json({ success: false, error: 'hoursOff must be between 0.5 and 8, in half-hour steps' });
+      }
+    }
     const type = OFF_DAY_REASON_TYPES.has(reasonType) ? reasonType : 'leave';
     const createdBy = req.session.staffName || req.session.staffEmail || 'unknown';
-    // ON CONFLICT: re-adding the same staff+date updates the reason/note
-    // instead of erroring — one row per calendar day per staff member.
+    // ON CONFLICT: re-adding the same staff+date replaces that day's entry —
+    // one row per calendar day per staff member. Re-entering clears the
+    // "hours unknown" flag.
     const upsert = await pool.query(
-      `INSERT INTO staff_off_days (staff_id, off_date, reason_type, note, created_by)
-            VALUES ($1,$2,$3,$4,$5)
+      `INSERT INTO staff_off_days (staff_id, off_date, reason_type, note, hours_off, hours_unknown, created_by)
+            VALUES ($1,$2,$3,$4,$5,false,$6)
        ON CONFLICT (staff_id, off_date) DO UPDATE
-         SET reason_type = EXCLUDED.reason_type, note = EXCLUDED.note, created_by = EXCLUDED.created_by, created_at = now()
-       RETURNING id, off_date, reason_type, note, created_by, created_at`,
-      [staffId, offDate, type, note || null, createdBy]
+         SET reason_type = EXCLUDED.reason_type, note = EXCLUDED.note, hours_off = EXCLUDED.hours_off,
+             hours_unknown = false, created_by = EXCLUDED.created_by, created_at = now()
+       RETURNING id, to_char(off_date,'YYYY-MM-DD') AS off_date, reason_type, note, hours_off, hours_unknown, created_by, created_at`,
+      [staffId, offDate, type, note || null, hours, createdBy]
     );
-    const r = upsert.rows[0];
-    res.json({ success: true, data: {
-      id: r.id, offDate: r.off_date, reasonType: r.reason_type, note: r.note, createdBy: r.created_by, createdAt: r.created_at,
-    } });
+    res.json({ success: true, data: offDayRow(upsert.rows[0]) });
   } catch (err) { next(err); }
 }
 
@@ -1832,7 +1902,8 @@ module.exports = {
   callDayTargets, saveCallDayTarget,
   listUncontactableRoster, addUncontactableRosterStaff, removeUncontactableRosterStaff, setUncontactableSlotMode,
   presalesWorkingHours, savePresalesWorkingHours,
-  staffOffDays, addStaffOffDay, removeStaffOffDay,
+  staffOffDays, addStaffOffDay, removeStaffOffDay, staffOffDaysNeedingHours,
+  callHourRates, saveCallHourRates,
   // Frozen Weekly Report: scheduler + manual re-publish + note freezing.
   generateWeeklySnapshot, vnWeekStart, regenerateWeeklySnapshot, lockRecommendationsBefore,
   // Exported for reuse by rangeReport.js (Individual/Group Report, 2026-08) —
