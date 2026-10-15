@@ -1504,11 +1504,11 @@ export default function LeadDetail() {
       // when leaving THIS lead page (unmount, or the id/view changes to a
       // different lead) rather than on note save — so a counselor's 3rd
       // qualifying KBM note doesn't immediately lock them out of the page
-      // they're still looking at. Lead-scoped only; the numeric `id` isn't
-      // a lead id on the student view. Fire-and-forget: never blocks
-      // navigation, and there's a self-healing fallback on the lead's own
-      // GET if this never lands (tab closed, network blip, etc.).
-      if (!isStudentView && id) leadAPI.checkTransfer(id).catch(() => {});
+      // they're still looking at. On the student view `id` is the student_id,
+      // so check all of that person's leads (parent calls are logged there).
+      // Fire-and-forget: never blocks navigation, and there's a self-healing
+      // fallback on the lead's own GET if this never lands.
+      if (id) (isStudentView ? leadAPI.checkTransferForStudent(id) : leadAPI.checkTransfer(id)).catch(() => {});
     };
   }, [id, isStudentView]);
 

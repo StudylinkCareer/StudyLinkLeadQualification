@@ -81,6 +81,17 @@ async function checkTransfer(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// POST /api/leads/student/:studentId/check-transfer — same deferred trigger,
+// fired when leaving the Student page (parent calls are logged there).
+async function checkTransferForStudent(req, res, next) {
+  try {
+    const leads = await Lead.findByStudent(req.params.studentId);
+    const results = [];
+    for (const l of leads) results.push(await runTransferCheck(l.leadId));
+    res.json({ success: true, data: results });
+  } catch (err) { next(err); }
+}
+
 // POST /api/leads/student/:studentId — create a new lead for a student.
 async function create(req, res, next) {
   try {
@@ -121,4 +132,4 @@ async function update(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { listAll, listForStudent, getOne, create, update, checkTransfer };
+module.exports = { listAll, listForStudent, getOne, create, update, checkTransfer, checkTransferForStudent };

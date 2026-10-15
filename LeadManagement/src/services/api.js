@@ -190,6 +190,7 @@ export const leadAPI = {
   // Deferred Uncontactable-transfer trigger (confirmed 2026-08) — call when
   // leaving a lead page, not on note save. Fire-and-forget from the caller.
   checkTransfer:  (leadId)       => request('POST', `/api/leads/${leadId}/check-transfer`),
+  checkTransferForStudent: (studentId) => request('POST', `/api/leads/student/${encodeURIComponent(studentId)}/check-transfer`),
 };
 
 // ── Counsellor AI Agent (weekly Top-10 + feedback) ────────────

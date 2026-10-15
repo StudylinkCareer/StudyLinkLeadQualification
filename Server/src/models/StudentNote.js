@@ -105,6 +105,12 @@ async function updateReminderStatus(id, { reminderStatus, rescheduledDate }) {
   return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
 }
 
+// A note is "yours" by the owner of its lead, or, for a Student-page note
+// (no lead, e.g. a parent call), by the student's owner or its author.
+const OWN_NOTE_SCOPE = (p) => `(
+  (sn.lead_id IS NOT NULL AND (l.counselor = ${p} OR l.presales = ${p} OR l.senior_counselor = ${p}))
+  OR (sn.lead_id IS NULL AND (s.counselor = ${p} OR s.presales = ${p} OR s.senior_counselor = ${p} OR sn.author_name = ${p})))`;
+
 // Returns all notes that have a follow_up_date (i.e. reminders).
 // Excludes 'closed'. Uses rescheduled_date as the effective date when set.
 // staffScope: { staffName, hasAllScope } — restricts to owned leads when !hasAllScope.
@@ -129,7 +135,9 @@ async function listReminders(staffScope) {
   const { staffName, hasAllScope } = staffScope;
   let query = `
     SELECT sn.*, s.full_name AS student_name, s.student_id AS student_unique_id,
-           l.counselor, l.presales, l.senior_counselor,
+           COALESCE(l.counselor, s.counselor) AS counselor,
+           COALESCE(l.presales, s.presales) AS presales,
+           COALESCE(l.senior_counselor, s.senior_counselor) AS senior_counselor,
            l.close_date, l.confidence, l.lead_status
     FROM student_notes sn
     JOIN students s ON s.student_id = sn.student_id
@@ -141,7 +149,7 @@ async function listReminders(staffScope) {
   const params = [];
   if (!hasAllScope) {
     params.push(staffName);
-    query += ` AND (l.counselor = $1 OR l.presales = $1 OR l.senior_counselor = $1)`;
+    query += ` AND ${OWN_NOTE_SCOPE('$1')}`;
   }
   query += ` ORDER BY COALESCE(sn.rescheduled_date, sn.follow_up_date) ASC`;
   const result = await pool.query(query, params);
@@ -156,7 +164,7 @@ async function listCommunications(staffScope, since, until) {
   let query = `
     SELECT sn.id, sn.created_at, sn.contact_platform, sn.content, sn.student_id,
            s.full_name AS student_name, s.student_id AS student_unique_id,
-           l.counselor, sn.author_name
+           COALESCE(l.counselor, s.counselor) AS counselor, sn.author_name
     FROM student_notes sn
     JOIN students s ON s.student_id = sn.student_id
     LEFT JOIN leads l ON l.lead_id = sn.lead_id
@@ -166,7 +174,7 @@ async function listCommunications(staffScope, since, until) {
   `;
   if (!hasAllScope) {
     params.push(staffName);
-    query += ` AND (l.counselor = $${params.length} OR l.presales = $${params.length} OR l.senior_counselor = $${params.length})`;
+    query += ` AND ${OWN_NOTE_SCOPE(`$${params.length}`)}`;
   }
   query += ` ORDER BY sn.created_at DESC`;
   const result = await pool.query(query, params);

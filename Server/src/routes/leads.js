@@ -25,6 +25,7 @@ router.get ('/',                   requireStaffAuth, leadCtrl.listAll);
 // /student/:studentId is declared before /:leadId so the two-segment path wins.
 router.get ('/student/:studentId', requireStaffAuth, leadCtrl.listForStudent);
 router.post('/student/:studentId', requireStaffAuth, leadCtrl.create);
+router.post('/student/:studentId/check-transfer', requireStaffAuth, leadCtrl.checkTransferForStudent);
 router.get ('/:leadId',            requireStaffAuth, leadCtrl.getOne);
 router.put ('/:leadId',            requireStaffAuth, leadCtrl.update);
 // Deferred Uncontactable-transfer trigger (confirmed 2026-08) — the

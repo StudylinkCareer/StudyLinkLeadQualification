@@ -211,10 +211,15 @@ async function syncStudentForPresalesHandoff(client, studentId, leadId, presales
   return { synced: true };
 }
 
+// Includes the person's student-level notes (lead_id NULL): calls to a parent
+// from the Student page's Family Contacts are saved that way, and count too.
 async function getOwnKbmNotes(leadId, authorName) {
   const r = await pool.query(
-    `SELECT id, content, contact_platform, call_answered, created_at
-       FROM student_notes WHERE lead_id = $1 AND author_name = $2`,
+    `SELECT n.id, n.content, n.contact_platform, n.call_answered, n.mkt_message, n.created_at
+       FROM student_notes n
+      WHERE n.author_name = $2
+        AND (n.lead_id = $1
+             OR (n.lead_id IS NULL AND n.student_id = (SELECT person_id FROM leads WHERE lead_id = $1)))`,
     [leadId, authorName]
   );
   return r.rows.filter((n) => isCallNote(n) && classifyKbm(n));
