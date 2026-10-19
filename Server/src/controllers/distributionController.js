@@ -78,6 +78,9 @@ async function downloadTemplate(req, res, next) {
         ORDER BY ordinal_position`);
     const headers = rows.map((r) => r.column_name);
     if (!headers.includes('office')) headers.push('office');   // ensure office for distribution
+    // 'event' isn't a students column: it creates the lead's Event Registration.
+    const after = ['source_detail', 'source', 'lead_source'].map((c) => headers.indexOf(c)).find((i) => i >= 0);
+    headers.splice(after != null ? after + 1 : headers.length, 0, 'event');
     const ws = XLSX.utils.json_to_sheet([{}], { header: headers });  // header row only
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Leads');
@@ -298,6 +301,77 @@ async function loadSchemas(db) {
   return { colType, leadColType };
 }
 
+// ── Source of Lead / Source / Event checks for the lead upload ──────────
+// lead_source and source must be values from the fixed lists (code or EN/VN
+// label, any case); event must name exactly one event on Marketing Events (or
+// be its id). Matching rows get the stored code; anything else is rejected
+// with a reason instead of being saved as free text.
+const fold = (s) => String(s ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+
+async function loadSourceResolver(db) {
+  const [lv, ev] = await Promise.all([
+    db.query(`SELECT category, code, label_en, label_vi, subcategory, is_active, meta
+                FROM lookup_values WHERE category IN ('source_of_lead','source','b2b_type')`),
+    db.query(`SELECT id, name FROM events`),
+  ]);
+  const sol = new Map(), subs = new Map();   // fold(name) -> row ; bucket -> Map(fold -> code)
+  const keys = (r) => [r.code, r.label_en, r.label_vi].filter(Boolean).map(fold);
+  for (const r of lv.rows.filter((x) => x.category === 'source_of_lead')) for (const k of keys(r)) if (!sol.has(k) || r.is_active) sol.set(k, r);
+  for (const r of lv.rows.filter((x) => x.category !== 'source_of_lead' && x.is_active)) {
+    const bucket = r.category === 'b2b_type' ? 'B2B referrals' : r.subcategory;
+    if (!subs.has(bucket)) subs.set(bucket, new Map());
+    for (const k of keys(r)) subs.get(bucket).set(k, r.code);
+  }
+  const events = new Map();
+  for (const e of ev.rows) { const k = fold(e.name); events.set(k, [...(events.get(k) || []), e.id]); }
+  const eventIds = new Set(ev.rows.map((e) => e.id));
+  return { sol, subs, events, eventIds };
+}
+
+// Returns { errors: [...], leadSource, source, eventId } for one normalized row.
+function checkSourceFields(nr, R) {
+  const errors = [];
+  const rawSol = String(nr.lead_source ?? '').trim();
+  const rawSrc = String(nr.source ?? '').trim();
+  const rawEv = String(nr.event ?? nr.event_name ?? nr.event_registration ?? '').trim();
+  let leadSource = null, source = null, eventId = null;
+  if (rawSol) {
+    const r = R.sol.get(fold(rawSol));
+    if (!r) errors.push(`Unknown lead_source "${rawSol}" (use Databases, On-line, Third party event, B2B referrals or Personal referrals)`);
+    else if (!r.is_active) errors.push(`lead_source "${rawSol}" is retired; use how they found StudyLink and put the event in the event column`);
+    else leadSource = r.code;
+  }
+  if (rawSrc) {
+    if (!rawSol) errors.push(`source "${rawSrc}" needs a lead_source`);
+    else if (leadSource) {
+      const list = R.subs.get(leadSource);
+      const code = list && list.get(fold(rawSrc));
+      if (!list || !list.size) errors.push(`${leadSource} has no source sub-values; put "${rawSrc}" in source_detail instead`);
+      else if (!code) errors.push(`Unknown source "${rawSrc}" for ${leadSource} (allowed: ${[...new Set(list.values())].join(', ')})`);
+      else source = code;
+    }
+  }
+  if (rawEv) {
+    const asId = /^\d+$/.test(rawEv) ? Number(rawEv) : null;
+    const ids = asId && R.eventIds.has(asId) ? [asId] : (R.events.get(fold(rawEv)) || []);
+    if (!ids.length) errors.push(`Event "${rawEv}" not found on Marketing Events (check the exact name)`);
+    else if (ids.length > 1) errors.push(`More than one event is called "${rawEv}"; use the event id (${ids.join(' / ')}) instead`);
+    else eventId = ids[0];
+  }
+  return { errors, leadSource, source, eventId };
+}
+
+// Event Registration for an uploaded lead (no-op if it's already registered).
+async function linkUploadedEvent(db, studentId, eventId, nr) {
+  if (!eventId) return false;
+  const r = await db.query(
+    `INSERT INTO lead_events (student_id, event_id, source_of_lead, source, source_detail, status, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NULL, now(), now())
+     ON CONFLICT (student_id, event_id) DO NOTHING`,
+    [studentId, eventId, nr.lead_source || null, nr.source || null, String(nr.source_detail ?? '').trim() || null]);
+  return r.rowCount === 1;
+}
+
 async function uploadLeads(req, res, next) {
   try {
     const { fileBase64, office } = req.body;
@@ -330,6 +404,9 @@ async function uploadLeads(req, res, next) {
     for (const c of leadColRes.rows) leadColType[c.column_name] = c.data_type;
 
     let inserted = 0, skipped = 0, failed = 0, review = 0, owned = 0, untagged = 0, parked = 0, firstError = null;
+    let invalid = 0, eventLinked = 0;
+    const errorRows = [];   // rejected rows + reason, for the downloadable error file
+    const R = await loadSourceResolver(pool);
     const nowISO = new Date().toISOString();
     const client = await pool.connect();
     try {
@@ -337,7 +414,14 @@ async function uploadLeads(req, res, next) {
       for (const r of rows) {
         const nr = normalizeRow(r);                       // tolerant header mapping
         const uid = String(nr.unique_id || '').trim();
-        if (!uid) { failed++; continue; }
+        const reject = (reason) => errorRows.push({ ...r, error_reason: reason });
+        if (!uid) { failed++; reject('Missing unique_id'); continue; }
+        const chk = checkSourceFields(nr, R);
+        if (chk.errors.length) { invalid++; reject(chk.errors.join('; ')); continue; }
+        if (chk.leadSource) nr.lead_source = chk.leadSource;
+        if (chk.source) nr.source = chk.source;
+        delete nr.event; delete nr.event_name; delete nr.event_registration;
+        if (chk.eventId) nr._event_id = chk.eventId;     // kept in a parked duplicate's payload too
         try {
           await client.query('SAVEPOINT row');
 
@@ -379,11 +463,18 @@ async function uploadLeads(req, res, next) {
             inserted++;
             if (hasCounsellor) owned++;
             else { review++; if (!finalOffice) untagged++; }
-          } else skipped++;
+            if (await linkUploadedEvent(client, uid, chk.eventId, nr)) eventLinked++;
+          } else {
+            skipped++;
+            // Same unique_id already here (e.g. re-uploading a fixed file): still
+            // add the missing Event Registration so the event's report counts it.
+            if (await linkUploadedEvent(client, uid, chk.eventId, nr)) eventLinked++;
+          }
           await client.query('RELEASE SAVEPOINT row');
         } catch (e) {
           await client.query('ROLLBACK TO SAVEPOINT row');
           failed++; if (!firstError) firstError = e.message;
+          reject(`Save failed: ${e.message}`);
         }
       }
       await client.query('COMMIT');
@@ -392,7 +483,14 @@ async function uploadLeads(req, res, next) {
       throw e;
     } finally { client.release(); }
 
-    res.json({ success: true, data: { total: rows.length, inserted, skipped, failed, review, owned, untagged, parked, firstError } });
+    let errorFileBase64 = null;
+    if (errorRows.length) {
+      const ws = XLSX.utils.json_to_sheet(errorRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Not imported');
+      errorFileBase64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+    }
+    res.json({ success: true, data: { total: rows.length, inserted, skipped, failed, invalid, review, owned, untagged, parked, eventLinked, firstError, errorFileBase64 } });
   } catch (err) { next(err); }
 }
 
@@ -627,6 +725,7 @@ async function resolveDuplicate(req, res, next) {
       const { lCols, lVals } = splitPersonLead(nr, dr.office, colType, leadColType);
       const lIns = buildRowInsert('leads', 'person_id', targetId, lCols, lVals, nowISO, ' RETURNING lead_id');
       createdLeadId = (await client.query(lIns.text, lIns.values)).rows[0].lead_id;
+      await linkUploadedEvent(client, targetId, Number(nr._event_id) || null, nr);
     } else if (action === 'new_person') {
       const uid = String(nr.unique_id || '').trim();
       if (!uid) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, error: 'Row has no unique_id' }); }
@@ -636,6 +735,7 @@ async function resolveDuplicate(req, res, next) {
       await client.query(`${sIns.text} ON CONFLICT (student_id) DO NOTHING`, sIns.values);
       const lIns = buildRowInsert('leads', 'person_id', uid, lCols, lVals, nowISO, ' RETURNING lead_id');
       createdLeadId = (await client.query(lIns.text, lIns.values)).rows[0].lead_id;
+      await linkUploadedEvent(client, uid, Number(nr._event_id) || null, nr);
     }
 
     await client.query(

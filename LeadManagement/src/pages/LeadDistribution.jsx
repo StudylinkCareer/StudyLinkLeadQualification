@@ -271,6 +271,9 @@ export default function LeadDistribution() {
         <div style={card}>
           <h2 style={{ fontSize: '1.05rem', margin: '0 0 .25rem' }}>{vi ? 'Tải lead' : 'Upload leads'}</h2>
           <p style={{ color: '#6b7280', marginTop: 0 }}>{vi ? 'Mẫu chứa toàn bộ cột của hồ sơ lead — điền những gì bạn có (cần unique_id). Lead chưa có nhân viên sẽ vào tab Xem xét; lead đã có nhân viên sẽ nhập như đã giao. Chấp nhận .xlsx, .xls, .csv; trùng unique_id bị bỏ qua.' : "The template has every lead-profile column — fill what you have (unique_id required). Leads with no counsellor go to the Review tab; leads that already name a counsellor import as already-owned. Accepts .xlsx, .xls or .csv; duplicate unique_ids are skipped."}</p>
+          <p style={{ color: '#6b7280', marginTop: 0, fontSize: '.85rem' }}>{vi
+            ? 'lead_source và source phải đúng giá trị trong danh sách (VD: On-line / FB/Instagram, Databases / WISE). Cột event: ghi đúng tên sự kiện trên trang Marketing Events (hoặc mã số sự kiện) — lead sẽ được ghi nhận Đăng ký sự kiện và tính vào báo cáo. Dòng sai sẽ không được nhập và có trong tệp lỗi để tải về.'
+            : 'lead_source and source must be values from the fixed lists (e.g. On-line / FB/Instagram, Databases / WISE). event: the exact event name from Marketing Events (or its id) — the lead gets an Event Registration and counts in the reports. Rows with a wrong value are not imported and are listed in a downloadable error file.'}</p>
           <div style={{ marginBottom: '1rem' }}>
             <button onClick={handleDownloadTemplate} disabled={busy} style={btn(false)}>{vi ? '⬇ Tải mẫu Excel (đầy đủ)' : '⬇ Download full Excel template'}</button>
           </div>
@@ -290,6 +293,15 @@ export default function LeadDistribution() {
           {uploadResult && (
             <div style={{ marginTop: '1rem', padding: '.75rem 1rem', borderRadius: 8, background: '#f0fdf4', border: '1px solid #86efac' }}>
               {vi ? 'Đã thêm' : 'Added'} <b>{uploadResult.inserted}</b> · {uploadResult.review} {vi ? 'sang Xem xét' : 'to Review'} · {uploadResult.owned} {vi ? 'đã có nhân viên' : 'already-owned'} · {vi ? 'bỏ qua (trùng)' : 'skipped (dupes)'} {uploadResult.skipped} · {vi ? 'lỗi' : 'failed'} {uploadResult.failed}
+              {uploadResult.invalid > 0 && <> · <span style={{ color: '#b91c1c' }}>{vi ? 'sai nguồn/sự kiện' : 'wrong source/event'} <b>{uploadResult.invalid}</b></span></>}
+              {uploadResult.eventLinked > 0 && <div style={{ marginTop: 6, fontSize: '.85rem', color: '#374151' }}>{vi ? `${uploadResult.eventLinked} lead đã được ghi nhận đăng ký sự kiện.` : `${uploadResult.eventLinked} lead(s) registered to their event.`}</div>}
+              {uploadResult.errorFileBase64 && (
+                <div style={{ marginTop: 8 }}>
+                  <button onClick={() => downloadB64Xlsx(uploadResult.errorFileBase64, `leads_not_imported_${new Date().toISOString().slice(0, 10)}.xlsx`)} style={{ ...btn(false), borderColor: '#b45309', color: '#b45309' }}>
+                    {vi ? '⬇ Tải danh sách dòng chưa nhập (kèm lý do)' : '⬇ Download rows not imported (with reasons)'}
+                  </button>
+                </div>
+              )}
               {uploadResult.review > 0 && <div style={{ marginTop: 6, fontSize: '.85rem', color: '#374151' }}>{vi ? 'Vào tab Xem xét để giao tay hoặc chuyển vào nhóm chờ.' : 'Go to the Review tab to hand-assign or commit to the pool.'}</div>}
               {uploadResult.untagged > 0 && <div style={{ color: '#92400e', marginTop: 6, fontSize: '.85rem' }}>{vi ? `${uploadResult.untagged} lead trong Xem xét chưa có Office — chưa thể chuyển vào nhóm chờ.` : `${uploadResult.untagged} review lead(s) have no Office — can't be committed to the pool until set.`}</div>}
               {uploadResult.failed > 0 && uploadResult.firstError && <div style={{ color: '#b91c1c', marginTop: 6, fontSize: '.8rem' }}>{vi ? 'Lỗi đầu tiên: ' : 'First error: '}{uploadResult.firstError}</div>}
