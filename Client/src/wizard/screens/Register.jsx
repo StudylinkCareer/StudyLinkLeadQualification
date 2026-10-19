@@ -53,7 +53,6 @@ export default function Register() {
     else if (qr.ename) { setEventChoice('qr-text'); setQrEventName(qr.ename); }
   }, [events, qr, lockedByQr]);
 
-  const eventSol = (sources.sourceOfLead.find((o) => o.mode === 'events') || {}).code || 'Event/Campaign';
   const channelOptions = sources.sourceOfLead
     .filter((o) => o.mode !== 'events' && o.mode !== 'b2b')
     .map((o) => ({ value: o.code, label: L(o) }));
@@ -85,6 +84,11 @@ export default function Register() {
 
   const buildPayload = () => {
     const mode = channelMode;
+    // Source of Lead is always how they found StudyLink (owner, 2026-10); an
+    // event is recorded separately as the registration. If the event couldn't
+    // be linked by id, keep its name in Source detail so it isn't lost.
+    const eventId = !hasEvent ? null : ev ? ev.id : (eventChoice === 'qr-text' && qr && qr.eid ? Number(qr.eid) : null);
+    const referrerText = mode === 'list_freetext' ? referrer.trim() : '';
     return {
       email: email.trim(),
       phone: phoneNumber,
@@ -96,14 +100,14 @@ export default function Register() {
       preferredSocial: '',
       contactMedium1: '',
       studyPlans: studyPlan,
-      sourceOfLead: hasEvent ? eventSol : channel,
-      source: hasEvent ? (ev ? ev.name : qrEventName) : source,
-      sourceDetail: !hasEvent && mode === 'list_freetext' ? referrer.trim() : '',
+      sourceOfLead: channel,
+      source: (mode === 'list' || mode === 'list_freetext') ? source : '',
+      sourceDetail: referrerText || (hasEvent && !eventId && qrEventName ? qrEventName : ''),
       sourceUnverified: false,
       counsellor: qrCounsellor || (ev && ev.dedicatedCounsellor) || '',
       // The QR's event may be past its public date window (late sign-up) — still
       // send its id; the server links it if the event exists and isn't hidden.
-      eventId: !hasEvent ? null : ev ? ev.id : (eventChoice === 'qr-text' && qr && qr.eid ? Number(qr.eid) : null),
+      eventId,
     };
   };
 
@@ -122,8 +126,8 @@ export default function Register() {
     if (phoneNumber.replace(/\D/g, '').length < 8) errs.phone = true;
     if (!email.trim()) errs.email = true;
     if (!yob) errs.yob = true;
-    if (!hasEvent && !channel) errs.channel = true;
-    if (!hasEvent && (channelMode === 'list' || channelMode === 'list_freetext') && !source) errs.source = true;
+    if (!channel) errs.channel = true;
+    if ((channelMode === 'list' || channelMode === 'list_freetext') && !source) errs.source = true;
     if (!eventChoice) errs.event = true;
     if (!residence) errs.residence = true;
     if (!studyPlan) errs.studyPlan = true;
@@ -208,16 +212,15 @@ export default function Register() {
           onChange={(e) => { setYob(e.target.value.replace(/\D/g, '').slice(0, 4)); clearErr('yob'); }} />
 
         <SelectField id="wz-channel" label={w('channel')} required invalid={errors.channel} placeholder={w('choose')}
-          value={hasEvent ? '' : channel} options={channelOptions} disabled={hasEvent}
-          hint={hasEvent ? w('eventLocked') : undefined}
+          value={channel} options={channelOptions}
           onChange={(v) => { setChannel(v); setSource(''); setReferrer(''); clearErr('channel'); }} />
 
-        {!hasEvent && (channelMode === 'list' || channelMode === 'list_freetext') && (
+        {(channelMode === 'list' || channelMode === 'list_freetext') && (
           <SelectField id="wz-source" label={w('channelSource')} required invalid={errors.source} placeholder={w('choose')}
             value={source} options={sourceListOptions}
             onChange={(v) => { setSource(v); clearErr('source'); }} />
         )}
-        {!hasEvent && channelMode === 'list_freetext' && (
+        {channelMode === 'list_freetext' && (
           <TextField id="wz-referrer" label={w('referrerName')} maxLength={40} placeholder={w('optional')}
             value={referrer} onChange={(e) => setReferrer(e.target.value)} />
         )}

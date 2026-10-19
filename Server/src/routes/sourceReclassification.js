@@ -36,12 +36,14 @@ function requireRole(req, res, next) {
 const COLUMNS = new Set(['source_detail', 'referral_source']);
 const SAMPLE_LIMIT = 5;
 
-// Event/Campaign students stay off this page, except those registered to
-// StudyLink's own Fair First Date 18.7.2026 (events.id 36), which staff
-// reclassify here by hand.
-const FAIR_FIRST_DATE_EVENT_ID = 36;
+// Students still on the retired 'Event/Campaign' Source of Lead are handled in
+// their own section (/event-campaign, grouped by event), not by legacy text.
+// Once reviewed there they stay out of this list too — the reviewer already saw
+// their kept text (event name / old note) when picking the bucket.
 const INCLUDABLE = `(s.lead_source IS DISTINCT FROM 'Event/Campaign'
-  OR EXISTS (SELECT 1 FROM lead_events le WHERE le.student_id = s.student_id AND le.event_id = ${FAIR_FIRST_DATE_EVENT_ID}))`;
+  AND NOT EXISTS (SELECT 1 FROM source_reclassification_log l
+                   WHERE l.source_column = 'event_campaign' AND l.student_id = s.student_id
+                     AND l.target_lead_source = s.lead_source))`;
 
 // Still needs review: includable, and not already handled (a log entry for this
 // value whose target matches the student's current Source of Lead, since the
@@ -118,7 +120,8 @@ router.get('/legacy-values', requireRole, async (req, res) => {
     // Already-reclassified values (both columns cleared for every student that had
     // them) still show progress: how many distinct values have been handled so far.
     const done = await pool.query(
-      `SELECT COUNT(DISTINCT (source_column, legacy_value)) AS n FROM source_reclassification_log WHERE student_id IS NULL`);
+      `SELECT COUNT(DISTINCT (source_column, legacy_value)) AS n FROM source_reclassification_log
+        WHERE student_id IS NULL AND source_column IN ('source_detail', 'referral_source')`);
     res.json({ success: true, data: { values: out, reclassifiedCount: Number(done.rows[0].n) } });
   } catch (err) {
     console.error('[sourceReclassification] legacy-values failed:', err);
@@ -153,6 +156,122 @@ router.get('/legacy-values/students', requireRole, async (req, res) => {
   }
 });
 
+// Error message if the target isn't an active bucket / sub-value, else null.
+async function invalidTarget(targetLeadSource, targetSource) {
+  const sol = await pool.query(
+    `SELECT 1 FROM lookup_values WHERE category='source_of_lead' AND code=$1 AND is_active=true`, [targetLeadSource]);
+  if (!sol.rowCount) return 'Unknown or inactive targetLeadSource';
+  if (targetSource) {
+    const isB2b = targetLeadSource === 'B2B referrals';
+    const check = await pool.query(
+      isB2b
+        ? `SELECT 1 FROM lookup_values WHERE category='b2b_type' AND code=$1 AND is_active=true`
+        : `SELECT 1 FROM lookup_values WHERE category='source' AND subcategory=$2 AND code=$1 AND is_active=true`,
+      isB2b ? [targetSource] : [targetSource, targetLeadSource]);
+    if (!check.rowCount) return 'Unknown or inactive targetSource for that Source of Lead';
+  }
+  return null;
+}
+
+// ── Leads still on the retired 'Event/Campaign' Source of Lead ─────────
+// Grouped by their event (students.source holds the event name). Assigning
+// sets the real Source of Lead (how they found StudyLink, per the owner); the
+// event name moves into Source detail when nothing else is there, and the
+// Event Registration itself is untouched.
+const EVENT_KEY = `COALESCE(btrim(s.source), '')`;
+const EVENTS_AGG = `(SELECT string_agg(DISTINCT COALESCE(e.name, le.source), ', ')
+                       FROM lead_events le LEFT JOIN events e ON e.id = le.event_id
+                      WHERE le.student_id = s.student_id)`;
+
+router.get('/event-campaign', requireRole, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${EVENT_KEY} AS event, s.student_id, s.full_name
+         FROM students s WHERE s.lead_source = 'Event/Campaign'
+        ORDER BY s.created_at DESC`);
+    const byEvent = new Map();
+    for (const r of rows) {
+      if (!byEvent.has(r.event)) byEvent.set(r.event, []);
+      byEvent.get(r.event).push(r);
+    }
+    const groups = [...byEvent].map(([event, list]) => ({
+      event, count: list.length,
+      samples: list.slice(0, SAMPLE_LIMIT).map((s) => ({ studentId: s.student_id, fullName: s.full_name })),
+    })).sort((a, b) => b.count - a.count || a.event.localeCompare(b.event));
+    res.json({ success: true, data: { groups, total: rows.length } });
+  } catch (err) {
+    console.error('[sourceReclassification] event-campaign failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load Event/Campaign leads' });
+  }
+});
+
+router.get('/event-campaign/students', requireRole, async (req, res) => {
+  const event = String(req.query.event ?? '').trim();
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.student_id, s.full_name, s.source, s.source_detail, s.referral_source, s.created_at, ${EVENTS_AGG} AS events
+         FROM students s
+        WHERE s.lead_source = 'Event/Campaign' AND ${EVENT_KEY} = $1
+        ORDER BY s.created_at DESC`, [event]);
+    res.json({ success: true, data: rows.map((r) => ({
+      studentId: r.student_id, fullName: r.full_name, source: r.source,
+      sourceDetail: r.source_detail, referralSource: r.referral_source, createdAt: r.created_at, events: r.events,
+    })) });
+  } catch (err) {
+    console.error('[sourceReclassification] event-campaign students failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to load students' });
+  }
+});
+
+// Body: { event, targetLeadSource, targetSource?, targetSourceDetail?, studentId? }
+router.post('/event-campaign/assign', requireRole, async (req, res) => {
+  const event = String((req.body || {}).event ?? '').trim();
+  const targetLeadSource = (req.body.targetLeadSource || '').trim();
+  const targetSource = (req.body.targetSource || '').trim() || null;
+  const targetSourceDetail = (req.body.targetSourceDetail || '').trim() || null;
+  const studentId = (req.body.studentId || '').toString().trim() || null;
+  if (!targetLeadSource) return res.status(400).json({ success: false, error: 'targetLeadSource is required' });
+  try {
+    const bad = await invalidTarget(targetLeadSource, targetSource);
+    if (bad) return res.status(400).json({ success: false, error: bad });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const upd = await client.query(
+        `UPDATE students s
+            SET lead_source = $1, source = $2,
+                source_detail = COALESCE($3, NULLIF(btrim(s.source_detail), ''), NULLIF(btrim(s.source), '')),
+                updated_at = now()
+          WHERE s.lead_source = 'Event/Campaign' AND ${EVENT_KEY} = $4
+            AND ($5::text IS NULL OR s.student_id = $5)
+         RETURNING s.student_id`,
+        [targetLeadSource, targetSource, targetSourceDetail, event, studentId]);
+      if (upd.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ success: false, error: 'Nothing left to update here. Refresh and try again.' });
+      }
+      // One log row per student (also for a group apply) so the legacy list can
+      // tell exactly which students were already reviewed here.
+      await client.query(
+        `INSERT INTO source_reclassification_log
+           (source_column, legacy_value, target_lead_source, target_source, target_source_detail, leads_affected, applied_by, student_id)
+         SELECT 'event_campaign', $1, $2, $3, $4, 1, $5, sid FROM unnest($6::text[]) AS sid`,
+        [event, targetLeadSource, targetSource, targetSourceDetail,
+         req.session.staffName || req.session.staffEmail || 'unknown', upd.rows.map((r) => r.student_id)]);
+      await client.query('COMMIT');
+      res.json({ success: true, data: { studentsAffected: upd.rowCount } });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('[sourceReclassification] event-campaign assign failed:', err);
+    res.status(500).json({ success: false, error: 'Failed to reassign' });
+  }
+});
+
 // ── POST /assign ──────────────────────────────────────────────────────
 // Body: { column: 'source_detail'|'referral_source', value: <legacy string>,
 //         targetLeadSource: <source_of_lead code>, targetSource?: <sub-value code>,
@@ -170,21 +289,8 @@ router.post('/assign', requireRole, async (req, res) => {
   if (!targetLeadSource) return res.status(400).json({ success: false, error: 'targetLeadSource is required' });
 
   try {
-    const sol = await pool.query(
-      `SELECT 1 FROM lookup_values WHERE category='source_of_lead' AND code=$1 AND is_active=true`,
-      [targetLeadSource]);
-    if (!sol.rowCount) return res.status(400).json({ success: false, error: 'Unknown or inactive targetLeadSource' });
-
-    if (targetSource) {
-      const isB2b = targetLeadSource === 'B2B referrals';
-      const check = await pool.query(
-        isB2b
-          ? `SELECT 1 FROM lookup_values WHERE category='b2b_type' AND code=$1 AND is_active=true`
-          : `SELECT 1 FROM lookup_values WHERE category='source' AND subcategory=$2 AND code=$1 AND is_active=true`,
-        isB2b ? [targetSource] : [targetSource, targetLeadSource]
-      );
-      if (!check.rowCount) return res.status(400).json({ success: false, error: 'Unknown or inactive targetSource for that Source of Lead' });
-    }
+    const bad = await invalidTarget(targetLeadSource, targetSource);
+    if (bad) return res.status(400).json({ success: false, error: bad });
 
     const client = await pool.connect();
     try {
