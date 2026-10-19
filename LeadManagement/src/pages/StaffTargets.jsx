@@ -385,6 +385,17 @@ function StaffOffDaysSection({ roster, L, language }) {
   const [newHours, setNewHours] = useState('');
   const [saveError, setSaveError] = useState('');
   const [needing, setNeeding] = useState([]);
+  const [search, setSearch] = useState('');
+
+  // Accent- and case-insensitive, so "hanh" finds "Hạnh" and "duc" finds "Đức".
+  const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase();
+  const matches = search.trim() ? roster.filter(s => fold(s.fullName).includes(fold(search.trim()))) : roster;
+  function onSearch(v) {
+    setSearch(v);
+    const q = fold(v.trim());
+    const hits = q ? roster.filter(s => fold(s.fullName).includes(q)) : [];
+    if (hits.length === 1) setStaffId(String(hits[0].id));
+  }
 
   function reload(id) {
     reportsAPI.staffOffDaysNeedingHours().then(r => setNeeding(r?.data || [])).catch(() => {});
@@ -456,9 +467,18 @@ function StaffOffDaysSection({ roster, L, language }) {
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>{L('Employee', 'Nhân viên')}</label>
+          <input type="search" value={search} onChange={e => onSearch(e.target.value)}
+            placeholder={L('Type a name to search…', 'Gõ tên để tìm…')} aria-label={L('Search staff', 'Tìm nhân viên')}
+            style={{ padding: '0.35rem', fontSize: '0.85rem', minWidth: 200 }} />
           <select value={staffId} onChange={e => setStaffId(e.target.value)} style={{ padding: '0.35rem', fontSize: '0.85rem', minWidth: 220 }}>
-            <option value="">{L('— Select staff —', '— Chọn nhân viên —')}</option>
-            {roster.map(s => <option key={s.id} value={s.id}>{s.fullName}{s.position ? ` (${s.position})` : ''}</option>)}
+            <option value="">{search.trim()
+              ? L(`— ${matches.length} match${matches.length === 1 ? '' : 'es'} —`, `— ${matches.length} kết quả —`)
+              : L('— Select staff —', '— Chọn nhân viên —')}</option>
+            {matches.map(s => <option key={s.id} value={s.id}>{s.fullName}{s.position ? ` (${s.position})` : ''}</option>)}
+            {staffId && !matches.some(s => String(s.id) === staffId) && (() => {
+              const cur = roster.find(s => String(s.id) === staffId);
+              return cur ? <option value={cur.id}>{cur.fullName}</option> : null;
+            })()}
           </select>
         </div>
 
@@ -703,7 +723,14 @@ function PresalesHoursGrid({ L, language }) {
               <tbody>
                 {rows.map(r => (
                   <tr key={r.staffId}>
-                    <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>{r.fullName}</td>
+                    <td style={{ ...td, fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg-primary,#fff)' }}>
+                      {r.fullName}
+                      {r.onRoster === false && (
+                        <div style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--text-secondary,#9ca3af)' }}>
+                          {L('not on the round-robin now', 'hiện không trong xoay vòng')}
+                        </div>
+                      )}
+                    </td>
                     {[0, 1, 2, 3, 4, 5, 6].map(day => {
                       const c = r.cells[day] || { hours: 0 };
                       const editing = editCell && editCell.staffId === r.staffId && editCell.day === day;

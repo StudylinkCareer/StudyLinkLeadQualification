@@ -1663,13 +1663,21 @@ async function presalesWorkingHours(req, res, next) {
     const monthDate = /^\d{4}-\d{2}$/.test(mm) ? `${mm}-01` : null;
     if (!monthDate) return res.status(400).json({ success: false, error: 'month (YYYY-MM) is required' });
 
+    // Current roster, plus anyone with hours set for THIS month — so a past
+    // month still shows (and lets you edit) someone who has since left the
+    // round-robin.
     const roster = (await pool.query(`
-      SELECT t.staff_id, t.sort_order, t.slot_mode, s.full_name
+      SELECT t.staff_id, t.sort_order, t.slot_mode, s.full_name, true AS on_roster
         FROM uncontactable_transfer_presales_staff t
         JOIN staff s ON s.id = t.staff_id
        WHERE s.is_active = true
-       ORDER BY t.sort_order, s.full_name
-    `)).rows;
+      UNION
+      SELECT s.id, 1000000, NULL, s.full_name, false
+        FROM staff s
+       WHERE s.id IN (SELECT staff_id FROM presales_working_hours WHERE month = $1)
+         AND s.id NOT IN (SELECT staff_id FROM uncontactable_transfer_presales_staff)
+       ORDER BY 2, 4
+    `, [monthDate])).rows;
     const staffIds = roster.map((r) => r.staff_id);
     const hourRows = staffIds.length ? (await pool.query(
       `SELECT staff_id, day_of_week, hours, updated_by, updated_at
@@ -1684,7 +1692,7 @@ async function presalesWorkingHours(req, res, next) {
         const h = hoursMap.get(`${r.staff_id}|${d}`);
         cells[d] = { hours: h ? Number(h.hours) : 0, updatedBy: h ? h.updated_by : null, updatedAt: h ? h.updated_at : null };
       }
-      return { staffId: r.staff_id, fullName: r.full_name, slotMode: r.slot_mode, cells };
+      return { staffId: r.staff_id, fullName: r.full_name, slotMode: r.slot_mode, onRoster: r.on_roster, cells };
     });
     res.json({ success: true, data: { month: mm, days: [0, 1, 2, 3, 4, 5, 6], rows } });
   } catch (err) { next(err); }
