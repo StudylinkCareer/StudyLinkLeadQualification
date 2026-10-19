@@ -147,17 +147,42 @@ async function main() {
           source text, source_detail text, referral_source text,
           archived_at timestamptz NOT NULL DEFAULT now()
         )`);
+      // A column dropped by an earlier run (e.g. campaign_type) can't be read any
+      // more: its earlier archived value is kept; every other column is refreshed.
+      const ARCH = [['campaign_type', 'text'], ['campaign_name', 'text'], ['campaign_start', 'date'], ['campaign_end', 'date'],
+                    ['source', 'text'], ['source_detail', 'text'], ['referral_source', 'text']];
+      const present = new Set();
+      for (const [c] of ARCH) if (await colExists(client, 'students', c)) present.add(c);
+      const selectList = ARCH.map(([c, t]) => (present.has(c) ? c : `NULL::${t} AS ${c}`)).join(', ');
+      const setList = ARCH.map(([c]) => (present.has(c) ? `${c} = EXCLUDED.${c}` : `${c} = students_source_backup.${c}`)).join(', ');
       const upsert = await client.query(`
         INSERT INTO public.students_source_backup
-          (student_id, campaign_type, campaign_name, campaign_start, campaign_end, source, source_detail, referral_source, archived_at)
-        SELECT student_id, campaign_type, campaign_name, campaign_start, campaign_end, source, source_detail, referral_source, now()
+          (student_id, ${ARCH.map(([c]) => c).join(', ')}, archived_at)
+        SELECT student_id, ${selectList}, now()
           FROM public.students
-        ON CONFLICT (student_id) DO UPDATE SET
-          campaign_type = EXCLUDED.campaign_type, campaign_name = EXCLUDED.campaign_name,
-          campaign_start = EXCLUDED.campaign_start, campaign_end = EXCLUDED.campaign_end,
-          source = EXCLUDED.source, source_detail = EXCLUDED.source_detail,
-          referral_source = EXCLUDED.referral_source, archived_at = now()`);
+        ON CONFLICT (student_id) DO UPDATE SET ${setList}, archived_at = now()`);
       console.log(`  archived/refreshed ${upsert.rowCount} student rows.`);
+
+      // lead_events carries its own source/source_detail copies (dropped by
+      // --drop-source / --drop-legacy-detail) — archive those too, per row.
+      const leCols = [];
+      for (const col of ['source', 'source_detail']) if (await colExists(client, 'lead_events', col)) leCols.push(col);
+      if (leCols.length && toTouch.some(([t]) => t === 'lead_events')) {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS public.lead_events_source_backup (
+            lead_event_id integer PRIMARY KEY,
+            student_id text, event_id integer,
+            source text, source_detail text,
+            archived_at timestamptz NOT NULL DEFAULT now()
+          )`);
+        const sel = ['source', 'source_detail'].map(c => (leCols.includes(c) ? c : `NULL::text AS ${c}`)).join(', ');
+        const le = await client.query(`
+          INSERT INTO public.lead_events_source_backup (lead_event_id, student_id, event_id, source, source_detail, archived_at)
+          SELECT id, student_id, event_id, ${sel}, now() FROM public.lead_events
+          ON CONFLICT (lead_event_id) DO UPDATE SET
+            source = EXCLUDED.source, source_detail = EXCLUDED.source_detail, archived_at = now()`);
+        console.log(`  archived/refreshed ${le.rowCount} lead_events rows.`);
+      }
     }
 
     for (const [table, col, type] of toTouch) {

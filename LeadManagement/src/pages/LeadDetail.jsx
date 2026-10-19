@@ -1277,6 +1277,33 @@ export default function LeadDetail() {
   };
   const sourceDetailOptsFor = (sol, src) =>
     modeOf(sol) === 'b2b' ? b2bPartyList.filter(o => o.subcategory === src).map(o => o.code) : undefined;
+  // Event Registrations: Source of Lead / Source as dropdowns from the same
+  // fixed lists (a retired current value, e.g. old 'Event/Campaign' rows,
+  // still shows). Changing Source of Lead clears Source.
+  const regSelectStyle = { width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' };
+  function regSourceCells(sol, src, onSol, onSrc) {
+    const srcOpts = sourceOptsFor(sol);
+    return (
+      <>
+        <td style={{ padding:'0.5rem' }}>
+          <select value={sol || ''} onChange={e => onSol(e.target.value)} style={regSelectStyle} aria-label="Source of lead">
+            <option value="">{'—'}</option>
+            {withCur(sourceOfLeadOpts, sol).map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </td>
+        <td style={{ padding:'0.5rem' }}>
+          {srcOpts ? (
+            <select value={src || ''} onChange={e => onSrc(e.target.value)} style={regSelectStyle} aria-label="Source">
+              <option value="">{'—'}</option>
+              {withCur(srcOpts, src).map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{src || '—'}</span>
+          )}
+        </td>
+      </>
+    );
+  }
   const [noteType,     setNoteType]     = useState('counselor');
   const [addingNote,   setAdding]       = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
@@ -2169,18 +2196,9 @@ export default function LeadDetail() {
                   <tbody>
                     {registrations.map(r => (
                       <tr key={r.id} style={{ borderBottom:'1px solid var(--border)' }}>
-                        <td style={{ padding:'0.5rem' }}>
-                          <input value={r.sourceOfLead || ''} placeholder={'\u2014'}
-                                 onChange={e => setRegistrations(rs => rs.map(x => x.id === r.id ? { ...x, sourceOfLead: e.target.value } : x))}
-                                 onBlur={e => handleRegField(r.id, { sourceOfLead: e.target.value.trim() || null })}
-                                 style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }} />
-                        </td>
-                        <td style={{ padding:'0.5rem' }}>
-                          <input value={r.source || ''} placeholder={'\u2014'}
-                                 onChange={e => setRegistrations(rs => rs.map(x => x.id === r.id ? { ...x, source: e.target.value } : x))}
-                                 onBlur={e => handleRegField(r.id, { source: e.target.value.trim() || null })}
-                                 style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }} />
-                        </td>
+                        {regSourceCells(r.sourceOfLead, r.source,
+                          (v) => handleRegField(r.id, { sourceOfLead: v || null, source: null }),
+                          (v) => handleRegField(r.id, { source: v || null }))}
                         <td style={{ padding:'0.5rem' }}>{r.name || '\u2014'}</td>
                         <td style={{ padding:'0.5rem' }}>{r.startDate || '\u2014'}</td>
                         <td style={{ padding:'0.5rem' }}>{r.endDate || '\u2014'}</td>
@@ -2203,14 +2221,9 @@ export default function LeadDetail() {
                     ))}
                     {/* Add-event row - inputs sit directly under their columns */}
                     <tr style={{ borderTop:'2px solid var(--border)' }}>
-                      <td style={{ padding:'0.5rem' }}>
-                        <input value={addSourceOfLead} onChange={e => setAddSourceOfLead(e.target.value)} placeholder="Source of lead"
-                               style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }} />
-                      </td>
-                      <td style={{ padding:'0.5rem' }}>
-                        <input value={addSource} onChange={e => setAddSource(e.target.value)} placeholder="Source"
-                               style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }} />
-                      </td>
+                      {regSourceCells(addSourceOfLead, addSource,
+                        (v) => { setAddSourceOfLead(v); setAddSource(''); },
+                        (v) => setAddSource(v))}
                       <td style={{ padding:'0.5rem' }}>
                         <select value={addEventId} onChange={e => setAddEventId(e.target.value)}
                                 style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }}>

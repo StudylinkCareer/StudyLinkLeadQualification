@@ -101,7 +101,9 @@ export default function Register() {
       sourceDetail: !hasEvent && mode === 'list_freetext' ? referrer.trim() : '',
       sourceUnverified: false,
       counsellor: qrCounsellor || (ev && ev.dedicatedCounsellor) || '',
-      eventId: hasEvent && ev ? ev.id : null,
+      // The QR's event may be past its public date window (late sign-up) — still
+      // send its id; the server links it if the event exists and isn't hidden.
+      eventId: !hasEvent ? null : ev ? ev.id : (eventChoice === 'qr-text' && qr && qr.eid ? Number(qr.eid) : null),
     };
   };
 

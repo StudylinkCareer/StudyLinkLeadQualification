@@ -26,8 +26,14 @@ async function appendRegistration(studentId, f = {}, db = pool) {
   const source       = (f.source       || '').trim();
   const sourceDetail = (f.sourceDetail || '').trim();
   const counsellor   = (f.counsellor   || '').trim();
-  const eventId      = f.eventId || null;
   const unverified   = !!f.sourceUnverified;
+  // Accept any real, not manually hidden event — including one past its date
+  // window, so a late sign-up from that event's QR still counts for it.
+  let eventId = Number.isInteger(Number(f.eventId)) && Number(f.eventId) > 0 ? Number(f.eventId) : null;
+  if (eventId) {
+    const ok = await db.query(`SELECT 1 FROM events WHERE id = $1 AND is_active = true`, [eventId]);
+    if (!ok.rowCount) eventId = null;
+  }
 
   // lead_events has UNIQUE(student_id, event_id). A returning student re-registering
   // via the SAME event (event_id not null) would otherwise violate it, so upsert:
