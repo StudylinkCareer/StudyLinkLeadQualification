@@ -291,8 +291,12 @@ export default function LeadDistribution() {
           </div>
           {fileName && <p style={{ color: '#6b7280', fontSize: '.85rem', marginBottom: 0 }}>{fileName}</p>}
           {uploadResult && (
-            <div style={{ marginTop: '1rem', padding: '.75rem 1rem', borderRadius: 8, background: '#f0fdf4', border: '1px solid #86efac' }}>
+            <div style={{ marginTop: '1rem', padding: '.75rem 1rem', borderRadius: 8,
+                          ...(uploadResult.inserted > 0 || uploadResult.eventLinked > 0
+                            ? { background: '#f0fdf4', border: '1px solid #86efac' }
+                            : { background: '#fffbeb', border: '1px solid #fcd34d' }) }}>
               {vi ? 'Đã thêm' : 'Added'} <b>{uploadResult.inserted}</b> · {uploadResult.review} {vi ? 'sang Xem xét' : 'to Review'} · {uploadResult.owned} {vi ? 'đã có nhân viên' : 'already-owned'} · {vi ? 'bỏ qua (trùng)' : 'skipped (dupes)'} {uploadResult.skipped} · {vi ? 'lỗi' : 'failed'} {uploadResult.failed}
+              {uploadResult.parked > 0 && <> · {vi ? 'chờ xử lý trùng' : 'held for duplicate review'} <b>{uploadResult.parked}</b></>}
               {uploadResult.invalid > 0 && <> · <span style={{ color: '#b91c1c' }}>{vi ? 'sai nguồn/sự kiện' : 'wrong source/event'} <b>{uploadResult.invalid}</b></span></>}
               {uploadResult.eventLinked > 0 && <div style={{ marginTop: 6, fontSize: '.85rem', color: '#374151' }}>{vi ? `${uploadResult.eventLinked} lead đã được ghi nhận đăng ký sự kiện.` : `${uploadResult.eventLinked} lead(s) registered to their event.`}</div>}
               {uploadResult.errorFileBase64 && (
