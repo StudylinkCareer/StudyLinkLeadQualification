@@ -1152,6 +1152,7 @@ export default function LeadDetail() {
   const [addEventStatus, setAddEventStatus] = useState('');
   const [addSourceOfLead, setAddSourceOfLead] = useState('');
   const [addSource, setAddSource]         = useState('');
+  const [addSourceDetail, setAddSourceDetail] = useState('');
   const [addingEvent, setAddingEvent]     = useState(false);
   // Registrations (lead_events) are person-level; they're loaded by the main
   // fetch below once the owning student id is known.
@@ -1189,6 +1190,17 @@ export default function LeadDetail() {
       alert(e.message || 'Failed to save');
     }
   }
+  // Link a registration that has no event yet (e.g. from an Excel import) to one.
+  async function handleRegEvent(regId, eventId) {
+    if (!eventId) return;
+    try {
+      await leadEventsAPI.update(regId, { eventId: Number(eventId) });
+      const regs = await leadEventsAPI.list(lead?.studentId);
+      setRegistrations(regs.data || []);
+    } catch (e) {
+      alert(e.message || 'Failed to link event');
+    }
+  }
   // Link a new event registration to this person, then reload the list.
   async function addRegistration() {
     const sid = lead?.studentId;
@@ -1198,10 +1210,11 @@ export default function LeadDetail() {
       await leadEventsAPI.add({
         studentId: sid, eventId: Number(addEventId), status: addEventStatus || null,
         sourceOfLead: addSourceOfLead || null, source: addSource || null,
+        sourceDetail: addSourceDetail.trim() || null,
       });
       const regs = await leadEventsAPI.list(sid);
       setRegistrations(regs.data || []);
-      setAddEventId(''); setAddEventStatus(''); setAddSourceOfLead(''); setAddSource('');
+      setAddEventId(''); setAddEventStatus(''); setAddSourceOfLead(''); setAddSource(''); setAddSourceDetail('');
     } catch (e) {
       alert(e.message || 'Failed to add event');
     } finally {
@@ -1277,28 +1290,48 @@ export default function LeadDetail() {
   };
   const sourceDetailOptsFor = (sol, src) =>
     modeOf(sol) === 'b2b' ? b2bPartyList.filter(o => o.subcategory === src).map(o => o.code) : undefined;
-  // Event Registrations: Source of Lead / Source as dropdowns from the same
-  // fixed lists (a retired current value, e.g. old 'Event/Campaign' rows,
-  // still shows). Changing Source of Lead clears Source.
-  const regSelectStyle = { width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' };
-  function regSourceCells(sol, src, onSol, onSrc) {
+  // Event Registrations follow the owner's model: the Event/Campaign is the
+  // event itself; Source of Lead / Source / detail say how the person heard
+  // about it (one of the 5 buckets). Dropdowns use the fixed lists; a retired
+  // current value (old 'Event/Campaign' rows) still shows, flagged to change.
+  // Changing Source of Lead clears Source.
+  const regSelectStyle = { width:'100%', minWidth:110, padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' };
+  const regFlagStyle = { ...regSelectStyle, border:'1px solid #d97706', background:'#fffbeb' };
+  function regSourceCells(sol, src, detail, onSol, onSrc, onDetail) {
     const srcOpts = sourceOptsFor(sol);
+    const detailOpts = sourceDetailOptsFor(sol, src);
+    const retired = !!sol && !sourceOfLeadOpts.includes(sol);
+    const solLabel = (code) => { const o = solItems.find(x => x.code === code); return (o && o.label) || code; };
     return (
       <>
         <td style={{ padding:'0.5rem' }}>
-          <select value={sol || ''} onChange={e => onSol(e.target.value)} style={regSelectStyle} aria-label="Source of lead">
-            <option value="">{'—'}</option>
-            {withCur(sourceOfLeadOpts, sol).map(o => <option key={o} value={o}>{o}</option>)}
+          <select value={sol || ''} onChange={e => onSol(e.target.value)} style={retired ? regFlagStyle : regSelectStyle}
+                  aria-label="Source of lead" title={retired ? 'Retired value: pick how this person heard about the event' : undefined}>
+            <option value="">{'\u2014'}</option>
+            {retired && <option value={sol}>{sol} (retired, please change)</option>}
+            {sourceOfLeadOpts.map(o => <option key={o} value={o}>{solLabel(o)}</option>)}
           </select>
         </td>
         <td style={{ padding:'0.5rem' }}>
-          {srcOpts ? (
+          {srcOpts && srcOpts.length ? (
             <select value={src || ''} onChange={e => onSrc(e.target.value)} style={regSelectStyle} aria-label="Source">
-              <option value="">{'—'}</option>
+              <option value="">{'\u2014'}</option>
               {withCur(srcOpts, src).map(o => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : (
-            <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{src || '—'}</span>
+            <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{src || '\u2014'}</span>
+          )}
+        </td>
+        <td style={{ padding:'0.5rem' }}>
+          {detailOpts && detailOpts.length ? (
+            <select value={detail || ''} onChange={e => onDetail(e.target.value)} style={regSelectStyle} aria-label="Source detail">
+              <option value="">{'\u2014'}</option>
+              {withCur(detailOpts, detail).map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <input key={detail || ''} defaultValue={detail || ''} aria-label="Source detail" style={regSelectStyle}
+                   placeholder={modeOf(sol) === 'list_freetext' ? 'Referrer name' : 'Detail (optional)'}
+                   onBlur={e => { const v = e.target.value.trim(); if (v !== (detail || '')) onDetail(v); }} />
           )}
         </td>
       </>
@@ -2185,23 +2218,33 @@ export default function LeadDetail() {
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.85rem' }}>
                   <thead>
                     <tr style={{ borderBottom:'1px solid var(--border)', textAlign:'left', color:'var(--text-secondary)' }}>
-                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Source of Lead</th>
-                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Source</th>
-                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Event</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Event/Campaign</th>
                       <th style={{ padding:'0.5rem', fontWeight:600 }}>Start</th>
                       <th style={{ padding:'0.5rem', fontWeight:600 }}>End</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }} title="How this person heard about the event">Source of Lead</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Source</th>
+                      <th style={{ padding:'0.5rem', fontWeight:600 }}>Source detail</th>
                       <th style={{ padding:'0.5rem', fontWeight:600, width:'150px' }}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {registrations.map(r => (
                       <tr key={r.id} style={{ borderBottom:'1px solid var(--border)' }}>
-                        {regSourceCells(r.sourceOfLead, r.source,
+                        <td style={{ padding:'0.5rem' }}>
+                          {r.eventId ? (r.name || '\u2014') : (
+                            <select value="" onChange={e => handleRegEvent(r.id, e.target.value)} style={regFlagStyle} aria-label="Link event"
+                                    title="This registration has no event yet">
+                              <option value="">No event, link one...</option>
+                              {availableEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.group ? (ev.group + ' - ') : ''}{ev.name}</option>)}
+                            </select>
+                          )}
+                        </td>
+                        <td style={{ padding:'0.5rem', whiteSpace:'nowrap' }}>{r.startDate || '\u2014'}</td>
+                        <td style={{ padding:'0.5rem', whiteSpace:'nowrap' }}>{r.endDate || '\u2014'}</td>
+                        {regSourceCells(r.sourceOfLead, r.source, r.sourceDetail,
                           (v) => handleRegField(r.id, { sourceOfLead: v || null, source: null }),
-                          (v) => handleRegField(r.id, { source: v || null }))}
-                        <td style={{ padding:'0.5rem' }}>{r.name || '\u2014'}</td>
-                        <td style={{ padding:'0.5rem' }}>{r.startDate || '\u2014'}</td>
-                        <td style={{ padding:'0.5rem' }}>{r.endDate || '\u2014'}</td>
+                          (v) => handleRegField(r.id, { source: v || null }),
+                          (v) => handleRegField(r.id, { sourceDetail: v || null }))}
                         <td style={{ padding:'0.5rem' }}>
                           <div style={{ display:'flex', gap:6, alignItems:'center' }}>
                             <select value={r.status || ''} onChange={e => handleRegStatus(r.id, e.target.value)}
@@ -2221,18 +2264,18 @@ export default function LeadDetail() {
                     ))}
                     {/* Add-event row - inputs sit directly under their columns */}
                     <tr style={{ borderTop:'2px solid var(--border)' }}>
-                      {regSourceCells(addSourceOfLead, addSource,
-                        (v) => { setAddSourceOfLead(v); setAddSource(''); },
-                        (v) => setAddSource(v))}
                       <td style={{ padding:'0.5rem' }}>
-                        <select value={addEventId} onChange={e => setAddEventId(e.target.value)}
-                                style={{ width:'100%', padding:'0.25rem 0.4rem', borderRadius:4, border:'1px solid var(--border)', fontSize:'0.8rem', boxSizing:'border-box' }}>
+                        <select value={addEventId} onChange={e => setAddEventId(e.target.value)} style={regSelectStyle} aria-label="Add event">
                           <option value="">+ add an event...</option>
                           {availableEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.group ? (ev.group + ' - ') : ''}{ev.name}</option>)}
                         </select>
                       </td>
                       <td style={{ padding:'0.5rem', color:'var(--text-secondary)' }}>-</td>
                       <td style={{ padding:'0.5rem', color:'var(--text-secondary)' }}>-</td>
+                      {regSourceCells(addSourceOfLead, addSource, addSourceDetail,
+                        (v) => { setAddSourceOfLead(v); setAddSource(''); },
+                        (v) => setAddSource(v),
+                        (v) => setAddSourceDetail(v))}
                       <td style={{ padding:'0.5rem' }}>
                         <div style={{ display:'flex', gap:6, alignItems:'center' }}>
                           <select value={addEventStatus} onChange={e => setAddEventStatus(e.target.value)}

@@ -147,6 +147,14 @@ router.put('/:id', requireStaff, async (req, res) => {
     if (s && !ALLOWED_STATUS.has(s)) return res.status(400).json({ success: false, error: 'Invalid status' });
   }
   const sets = [], vals = [];
+  // Linking a registration that has no event yet (e.g. an Excel import) to one.
+  if (req.body && req.body.eventId !== undefined) {
+    const eid = Number(req.body.eventId);
+    if (!Number.isInteger(eid) || eid <= 0) return res.status(400).json({ success: false, error: 'Invalid eventId' });
+    const ok = await pool.query(`SELECT 1 FROM events WHERE id = $1`, [eid]);
+    if (!ok.rowCount) return res.status(400).json({ success: false, error: 'Event not found' });
+    vals.push(eid); sets.push(`event_id = $${vals.length}`);
+  }
   for (const [jsKey, col] of Object.entries(PATCHABLE)) {
     if (jsKey in (req.body || {})) { vals.push(norm(req.body[jsKey])); sets.push(`${col} = $${vals.length}`); }
   }
@@ -160,6 +168,7 @@ router.put('/:id', requireStaff, async (req, res) => {
     if (upd.rowCount === 0) return res.status(404).json({ success: false, error: 'Registration not found' });
     res.json({ success: true });
   } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ success: false, error: 'This person is already registered for that event' });
     console.error('[leadEvents] update failed:', err);
     res.status(500).json({ success: false, error: 'Failed to update' });
   }
