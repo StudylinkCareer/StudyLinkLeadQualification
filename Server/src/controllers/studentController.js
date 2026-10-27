@@ -183,7 +183,27 @@ async function register(req, res, next) {
       // to Pool, owned by Quality (Mạch Nguyễn Phi Vân). Applies to console-launched
       // and customer-facing self-registration alike.
       const coun = (counsellor || '').trim();
-      if (coun) {
+      // A returning customer whose record is already in a working phase keeps
+      // that phase and owner; the new lead goes to the same owner. Without this
+      // a re-sign-up silently reset owned (even Contracted) records to Pool.
+      const { slotsForPhase } = require('../utils/orderPhase');
+      const keepPhase = existingStudent && !coun ? await (async () => {
+        const ph = (await client.query(`SELECT order_phase FROM students WHERE student_id=$1`, [student.studentId])).rows[0]?.order_phase;
+        if (!ph || ph === 'Pool') return null;
+        const position = slotsForPhase(ph)[0];
+        const owner = position && (await client.query(
+          `SELECT staff_name FROM order_assignments WHERE student_id=$1 AND position=$2`, [student.studentId, position])).rows[0]?.staff_name;
+        return owner ? { ph, position, owner } : null;
+      })() : null;
+      if (keepPhase) {
+        const col = OrderAssignment.POSITION_COLUMN[keepPhase.position];
+        if (col) {
+          await client.query(
+            `UPDATE leads SET ${col}=$2, updated_at=now()
+              WHERE person_id=$1 AND lead_status='New' AND COALESCE(${col},'')=''`,
+            [student.studentId, keepPhase.owner]);
+        }
+      } else if (coun) {
         await client.query(`UPDATE students SET counselor=$2, order_phase='Counselling', updated_at=now() WHERE student_id=$1`, [student.studentId, coun]);
         await OrderAssignment.setForOrder(client, student.studentId, 'Counselor', coun);
       } else {
@@ -192,8 +212,12 @@ async function register(req, res, next) {
       }
       // Keep the response snapshot in step with what was just written — the
       // create() snapshot predates this block, and the LQ app round-trips it.
-      student.counselor  = coun || '';
-      student.orderPhase = coun ? 'Counselling' : 'Pool';
+      if (keepPhase) {
+        student.orderPhase = keepPhase.ph;
+      } else {
+        student.counselor  = coun || '';
+        student.orderPhase = coun ? 'Counselling' : 'Pool';
+      }
 
       // Append the registration event row + populate student-level Source if empty.
       await appendRegistration(student.studentId, {
