@@ -39,9 +39,24 @@ const READABLE = new Set([...EDITABLE, 'source_of_lead', 'source']);
 const isEditable = (category, subcategory) =>
   EDITABLE.has(category) || (category === 'source' && subcategory === 'Databases');
 const norm  = (v) => { const s = (v ?? '').toString().trim(); return s === '' ? null : s; };
+// B2B parties (sub-agents, partners) carry contact details in meta. sbsCode is
+// the old SBS (FileMaker) code, kept so staff can look subs up (owner, 2026-10).
+const DETAIL_KEYS = { sbsCode: 'sbs_code', manager: 'manager', email: 'email', phone: 'phone', note: 'note' };
+const detailsOf = (meta) => Object.fromEntries(Object.entries(DETAIL_KEYS).map(([k, m]) => [k, (meta && meta[m]) || null]));
+// Merge only the detail keys sent; an empty value removes that key.
+function mergeDetails(meta, details) {
+  const out = { ...(meta || {}) };
+  for (const [k, m] of Object.entries(DETAIL_KEYS)) {
+    if (!details || !(k in details)) continue;
+    const v = norm(details[k]);
+    if (v) out[m] = v; else delete out[m];
+  }
+  return out;
+}
 const shape = (r) => ({
   id: r.id, code: r.code, labelEn: r.label_en || null, labelVi: r.label_vi || null,
   subcategory: r.subcategory || null, mode: (r.meta && r.meta.mode) || null,
+  ...(r.category === 'b2b_party' ? detailsOf(r.meta) : {}),
 });
 
 // ── PUBLIC: selectable counsellors for the LQ form (no auth) ──────────────────
@@ -104,7 +119,7 @@ router.get('/', requireRole, async (req, res) => {
   if (subcategory) { params.push(subcategory); conds.push(`COALESCE(subcategory,'') = $${params.length}`); }
   try {
     const r = await pool.query(
-      `SELECT id, code, label_en, label_vi, subcategory, meta FROM lookup_values
+      `SELECT id, category, code, label_en, label_vi, subcategory, meta FROM lookup_values
         WHERE ${conds.join(' AND ')} ORDER BY sort_order ASC, code ASC`, params);
     res.json({ success: true, data: r.rows.map(shape) });
   } catch (err) {
@@ -122,7 +137,7 @@ router.post('/', requireRole, async (req, res) => {
   const mode        = norm(req.body.mode);
   if (!category || !isEditable(category, subcategory)) return res.status(400).json({ success: false, error: 'Unknown list' });
   if (!code) return res.status(400).json({ success: false, error: 'Name is required' });
-  const meta = mode ? { mode } : {};
+  const meta = mergeDetails(mode ? { mode } : {}, category === 'b2b_party' ? req.body.details : null);
   try {
     const ns = await pool.query(
       `SELECT COALESCE(MAX(sort_order),-1)+1 AS n FROM lookup_values WHERE category=$1 AND COALESCE(subcategory,'')=COALESCE($2,'')`,
@@ -130,7 +145,7 @@ router.post('/', requireRole, async (req, res) => {
     const ins = await pool.query(
       `INSERT INTO lookup_values (category, subcategory, code, label_en, label_vi, sort_order, is_active, meta)
        VALUES ($1,$2,$3,$4,$5,$6,true,$7::jsonb)
-       RETURNING id, code, label_en, label_vi, subcategory, meta`,
+       RETURNING id, category, code, label_en, label_vi, subcategory, meta`,
       [category, subcategory, code, labelEn, labelVi, ns.rows[0].n, JSON.stringify(meta)]);
     res.json({ success: true, data: shape(ins.rows[0]) });
   } catch (err) {
@@ -139,7 +154,7 @@ router.post('/', requireRole, async (req, res) => {
         const re = await pool.query(
           `UPDATE lookup_values SET is_active=true, label_en=$4, label_vi=$5, meta=COALESCE(meta,'{}'::jsonb)||$6::jsonb
             WHERE category=$1 AND COALESCE(subcategory,'')=COALESCE($2,'') AND code=$3
-            RETURNING id, code, label_en, label_vi, subcategory, meta`,
+            RETURNING id, category, code, label_en, label_vi, subcategory, meta`,
           [category, subcategory, code, labelEn, labelVi, JSON.stringify(meta)]);
         if (re.rowCount) return res.json({ success: true, data: shape(re.rows[0]), reactivated: true });
       } catch (e2) { console.error('[referenceData] reactivate failed:', e2); }
@@ -169,16 +184,18 @@ router.put('/:id', requireRole, async (req, res) => {
       }
       vals.push(c); sets.push(`code = $${vals.length}`);
     }
-    if (req.body.mode !== undefined) {
-      const meta = ex.rows[0].meta || {};
-      const m = norm(req.body.mode); if (m) meta.mode = m; else delete meta.mode;
+    const wantsDetails = ex.rows[0].category === 'b2b_party' && req.body.details && typeof req.body.details === 'object';
+    if (req.body.mode !== undefined || wantsDetails) {
+      let meta = ex.rows[0].meta || {};
+      if (req.body.mode !== undefined) { const m = norm(req.body.mode); if (m) meta.mode = m; else delete meta.mode; }
+      if (wantsDetails) meta = mergeDetails(meta, req.body.details);
       vals.push(JSON.stringify(meta)); sets.push(`meta = $${vals.length}::jsonb`);
     }
     if (sets.length === 0) return res.status(400).json({ success: false, error: 'No fields to update' });
     vals.push(id);
     const upd = await pool.query(
       `UPDATE lookup_values SET ${sets.join(', ')} WHERE id=$${vals.length}
-       RETURNING id, code, label_en, label_vi, subcategory, meta`, vals);
+       RETURNING id, category, code, label_en, label_vi, subcategory, meta`, vals);
     res.json({ success: true, data: shape(upd.rows[0]) });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ success: false, error: 'That entry already exists' });

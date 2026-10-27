@@ -31,15 +31,29 @@ const CATALOG = [
   { type: 'item', key: 'source:Databases', label: 'Databases', labelVi: 'Cơ sở dữ liệu', category: 'source', subcategory: 'Databases' },
   { type: 'item', key: 'b2b_type', label: 'B2B Type', labelVi: 'Loại B2B', category: 'b2b_type', subcategory: null },
   { type: 'group', label: 'B2B Party', labelVi: 'Đối tác B2B', items: [
-    { key: 'b2b_party:Subagents',       label: 'Subagents',       labelVi: 'Sub-agent',           category: 'b2b_party', subcategory: 'Subagents' },
-    { key: 'b2b_party:Partners',        label: 'Partners',        labelVi: 'Đối tác',             category: 'b2b_party', subcategory: 'Partners' },
-    { key: 'b2b_party:School Outreach', label: 'School Outreach', labelVi: 'Tiếp cận trường học', category: 'b2b_party', subcategory: 'School Outreach' },
+    { key: 'b2b_party:Subagents',       label: 'Subagents',       labelVi: 'Sub-agent',           category: 'b2b_party', subcategory: 'Subagents', details: true },
+    { key: 'b2b_party:Partners',        label: 'Partners',        labelVi: 'Đối tác',             category: 'b2b_party', subcategory: 'Partners', details: true },
+    { key: 'b2b_party:School Outreach', label: 'School Outreach', labelVi: 'Tiếp cận trường học', category: 'b2b_party', subcategory: 'School Outreach', details: true },
   ]},
   { type: 'item', key: 'attendance_status', label: 'Attendance Status', labelVi: 'Trạng thái tham dự', category: 'attendance_status', subcategory: null },
 ];
 
+// B2B parties carry contact details (owner, 2026-10): old SBS code, who manages
+// the sub, email, phone, note. Shown as columns and searchable.
+const DETAIL_FIELDS = [
+  { key: 'sbsCode', en: 'SBS code', vi: 'Mã SBS', width: 90 },
+  { key: 'manager', en: 'Managed by', vi: 'Phụ trách', width: 150 },
+  { key: 'email',   en: 'Email', vi: 'Email', width: 200 },
+  { key: 'phone',   en: 'Phone', vi: 'Điện thoại', width: 140 },
+  { key: 'note',    en: 'Note', vi: 'Ghi chú', width: 160 },
+];
+const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+
 function ListEditor({ node, language }) {
   const showMode = !!node.showMode;
+  const showDetails = !!node.details;
+  const [details, setDetails] = useState({});
+  const [search, setSearch]   = useState('');
   const [rows, setRows]       = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
@@ -74,12 +88,13 @@ function ListEditor({ node, language }) {
       const body = { category: node.category, subcategory: node.subcategory || undefined,
         code: code.trim(), labelEn: labelEn.trim(), labelVi: labelVi.trim() };
       if (showMode) body.mode = mode;
+      if (showDetails) body.details = details;
       const r = await fetch('/api/reference-data', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'Add failed');
-      setCode(''); setLabelEn(''); setLabelVi(''); setMode('list'); setError(''); await load();
+      setCode(''); setLabelEn(''); setLabelVi(''); setMode('list'); setDetails({}); setError(''); await load();
     } catch (err) {
       setError(err.message || 'Failed to add');
     } finally { setAdding(false); }
@@ -90,6 +105,7 @@ function ListEditor({ node, language }) {
     try {
       const body = { code: ev.code.trim(), labelEn: (ev.labelEn || '').trim(), labelVi: (ev.labelVi || '').trim() };
       if (showMode) body.mode = ev.mode || '';
+      if (showDetails) body.details = Object.fromEntries(DETAIL_FIELDS.map(f => [f.key, ev[f.key] || '']));
       const r = await fetch(`/api/reference-data/${ev.id}`, {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -114,6 +130,9 @@ function ListEditor({ node, language }) {
   }
 
   const nameLabel = language === 'vi' ? 'Tên (bắt buộc)' : 'Name (required)';
+  const q = fold(search.trim());
+  const shown = !q ? rows : rows.filter(r => fold([r.code, r.labelEn, r.labelVi, ...DETAIL_FIELDS.map(f => r[f.key])].join(' ')).includes(q));
+  const dl = (f) => (language === 'vi' ? f.vi : f.en);
 
   return (
     <div>
@@ -145,6 +164,13 @@ function ListEditor({ node, language }) {
               </select>
             </div>
           )}
+          {showDetails && DETAIL_FIELDS.map(f => (
+            <div key={f.key}>
+              <label style={lbl}>{dl(f)}</label>
+              <input value={details[f.key] || ''} onChange={e => setDetails({ ...details, [f.key]: e.target.value })}
+                     placeholder={language === 'vi' ? 'không bắt buộc' : 'optional'} style={inputStyle} aria-label={f.en} />
+            </div>
+          ))}
           <button type="submit" disabled={adding || !code.trim()}
                   style={{ padding: '8px 16px', borderRadius: 4, border: 'none', background: 'var(--primary)', color: 'white', fontWeight: 600,
                            cursor: (adding || !code.trim()) ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -153,6 +179,13 @@ function ListEditor({ node, language }) {
         </div>
       </form>
 
+      {showDetails && rows.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, maxWidth: 360 }} aria-label="Search list"
+                 placeholder={language === 'vi' ? 'Tìm theo tên, mã SBS, email, SĐT, người phụ trách…' : 'Search name, SBS code, email, phone, manager…'} />
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{shown.length} / {rows.length}</span>
+        </div>
+      )}
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>{language === 'vi' ? 'Đang tải...' : 'Loading...'}</div>
       ) : rows.length === 0 ? (
@@ -163,19 +196,25 @@ function ListEditor({ node, language }) {
             <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left' }}>
               <th style={{ padding: '8px 4px', width: 40 }}>#</th>
               <th style={{ padding: '8px 4px' }}>{language === 'vi' ? 'Tên' : 'Name'}</th>
+              {showDetails ? DETAIL_FIELDS.map(f => <th key={f.key} style={{ padding: '8px 4px', width: f.width }}>{dl(f)}</th>) : (<>
               <th style={{ padding: '8px 4px', width: 200 }}>{language === 'vi' ? 'Nhãn tiếng Anh' : 'English label'}</th>
               <th style={{ padding: '8px 4px', width: 200 }}>{language === 'vi' ? 'Nhãn tiếng Việt' : 'Vietnamese label'}</th>
+              </>)}
               {showMode && <th style={{ padding: '8px 4px', width: 120 }}>Mode</th>}
               <th style={{ padding: '8px 4px', width: 80 }}></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, idx) => (
+            {shown.map((row, idx) => (
               <tr key={row.id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={{ padding: '10px 4px', color: 'var(--text-secondary)' }}>{idx + 1}</td>
                 <td style={{ padding: '10px 4px', fontWeight: 500 }}>{row.code}</td>
+                {showDetails ? DETAIL_FIELDS.map(f => (
+                  <td key={f.key} style={{ padding: '10px 4px', fontSize: '0.82rem', overflowWrap: 'anywhere', color: row[f.key] ? 'inherit' : 'var(--text-secondary)' }}>{row[f.key] || '—'}</td>
+                )) : (<>
                 <td style={{ padding: '10px 4px', color: row.labelEn ? 'inherit' : 'var(--text-secondary)' }}>{row.labelEn || '—'}</td>
                 <td style={{ padding: '10px 4px', color: row.labelVi ? 'inherit' : 'var(--text-secondary)' }}>{row.labelVi || '—'}</td>
+                </>)}
                 {showMode && (
                   <td style={{ padding: '10px 4px' }}>
                     <span style={{ fontSize: '0.78rem', fontFamily: 'monospace', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 4 }}>{row.mode || '—'}</span>
@@ -200,7 +239,7 @@ function ListEditor({ node, language }) {
       {editing && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
              onClick={() => setEditing(null)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'white', padding: 24, borderRadius: 8, width: '100%', maxWidth: 500 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'white', padding: 24, borderRadius: 8, width: '100%', maxWidth: showDetails ? 620 : 500 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h2 style={{ margin: 0 }}>{language === 'vi' ? 'Sửa' : 'Edit'}</h2>
               <button onClick={() => setEditing(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}><FiX size={20} /></button>
@@ -219,6 +258,16 @@ function ListEditor({ node, language }) {
                 <input value={editing.labelVi || ''} onChange={e => setEditing({ ...editing, labelVi: e.target.value })} style={inputStyle} />
               </div>
             </div>
+            {showDetails && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                {DETAIL_FIELDS.map(f => (
+                  <div key={f.key} style={f.key === 'note' ? { gridColumn: 'span 2' } : undefined}>
+                    <label style={lbl}>{dl(f)}</label>
+                    <input value={editing[f.key] || ''} onChange={e => setEditing({ ...editing, [f.key]: e.target.value })} style={inputStyle} aria-label={'Edit ' + f.en} />
+                  </div>
+                ))}
+              </div>
+            )}
             {showMode && (
               <div style={{ marginBottom: 20 }}>
                 <label style={lbl}>Mode</label>
