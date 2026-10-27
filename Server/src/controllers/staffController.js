@@ -1108,8 +1108,25 @@ async function searchLeads(req, res, next) {
         -- caveat as every other person-level column already on this list
         -- (personCreatedAt etc.). A raw timestamp, not to_char'd, matching
         -- how created_at/updated_at are handled elsewhere in this query.
-        ln.last_note_at AS last_note_at
+        ln.last_note_at AS last_note_at,
+        -- Campaign columns (Loại sự kiện / Sự kiện / dates): the old students.campaign_*
+        -- fields stopped being filled after the Source of Lead restructure; events
+        -- now live in Event Registrations (lead_events). Show those, keeping any old
+        -- campaign text for records that still have it. Multiple events: all names,
+        -- dates of the most recent.
+        COALESCE(ev.names, NULLIF(s.campaign_name, '')) AS campaign_name,
+        ev.types AS campaign_type,   -- students.campaign_type was dropped
+        COALESCE(ev.start_date, to_char(s.campaign_start, 'YYYY-MM-DD')) AS campaign_start,
+        COALESCE(ev.end_date,   to_char(s.campaign_end,   'YYYY-MM-DD')) AS campaign_end
       FROM leads l JOIN students s ON s.student_id = l.person_id
+      LEFT JOIN LATERAL (
+        SELECT string_agg(DISTINCT e.name, ', ') AS names,
+               string_agg(DISTINCT e.event_type, ', ') AS types,
+               to_char((array_agg(e.start_date ORDER BY le.created_at DESC))[1], 'YYYY-MM-DD') AS start_date,
+               to_char((array_agg(e.end_date   ORDER BY le.created_at DESC))[1], 'YYYY-MM-DD') AS end_date
+          FROM lead_events le JOIN events e ON e.id = le.event_id
+         WHERE le.student_id = s.student_id
+      ) ev ON true
       LEFT JOIN LATERAL (
         SELECT MAX(sn.created_at) AS last_note_at
           FROM student_notes sn
