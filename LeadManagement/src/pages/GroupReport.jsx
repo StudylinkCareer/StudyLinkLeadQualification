@@ -29,6 +29,7 @@
 // tile's company-wide count.
 // -----------------------------------------------------------------------------
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useNavTrail } from '../contexts/NavTrailContext';
@@ -278,44 +279,148 @@ function CallsTable({ title, rows, showMeetings, showTransferred, showContracted
 // section. Reuses the Event Report budget ledger as-is (see rangeReport.js's
 // marketingActivitiesForRange). VND figures, unformatted (matches how the
 // rest of this app displays currency — no existing shared formatter).
-function MarketingActivities({ activities, L }) {
+// Stone order/colours match EventReport.jsx; "Unscored" = never took the quiz.
+const STONES = ['Diamond', 'Ruby', 'Sapphire', 'Agate', 'Quartz', 'Unscored'];
+const STONE_COLORS = { Diamond: '#8B5CF6', Ruby: '#DC2626', Sapphire: '#2563EB', Agate: '#F59E0B', Quartz: '#94A3B8', Unscored: '#D1D5DB' };
+const stoneLabel = (s, L) => (s === 'Unscored' ? L('Unscored', 'Chưa có') : s);
+
+// Compact "● 3  ● 5 ..." chips for a stone count map; full names on hover.
+function StoneChips({ byStone, L }) {
+  const present = STONES.filter(s => byStone?.[s]);
+  if (!present.length) return <span style={{ color: 'var(--text-secondary,#9ca3af)' }}>—</span>;
+  return (
+    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '0.25rem 0.6rem' }}>
+      {present.map(s => (
+        <span key={s} title={stoneLabel(s, L)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+          <span style={{ width: 9, height: 9, borderRadius: '50%', background: STONE_COLORS[s] }} />
+          {byStone[s]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+// Contacted-since-event share: "12/43" + a thin bar.
+function ContactedCell({ contacted, total }) {
+  const pct = total ? Math.round((contacted / total) * 100) : 0;
+  return (
+    <div style={{ minWidth: 90 }}>
+      <div style={{ whiteSpace: 'nowrap' }}>{contacted}/{total} <span style={{ color: 'var(--text-secondary,#6b7280)', fontSize: '0.75rem' }}>({pct}%)</span></div>
+      <div style={{ height: 4, background: 'var(--border,#e5e7eb)', borderRadius: 2, marginTop: 3 }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: '#10B981', borderRadius: 2 }} />
+      </div>
+    </div>
+  );
+}
+
+function MarketingActivities({ activities, onOpen, L }) {
   if (!activities) return null;
   const vnd = (n) => (n == null ? '—' : `${n.toLocaleString()}₫`);
-  const totals = activities.reduce((a, r) => ({
-    leadCount: a.leadCount + r.leadCount,
-    totalCostPlanned: a.totalCostPlanned + (r.totalCostPlanned || 0),
-    totalCostActual: a.totalCostActual + (r.totalCostActual || 0),
-  }), { leadCount: 0, totalCostPlanned: 0, totalCostActual: 0 });
+  const totals = activities.reduce((a, r) => {
+    for (const [s, n] of Object.entries(r.byStone || {})) a.byStone[s] = (a.byStone[s] || 0) + n;
+    return {
+      ...a,
+      leadCount: a.leadCount + r.leadCount,
+      contacted: a.contacted + (r.contacted || 0),
+      totalCostPlanned: a.totalCostPlanned + (r.totalCostPlanned || 0),
+      totalCostActual: a.totalCostActual + (r.totalCostActual || 0),
+    };
+  }, { leadCount: 0, contacted: 0, byStone: {}, totalCostPlanned: 0, totalCostActual: 0 });
+
+  // Row click (Hoàng, 2026-10) -> right-side panel: stone + status breakdown,
+  // then every lead of the event with stone / status / owner / last contact.
+  const openEvent = (a) => {
+    if (!onOpen) return;
+    const statuses = Object.entries(a.byStatus || {}).sort((x, y) => y[1] - x[1]);
+    const line = { display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', padding: '0.1rem 0' };
+    const head = { fontWeight: 700, fontSize: '0.78rem', textTransform: 'uppercase', color: 'var(--text-secondary,#6b7280)', margin: '0.5rem 0 0.25rem' };
+    const summary = (
+      <div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary,#6b7280)' }}>{a.eventType || ''}</div>
+        <div style={head}>{L('Contacted since the event', 'Đã tương tác sau sự kiện')}</div>
+        <ContactedCell contacted={a.contacted || 0} total={a.leadCount} />
+        <div style={head}>{L('Stone', 'Hạng đá')}</div>
+        {STONES.filter(s => a.byStone?.[s]).map(s => (
+          <div key={s} style={line}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: STONE_COLORS[s] }} />{stoneLabel(s, L)}
+            </span>
+            <span>{a.byStone[s]}</span>
+          </div>
+        ))}
+        <div style={head}>{L('Lead status', 'Trạng thái lead')}</div>
+        {statuses.map(([s, n]) => <div key={s} style={line}><span>{s}</span><span>{n}</span></div>)}
+      </div>
+    );
+    const rank = (s) => STONES.indexOf(s);
+    const items = [...(a.leads || [])]
+      .sort((x, y) => rank(x.stone) - rank(y.stone) || (x.fullName || '').localeCompare(y.fullName || ''))
+      .map(it => ({
+        ...it,
+        stoneDisplay: stoneLabel(it.stone, L),
+        ownerDisplay: it.owner || '—',
+        lastContactDisplay: it.lastContact ? new Date(it.lastContact).toLocaleDateString() : L('Not yet', 'Chưa'),
+      }));
+    onOpen({
+      title: a.name,
+      summary,
+      cols: [
+        { key: 'fullName', label: L('Student', 'Học sinh') },
+        { key: 'stoneDisplay', label: L('Stone', 'Hạng đá') },
+        { key: 'status', label: L('Status', 'Trạng thái') },
+        { key: 'ownerDisplay', label: L('Owner', 'Phụ trách') },
+        { key: 'lastContactDisplay', label: L('Last contact', 'Tương tác gần nhất') },
+      ],
+      items,
+    });
+  };
 
   return (
     <div style={card}>
       <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('Marketing Activities', 'Hoạt động Marketing')}</div>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary,#6b7280)', marginBottom: '0.5rem' }}>
+        {L('Click an event to see its leads. "Contacted" = a counsellor/pre-sales note after the event sign-up.',
+           'Bấm vào sự kiện để xem chi tiết lead. "Đã tương tác" = có ghi chú của tư vấn/pre-sales sau khi đăng ký sự kiện.')}
+        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '0.2rem 0.75rem', marginLeft: '0.75rem' }}>
+          {STONES.map(s => (
+            <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: STONE_COLORS[s] }} />{stoneLabel(s, L)}
+            </span>
+          ))}
+        </span>
+      </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
           <thead><tr>
-            <th style={th}>{L('Event', 'Sự kiện')}</th>
+            <th style={{ ...th, width: '20%' }}>{L('Event', 'Sự kiện')}</th>
             <th style={th}>{L('Type', 'Loại')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Leads', 'Lead')}</th>
+            <th style={th}>{L('Stone', 'Hạng đá')}</th>
+            <th style={th}>{L('Contacted', 'Đã tương tác')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Contracted', 'Ký HĐ')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Cost (planned)', 'Chi phí (dự kiến)')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Cost (actual)', 'Chi phí (thực tế)')}</th>
           </tr></thead>
           <tbody>
             {activities.map(a => (
-              <tr key={a.eventId}>
+              <tr key={a.eventId} onClick={() => openEvent(a)} style={{ cursor: onOpen ? 'pointer' : 'default' }}>
                 <td style={{ ...td, fontWeight: 600 }}>{a.name}</td>
                 <td style={td}>{a.eventType || '—'}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{a.leadCount}</td>
+                <td style={td}><StoneChips byStone={a.byStone} L={L} /></td>
+                <td style={td}><ContactedCell contacted={a.contacted || 0} total={a.leadCount} /></td>
                 <td style={{ ...td, textAlign: 'right' }}>{a.byStatus?.['Contracted'] || 0}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{vnd(a.totalCostPlanned)}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{vnd(a.totalCostActual)}</td>
               </tr>
             ))}
-            {activities.length === 0 && <tr><td colSpan={6} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No marketing events in this period.', 'Không có sự kiện marketing trong kỳ.')}</td></tr>}
+            {activities.length === 0 && <tr><td colSpan={8} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No marketing events in this period.', 'Không có sự kiện marketing trong kỳ.')}</td></tr>}
             <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
               <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
               <td style={td} />
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.leadCount}</td>
+              <td style={{ ...td, fontWeight: 700 }}><StoneChips byStone={totals.byStone} L={L} /></td>
+              <td style={{ ...td, fontWeight: 700 }}><ContactedCell contacted={totals.contacted} total={totals.leadCount} /></td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{activities.reduce((s, a) => s + (a.byStatus?.['Contracted'] || 0), 0)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{vnd(totals.totalCostPlanned)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{vnd(totals.totalCostActual)}</td>
@@ -523,6 +628,8 @@ export default function GroupReport() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
   const [drill, setDrill]     = useState(null);
+  const navigate = useNavigate();
+  const openLead = (studentId) => navigate(`/students/${studentId}`);
 
   useEffect(() => { pushTrail && pushTrail({ label: L('Company Report', 'Báo cáo công ty') }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -595,12 +702,12 @@ export default function GroupReport() {
           />
           <ContractSources sources={cw?.contractSources} onOpen={setDrill} L={L} />
           <LeadsBySource sources={data.leadsBySource} onOpen={setDrill} L={L} />
-          <MarketingActivities activities={data.marketingActivities} L={L} />
+          <MarketingActivities activities={data.marketingActivities} onOpen={setDrill} L={L} />
           <PosmSection items={data.posm} L={L} />
         </>
       )}
 
-      <DrillPanel drill={drill} onClose={() => setDrill(null)} L={L} />
+      <DrillPanel drill={drill} onClose={() => setDrill(null)} onRowClick={openLead} L={L} />
     </div>
   );
 }

@@ -588,11 +588,20 @@ async function transfersToSalesForRange(names, from, to) {
 // eventBudget.getBudget() (zero new budget code).
 async function marketingActivitiesForRange(from, to) {
   const rows = (await pool.query(
-    `SELECT e.id AS event_id, e.name, e.event_type, le.student_id, rl.lead_status
+    `SELECT e.id AS event_id, e.name, e.event_type, le.student_id, rl.lead_status,
+            s.full_name, NULLIF(s.stone_tier, '') AS stone_tier,
+            COALESCE(NULLIF(rl.counselor, ''), NULLIF(rl.presales, '')) AS owner,
+            nt.last_contact
        FROM events e
        JOIN lead_events le ON le.event_id = e.id
+       JOIN students s ON s.student_id = le.student_id
        LEFT JOIN LATERAL (
-             SELECT lead_status FROM leads
+             SELECT max(n.created_at) AS last_contact FROM student_notes n
+              WHERE n.student_id = le.student_id AND n.note_type IN ('counselor', 'presales')
+                AND n.created_at >= le.created_at
+            ) nt ON true
+       LEFT JOIN LATERAL (
+             SELECT lead_status, counselor, presales FROM leads
               WHERE person_id = le.student_id
               ORDER BY (lead_status NOT IN ('Contracted', 'Lost', 'Archived')) DESC, lead_id DESC
               LIMIT 1
@@ -604,12 +613,18 @@ async function marketingActivitiesForRange(from, to) {
   const byEvent = new Map();
   for (const row of rows) {
     if (!byEvent.has(row.event_id)) {
-      byEvent.set(row.event_id, { eventId: row.event_id, name: row.name, eventType: row.event_type, leadCount: 0, byStatus: {} });
+      byEvent.set(row.event_id, { eventId: row.event_id, name: row.name, eventType: row.event_type, leadCount: 0, byStatus: {}, byStone: {}, contacted: 0, leads: [] });
     }
     const bucket = byEvent.get(row.event_id);
     bucket.leadCount += 1;
     const status = row.lead_status || '(no lead record)';
     bucket.byStatus[status] = (bucket.byStatus[status] || 0) + 1;
+    // Stone + "contacted since the event" (a counsellor/pre-sales note after
+    // the registration) — Hoàng, 2026-10: lead quality and follow-up per event.
+    const stone = row.stone_tier || 'Unscored';
+    bucket.byStone[stone] = (bucket.byStone[stone] || 0) + 1;
+    if (row.last_contact) bucket.contacted += 1;
+    bucket.leads.push({ studentId: row.student_id, fullName: row.full_name, stone, status, owner: row.owner || null, lastContact: row.last_contact || null });
   }
 
   const activities = await Promise.all([...byEvent.values()].map(async (a) => {

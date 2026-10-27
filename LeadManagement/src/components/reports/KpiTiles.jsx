@@ -54,6 +54,7 @@ export function DrillPanel({ drill, onClose, onRowClick, L }) {
         <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.1rem' }}>×</button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1 }}>
+        {drill.summary && <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border,#e5e7eb)' }}>{drill.summary}</div>}
         {drill.items.map((it, i) => (
           <div key={it.studentId ? `${it.studentId}-${i}` : i}
             onClick={() => it.studentId && onRowClick && onRowClick(it.studentId)}
