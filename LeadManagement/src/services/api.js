@@ -211,6 +211,14 @@ export const aiAPI = {
   listMeetings:    (leadId)        => request('GET',  `/api/ai/leads/${leadId}/meetings`),
 };
 
+// ── POSM QR items (umbrella, fan, helmet...) ───────────────────
+export const posmAPI = {
+  list:       ()          => request('GET', '/api/posm'),
+  create:     (body)      => request('POST', '/api/posm', body),
+  update:     (id, body)  => request('PUT', `/api/posm/${id}`, body),
+  forStudent: (studentId) => request('GET', `/api/posm/student/${encodeURIComponent(studentId)}`),
+};
+
 // ── Lead registrations (events) ───────────────────────────────
 export const leadEventsAPI = {
   list:         (studentId)  => request('GET', `/api/lead-events?studentId=${encodeURIComponent(studentId)}`),

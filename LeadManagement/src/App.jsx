@@ -50,6 +50,7 @@ import Lead from './pages/Lead';
 import Staff from './pages/Staff';
 import ColumnLayoutSettings from './pages/ColumnLayoutSettings';
 import MarketingEvents from './pages/MarketingEvents';
+import Posm from './pages/Posm';
 import ActivityReport from './pages/ActivityReport';
 import ClientFollowup from './pages/ClientFollowup';
 import WeeklyReport from './pages/WeeklyReport';
@@ -171,6 +172,7 @@ export default function App() {
               <Route path="/events"           element={<ProtectedLayout><Suspense fallback={<div style={{ padding:24, color:'#6b7280' }}>Loading…</div>}><EventConsole /></Suspense></ProtectedLayout>} />
               <Route path="/settings/columns" element={<ProtectedLayout><ColumnLayoutSettings /></ProtectedLayout>} />
               <Route path="/marketing-events" element={<ProtectedLayout><MarketingEvents/></ProtectedLayout>} />
+              <Route path="/posm"             element={<ProtectedLayout><Posm/></ProtectedLayout>} />
               <Route path="/reports/activity" element={<ProtectedLayout><ActivityReport /></ProtectedLayout>} />
               <Route path="/client-followup" element={<ProtectedLayout><ClientFollowup /></ProtectedLayout>} />
               <Route path="/reports/weekly"   element={<ProtectedLayout><WeeklyReport /></ProtectedLayout>} />

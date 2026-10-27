@@ -18,7 +18,7 @@ import { useNoteDrafts } from '../contexts/NoteDraftsContext';
 import { t } from '../i18n';
 import LanguageSelector from './LanguageSelector';
 import {
-  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus, FiTarget, FiBarChart2, FiClock,
+  FiGrid, FiUsers, FiUserCheck, FiLogOut, FiLayout, FiChevronLeft, FiCalendar, FiTag, FiPhoneCall, FiBell, FiFileText, FiShare2, FiShuffle, FiCheckSquare, FiTrash2, FiTool, FiUserPlus, FiTarget, FiBarChart2, FiClock,
 } from 'react-icons/fi';
 
 export default function Sidebar() {
@@ -139,6 +139,14 @@ export default function Sidebar() {
           onClick={() => navigate('/marketing-events')}
         >
           <FiCalendar size={16} /> {language === 'vi' ? 'Sự kiện Marketing' : 'Marketing Events'}
+        </button>
+      )}
+        {isMarketingOrOwner(staff?.position, staff?.email) && (
+        <button
+          className={`nav-item ${isActive('/posm') ? 'active' : ''}`}
+          onClick={() => navigate('/posm')}
+        >
+          <FiTag size={16} /> {language === 'vi' ? 'QR ấn phẩm POSM' : 'POSM QR codes'}
         </button>
       )}
 

@@ -12,7 +12,7 @@ export function captureQrParams(search = window.location.search) {
     counsellor: p.get('counsellor') || '',
   };
   if (found.sol || found.eid || found.ename || found.counsellor) {
-    try { sessionStorage.setItem(KEY, JSON.stringify(found)); } catch { /* private mode */ }
+    try { sessionStorage.setItem(KEY, JSON.stringify(found)); sessionStorage.removeItem('wz_posm'); } catch { /* private mode */ }
     return found;
   }
   return readQrParams();

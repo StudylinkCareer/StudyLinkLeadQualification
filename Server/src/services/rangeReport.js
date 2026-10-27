@@ -621,6 +621,27 @@ async function marketingActivitiesForRange(from, to) {
   return activities;
 }
 
+// POSM (2026-10, Hoàng's request) — QR scans and sign-ups per printed item
+// (umbrella, fan...) in the range. Every active item is listed, 0s included;
+// a hidden item only shows if it had activity in the range. Company-wide only.
+async function posmForRange(from, to) {
+  const ready = (await pool.query(`SELECT to_regclass('public.posm_items') AS t`)).rows[0].t;
+  if (!ready) return [];
+  const { rows } = await pool.query(
+    `SELECT p.id, p.code, p.name, p.is_active,
+            (SELECT count(*)::int FROM posm_scans s
+              WHERE s.posm_id = p.id AND s.scanned_at >= $1 AND s.scanned_at < $2) AS scans,
+            (SELECT count(*)::int FROM posm_signups g
+              WHERE g.posm_id = p.id AND g.created_at >= $1 AND g.created_at < $2) AS signups
+       FROM posm_items p
+      ORDER BY p.name`,
+    [from.toISOString(), to.toISOString()]);
+  return rows
+    .filter((r) => r.is_active || r.scans > 0 || r.signups > 0)
+    .map((r) => ({ id: r.id, code: r.code, name: r.name, scans: r.scans, signups: r.signups }))
+    .sort((a, b) => b.signups - a.signups || b.scans - a.scans || a.name.localeCompare(b.name));
+}
+
 // New Leads by Source (2026-10, Hồng Hà's request) — Marketing Activities
 // above only ever counted leads tied to a marketing EVENT (it's a report on
 // event performance, by design — Type/Cost Planned/Cost Actual don't apply
@@ -676,7 +697,7 @@ async function leadsBySourceForRange(from, to) {
 
 module.exports = {
   resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange,
-  contractTargetForRange, leadCounts, transfersToSalesForRange, marketingActivitiesForRange,
+  contractTargetForRange, leadCounts, transfersToSalesForRange, marketingActivitiesForRange, posmForRange,
   leadsBySourceForRange,
   CASE_TYPES, vnMidnightUTC, VN_MS,
 };

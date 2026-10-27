@@ -9,6 +9,7 @@ import { COUNTRY_CODES, STUDY_PLANS, VIETNAM_PROVINCES } from '../../utils/formF
 import { t } from '../../i18n';
 import { formatPhoneInput, isEmail, isValidYob } from '../lib/phone';
 import { captureQrParams, matchEvent, normText } from '../lib/qrParams';
+import { readPosm, clearPosm } from '../lib/posm';
 
 const NONE = 'none';
 // Hà Nội, Hồ Chí Minh, Đà Nẵng, Hải Phòng, Cần Thơ (matched on the accent-free code).
@@ -43,6 +44,10 @@ export default function Register() {
 
   const qr = useMemo(() => captureQrParams(), []);
   const lockedByQr = !!(qr && (qr.eid || qr.ename || qr.sol === 'Event/Campaign'));
+  // POSM QR (umbrella, fan...): the item is recorded instead of an event, plus an
+  // optional "where did you get it". Source of Lead is still asked as usual.
+  const posm = useMemo(() => (lockedByQr ? null : readPosm()), [lockedByQr]);
+  const [posmFrom, setPosmFrom] = useState('');
 
   // Event-QR deep link: preselect + lock the event (id first, then name).
   useEffect(() => {
@@ -87,7 +92,7 @@ export default function Register() {
     // Source of Lead is always how they found StudyLink (owner, 2026-10); an
     // event is recorded separately as the registration. If the event couldn't
     // be linked by id, keep its name in Source detail so it isn't lost.
-    const eventId = !hasEvent ? null : ev ? ev.id : (eventChoice === 'qr-text' && qr && qr.eid ? Number(qr.eid) : null);
+    const eventId = posm || !hasEvent ? null : ev ? ev.id : (eventChoice === 'qr-text' && qr && qr.eid ? Number(qr.eid) : null);
     const referrerText = mode === 'list_freetext' ? referrer.trim() : '';
     return {
       email: email.trim(),
@@ -108,11 +113,15 @@ export default function Register() {
       // The QR's event may be past its public date window (late sign-up) — still
       // send its id; the server links it if the event exists and isn't hidden.
       eventId,
+      posmCode: posm ? posm.code : undefined,
+      posmReceivedEventId: posm && posmFrom && posmFrom !== 'other' ? Number(posmFrom) : undefined,
+      posmReceivedOther: posm ? posmFrom === 'other' : undefined,
     };
   };
 
   const finish = async (id) => {
     await adopt(id);
+    clearPosm();   // a second sign-up on this phone shouldn't be tagged again
     navigate('/app/hub', { replace: true });
   };
 
@@ -128,7 +137,7 @@ export default function Register() {
     if (!yob) errs.yob = true;
     if (!channel) errs.channel = true;
     if ((channelMode === 'list' || channelMode === 'list_freetext') && !source) errs.source = true;
-    if (!eventChoice) errs.event = true;
+    if (!posm && !eventChoice) errs.event = true;
     if (!residence) errs.residence = true;
     if (!studyPlan) errs.studyPlan = true;
     if (!connect) errs.connect = true;
@@ -225,9 +234,19 @@ export default function Register() {
             value={referrer} onChange={(e) => setReferrer(e.target.value)} />
         )}
 
-        <SelectField id="wz-event" label={w('event')} required invalid={errors.event} placeholder={w('choose')}
-          value={eventChoice} options={eventOptions} disabled={lockedByQr && eventChoice !== ''}
-          onChange={(v) => { setEventChoice(v); clearErr('event'); }} />
+        {posm ? (
+          <>
+            <TextField id="wz-posm" label={w('posmItem')} value={posm.name} disabled readOnly />
+            <SelectField id="wz-posm-from" label={w('posmFrom')} placeholder={w('optional')}
+              value={posmFrom} onChange={setPosmFrom}
+              options={[...(posm.events || []).map((e) => ({ value: String(e.id), label: e.name })),
+                { value: 'other', label: w('posmFromOther') }]} />
+          </>
+        ) : (
+          <SelectField id="wz-event" label={w('event')} required invalid={errors.event} placeholder={w('choose')}
+            value={eventChoice} options={eventOptions} disabled={lockedByQr && eventChoice !== ''}
+            onChange={(v) => { setEventChoice(v); clearErr('event'); }} />
+        )}
 
         <div className="wz-row2">
           <SelectField id="wz-residence" label={w('residence')} required invalid={errors.residence} placeholder={w('choose')}

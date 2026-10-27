@@ -22,7 +22,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { studentAPI, leadAPI, staffAPI, notesAPI, noteDraftsAPI, auditAPI, leadEventsAPI } from '../services/api';
+import { studentAPI, leadAPI, staffAPI, notesAPI, noteDraftsAPI, auditAPI, leadEventsAPI, posmAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { isManagerOrAdmin } from '../utils/roleProfiles';
 import { useLookup } from '../contexts/LookupContext';
@@ -1145,6 +1145,7 @@ export default function LeadDetail() {
 
   // ── Registrations (lead_events) ──
   const [registrations, setRegistrations] = useState([]);
+  const [posmSignups, setPosmSignups]     = useState([]);   // sign-ups from a POSM QR (umbrella, fan...)
   const [regLoading, setRegLoading]       = useState(false);
   const [studentLeads, setStudentLeads]   = useState([]);   // all leads for this person
   const [eventOptions, setEventOptions]   = useState([]);   // event catalog for the "add event" picker
@@ -1487,13 +1488,14 @@ export default function LeadDetail() {
           ld  = leadRes.data;
           sid = ld.studentId;
         }
-        const [stu, nt, st, al, regs, sleads] = await Promise.all([
+        const [stu, nt, st, al, regs, sleads, posm] = await Promise.all([
           studentAPI.get(sid),
           isStudentView ? notesAPI.listStudentLevel(id) : notesAPI.listForLead(id),
           staffAPI.listActive(),
           auditAPI.getForStudent(sid),
           leadEventsAPI.list(sid).catch(() => ({ data: [] })),
           leadAPI.listForStudent(sid).catch(() => ({ data: [] })),
+          posmAPI.forStudent(sid).catch(() => ({ data: [] })),
         ]);
         if (!alive) return;
         const l = { ...stu.data, ...ld, studentId: sid, leadId: isStudentView ? null : id };   // lead wins on overlap
@@ -1519,6 +1521,7 @@ export default function LeadDetail() {
         setStaff(st.data || []);
         setAuditLog(al.data || []);
         setRegistrations(regs.data || []);
+        setPosmSignups(posm.data || []);
         setStudentLeads(sleads.data || []);
         setRegLoading(false);
         setAssign({
@@ -2294,6 +2297,20 @@ export default function LeadDetail() {
                     </tr>
                   </tbody>
                 </table>
+                {posmSignups.length > 0 && (
+                  <div style={{ padding:'0.6rem 0 0', fontSize:'0.82rem' }}>
+                    <span style={{ fontWeight:600 }}>POSM: </span>
+                    {posmSignups.map((p, i) => (
+                      <span key={p.id}>
+                        {i > 0 && ' · '}{p.posmName}
+                        <span style={{ color:'var(--text-secondary)' }}>
+                          {p.receivedEvent ? ` (received at ${p.receivedEvent})` : p.receivedOther ? ' (received elsewhere)' : ''}
+                          {p.createdAt ? `, ${String(p.createdAt).slice(0, 10)}` : ''}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {eventOptions.length > 0 && availableEvents.length === 0 && (
                   <div style={{ padding:'0.5rem 0', color:'var(--text-secondary)', fontSize:'0.8rem' }}>All events already linked.</div>
                 )}

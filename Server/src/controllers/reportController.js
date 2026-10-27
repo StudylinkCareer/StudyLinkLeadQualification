@@ -999,12 +999,13 @@ async function groupReport(req, res, next) {
     // one call per person each — two genuinely different "target" concepts,
     // never merged under one ambiguous column (found while porting, see
     // rangeReport.js's contractTargetForRange comment).
-    const [companyWide, counselorLeadCounts, transfersByName, marketingActivities, leadsBySource, ...perStaff] = await Promise.all([
+    const [companyWide, counselorLeadCounts, transfersByName, marketingActivities, leadsBySource, posm, ...perStaff] = await Promise.all([
       rangeReport.computeRangeReport(allNames, from, to, { bucket }),
       rangeReport.leadCounts(counsellorNames, 'counselor', from, to),
       rangeReport.transfersToSalesForRange(presalesNames, from, to),
       rangeReport.marketingActivitiesForRange(from, to),
       rangeReport.leadsBySourceForRange(from, to),
+      rangeReport.posmForRange(from, to),
       ...counsellorNames.map(name => Promise.all([
         rangeReport.computeRangeReport([name], from, to, { bucket }),
         rangeReport.contractTargetForRange(name, from, to),
@@ -1083,7 +1084,7 @@ async function groupReport(req, res, next) {
 
     res.json({ success: true, data: {
       period, from: from.toISOString(), to: to.toISOString(),
-      companyWide, teamPerformance, telesales, presales, marketingActivities, leadsBySource,
+      companyWide, teamPerformance, telesales, presales, marketingActivities, leadsBySource, posm,
     }});
   } catch (err) { next(err); }
 }

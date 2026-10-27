@@ -65,9 +65,33 @@ async function appendRegistration(studentId, f = {}, db = pool) {
     [studentId, sourceOfLead, source, sourceDetail]
   );
 
+  // Sign-up from a POSM QR (umbrella, fan...): tag it with the item. Not an
+  // event registration; Source of Lead above stays the guest's own answer.
+  if (f.posmCode) await tagPosmSignup(db, studentId, f);
+
   // Advance event QR: if this lead now qualifies, mint tokens for any future
   // exhibitions they're registered for that don't have one yet (no-op otherwise).
   await issueAdvanceTokens(db, studentId);
+}
+
+async function tagPosmSignup(db, studentId, f) {
+  // Checked first (not caught) so a deploy that lands before the migration
+  // can't abort the surrounding registration transaction.
+  const ready = await db.query(`SELECT to_regclass('public.posm_signups') AS t`);
+  if (!ready.rows[0].t) return;
+  const item = (await db.query(
+    `SELECT id FROM posm_items WHERE code = $1 AND is_active = true`,
+    [String(f.posmCode).trim().toUpperCase()])).rows[0];
+  if (!item) return;
+  let receivedEventId = Number.isInteger(Number(f.posmReceivedEventId)) && Number(f.posmReceivedEventId) > 0
+    ? Number(f.posmReceivedEventId) : null;
+  if (receivedEventId && !(await db.query(`SELECT 1 FROM events WHERE id = $1`, [receivedEventId])).rowCount) {
+    receivedEventId = null;
+  }
+  await db.query(
+    `INSERT INTO posm_signups (student_id, posm_id, received_event_id, received_other)
+     VALUES ($1, $2, $3, $4) ON CONFLICT (student_id, posm_id) DO NOTHING`,
+    [studentId, item.id, receivedEventId, !receivedEventId && !!f.posmReceivedOther]);
 }
 
 async function register(req, res, next) {
@@ -174,6 +198,8 @@ async function register(req, res, next) {
       // Append the registration event row + populate student-level Source if empty.
       await appendRegistration(student.studentId, {
         sourceOfLead, source, sourceDetail, sourceUnverified, counsellor, eventId,
+        posmCode: req.body.posmCode, posmReceivedEventId: req.body.posmReceivedEventId,
+        posmReceivedOther: req.body.posmReceivedOther,
       }, client);
 
       await client.query('COMMIT');

@@ -327,6 +327,47 @@ function MarketingActivities({ activities, L }) {
   );
 }
 
+// POSM (2026-10, Hoàng's request) — QR scans and sign-ups per printed item
+// in the period. Every active item is listed, 0s included (rangeReport.js
+// posmForRange). Sign-ups are tagged from the item's QR; not events.
+function PosmSection({ items, L }) {
+  if (!items) return null;
+  const tot = items.reduce((a, r) => ({ scans: a.scans + r.scans, signups: a.signups + r.signups }), { scans: 0, signups: 0 });
+  const rate = (r) => (r.scans ? `${Math.round((r.signups / r.scans) * 100)}%` : '—');
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>{L('POSM (printed materials)', 'POSM (ấn phẩm)')}</div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
+          <thead><tr>
+            <th style={th}>{L('Item', 'Ấn phẩm')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Scans', 'Lượt quét')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Sign-ups', 'Đăng ký')}</th>
+            <th style={{ ...th, textAlign: 'right' }}>{L('Sign-ups / scan', 'Tỉ lệ')}</th>
+          </tr></thead>
+          <tbody>
+            {items.map(r => (
+              <tr key={r.id}>
+                <td style={{ ...td, fontWeight: 600 }}>{r.name}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.scans}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.signups}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{rate(r)}</td>
+              </tr>
+            ))}
+            {items.length === 0 && <tr><td colSpan={4} style={{ ...td, color: 'var(--text-secondary,#9ca3af)' }}>{L('No POSM items yet.', 'Chưa có ấn phẩm POSM.')}</td></tr>}
+            <tr style={{ background: 'var(--bg-secondary,#f8fafc)' }}>
+              <td style={{ ...td, fontWeight: 700 }}>{L('Total', 'Tổng')}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{tot.scans}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{tot.signups}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{rate(tot)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // Contract Sources — table + pie chart. Capped to the top 7 sources (+
 // "Other") for the pie, same cap Monthly Report used, so a long tail of
 // one-off sources doesn't turn the chart illegible.
@@ -555,6 +596,7 @@ export default function GroupReport() {
           <ContractSources sources={cw?.contractSources} onOpen={setDrill} L={L} />
           <LeadsBySource sources={data.leadsBySource} onOpen={setDrill} L={L} />
           <MarketingActivities activities={data.marketingActivities} L={L} />
+          <PosmSection items={data.posm} L={L} />
         </>
       )}
 

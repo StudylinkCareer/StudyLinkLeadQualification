@@ -6,6 +6,7 @@ import DeskPage from './pages/DeskPage';
 import BadgePage from './pages/BadgePage';
 import ProfilePage from './pages/ProfilePage';
 import WizardApp from './wizard/WizardApp';
+import PosmRedirect from './pages/PosmRedirect';
 
 // Old entry points keep working: event-QR links still point at "/" with
 // ?sol=&eid=&ename=&counsellor=, so the query string travels to the wizard.
@@ -26,6 +27,7 @@ function App() {
             <Route path="/desk" element={<DeskPage />} />
             <Route path="/badge/:token" element={<BadgePage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/q/:code" element={<PosmRedirect />} />
             {/* retired screens — old bookmarks land in the wizard */}
             <Route path="/dashboard" element={<ToWizard to="/app/hub" />} />
             <Route path="/verify" element={<ToWizard />} />

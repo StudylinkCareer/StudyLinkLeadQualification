@@ -59,6 +59,9 @@ export function useRegistration() {
           sourceUnverified: payload.sourceUnverified,
           counsellor: payload.counsellor,
           eventId: payload.eventId,
+          posmCode: payload.posmCode,
+          posmReceivedEventId: payload.posmReceivedEventId,
+          posmReceivedOther: payload.posmReceivedOther,
         });
       } catch (e) { console.warn('add-registration failed:', e); }
     }
