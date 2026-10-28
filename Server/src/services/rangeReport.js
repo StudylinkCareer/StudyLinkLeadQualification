@@ -141,6 +141,11 @@ function monthKeyOf(ms) {
 const WORKDAY_HOURS = [8, 8, 8, 8, 8, 4, 0]; // 0=Mon..6=Sun
 const DEFAULT_HOUR_RATES = { new: 1.25, ongoing: 0.625 }; // 10/8 and 5/8 calls per hour
 
+// Pre-sales KBM credit (2026-10, Như): an hour with 7+ calls incl. unanswered
+// ones counts as 6 successful instead of the usual 8 — applied as 2 calls
+// credited per 7 unanswered (KBM) calls in the period, rounded down.
+const kbmBonus = (kbm) => Math.floor(((kbm || 0) * 2) / 7);
+
 // Share (0..1) of each VN day in [from, to) this person worked, keyed by
 // YYYY-MM-DD; days with no off-day entry are absent (= 1). A full-day entry
 // gives 0; "hours unknown" entries deduct nothing until re-entered.
@@ -713,6 +718,6 @@ async function leadsBySourceForRange(from, to) {
 module.exports = {
   resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange,
   contractTargetForRange, leadCounts, transfersToSalesForRange, marketingActivitiesForRange, posmForRange,
-  leadsBySourceForRange,
+  leadsBySourceForRange, kbmBonus,
   CASE_TYPES, vnMidnightUTC, VN_MS,
 };

@@ -969,6 +969,7 @@ async function individualReport(req, res, next) {
     res.json({ success: true, data: {
       period, from: from.toISOString(), to: to.toISOString(), staffName, canPickAnyStaff: scope === 'all', staffOptions,
       role: isCounselor ? 'Counselor' : isPresales ? 'Pre-Sales' : null, callTarget,
+      kbmBonus: isPresales ? rangeReport.kbmBonus(rangeData.calls.totals.kbm) : 0,
       leadsFlow, ...rangeData,
     }});
   } catch (err) { next(err); }
@@ -1075,6 +1076,7 @@ async function groupReport(req, res, next) {
         newLeads: r.data.calls.totals.newLeads, ongoing: r.data.calls.totals.ongoing, kbm: r.data.calls.totals.kbm,
         newLeadItems: r.data.calls.newLeadItems, ongoingItems: r.data.calls.ongoingItems, kbmItems: r.data.calls.kbmItems,
         totalCalls: r.data.calls.totals.newLeads + r.data.calls.totals.ongoing,
+        kbmBonus: rangeReport.kbmBonus(r.data.calls.totals.kbm),
         target: r.callTarget,
         meetings: r.data.meetings.count, meetingsItems: r.data.meetings.items,
         transferred: transfers.length, transferredItems: transfers,

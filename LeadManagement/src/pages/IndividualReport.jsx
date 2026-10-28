@@ -276,8 +276,12 @@ export default function IndividualReport() {
   // Report's Telesales/Pre-sales tables show for this person (one shared
   // computation, rangeReport.js's counselorTargetForRange/
   // presalesTargetForRange — never a second, divergent calculation).
+  // Pre-sales only: "Cộng bù KBM" (2 per 7 unanswered calls, server-side
+  // rangeReport.kbmBonus) counts toward the KPI colour.
+  const kbmBonus = data?.kbmBonus || 0;
   const callsKpiBars = data?.callTarget ? [
-    { key: 'actual', label: L('Actual', 'Thực tế'), value: totalCalls, color: totalCalls >= data.callTarget.total ? '#10B981' : '#DC2626' },
+    { key: 'actual', label: L('Actual', 'Thực tế'), value: totalCalls, color: totalCalls + kbmBonus >= data.callTarget.total ? '#10B981' : '#DC2626' },
+    ...(data.role === 'Pre-Sales' ? [{ key: 'kbmBonus', label: L('KBM credit', 'Cộng bù KBM'), value: kbmBonus, color: '#f59e0b' }] : []),
     { key: 'target', label: L('Target', 'Chỉ tiêu'), value: r1(data.callTarget.total), color: '#e5e7eb' },
   ] : [];
 

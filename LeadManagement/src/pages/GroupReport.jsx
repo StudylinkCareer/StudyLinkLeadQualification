@@ -175,14 +175,17 @@ function TeamPerformanceTable({ rows, onOpen, L }) {
 // Sales has no contract-signing quota, only a real count. Team Performance's
 // own Contracted sum plus this column's sum always equal the top
 // "Contracted" tile's company-wide count.
-function CallsTable({ title, rows, showMeetings, showTransferred, showContracted, onOpen, L }) {
+// showKbmBonus (Pre-sales only, Như 2026-10): "Cộng bù KBM" = 2 calls per
+// 7 unanswered (rangeReport.kbmBonus), counted toward % KPI.
+function CallsTable({ title, rows, showMeetings, showTransferred, showContracted, showKbmBonus, onOpen, L }) {
   const totals = rows.reduce((a, r) => ({
     newLeads: a.newLeads + r.newLeads, ongoing: a.ongoing + r.ongoing, kbm: a.kbm + r.kbm,
-    totalCalls: a.totalCalls + r.totalCalls, target: a.target + (r.target || 0),
+    totalCalls: a.totalCalls + r.totalCalls, kbmBonus: a.kbmBonus + (r.kbmBonus || 0), target: a.target + (r.target || 0),
     meetings: a.meetings + (r.meetings || 0), transferred: a.transferred + (r.transferred || 0),
     contracted: a.contracted + (r.contracted || 0),
-  }), { newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, target: 0, meetings: 0, transferred: 0, contracted: 0 });
-  const colCount = 7 + (showMeetings ? 1 : 0) + (showTransferred ? 1 : 0) + (showContracted ? 1 : 0);
+  }), { newLeads: 0, ongoing: 0, kbm: 0, totalCalls: 0, kbmBonus: 0, target: 0, meetings: 0, transferred: 0, contracted: 0 });
+  const credited = (r) => r.totalCalls + (showKbmBonus ? (r.kbmBonus || 0) : 0);
+  const colCount = 7 + (showKbmBonus ? 1 : 0) + (showMeetings ? 1 : 0) + (showTransferred ? 1 : 0) + (showContracted ? 1 : 0);
 
   function openTransferred(r) {
     const items = (r.transferredItems || []).map(it => ({ ...it, transferredAtDisplay: it.transferredAt ? new Date(it.transferredAt).toLocaleDateString() : '' }));
@@ -212,6 +215,7 @@ function CallsTable({ title, rows, showMeetings, showTransferred, showContracted
             <th style={{ ...th, textAlign: 'right' }}>{L('New', 'Mới')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Ongoing', 'Theo dõi')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('Total calls', 'Tổng cuộc gọi')}</th>
+            {showKbmBonus && <th style={{ ...th, textAlign: 'right' }} title={L('2 calls credited per 7 unanswered (KBM) calls', 'Cứ 7 cuộc KBM được cộng 2 cuộc thành công')}>{L('KBM credit', 'Cộng bù KBM')}</th>}
             <th style={{ ...th, textAlign: 'right' }}>{L('Target', 'Chỉ tiêu')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('% KPI', '% KPI')}</th>
             <th style={{ ...th, textAlign: 'right' }}>{L('KBM', 'KBM')}</th>
@@ -231,8 +235,9 @@ function CallsTable({ title, rows, showMeetings, showTransferred, showContracted
                   <ClickableTd onOpen={onOpen} value={r.ongoing}
                     onClick={() => openPeopleDrill(onOpen, L('Ongoing', 'Theo dõi') + ` — ${r.fullName}`, r.ongoingItems, L)} />
                   <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{r.totalCalls}</td>
+                  {showKbmBonus && <td style={{ ...td, textAlign: 'right' }}>{r.kbmBonus ? `+${r.kbmBonus}` : 0}</td>}
                   <td style={{ ...td, textAlign: 'right', color: 'var(--text-secondary,#9ca3af)' }}>{r1(r.target)}</td>
-                  <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: r.totalCalls >= r.target ? '#10B981' : '#DC2626' }}>{pct(r.totalCalls, r.target)}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: credited(r) >= r.target ? '#10B981' : '#DC2626' }}>{pct(credited(r), r.target)}</td>
                   <ClickableTd onOpen={onOpen} value={r.kbm}
                     onClick={() => openPeopleDrill(onOpen, L('KBM', 'KBM') + ` — ${r.fullName}`, r.kbmItems, L)} />
                   {showMeetings && (
@@ -260,8 +265,9 @@ function CallsTable({ title, rows, showMeetings, showTransferred, showContracted
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.newLeads}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.ongoing}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.totalCalls}</td>
+              {showKbmBonus && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.kbmBonus ? `+${totals.kbmBonus}` : 0}</td>}
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{r1(totals.target)}</td>
-              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{pct(totals.totalCalls, totals.target)}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{pct(credited(totals), totals.target)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.kbm}</td>
               {showMeetings && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.meetings}</td>}
               {showTransferred && <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{totals.transferred}</td>}
@@ -697,6 +703,7 @@ export default function GroupReport() {
             showMeetings
             showTransferred
             showContracted
+            showKbmBonus
             onOpen={setDrill}
             L={L}
           />
