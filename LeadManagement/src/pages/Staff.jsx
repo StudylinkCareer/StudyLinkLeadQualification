@@ -137,6 +137,9 @@ function StaffModal({ staff, onClose, onSaved }) {
     // Optional console-access window (blank = unrestricted; only Inactive gates).
     accessValidFrom:    toLocalDT(staff?.accessValidFrom),
     accessValidUntil:   toLocalDT(staff?.accessValidUntil),
+    // First/last working day; reports use these, sign-in does not.
+    employedFrom:       staff?.employedFrom       || '',
+    employedTo:         staff?.employedTo         || '',
     // ── Communication fields ──
     emailClient:        staff?.emailClient        || 'outlook',
     contactMobile:      staff?.contactMobile      || '',
@@ -162,6 +165,8 @@ function StaffModal({ staff, onClose, onSaved }) {
     if (!isEdit && !form.password) return setError(t('staff.error.passwordRequired', language));
     if (isNaN(form.viewThreshold) || form.viewThreshold < 1)
       return setError(t('staff.error.thresholdInvalid', language));
+    if (form.employedFrom && form.employedTo && form.employedTo < form.employedFrom)
+      return setError(language === 'vi' ? 'Ngày nghỉ việc không được trước ngày bắt đầu làm.' : 'Last working day cannot be before the first working day.');
 
     // Role-change confirmation: a single generic message regardless of which
     // role is changing to which. Previous behavior was role-name-specific
@@ -191,6 +196,7 @@ function StaffModal({ staff, onClose, onSaved }) {
         accessValidFrom:  fromLocalDT(form.accessValidFrom),
         accessValidUntil: fromLocalDT(form.accessValidUntil),
       };
+      const employment = { employedFrom: form.employedFrom || null, employedTo: form.employedTo || null };
       if (isEdit) {
         await staffAPI.update(staff.id, {
           fullName: form.fullName, email: form.email,
@@ -199,9 +205,10 @@ function StaffModal({ staff, onClose, onSaved }) {
           lqSelectable: form.lqSelectable,
           ...commsPayload,
           ...accessWindow,
+          ...employment,
         });
       } else {
-        await staffAPI.create({ ...form, ...commsPayload, ...accessWindow });
+        await staffAPI.create({ ...form, ...commsPayload, ...accessWindow, ...employment });
       }
       onSaved();
     } catch(e) { setError(e.message); }
@@ -248,6 +255,24 @@ function StaffModal({ staff, onClose, onSaved }) {
               <input type="checkbox" checked={!!form.lqSelectable} onChange={e=>set('lqSelectable', e.target.checked)}/>
               {language === 'vi' ? 'Hi\u1ec3n th\u1ecb tr\u00ean form LQ (danh s\u00e1ch t\u01b0 v\u1ea5n vi\u00ean)' : 'Show on LQ form (counsellor pick list)'}
             </label>
+          </div>
+          <div className="form-group">
+            <label className="form-label">{language === 'vi' ? 'Thời gian làm việc' : 'Working dates'}</label>
+            <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:2, flex:'1 1 190px' }}>
+                <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)' }}>{language === 'vi' ? 'Ngày bắt đầu làm' : 'First working day'}</span>
+                <input className="form-input" type="date" value={form.employedFrom} onChange={e=>set('employedFrom', e.target.value)} />
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:2, flex:'1 1 190px' }}>
+                <span style={{ fontSize:'0.7rem', color:'var(--text-secondary)' }}>{language === 'vi' ? 'Ngày nghỉ việc (ngày làm cuối)' : 'Last working day'}</span>
+                <input className="form-input" type="date" value={form.employedTo} onChange={e=>set('employedTo', e.target.value)} />
+              </div>
+            </div>
+            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', marginTop:'0.35rem' }}>
+              {language === 'vi'
+                ? 'Báo cáo dùng các ngày này để tính kỳ và chỉ tiêu. Trống = đang làm việc. Không ảnh hưởng đăng nhập.'
+                : 'Reports use these for periods and targets. Blank = still working. Does not affect sign-in.'}
+            </div>
           </div>
           <div className="form-group">
             <label className="form-label">
@@ -433,6 +458,7 @@ export default function Staff() {
   const [pwdStaff, setPwdStaff]   = useState(null);
   // Access-window pop-up target (the staff row being edited)
   const [winStaff, setWinStaff]   = useState(null);
+  const [deactStaff, setDeactStaff] = useState(null);
   // Per-column filters (client-side, over the loaded list)
   const [filters, setFilters]     = useState({ name:'', email:'', position:'', role:'', status:'', window:'', threshold:'' });
   const { staff }                       = useAuth();
@@ -460,13 +486,6 @@ export default function Staff() {
     try { const data = await staffAPI.list(); setStaffList(data.data || []); }
     catch(e) { console.error(e); }
     finally { setLoading(false); }
-  }
-
-  async function handleDeactivate(id, name /* role param removed */) {
-    const msg = fmt(t('staff.confirm.deactivate', language), { name });
-    if (!confirm(msg)) return;
-    try { await staffAPI.deactivate(id); await loadStaff(); }
-    catch(e) { alert(e.message); }
   }
 
 
@@ -530,6 +549,7 @@ export default function Staff() {
                     <th>{t('staff.col.position', language)}</th>
                     <th>{t('staff.col.role', language)}</th>
                     <th>{t('staff.col.status', language)}</th>
+                    <th>{language === 'vi' ? 'Thời gian làm việc' : 'Working dates'}</th>
                     <th>{language === 'vi' ? 'Khung truy cập' : 'Access window'}</th>
                     <th>{t('staff.col.viewThreshold', language)}</th>
                     <th>{t('staff.col.actions', language)}</th>
@@ -560,6 +580,7 @@ export default function Staff() {
                         <option value="inactive">{t('common.inactive', language)}</option>
                       </select>
                     </th>
+                    <th style={{ padding:'4px 8px' }} />
                     <th style={{ padding:'4px 8px' }}>
                       <select style={fSel} value={filters.window} onChange={(e)=>setF('window', e.target.value)}>
                         <option value="">{language === 'vi' ? 'Tất cả' : 'All'}</option>
@@ -583,7 +604,7 @@ export default function Staff() {
                 </thead>
                 <tbody>
                   {visibleStaff.length === 0 && (
-                    <tr><td colSpan={8} style={{ color:'var(--text-secondary)', padding:'1rem' }}>
+                    <tr><td colSpan={9} style={{ color:'var(--text-secondary)', padding:'1rem' }}>
                       {language === 'vi' ? 'Không có nhân viên nào khớp bộ lọc.' : 'No staff match the filters.'}
                     </td></tr>
                   )}
@@ -597,6 +618,11 @@ export default function Staff() {
                         <span className={`badge ${s.isActive ? 'badge--qualified' : 'badge--lost'}`}>
                           {s.isActive ? t('common.active', language) : t('common.inactive', language)}
                         </span>
+                      </td>
+                      <td style={{ fontSize:'0.75rem', whiteSpace:'nowrap' }}>
+                        {(s.employedFrom || s.employedTo)
+                          ? `${fmtYmd(s.employedFrom) || '…'} → ${fmtYmd(s.employedTo) || (language === 'vi' ? 'nay' : 'now')}`
+                          : <span style={{ color:'var(--text-secondary)' }}>—</span>}
                       </td>
                       <td style={{ fontSize:'0.75rem' }}>
                         {(s.accessValidFrom || s.accessValidUntil) ? (
@@ -635,7 +661,7 @@ export default function Staff() {
                           )}
                           {canManage && s.isActive && (
                             <button className="btn btn--ghost btn--icon" title={t('staff.action.deactivate', language)}
-                              onClick={() => handleDeactivate(s.id, s.fullName)}
+                              onClick={() => setDeactStaff(s)}
                               style={{ color:'var(--danger)' }}>
                               <FiUserX size={14}/>
                             </button>
@@ -665,6 +691,13 @@ export default function Staff() {
           onSaved={() => { setPwdStaff(null); alert(t('staff.passwordModal.saved', language)); }}
         />
       )}
+      {deactStaff && (
+        <DeactivateModal
+          staff={deactStaff}
+          onClose={() => setDeactStaff(null)}
+          onSaved={() => { setDeactStaff(null); loadStaff(); }}
+        />
+      )}
       {winStaff && (
         <AccessWindowModal
           staff={winStaff}
@@ -672,6 +705,51 @@ export default function Staff() {
           onSaved={() => { setWinStaff(null); loadStaff(); }}
         />
       )}
+    </div>
+  );
+}
+
+// DD/MM/YYYY from the plain YYYY-MM-DD the API sends.
+const fmtYmd = (ymd) => (ymd ? ymd.split('-').reverse().join('/') : '');
+
+// Deactivating asks for the last working day, so reports know when they left.
+function DeactivateModal({ staff, onClose, onSaved }) {
+  const { language } = useLanguage();
+  const L = (en, vi) => (language === 'vi' ? vi : en);
+  const [employedTo, setEmployedTo] = useState(staff.employedTo || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+
+  async function handleSave() {
+    if (!employedTo) return setError(L('Please enter the last working day.', 'Vui lòng nhập ngày làm cuối.'));
+    setSaving(true); setError('');
+    try { await staffAPI.deactivate(staff.id, employedTo); onSaved(); }
+    catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{ width:'min(420px, calc(100vw - 32px))' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">{L('Deactivate', 'Ngừng hoạt động')} — {staff.fullName}</h2>
+          <button className="btn btn--ghost btn--icon" onClick={onClose}><FiX /></button>
+        </div>
+        <div className="modal-body">
+          <p style={{ fontSize:'0.8rem', color:'var(--text-secondary)', marginTop:0 }}>
+            {fmt(t('staff.confirm.deactivate', language), { name: staff.fullName })}
+          </p>
+          <div className="form-group">
+            <label className="form-label">{L('Last working day', 'Ngày làm cuối')}</label>
+            <input className="form-input" type="date" value={employedTo} onChange={e=>setEmployedTo(e.target.value)} />
+          </div>
+          {error && <div className="alert alert--error">{error}</div>}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn--ghost" onClick={onClose}>{L('Cancel', 'Hủy')}</button>
+          <button className="btn btn--primary" disabled={saving} onClick={handleSave} id="deact-save">{L('Deactivate', 'Ngừng hoạt động')}</button>
+        </div>
+      </div>
     </div>
   );
 }

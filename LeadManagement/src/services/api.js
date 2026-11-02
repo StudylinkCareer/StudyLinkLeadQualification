@@ -100,7 +100,7 @@ export const staffAPI = {
   create:          (data)                     => request('POST', '/api/staff', data),
   update:          (id, data)                 => request('PUT',  `/api/staff/${id}`, data),
   resetPassword:   (id, password)             => request('PUT',  `/api/staff/${id}/password`, { password }),
-  deactivate:      (id)                       => request('PUT',  `/api/staff/${id}/deactivate`),
+  deactivate:      (id, employedTo)           => request('PUT',  `/api/staff/${id}/deactivate`, { employedTo }),
   assign:          (studentId, data)          => request('PUT',  `/api/staff/assign/${studentId}`, data),
   massMovePhase:   (studentIds, toPhase, staffName, position) => request('PUT', '/api/staff/mass-move-phase', { studentIds, toPhase, staffName, position }),
   listStaleReminders: (status) => request('GET', `/api/staff/maintenance/stale-reminders${status ? `?status=${encodeURIComponent(status)}` : ''}`),

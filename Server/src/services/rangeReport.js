@@ -496,7 +496,9 @@ async function computeRangeReport(names, from, to, opts = {}) {
 // whole calendar month fully contained in [from, to); returns null (not a
 // fabricated 0) if no whole month is contained — e.g. a weekly period, or a
 // custom range that doesn't happen to line up with full months.
-async function contractTargetForRange(fullName, from, to) {
+// `worked` ({from,to}, optional): only months overlapping the person's working
+// dates count; a partly-worked month keeps its full target.
+async function contractTargetForRange(fullName, from, to, worked = null) {
   const staffRes = await pool.query(`SELECT id, COALESCE(target, 0) AS fallback FROM staff WHERE full_name = $1`, [fullName]);
   if (staffRes.rows.length === 0) return null;
   const { id: staffId, fallback } = staffRes.rows[0];
@@ -508,7 +510,7 @@ async function contractTargetForRange(fullName, from, to) {
     const y = vn.getUTCFullYear(), m = vn.getUTCMonth();
     const monthStart = vnMidnightUTC(y, m, 1);
     const monthEnd = vnMidnightUTC(y, m + 1, 1);
-    if (monthStart >= from && monthEnd <= to) months.push(`${y}-${String(m + 1).padStart(2, '0')}-01`);
+    if (monthStart >= from && monthEnd <= to && (!worked || (monthStart < worked.to && monthEnd > worked.from))) months.push(`${y}-${String(m + 1).padStart(2, '0')}-01`);
     cursor = monthEnd;
   }
   if (months.length === 0) return null;
@@ -718,6 +720,6 @@ async function leadsBySourceForRange(from, to) {
 module.exports = {
   resolvePeriod, computeRangeReport, counselorTargetForRange, presalesTargetForRange,
   contractTargetForRange, leadCounts, transfersToSalesForRange, marketingActivitiesForRange, posmForRange,
-  leadsBySourceForRange, kbmBonus,
+  leadsBySourceForRange, kbmBonus, vnYmd,
   CASE_TYPES, vnMidnightUTC, VN_MS,
 };

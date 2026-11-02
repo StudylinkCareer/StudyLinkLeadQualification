@@ -19,9 +19,12 @@ const CURRENT_MONTH_TARGET_SQL =
                 AND mt.month = date_trunc('month', (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'))::date),
             staff.target) AS current_month_target`;
 
+// DATE columns as plain text, so a browser timezone can't shift the day.
+const EMPLOYED_SQL = `to_char(employed_from,'YYYY-MM-DD') AS employed_from, to_char(employed_to,'YYYY-MM-DD') AS employed_to`;
+
 async function findAll() {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until, ${EMPLOYED_SQL}
      FROM staff WHERE COALESCE(staff_type,'') <> 'event' ORDER BY full_name ASC`
   );
   return result.rows.map(objectToCamelCase);
@@ -29,7 +32,7 @@ async function findAll() {
 
 async function findById(id) {
   const result = await pool.query(
-    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until,
+    `SELECT id, full_name, email, position, role, is_active, view_threshold, target, target_set_by, target_set_at, created_at, email_client, contact_mobile, platform_sms, platform_zalo, platform_whatsapp, platform_messenger, zalo_number, zalo_qr_code, whatsapp_qr_code, messenger_username, messenger_qr_code, lq_selectable, access_valid_from, access_valid_until, ${EMPLOYED_SQL},
             ${CURRENT_MONTH_TARGET_SQL}
      FROM staff WHERE id = $1`,
     [id]
@@ -134,6 +137,17 @@ async function update(id, { fullName, email, position, role, isActive, viewThres
   return result.rows[0] ? objectToCamelCase(result.rows[0]) : null;
 }
 
+// Only the keys provided are changed (the access-window dialog sends neither);
+// null/'' clears a date.
+async function setEmployment(id, { employedFrom, employedTo }) {
+  const sets = [], vals = [];
+  if (employedFrom !== undefined) { vals.push(employedFrom || null); sets.push(`employed_from = $${vals.length}`); }
+  if (employedTo   !== undefined) { vals.push(employedTo   || null); sets.push(`employed_to = $${vals.length}`); }
+  if (!sets.length) return;
+  vals.push(id);
+  await pool.query(`UPDATE staff SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals);
+}
+
 async function updatePassword(id, newPassword) {
   const passwordHash = crypto.createHash('sha256').update(newPassword).digest('hex');
   await pool.query(
@@ -184,5 +198,5 @@ async function setCallTarget(id, target, setterName) {
 
 module.exports = {
   findAll, findById, findByEmail, findActiveByRole, findAllActive,
-  create, update, updatePassword, verifyPassword, deactivate, setTarget, setCallTarget,
+  create, update, setEmployment, updatePassword, verifyPassword, deactivate, setTarget, setCallTarget,
 };

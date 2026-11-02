@@ -858,15 +858,58 @@ function buildWeeklyCtx(weekStart, asOfMs) {
 // Active staff for the report, grouped by POSITION (the real job — where leads
 // flow in/out), not the RBAC role (role='Counselor' can be held by PreSales/PM/
 // Marketing-position staff, which would inflate the Counsellors group).
-async function weeklyStaffNames() {
+// `range` ({from,to}, 2026-11, owner: a leaver must stay in reports for the time
+// they worked). Uses staff.employed_from/to: someone appears when those dates
+// overlap the period, or when a contract closed in it under their name. A
+// deactivated person with no end date yet falls back to "wrote a note in the
+// period". `extra` = names always included if the position matches (the person
+// picked in Individual Report, so changing period doesn't drop them). Inactive
+// test accounts and old rows whose name is still active elsewhere never return.
+// No range (legacy weekly report) = active staff only, as before.
+// The part of [from, to) a person's call target covers: inside their working
+// dates. A deactivated person with no end date yet stops at their last note.
+async function targetWindow(fullName, from, to) {
+  const r = (await pool.query(
+    `SELECT s.is_active, to_char(s.employed_from,'YYYY-MM-DD') AS employed_from, to_char(s.employed_to,'YYYY-MM-DD') AS employed_to,
+            (SELECT max(n.created_at) FROM student_notes n
+              WHERE n.author_name = s.full_name AND n.created_at <= NOW()) AS last_note
+       FROM staff s WHERE s.full_name = $1 ORDER BY s.is_active DESC LIMIT 1`, [fullName])).rows[0];
+  if (!r) return { from, to };
+  const vnDay = (ymd) => { const [y, m, d] = ymd.split('-').map(Number); return rangeReport.vnMidnightUTC(y, m - 1, d); };
+  let start = from, end = to;
+  if (r.employed_from && vnDay(r.employed_from) > start) start = vnDay(r.employed_from);
+  const lastDay = r.employed_to || (!r.is_active && r.last_note ? rangeReport.vnYmd(new Date(r.last_note)) : null);
+  if (lastDay) { const next = new Date(vnDay(lastDay).getTime() + 86400000); if (next < end) end = next; }
+  else if (!r.is_active) end = start;   // left, no end date, never wrote a note
+  return { from: start, to: end > start ? end : start };
+}
+
+async function weeklyStaffNames(range = null, extra = []) {
   // Match by ILIKE so this survives the auth-profile rename: 'Counselor'/'PreSales'
   // became 'Staff, Counsellor' / 'Lead, Counsellor' / 'Staff, Pre-sales' etc.
   // ILIKE '%counsel%' catches both spellings + Staff/Lead/Senior variants (and the
   // legacy exact names); '%pre%sale%' catches 'Pre-sales' and legacy 'PreSales'.
   const byLike = async (pattern) => (await pool.query(
-    `SELECT full_name FROM staff
-       WHERE position ILIKE $1 AND is_active = true
-         AND COALESCE(staff_type,'permanent') <> 'event'`, [pattern])).rows.map(x => x.full_name);
+    `SELECT s.full_name FROM staff s
+       WHERE s.position ILIKE $1 AND COALESCE(s.staff_type,'permanent') <> 'event'
+         AND (
+           ($3::timestamptz IS NULL AND s.is_active = true)
+           OR ($3::timestamptz IS NOT NULL
+             AND (s.is_active = true OR NOT EXISTS (SELECT 1 FROM staff a WHERE a.full_name = s.full_name AND a.is_active = true))
+             AND (
+               s.full_name = ANY($2)
+               OR ((s.is_active = true OR s.full_name NOT ILIKE 'test%')
+                   AND EXISTS (SELECT 1 FROM leads l WHERE (l.counselor = s.full_name OR l.presales = s.full_name)
+                                AND l.actual_close_date >= $5::date AND l.actual_close_date < $6::date))
+               OR ((s.employed_from IS NULL OR s.employed_from < $6::date)
+                   AND (s.employed_to IS NULL OR s.employed_to >= $5::date)
+                   AND (s.is_active = true OR s.employed_to IS NOT NULL
+                        OR (s.full_name NOT ILIKE 'test%'
+                            AND EXISTS (SELECT 1 FROM student_notes n WHERE n.author_name = s.full_name
+                                         AND n.created_at >= $3 AND n.created_at < $4 AND n.created_at <= NOW()))))
+             )))`,
+    [pattern, extra, range ? range.from.toISOString() : null, range ? range.to.toISOString() : null,
+     range ? rangeReport.vnYmd(range.from) : null, range ? rangeReport.vnYmd(range.to) : null])).rows.map(x => x.full_name);
   const counsellorNames = await byLike('%counsel%');
   const presalesNames   = await byLike('%pre%sale%');
   return { counsellorNames, presalesNames, allNames: Array.from(new Set([...counsellorNames, ...presalesNames])) };
@@ -943,7 +986,7 @@ async function individualReport(req, res, next) {
     catch (e) { return res.status(400).json({ success: false, error: e.message }); }
     const { from, to, bucket, period } = periodResolved;
 
-    const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames();
+    const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames({ from, to }, [staffName]);
     const isCounselor = counsellorNames.includes(staffName);
     const isPresales   = presalesNames.includes(staffName);
 
@@ -951,8 +994,8 @@ async function individualReport(req, res, next) {
       membersAsAt([staffName], from.toISOString()),
       membersAsAt([staffName], to.toISOString()),
       rangeReport.computeRangeReport([staffName], from, to, { bucket }),
-      isCounselor ? rangeReport.counselorTargetForRange(staffName, from, to, bucket)
-        : isPresales ? rangeReport.presalesTargetForRange(staffName, from, to, bucket)
+      isCounselor ? targetWindow(staffName, from, to).then(w => rangeReport.counselorTargetForRange(staffName, w.from, w.to, bucket))
+        : isPresales ? targetWindow(staffName, from, to).then(w => rangeReport.presalesTargetForRange(staffName, w.from, w.to, bucket))
         : Promise.resolve(null),
     ]);
     const openIds = new Set(opening.map(r => r.lead_id));
@@ -988,7 +1031,7 @@ async function groupReport(req, res, next) {
     catch (e) { return res.status(400).json({ success: false, error: e.message }); }
     const { from, to, bucket, period } = periodResolved;
 
-    const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames();
+    const { counsellorNames, presalesNames, allNames } = await weeklyStaffNames({ from, to });
 
     // Company-wide totals (one computeRangeReport call across everyone) +
     // a per-staff breakdown (one call per person) — mirrors Monthly
@@ -1007,15 +1050,15 @@ async function groupReport(req, res, next) {
       rangeReport.marketingActivitiesForRange(from, to),
       rangeReport.leadsBySourceForRange(from, to),
       rangeReport.posmForRange(from, to),
-      ...counsellorNames.map(name => Promise.all([
+      ...counsellorNames.map(name => targetWindow(name, from, to).then(w => Promise.all([
         rangeReport.computeRangeReport([name], from, to, { bucket }),
-        rangeReport.contractTargetForRange(name, from, to),
-        rangeReport.counselorTargetForRange(name, from, to),
-      ]).then(([d, contractTarget, callTarget]) => ({ name, role: 'Counselor', data: d, contractTarget, callTarget: callTarget.total }))),
-      ...presalesNames.map(name => Promise.all([
+        rangeReport.contractTargetForRange(name, from, to, w),
+        rangeReport.counselorTargetForRange(name, w.from, w.to),
+      ])).then(([d, contractTarget, callTarget]) => ({ name, role: 'Counselor', data: d, contractTarget, callTarget: callTarget.total }))),
+      ...presalesNames.map(name => targetWindow(name, from, to).then(w => Promise.all([
         rangeReport.computeRangeReport([name], from, to, { bucket }),
-        rangeReport.presalesTargetForRange(name, from, to),
-      ]).then(([d, target]) => ({ name, role: 'Pre-Sales', data: d, callTarget: target.total }))),
+        rangeReport.presalesTargetForRange(name, w.from, w.to),
+      ])).then(([d, target]) => ({ name, role: 'Pre-Sales', data: d, callTarget: target.total }))),
     ]);
 
     const counsellorRows = perStaff.filter(r => r.role === 'Counselor');

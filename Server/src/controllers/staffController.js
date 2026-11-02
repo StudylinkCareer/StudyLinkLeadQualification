@@ -326,23 +326,38 @@ async function getMe(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// Working dates: YYYY-MM-DD or blank, last day not before the first. Returns an
+// error message, or null. `current` fills in whichever date isn't being changed.
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+function employmentError({ employedFrom, employedTo }, current = {}) {
+  for (const v of [employedFrom, employedTo]) {
+    if (v && !(YMD.test(v) && !isNaN(new Date(v)))) return 'Working dates must be valid dates';
+  }
+  const f = employedFrom !== undefined ? employedFrom : current.employedFrom;
+  const t = employedTo   !== undefined ? employedTo   : current.employedTo;
+  return f && t && t < f ? 'Last working day cannot be before the first working day' : null;
+}
+
 async function createStaff(req, res, next) {
   try {
     const {
       fullName, email, position, role, password,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
-      accessValidFrom, accessValidUntil,
+      accessValidFrom, accessValidUntil, employedFrom, employedTo,
     } = req.body;
     if (!fullName || !email || !position || !role || !password) {
       return res.status(400).json({ success: false, error: 'All fields are required' });
     }
+    const dateErr = employmentError({ employedFrom, employedTo });
+    if (dateErr) return res.status(400).json({ success: false, error: dateErr });
     const staff = await Staff.create({
       fullName, email, position, role, password,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
       accessValidFrom: accessValidFrom || null, accessValidUntil: accessValidUntil || null,
     });
+    await Staff.setEmployment(staff.id, { employedFrom, employedTo });
     res.status(201).json({ success: true, data: staff });
   } catch (err) {
     if (err.code === '23505') {
@@ -359,8 +374,10 @@ async function updateStaff(req, res, next) {
       fullName, email, position, role, isActive, viewThreshold,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
       zaloNumber, zaloQrCode, whatsappQrCode, messengerUsername, messengerQrCode,
-      lqSelectable, accessValidFrom, accessValidUntil,
+      lqSelectable, accessValidFrom, accessValidUntil, employedFrom, employedTo,
     } = req.body;
+    const dateErr = employmentError({ employedFrom, employedTo }, (await Staff.findById(id)) || {});
+    if (dateErr) return res.status(400).json({ success: false, error: dateErr });
     const staff = await Staff.update(id, {
       fullName, email, position, role, isActive, viewThreshold,
       emailClient, contactMobile, platformSms, platformZalo, platformWhatsapp,
@@ -372,6 +389,7 @@ async function updateStaff(req, res, next) {
       accessValidUntil: accessValidUntil ?? null,
     });
     if (!staff) return res.status(404).json({ success: false, error: 'Staff member not found' });
+    await Staff.setEmployment(id, { employedFrom, employedTo });
     res.json({ success: true, data: staff });
   } catch (err) { next(err); }
 }
@@ -391,8 +409,13 @@ async function resetPassword(req, res, next) {
 async function deactivateStaff(req, res, next) {
   try {
     const { id } = req.params;
+    const { employedTo } = req.body || {};
+    if (!employedTo) return res.status(400).json({ success: false, error: 'Last working day is required' });
+    const dateErr = employmentError({ employedTo }, (await Staff.findById(id)) || {});
+    if (dateErr) return res.status(400).json({ success: false, error: dateErr });
     const staff = await Staff.deactivate(id);
     if (!staff) return res.status(404).json({ success: false, error: 'Staff member not found' });
+    await Staff.setEmployment(id, { employedTo });
     res.json({ success: true, data: staff });
   } catch (err) { next(err); }
 }
