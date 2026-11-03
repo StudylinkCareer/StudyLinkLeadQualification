@@ -41,6 +41,7 @@ const { containsPhoneMention } = require('../services/phoneAliases');
 const { objectToCamelCase }    = require('../utils/caseConvert');
 const { classifyCalls, isCallNote, normalizeMode } = require('../services/callClassification');
 const rangeReport = require('../services/rangeReport');
+const { creditedToAny, CREDITED_COUNSELOR_SQL } = require('../services/contractCredit');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -376,7 +377,7 @@ async function contractedStats(req, res, next) {
     const counselorParam = (req.query.counselor || '').trim();
     const byCounselor = !!counselorParam && scope === 'all';
     const buildScope = (idx) => {
-      if (byCounselor)     return { sql: `AND l.counselor = $${idx}`, val: counselorParam };
+      if (byCounselor)     return { sql: `AND COALESCE(NULLIF(l.contract_credit_to, ''), l.counselor) = $${idx}`, val: counselorParam };
       if (scope === 'own') return { sql: `AND (l.counselor = $${idx} OR l.senior_counselor = $${idx} OR l.presales = $${idx} OR l.marketing_staff = $${idx})`, val: name };
       return { sql: '', val: null };
     };
@@ -450,7 +451,7 @@ async function contractedStats(req, res, next) {
 // below stays audit-log-based on purpose — it's inherently about the EVENT
 // of a Contracted marking later being undone, not a signing date.
 async function contractedBuckets(ctx, names) {
-  const filt    = names ? `AND (l.counselor = ANY($2) OR l.presales = ANY($2))` : '';
+  const filt    = names ? `AND ${creditedToAny('l', '$2')}` : '';
   const ctrPar  = names ? [ctx.earliestISO, names] : [ctx.earliestISO];
   const ctr = (await pool.query(
     `SELECT l.lead_id, l.person_id AS student_id, l.actual_close_date AS close_date, s.full_name, l.destination_country
@@ -800,7 +801,7 @@ async function computeGroup(names, ctx, opts = {}) {
     `SELECT l.lead_id, l.person_id AS student_id, s.full_name, l.destination_country
        FROM leads l
        JOIN students s ON s.student_id = l.person_id
-      WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
+      WHERE ${creditedToAny('l', '$1')}
         AND l.actual_close_date >= $2 AND l.actual_close_date < $3`, [names, ws, we])).rows);
 
   const contracted = await contractedBuckets(ctx, opts.companyWideContracted ? null : names);
@@ -899,7 +900,7 @@ async function weeklyStaffNames(range = null, extra = []) {
              AND (
                s.full_name = ANY($2)
                OR ((s.is_active = true OR s.full_name NOT ILIKE 'test%')
-                   AND EXISTS (SELECT 1 FROM leads l WHERE (l.counselor = s.full_name OR l.presales = s.full_name)
+                   AND EXISTS (SELECT 1 FROM leads l WHERE ${creditedToAny('l', 'ARRAY[s.full_name]')}
                                 AND l.actual_close_date >= $5::date AND l.actual_close_date < $6::date))
                OR ((s.employed_from IS NULL OR s.employed_from < $6::date)
                    AND (s.employed_to IS NULL OR s.employed_to >= $5::date)
@@ -1388,10 +1389,10 @@ async function monthlyTargets(req, res, next) {
     // record it). Matches Monthly Report's definition of "which month" now,
     // so the two reports agree instead of disagreeing on late-entered leads.
     const actualRows = names.length ? (await pool.query(
-      `SELECT lead_id, actual_close_date, counselor
+      `SELECT lead_id, actual_close_date, ${CREDITED_COUNSELOR_SQL} AS counselor
          FROM leads
         WHERE lead_status = 'Contracted'
-          AND counselor = ANY($1)
+          AND ${CREDITED_COUNSELOR_SQL} = ANY($1)
           AND actual_close_date >= $2::date`,
       [names, yearStartDate]
     )).rows : [];

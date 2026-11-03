@@ -8,6 +8,7 @@
 const { Pool } = require('pg');
 const { classifyCalls, isCallNote } = require('./callClassification');
 const eventBudget = require('./eventBudget');
+const { CREDITED_COUNSELOR_SQL } = require('./contractCredit');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -106,10 +107,10 @@ async function getSalesMonthlyReport(monthLabel) {
 
   // ── Team Performance / Convert Rate (per counselor) ──
   const contractedRows = counselorNames.length ? (await pool.query(
-    `SELECT lead_id, counselor, case_type, is_out_of_system
+    `SELECT lead_id, ${CREDITED_COUNSELOR_SQL} AS counselor, case_type, is_out_of_system
        FROM leads
       WHERE actual_close_date >= $1 AND actual_close_date < $2
-        AND counselor = ANY($3)`,
+        AND ${CREDITED_COUNSELOR_SQL} = ANY($3)`,
     [monthDate, nextMonthDate, counselorNames]
   )).rows : [];
 

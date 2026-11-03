@@ -23,6 +23,7 @@ const { Pool } = require('pg');
 const { classifyCalls, isCallNote, normalizeMode } = require('./callClassification');
 const { objectToCamelCase } = require('../utils/caseConvert');
 const eventBudget = require('./eventBudget');
+const { creditedToAny } = require('./contractCredit');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -376,7 +377,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
                FROM lead_events le JOIN events e ON e.id = le.event_id
               WHERE le.student_id = l.person_id
             ) ev ON true
-      WHERE (l.counselor = ANY($1) OR l.presales = ANY($1))
+      WHERE ${creditedToAny('l', '$1')}
         AND l.actual_close_date >= $2 AND l.actual_close_date < $3`,
     [names, vnYmd(from), vnYmd(to)])).rows : [];
 
@@ -456,7 +457,7 @@ async function computeRangeReport(names, from, to, opts = {}) {
        JOIN students s ON s.student_id = l.person_id
       WHERE a.field_name = 'leadStatus' AND a.new_value = 'Contracted'
         AND a.changed_at >= $2 AND a.changed_at < $3
-        AND (l.counselor = ANY($1) OR l.presales = ANY($1))
+        AND ${creditedToAny('l', '$1')}
         AND l.lead_status <> 'Contracted'
       ORDER BY a.lead_id, a.changed_at DESC`,
     [names, fromISO, toISO])).rows.map(objectToCamelCase) : [];
