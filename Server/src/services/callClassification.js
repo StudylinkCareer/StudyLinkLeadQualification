@@ -33,6 +33,9 @@
 //      staff member (e.g. a hand-off day), each count separately.
 //      Replaces the earlier "4-hour rolling window" idea with the same 3
 //      slots the Uncontactable-transfer feature uses.
+//      The person contacted is part of the key (owner, 2026-11): a call to
+//      the student and a call to a parent in the same slot count as 2.
+//      See contactTarget().
 //   6. Cuộc gọi (Total) = New + Ongoing. KBM is never subtracted a
 //      second time — it was already excluded from both buckets in step 3.
 // ─────────────────────────────────────────────────────────────────────
@@ -72,6 +75,19 @@ function classifyKbm(n) {
  *   newCount: number, ongoingCount: number, kbmCount: number, totalCount: number,
  * }}
  */
+// Who a call note was with: 'student', or the parent's name. The contact
+// modal writes "<icon> <method> — <name>" then "By: ..." as the first two
+// lines, and the Mother/Father icons put the parent's name there. Any other
+// note (classic form, keyword-detected) counts as the student.
+const foldName = (s) => String(s ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+function contactTarget(n) {
+  const [first = '', second = ''] = String(n.content || '').split(/\r?\n/);
+  const i = first.lastIndexOf(' — ');
+  if (i < 0 || !second.startsWith('By: ')) return 'student';
+  const name = foldName(first.slice(i + 3));
+  return !name || name === 'student' || name === foldName(n.full_name) ? 'student' : name;
+}
+
 function classifyCalls(periodNotes, historyNotes = []) {
   // Earliest non-KBM contact time per (lead, staff member), from history
   // alone — so a second in-period contact never gets misclassified as
@@ -103,7 +119,7 @@ function classifyCalls(periodNotes, historyNotes = []) {
 
   const newItems = [];
   const ongoingItems = [];
-  const seenOngoingKey = new Set();     // `${studentId}|${authorName}|${dayKey}|${slot}`
+  const seenOngoingKey = new Set();     // `${studentId}|${authorName}|${dayKey}|${slot}|${contactTarget}`
   const newAlreadyGiven = new Set();    // `${studentId}|${authorName}` — only one New per (lead, staffer) per period
 
   for (const n of nonKbm) {
@@ -117,7 +133,7 @@ function classifyCalls(periodNotes, historyNotes = []) {
     }
     const dayKey = vnDateKey(t);
     const slot = slotOf(t);
-    const key = `${ownKey}|${dayKey}|${slot}`;
+    const key = `${ownKey}|${dayKey}|${slot}|${contactTarget(n)}`;
     if (seenOngoingKey.has(key)) continue;
     seenOngoingKey.add(key);
     ongoingItems.push({ studentId: n.student_id, fullName: n.full_name, note: n, slot, dayKey });
