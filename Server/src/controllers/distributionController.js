@@ -81,6 +81,8 @@ async function downloadTemplate(req, res, next) {
     // 'event' isn't a students column: it creates the lead's Event Registration.
     const after = ['source_detail', 'source', 'lead_source'].map((c) => headers.indexOf(c)).find((i) => i >= 0);
     headers.splice(after != null ? after + 1 : headers.length, 0, 'event');
+    // Lead-row fields + the Case Officer slot (2026-11): not students columns either.
+    headers.push('intake', 'target_institution', 'case_officer');
     const ws = XLSX.utils.json_to_sheet([{}], { header: headers });  // header row only
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Leads');
@@ -273,7 +275,8 @@ function splitPersonLead(nr, office, colType, leadColType) {
   else if (!lVals[oi]) lVals[oi] = office || null;
   const finalOffice = lVals[lCols.indexOf('office')];
   const ci = lCols.indexOf('counselor');
-  const hasCounsellor = !!(ci >= 0 && lVals[ci] && String(lVals[ci]).trim());
+  // A named Case Officer owns the record too, so it skips the Review queue.
+  const hasCounsellor = !!(ci >= 0 && lVals[ci] && String(lVals[ci]).trim()) || !!nr._case_officer;
   lCols.push('distribution_status'); lVals.push(hasCounsellor ? null : 'review');
   if (!lCols.includes('lead_status')) { lCols.push('lead_status'); lVals.push('New'); }
   if (!sCols.includes('status'))      { sCols.push('status');      sVals.push('Active'); }
@@ -314,6 +317,13 @@ async function loadSourceResolver(db) {
                 FROM lookup_values WHERE category IN ('source_of_lead','source','b2b_type')`),
     db.query(`SELECT id, name FROM events`),
   ]);
+  const co = await db.query(
+    `SELECT full_name, position FROM staff
+      WHERE is_active = true AND position ILIKE '%case officer%' AND COALESCE(staff_type, '') <> 'event'`);
+  const caseOfficers = new Map();   // fold(name) -> { name, slot }
+  for (const s of co.rows) {
+    caseOfficers.set(fold(s.full_name), { name: s.full_name, slot: /sub/i.test(s.position) ? 'Case Officer, Sub' : 'Case Officer, Direct' });
+  }
   const sol = new Map(), subs = new Map();   // fold(name) -> row ; bucket -> Map(fold -> code)
   const keys = (r) => [r.code, r.label_en, r.label_vi].filter(Boolean).map(fold);
   for (const r of lv.rows.filter((x) => x.category === 'source_of_lead')) for (const k of keys(r)) if (!sol.has(k) || r.is_active) sol.set(k, r);
@@ -325,7 +335,7 @@ async function loadSourceResolver(db) {
   const events = new Map();
   for (const e of ev.rows) { const k = fold(e.name); events.set(k, [...(events.get(k) || []), e.id]); }
   const eventIds = new Set(ev.rows.map((e) => e.id));
-  return { sol, subs, events, eventIds };
+  return { sol, subs, events, eventIds, caseOfficers };
 }
 
 // Returns { errors: [...], leadSource, source, eventId } for one normalized row.
@@ -334,7 +344,8 @@ function checkSourceFields(nr, R) {
   const rawSol = String(nr.lead_source ?? '').trim();
   const rawSrc = String(nr.source ?? '').trim();
   const rawEv = String(nr.event ?? nr.event_name ?? nr.event_registration ?? '').trim();
-  let leadSource = null, source = null, eventId = null;
+  const rawCo = String(nr.case_officer ?? '').trim();
+  let leadSource = null, source = null, eventId = null, caseOfficer = null;
   if (rawSol) {
     const r = R.sol.get(fold(rawSol));
     if (!r) errors.push(`Unknown lead_source "${rawSol}" (use Databases, On-line, Third party event, B2B referrals or Personal referrals)`);
@@ -358,7 +369,20 @@ function checkSourceFields(nr, R) {
     else if (ids.length > 1) errors.push(`More than one event is called "${rawEv}"; use the event id (${ids.join(' / ')}) instead`);
     else eventId = ids[0];
   }
-  return { errors, leadSource, source, eventId };
+  if (rawCo) {
+    caseOfficer = R.caseOfficers.get(fold(rawCo)) || null;
+    if (!caseOfficer) errors.push(`Unknown case_officer "${rawCo}" (use the full name of an active Case Officer from Staff Management)`);
+  }
+  return { errors, leadSource, source, eventId, caseOfficer };
+}
+
+// Case Officer slot for an uploaded lead: fills the Direct/Sub slot and puts the
+// record in the Case Officers phase. Other slots (e.g. a named counsellor) stay.
+async function applyUploadedCaseOfficer(db, studentId, nr) {
+  if (!nr._case_officer) return false;
+  await OrderAssignment.setForOrder(db, studentId, nr._case_officer_slot, nr._case_officer);
+  await db.query(`UPDATE students SET order_phase = 'Case Officers', updated_at = NOW() WHERE student_id = $1`, [studentId]);
+  return true;
 }
 
 // Event Registration for an uploaded lead (no-op if it's already registered).
@@ -404,7 +428,7 @@ async function uploadLeads(req, res, next) {
     for (const c of leadColRes.rows) leadColType[c.column_name] = c.data_type;
 
     let inserted = 0, skipped = 0, failed = 0, review = 0, owned = 0, untagged = 0, parked = 0, firstError = null;
-    let invalid = 0, eventLinked = 0;
+    let invalid = 0, eventLinked = 0, caseOfficerSet = 0;
     const errorRows = [];   // rejected rows + reason, for the downloadable error file
     const R = await loadSourceResolver(pool);
     const nowISO = new Date().toISOString();
@@ -413,6 +437,7 @@ async function uploadLeads(req, res, next) {
       await client.query('BEGIN');
       for (const r of rows) {
         const nr = normalizeRow(r);                       // tolerant header mapping
+        if (!String(nr.target_institution ?? '').trim() && nr.institution != null) nr.target_institution = nr.institution;
         const uid = String(nr.unique_id || '').trim();
         const reject = (reason) => errorRows.push({ ...r, error_reason: reason });
         if (!uid) { failed++; reject('Missing unique_id'); continue; }
@@ -422,6 +447,8 @@ async function uploadLeads(req, res, next) {
         if (chk.source) nr.source = chk.source;
         delete nr.event; delete nr.event_name; delete nr.event_registration;
         if (chk.eventId) nr._event_id = chk.eventId;     // kept in a parked duplicate's payload too
+        delete nr.case_officer;
+        if (chk.caseOfficer) { nr._case_officer = chk.caseOfficer.name; nr._case_officer_slot = chk.caseOfficer.slot; }
         try {
           await client.query('SAVEPOINT row');
 
@@ -460,6 +487,7 @@ async function uploadLeads(req, res, next) {
             // Set the new Order's phase from its owner (named counsellor →
             // Counselling; no counsellor → Pool holding state).
             await syncOrderPhase(client, uid);
+            if (await applyUploadedCaseOfficer(client, uid, nr)) caseOfficerSet++;
             inserted++;
             if (hasCounsellor) owned++;
             else { review++; if (!finalOffice) untagged++; }
@@ -490,7 +518,7 @@ async function uploadLeads(req, res, next) {
       XLSX.utils.book_append_sheet(wb, ws, 'Not imported');
       errorFileBase64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
     }
-    res.json({ success: true, data: { total: rows.length, inserted, skipped, failed, invalid, review, owned, untagged, parked, eventLinked, firstError, errorFileBase64 } });
+    res.json({ success: true, data: { total: rows.length, inserted, skipped, failed, invalid, review, owned, untagged, parked, eventLinked, caseOfficerSet, firstError, errorFileBase64 } });
   } catch (err) { next(err); }
 }
 
@@ -726,6 +754,7 @@ async function resolveDuplicate(req, res, next) {
       const lIns = buildRowInsert('leads', 'person_id', targetId, lCols, lVals, nowISO, ' RETURNING lead_id');
       createdLeadId = (await client.query(lIns.text, lIns.values)).rows[0].lead_id;
       await linkUploadedEvent(client, targetId, Number(nr._event_id) || null, nr);
+      await applyUploadedCaseOfficer(client, targetId, nr);
     } else if (action === 'new_person') {
       const uid = String(nr.unique_id || '').trim();
       if (!uid) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, error: 'Row has no unique_id' }); }
@@ -736,6 +765,7 @@ async function resolveDuplicate(req, res, next) {
       const lIns = buildRowInsert('leads', 'person_id', uid, lCols, lVals, nowISO, ' RETURNING lead_id');
       createdLeadId = (await client.query(lIns.text, lIns.values)).rows[0].lead_id;
       await linkUploadedEvent(client, uid, Number(nr._event_id) || null, nr);
+      await applyUploadedCaseOfficer(client, uid, nr);
     }
 
     await client.query(
