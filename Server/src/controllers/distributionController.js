@@ -83,6 +83,8 @@ async function downloadTemplate(req, res, next) {
     headers.splice(after != null ? after + 1 : headers.length, 0, 'event');
     // Lead-row fields + the Case Officer slot (2026-11): not students columns either.
     headers.push('intake', 'target_institution', 'case_officer');
+    const cd = headers.indexOf('close_date');
+    headers.splice(cd >= 0 ? cd + 1 : headers.length, 0, 'actual_close_date');
     const ws = XLSX.utils.json_to_sheet([{}], { header: headers });  // header row only
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Leads');
@@ -243,6 +245,7 @@ function coerceVal(val, t0) {
   if (/int/.test(t)) { const n = parseInt(s, 10); return Number.isFinite(n) ? n : null; }
   if (/numeric|real|double|decimal/.test(t)) { const n = parseFloat(s); return Number.isFinite(n) ? n : null; }
   if (/bool/.test(t)) { const v = String(s).toLowerCase(); if (['true','1','yes','y'].includes(v)) return true; if (['false','0','no','n'].includes(v)) return false; return null; }
+  if (t === 'date') { const ymd = parseSheetDate(s); if (ymd) return ymd; }   // DD/MM/YYYY, which new Date() misreads
   if (/date|timestamp/.test(t)) { const d = (s instanceof Date) ? s : new Date(s); return isNaN(d.getTime()) ? null : d.toISOString(); }
   return String(s);
 }
@@ -373,7 +376,59 @@ function checkSourceFields(nr, R) {
     caseOfficer = R.caseOfficers.get(fold(rawCo)) || null;
     if (!caseOfficer) errors.push(`Unknown case_officer "${rawCo}" (use the full name of an active Case Officer from Staff Management)`);
   }
-  return { errors, leadSource, source, eventId, caseOfficer };
+  let actualCloseDate = null;
+  if (String(nr.actual_close_date ?? '').trim()) {
+    actualCloseDate = parseSheetDate(nr.actual_close_date);
+    if (!actualCloseDate) errors.push(`actual_close_date "${nr.actual_close_date}" is not a date (use DD/MM/YYYY)`);
+    else if (String(nr.lead_status ?? '').trim().toLowerCase() !== 'contracted') errors.push('actual_close_date needs lead_status Contracted');
+  }
+  return { errors, leadSource, source, eventId, caseOfficer, actualCloseDate };
+}
+
+// A sheet cell as 'YYYY-MM-DD': a real Excel date, DD/MM/YYYY (also - or .), or YYYY-MM-DD.
+function parseSheetDate(v) {
+  const ymd = (y, m, d) => {
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
+      ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` : null;
+  };
+  if (v instanceof Date) {
+    if (isNaN(v)) return null;
+    const r = new Date(v.getTime() + 12 * 3600e3);   // SheetJS can land a few seconds before midnight
+    return ymd(r.getFullYear(), r.getMonth() + 1, r.getDate());
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+  if (m) return ymd(+m[3], +m[2], +m[1]);
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  return m ? ymd(+m[1], +m[2], +m[3]) : null;
+}
+
+// The sheet's three notes columns become real notes on the new lead (shown
+// under Notes on the Lead page), authored by the uploader. Case officers have
+// no note type of their own, so theirs are Management notes with a prefix.
+const NOTE_COLUMNS = [
+  ['counseling_notes',   'counselor',  ''],
+  ['management_notes',   'management', ''],
+  ['case_officer_notes', 'management', 'Case Officer: '],
+];
+async function addUploadedNotes(db, studentId, leadId, nr, author) {
+  let added = 0;
+  for (const [col, type, prefix] of NOTE_COLUMNS) {
+    const text = String(nr[col] ?? '').trim();
+    if (!text || PLACEHOLDERS.has(text.toLowerCase())) continue;
+    await db.query(
+      `INSERT INTO student_notes (student_id, lead_id, note_type, content, author_name) VALUES ($1, $2, $3, $4, $5)`,
+      [studentId, leadId, type, prefix + text, author]);
+    added++;
+  }
+  return added;
+}
+
+// The trigger stamps today on a Contracted insert; the sheet's real date replaces it.
+async function setUploadedCloseDate(db, leadId, nr) {
+  if (!nr._actual_close_date || !leadId) return;
+  await db.query(`UPDATE leads SET actual_close_date = $1 WHERE lead_id = $2 AND lead_status = 'Contracted'`, [nr._actual_close_date, leadId]);
 }
 
 // Case Officer slot for an uploaded lead: fills the Direct/Sub slot and puts the
@@ -428,7 +483,8 @@ async function uploadLeads(req, res, next) {
     for (const c of leadColRes.rows) leadColType[c.column_name] = c.data_type;
 
     let inserted = 0, skipped = 0, failed = 0, review = 0, owned = 0, untagged = 0, parked = 0, firstError = null;
-    let invalid = 0, eventLinked = 0, caseOfficerSet = 0;
+    let invalid = 0, eventLinked = 0, caseOfficerSet = 0, notesAdded = 0;
+    const uploader = req.session.staffName || req.session.staffEmail || 'Excel upload';
     const errorRows = [];   // rejected rows + reason, for the downloadable error file
     const R = await loadSourceResolver(pool);
     const nowISO = new Date().toISOString();
@@ -447,6 +503,8 @@ async function uploadLeads(req, res, next) {
         if (chk.source) nr.source = chk.source;
         delete nr.event; delete nr.event_name; delete nr.event_registration;
         if (chk.eventId) nr._event_id = chk.eventId;     // kept in a parked duplicate's payload too
+        delete nr.actual_close_date;
+        if (chk.actualCloseDate) nr._actual_close_date = chk.actualCloseDate;
         delete nr.case_officer;
         if (chk.caseOfficer) { nr._case_officer = chk.caseOfficer.name; nr._case_officer_slot = chk.caseOfficer.slot; }
         try {
@@ -482,8 +540,10 @@ async function uploadLeads(req, res, next) {
           const sIns = buildRowInsert('students', 'student_id', uid, sCols, sVals, nowISO);
           const sResult = await client.query(`${sIns.text} ON CONFLICT (student_id) DO NOTHING`, sIns.values);
           if (sResult.rowCount === 1) {
-            const lIns = buildRowInsert('leads', 'person_id', uid, lCols, lVals, nowISO);
-            await client.query(lIns.text, lIns.values);
+            const lIns = buildRowInsert('leads', 'person_id', uid, lCols, lVals, nowISO, ' RETURNING lead_id');
+            const leadId = (await client.query(lIns.text, lIns.values)).rows[0].lead_id;
+            await setUploadedCloseDate(client, leadId, nr);
+            notesAdded += await addUploadedNotes(client, uid, leadId, nr, uploader);
             // Set the new Order's phase from its owner (named counsellor →
             // Counselling; no counsellor → Pool holding state).
             await syncOrderPhase(client, uid);
@@ -518,7 +578,7 @@ async function uploadLeads(req, res, next) {
       XLSX.utils.book_append_sheet(wb, ws, 'Not imported');
       errorFileBase64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
     }
-    res.json({ success: true, data: { total: rows.length, inserted, skipped, failed, invalid, review, owned, untagged, parked, eventLinked, caseOfficerSet, firstError, errorFileBase64 } });
+    res.json({ success: true, data: { total: rows.length, inserted, skipped, failed, invalid, review, owned, untagged, parked, eventLinked, caseOfficerSet, notesAdded, firstError, errorFileBase64 } });
   } catch (err) { next(err); }
 }
 
@@ -753,7 +813,9 @@ async function resolveDuplicate(req, res, next) {
       const { lCols, lVals } = splitPersonLead(nr, dr.office, colType, leadColType);
       const lIns = buildRowInsert('leads', 'person_id', targetId, lCols, lVals, nowISO, ' RETURNING lead_id');
       createdLeadId = (await client.query(lIns.text, lIns.values)).rows[0].lead_id;
+      await setUploadedCloseDate(client, createdLeadId, nr);
       await linkUploadedEvent(client, targetId, Number(nr._event_id) || null, nr);
+      await addUploadedNotes(client, targetId, createdLeadId, nr, resolvedBy);
       await applyUploadedCaseOfficer(client, targetId, nr);
     } else if (action === 'new_person') {
       const uid = String(nr.unique_id || '').trim();
@@ -764,7 +826,9 @@ async function resolveDuplicate(req, res, next) {
       await client.query(`${sIns.text} ON CONFLICT (student_id) DO NOTHING`, sIns.values);
       const lIns = buildRowInsert('leads', 'person_id', uid, lCols, lVals, nowISO, ' RETURNING lead_id');
       createdLeadId = (await client.query(lIns.text, lIns.values)).rows[0].lead_id;
+      await setUploadedCloseDate(client, createdLeadId, nr);
       await linkUploadedEvent(client, uid, Number(nr._event_id) || null, nr);
+      await addUploadedNotes(client, uid, createdLeadId, nr, resolvedBy);
       await applyUploadedCaseOfficer(client, uid, nr);
     }
 
