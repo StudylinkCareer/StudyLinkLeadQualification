@@ -208,6 +208,17 @@ async function listColumns(req, res, next) {
 async function listActiveStaff(req, res, next) {
   try {
     const staff = await Staff.findAllActive();
+    // ?recentLeavers=1 (Staff Off-Days): also people whose last working day was
+    // in the past two months, so a leaver's final month can still be closed off.
+    if (req.query.recentLeavers) {
+      const r = await pool.query(
+        `SELECT id, full_name, position, is_active, to_char(employed_to, 'YYYY-MM-DD') AS employed_to
+           FROM staff
+          WHERE is_active = false AND COALESCE(staff_type, '') <> 'event'
+            AND employed_to >= date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh') - interval '2 months'
+          ORDER BY full_name`);
+      staff.push(...r.rows.map((x) => ({ id: x.id, fullName: x.full_name, position: x.position, isActive: false, employedTo: x.employed_to })));
+    }
     res.json({ success: true, data: staff });
   } catch (err) { next(err); }
 }

@@ -790,6 +790,18 @@ export default function StaffTargets() {
     staffAPI.listActive().then(r => setRoster(r?.data || [])).catch(() => setRoster([]));
   }, [allowed]);
 
+  // Off-days also lists people who left recently (last working day within the
+  // past two months), so a leaver's last month can still be closed off.
+  const [offRoster, setOffRoster] = useState([]);
+  useEffect(() => {
+    if (!allowed) return;
+    staffAPI.listActiveAndRecentLeavers().then(r => setOffRoster((r?.data || []).map(s => {
+      if (s.isActive || !s.employedTo) return s;
+      const d = s.employedTo.split('-').reverse().join('/');
+      return { ...s, position: L(`left ${d}`, `đã nghỉ ${d}`) };
+    }))).catch(() => setOffRoster([]));
+  }, [allowed, language]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!allowed) {
     return (
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1rem' }}>
@@ -844,7 +856,7 @@ export default function StaffTargets() {
       {/* ── Attendance ────────────────────────────────────────────── */}
       <div style={{ marginTop: '2.5rem' }}>
         <SectionHeader>{L('Attendance', 'Chấm công')}</SectionHeader>
-        <StaffOffDaysSection roster={roster} L={L} language={language} />
+        <StaffOffDaysSection roster={offRoster.length ? offRoster : roster} L={L} language={language} />
       </div>
     </div>
   );

@@ -93,6 +93,7 @@ export const authAPI = {
 export const staffAPI = {
   list:            ()                         => request('GET',  '/api/staff'),
   listActive:      ()                         => request('GET',  '/api/staff/active'),
+  listActiveAndRecentLeavers: ()              => request('GET',  '/api/staff/active?recentLeavers=1'),
   listRoles:       ()                         => request('GET',  '/api/staff/roles'),
   listColumns:     ()                         => request('GET',  '/api/staff/columns'),
   me:              ()                         => request('GET',  '/api/staff/me'),
